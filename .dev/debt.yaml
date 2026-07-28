@@ -51,10 +51,11 @@ active:
           autonomous loop while README says PRs closed + handover says
           PAUSED/Stopped → readers over-estimate the live cadence. Add a one-line
           "maintenance mode" banner.
-      (7) [onboarding, no CONTRIBUTING note] how to opt OUT of forced-Japanese
-          chat (settings.json outputStyle + the SessionStart language hook); that
-          the reference-clone SURVEY workflow needs the gitignored
-          `.claude/settings.local.json` additionalDirectories + personal
+      (7) [onboarding] forced-Japanese chat FIXED 2026-07-29 — reduced to the single
+          `outputStyle` setting (the SessionStart language printf + CLAUDE.md
+          re-injection removed), with the settings.local.json override documented.
+          Residual CONTRIBUTING notes: the reference-clone SURVEY workflow needs the
+          gitignored `.claude/settings.local.json` additionalDirectories + personal
           `~/Documents/OSS` clones (a fresh clone's Step-0 survey has nothing to
           read); undocumented external tools `clj` (hardcoded /opt/homebrew/bin/clj)
           + `md-table-align`.

@@ -99,12 +99,12 @@ per ADR-0025; existing chapters live read-only under
 Don't mix Japanese into English docs. In `docs/ja/`, body is Japanese;
 code blocks keep their original English identifiers.
 
-The chat-reply-in-Japanese rule is enforced by the project output style
+Chat replies default to Japanese via the project output style
 [`.claude/output_styles/japanese.md`](../.claude/output_styles/japanese.md)
-(activated via `outputStyle: "Japanese"` in `.claude/settings.json`)
-plus a SessionStart hook that re-injects the directive on every session.
-Even with a slash command (e.g. `/continue`) as the very first input,
-turn 1 must be Japanese.
+(activated by `outputStyle: "Japanese"` in `.claude/settings.json`). That
+single setting is sufficient — the redundant SessionStart re-injection was
+removed. To work in another language, override `outputStyle` per-machine in
+`.claude/settings.local.json` (gitignored); code / commits / docs stay English.
 
 ## Working agreement
 
