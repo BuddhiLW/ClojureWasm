@@ -26,8 +26,11 @@
   the AOT wire), computed def-meta (D-316) — incl. `:tag` uniform-eval
   (`^String`→Class, `^Foo`→name error; the bare-symbol workaround
   retired), deserializer GC-rooting fix, Character getName/codePointOf
-  name table (D-561), default-data-readers, deftest file:line. Next
-  release owns the CHANGELOG entry.
+  name table (D-561), default-data-readers, deftest file:line,
+  **ADR-0175 spawn-to-register GC-safepoint fix** (the 2026-07-28
+  x86_64-linux nightly gc_torture SIGABRT root-caused: registration is
+  now a safepoint; TooManyThreads run-unregistered fallthrough closed;
+  D-548 note + D-566 opened). Next release owns the CHANGELOG entry.
 - **Forbidden this session**: bare `zig build test` WITHOUT `-Dwasm`;
   bare `zig build` for a probe (use ReleaseSafe). **The FULL gate MUST
   run `--serial-e2e`, ALONE** (D-548 (a) future/promise SIGABRT + (b)

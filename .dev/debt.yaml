@@ -24,6 +24,25 @@
 # md-table-align no longer pads it to ~800 KB of whitespace.
 
 active:
+  - id: "D-566"
+    status: |-
+      open (2026-07-29, ADR-0175 deferred-hardening row). Alloc-side
+      unregistered-mutator assert: `gc_heap.alloc` (and `pushAnalysisRoot`)
+      should assert `root_set.is_registered_worker or <is the heap's owning
+      main thread>` so the next pre-register (or cap-fallthrough) mutator is a
+      caught bug instead of a ~1.5% GP-fault flake. Survey done 2026-07-29:
+      PRODUCTION is assert-clean (only main + the three registered worker
+      families allocate; nrepl/http serve serially on the calling thread), but
+      in-tree unit tests alloc from unregistered test threads (lazy_seq force-
+      race workers at lazy_seq.zig:461, plus the gc_heap/root_set churn tests
+      — each site needs registration or an exemption), and "owning main
+      thread" needs a per-GcHeap `main_thread_id` stamped at init.
+    category: "concurrency"
+    barrier: |-
+      Discharges by: the test-audit sweep (register or exempt every
+      unregistered-alloc test thread) + the per-heap main-thread-id stamp +
+      the assert itself, landed together. Cross-ref ADR-0175 § Consequences.
+    last_reviewed: "2026-07-29"
   - id: "D-565"
     status: |-
       open (2026-07-28, external-contributor reproducibility audit — Discussion
@@ -1163,12 +1182,36 @@ active:
       parallel full gate; standalone 3/3 green immediately after on the same
       tree; CI (the release platform) green on every arc commit. The (a)
       signature unchanged — load-sensitive, not a release regression.
+      RECURRENCE + NEW ROOT CAUSE FOUND 2026-07-29: the scheduled x86_64-linux
+      full gate (run 30333558512) SIGABRT'd e2e_phase16_gc_torture at
+      `agent_alloc 'drain'` (exit 134; same SHA green 6 prior nights). Root-
+      caused + FIXED as ADR-0175: the SPAWN-TO-REGISTER window — stopWorld's
+      rendezvous target misses a spawned-but-not-yet-registered worker, so the
+      collector walks/sweeps while the newborn drainer registers and mutates
+      (GP fault in nextThreadRoots, reproduced 3/221 + 4/600 on a 4-vCPU-pinned
+      x86_64 host, symbolized via -Dprofile; Mac 200/200 clean). Registration
+      is now a safepoint + seq_cst handshake; the TooManyThreads run-
+      unregistered fallthrough in future/thread workers is closed in the same
+      arc. Exposure (a) protocol RUN post-ADR-0175 (2026-07-29, 8-core x86_64
+      linux, 4 rounds of 8× parallel phase14_future_promise_delay): 6/32
+      exit-134, roaming case — rate ≈ the recorded pre-fix baselines (3/8
+      2026-06-25, 1/8 2026-07-14), so ADR-0175 neither fixes NOR worsens (a).
+      CONCLUSION: (a) is a DISTINCT race (not the spawn-to-register window)
+      and STAYS OPEN with its signature unchanged. Post-fix verification of
+      the gc_torture leg itself: drain-case stress 600/600 clean on the
+      4-vCPU-pinned x86_64 host (2026-07-29; pre-fix the same harness crashed
+      3/221 and 4/600).
     category: "runtime"
     barrier: |-
-      needs a low-core repro environment (3-vCPU VM or cpuset-limited linux host) +
-      a thread-race investigation of the delay realise lock / future spawn path;
-      not tractable on the 10-core dev Mac where 60/60 iterations pass clean.
-    last_reviewed: "2026-07-02"
+      REPRO NOW IN HAND (2026-07-29, barrier partially dissolved): 8× parallel
+      `bash test/e2e/phase14_future_promise_delay.sh` (CLJW_SKIP_BUILD=1) on
+      ubuntunote reproduces (a) at ~6/32 per campaign — roaming exit-134, the
+      failing case varies per run, stderr swallowed by the per-case capture
+      (instrument the script or wrap the binary to capture the abort trace;
+      build with -Dprofile=true for symbolized Zig traces). Remaining work =
+      the thread-race investigation itself (delay realise lock / future spawn
+      path) using that harness.
+    last_reviewed: "2026-07-29"
   - id: "D-550"
     status: |-
       open (2026-07-02, user-directed direction — NOT a priority raise). Clojars/Maven
