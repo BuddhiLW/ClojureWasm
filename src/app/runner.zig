@@ -174,7 +174,7 @@ pub fn runSource(
     // ADR-0174 D6: main waits for live non-daemon `(Thread. f)` threads,
     // JVM-exact — a fire-and-forget `(.start (Thread. f))` completes f.
     // Daemon threads die with the process (skipped: never registered).
-    @import("../runtime/thread.zig").joinAllNonDaemon(&rt);
+    @import("../runtime/thread.zig").exitBarrier(&rt);
     try stdout.flush();
 }
 
@@ -227,6 +227,9 @@ pub fn runSourceCompare(
         try print.printValue(stdout, value);
         try stdout.writeByte('\n');
         try stdout.flush();
+        // Exit barrier (ADR-0176): compared source may have spawned workers;
+        // hard-exit if any is live rather than tear down under it (D-548(a)).
+        @import("../runtime/thread.zig").exitBarrier(&rt);
         return;
     }
 

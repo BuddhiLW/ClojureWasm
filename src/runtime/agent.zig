@@ -349,7 +349,10 @@ fn enqueueDirect(rt: *Runtime, agent_val: Value, action: Action) !void {
     if (need_spawn) {
         // Keep the agent alive for the drainer even if the caller drops it.
         try rt.gc.pin(agent_val);
+        // Teardown guard (ADR-0176): account the drainer BEFORE spawn.
+        root_set.noteWorkerSpawned();
         var t = std.Thread.spawn(.{}, drainer, .{a}) catch |e| {
+            root_set.noteWorkerExited();
             io_default.lockMutex(&a.cell.mutex);
             a.cell.draining = false;
             io_default.unlockMutex(&a.cell.mutex);
@@ -364,6 +367,9 @@ fn enqueueDirect(rt: *Runtime, agent_val: Value, action: Action) !void {
 /// `ThreadGcContext` so a concurrent collect parks it at a safepoint and walks
 /// its operand-stack roots (the in-flight action), like `future.worker`.
 fn drainer(a: *Agent) void {
+    // FIRST defer → runs LAST: the teardown guard may only see 0 once every
+    // heap-touching cleanup below (state stores, unpin, unregister) completed.
+    defer root_set.noteWorkerExited();
     const agent_val = Value.encodeHeapPtr(.agent, a);
     // The tx_slot publishes this drainer's STM transaction (an action may run
     // a `dosync`) so it is GC-rooted during a collect (#4a' in-txn-map rooting).
@@ -575,7 +581,10 @@ pub fn restart(rt: *Runtime, agent_val: Value, new_state: Value, clear_actions: 
 
     if (need_spawn) {
         try rt.gc.pin(agent_val);
+        // Teardown guard (ADR-0176): account the drainer BEFORE spawn.
+        root_set.noteWorkerSpawned();
         var t = std.Thread.spawn(.{}, drainer, .{a}) catch |e| {
+            root_set.noteWorkerExited();
             io_default.lockMutex(&a.cell.mutex);
             a.cell.draining = false;
             io_default.unlockMutex(&a.cell.mutex);

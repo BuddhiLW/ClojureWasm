@@ -395,6 +395,9 @@ fn buildArtifact(io: std.Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, o
     var ow = out.writer(io, &wbuf);
     try ow.interface.writeAll(artifact);
     try ow.interface.flush();
+    // Exit barrier (ADR-0176): build-time eval may have spawned workers;
+    // hard-exit if any is live rather than tear down under it (D-548(a)).
+    @import("../runtime/thread.zig").exitBarrier(&rt);
 }
 
 /// `cljw build <in.clj> -o <out>` (script mode): compile the source to a
@@ -485,6 +488,10 @@ pub fn tryRunEmbedded(io: std.Io, gpa: std.mem.Allocator, arena: std.mem.Allocat
         }
     }
 
+    // Exit barrier (ADR-0176): the embedded program is a full user program —
+    // join its non-daemon Threads and hard-exit if any worker is still live
+    // (the defers would free the heap under it, the D-548(a) teardown race).
+    @import("../runtime/thread.zig").exitBarrier(&rt);
     try stdout.flush();
     return true;
 }

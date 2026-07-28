@@ -101,6 +101,14 @@ pub fn run(
         const stream = server.accept(io) catch |err| {
             try stderr.print("nrepl: accept failed: {s}; exiting\n", .{@errorName(err)});
             try stderr.flush();
+            // Exit barrier (ADR-0176): a session may have left live workers
+            // (fire-and-forget futures/agents); hard-exit rather than let the
+            // defers free the heap under them (the D-548(a) teardown race).
+            // The port file is cleaned BEFORE the barrier — a hard exit skips
+            // the defer, and a stale `.nrepl-port` misleads CIDER discovery
+            // (the delete is idempotent, so the defer double-clean is fine).
+            cleanupNreplPortFile(io);
+            @import("../runtime/thread.zig").exitBarrier(&rt);
             return;
         };
         defer stream.close(io);

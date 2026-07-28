@@ -155,6 +155,10 @@ pub fn run(
     } else {
         try runPiped(io, &rt, &env, &macro_table, arena, stdout, stderr, &stars);
     }
+    // Exit barrier (ADR-0176): join non-daemon Threads + hard-exit if any
+    // worker (future/agent/Thread epilogue) is still live — the defers below
+    // would free the heap under it (the D-548(a) teardown race).
+    @import("../runtime/thread.zig").exitBarrier(&rt);
 }
 
 /// Interactive loop driven by the raw-mode line editor.

@@ -351,6 +351,59 @@ var registered_count: std.atomic.Value(u32) = .init(0);
 /// dormant D-244 #4 path, validated separately under user awareness.
 pub threadlocal var is_registered_worker: bool = false;
 
+/// Live worker-thread accounting for the PROCESS-EXIT teardown guard
+/// (D-548(a) / ADR-0176). The spawner increments BEFORE `Thread.spawn`
+/// (decrementing on spawn failure); the worker decrements as its very LAST
+/// action (its first-declared defer), AFTER every heap-touching cleanup
+/// (result store, `gc.unpin`, `unregisterThread`). Distinct from
+/// `registered_count`: this covers the whole thread lifetime including the
+/// pre-register and post-unregister spans. While nonzero, graceful Runtime
+/// teardown is FORBIDDEN — the app exit boundary hard-exits instead
+/// (`thread.exitBarrier`): a detached worker's thunk/epilogue reads the
+/// GC heap and mutates gpa-backed structures, and `rt.deinit` freeing them
+/// underneath produced the D-548(a) glibc heap-corruption aborts
+/// (`malloc_consolidate(): unaligned fastbin chunk detected`). The worker's
+/// seq_cst decrement pairs with the boundary's seq_cst read: count==0 proves
+/// every epilogue completed, so teardown is safe.
+var live_workers: std.atomic.Value(u32) = .init(0);
+
+/// Spawner-side: account a worker about to be spawned (call BEFORE
+/// `Thread.spawn`; call `noteWorkerExited` to roll back on spawn failure).
+pub fn noteWorkerSpawned() void {
+    _ = live_workers.fetchAdd(1, .seq_cst);
+}
+
+/// Worker-side final act (or spawner-side rollback): the thread's heap access
+/// is complete. Must be the worker fn's FIRST-declared defer.
+pub fn noteWorkerExited() void {
+    _ = live_workers.fetchSub(1, .seq_cst);
+}
+
+/// Snapshot for the exit-boundary teardown guard.
+pub fn liveWorkerCount() u32 {
+    return live_workers.load(.seq_cst);
+}
+
+/// Bounded wait for worker quiescence (ADR-0176). Returns true iff
+/// `live_workers` reached 0 within `max_wait_ns` — then graceful teardown is
+/// safe. Worker EPILOGUES (result store → unpin → unregister → final
+/// decrement) never block, so a completed thunk's worker quiesces in µs; a
+/// timeout therefore means a thunk is genuinely still RUNNING, and the caller
+/// must abandon teardown (hard exit / skip-freeing) instead. Polling sleep, no
+/// condvar: this runs at most twice per process (exit barrier + deinit guard),
+/// never on a hot path.
+pub fn awaitQuiescentWorkers(max_wait_ns: u64) bool {
+    if (liveWorkerCount() == 0) return true;
+    const io_def = @import("../concurrency/io_default.zig");
+    var waited: u64 = 0;
+    while (waited < max_wait_ns) {
+        io_def.sleep(1_000_000); // 1ms
+        waited += 1_000_000;
+        if (liveWorkerCount() == 0) return true;
+    }
+    return false;
+}
+
 /// Build the CALLING thread's standard worker context: all four TLS root
 /// slots plus the caller-supplied opaque `tx_slot` (opaque because root_set
 /// must not import lock_tx — see `ThreadGcContext.tx_slot`). Must run ON the

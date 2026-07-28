@@ -16,7 +16,7 @@
 //! **Non-daemon default is JVM-faithful** (the DA-flagged divergence a
 //! silently-detached thread would ship): every started non-daemon
 //! Thread lands in the per-Runtime join-at-exit registry, and the app
-//! entry (`cli.zig`) calls `joinAllNonDaemon` after the program body —
+//! entry (`cli.zig`) calls `exitBarrier` after the program body —
 //! main waits, exactly like the JVM. `setDaemon(true)` before `.start`
 //! opts out (the thread dies with the process). The interrupt family is
 //! deliberately NOT here: a flag-only interrupt that cannot wake a
@@ -143,7 +143,12 @@ pub fn start(rt: *Runtime, thread_val: Value, loc: SourceLocation) !Value {
     // ALL started threads register (daemon included): the exit path joins
     // the non-daemon entries and hard-exits if a daemon is still running.
     try registerStarted(rt, thread_val);
+    // Teardown guard (ADR-0176): account the worker BEFORE spawn — `join`
+    // returns at the done-broadcast, BEFORE the worker's unpin epilogue, so
+    // even a joined Thread needs the exit boundary to see its live count.
+    root_set.noteWorkerSpawned();
     var t = std.Thread.spawn(.{}, worker, .{thread_val}) catch |e| {
+        root_set.noteWorkerExited();
         io_default.lockMutex(&st.cell.mutex);
         st.run_state = .done;
         io_default.unlockMutex(&st.cell.mutex);
@@ -157,6 +162,9 @@ pub fn start(rt: *Runtime, thread_val: Value, loc: SourceLocation) !Value {
 /// Worker body — future.zig's discipline: publish GC roots, run the thunk
 /// on the VM, mark done + wake joiners, drop the thunk edge, unpin.
 fn worker(thread_val: Value) void {
+    // FIRST defer → runs LAST: the teardown guard may only see 0 once every
+    // heap-touching cleanup below (done store, unpin, unregister) completed.
+    defer root_set.noteWorkerExited();
     const st = stateOf(thread_val);
     var ctx = root_set.workerContext(@ptrCast(&lock_tx.current_tx));
     const registered = if (root_set.registerThread(&ctx)) |_| true else |_| false;
@@ -277,8 +285,9 @@ fn registerStarted(rt: *Runtime, thread_val: Value) !void {
     try rt.user_threads.append(rt.gpa, thread_val);
 }
 
-/// Called by the app entry after the program body — the JVM main-exit rule
-/// in both halves:
+/// The app exit barrier — called at every app SUCCESS-exit boundary after
+/// the program body (error unwinds are covered by the twin guards in
+/// `Runtime.deinit` / `Env.deinit`). Three halves:
 ///   1. WAIT for every live non-daemon Thread (join in registration order;
 ///      threads started BY joined threads land in the registry too — the
 ///      loop re-reads the length each pass).
@@ -288,7 +297,15 @@ fn registerStarted(rt: *Runtime, thread_val: Value) !void {
 ///      also the structural fix for the teardown race a sleeping daemon
 ///      worker exposes (rt.deinit freeing the heap under a live worker's
 ///      registered GC context — the 2026-07-17 ubuntunote alignment panic).
-pub fn joinAllNonDaemon(rt: *Runtime) void {
+///   3. ADR-0176 / D-548(a): wait (bounded) for every OTHER worker — a
+///      fire-and-forget future, an agent drainer, a joined Thread still in
+///      its unpin epilogue (`join` wakes at the done-broadcast, BEFORE
+///      unpin/unregister) — to quiesce. Epilogues are µs-bounded, so the
+///      common case proceeds to a real graceful teardown (leak checks stay
+///      meaningful); a timeout means a thunk is genuinely RUNNING → hard
+///      exit like a daemon (the documented cljw divergence: a pending
+///      future does not keep the process alive — AD ledger row).
+pub fn exitBarrier(rt: *Runtime) void {
     var i: usize = 0;
     while (true) {
         io_default.lockMutex(&rt.user_threads_mutex);
@@ -312,7 +329,15 @@ pub fn joinAllNonDaemon(rt: *Runtime) void {
         }
     }
     io_default.unlockMutex(&rt.user_threads_mutex);
-    if (live_daemon) {
+    // Half 3 (D-548(a) / ADR-0176): freeing the heap under ANY live worker
+    // is the roaming glibc `malloc_consolidate`/`corrupted double-linked
+    // list` abort. Epilogue stragglers quiesce in µs (the wait returns true
+    // → real graceful teardown, leak checks stay meaningful); a timeout
+    // means a thunk is genuinely running → hard exit like a daemon: flush,
+    // no teardown, the OS reclaims. The count can only DROP after the
+    // program body (only live workers spawn workers), so a quiescent read
+    // proves teardown is race-free.
+    if (live_daemon or !root_set.awaitQuiescentWorkers(50 * 1_000_000)) {
         if (rt.stdout) |out| out.flush() catch {};
         std.process.exit(0);
     }

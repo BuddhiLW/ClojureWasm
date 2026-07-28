@@ -424,6 +424,12 @@ pub const Env = struct {
     }
 
     pub fn deinit(self: *Env) void {
+        // Teardown guard (ADR-0176 / D-548(a)) — see Runtime.deinit's twin
+        // guard: on an error-unwind with a live worker (whose eval reads this
+        // Env's namespaces/Vars), freeing them here is the same corruption
+        // class. This defer runs BEFORE Runtime.deinit's (LIFO), so it does
+        // the bounded epilogue wait; a timeout = a running thunk → skip.
+        if (!@import("gc/root_set.zig").awaitQuiescentWorkers(50 * 1_000_000)) return;
         // Clear any process-global slot that points INTO this Env's
         // Vars before they are freed, so the slot can never dangle.
         // Currently the sole consumer is `runtime/error/context.zig`'s

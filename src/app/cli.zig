@@ -73,6 +73,10 @@ pub fn dispatch(init: std.process.Init) !void {
     // safepoint mode above; both armed together by `gc_torture.arm()`.
     if (init.environ_map.get("CLJW_GC_TORTURE_ALLOC")) |raw|
         gc_torture.configureAlloc(std.fmt.parseInt(u32, raw, 10) catch 1);
+    // ADR-0176: teardown fault injection (widens the exit-teardown window so
+    // a live-worker-guard regression aborts deterministically; test-only).
+    if (init.environ_map.get("CLJW_TORTURE_TEARDOWN_DELAY_MS")) |raw|
+        gc_torture.configureTeardownDelay(std.fmt.parseInt(u32, raw, 10) catch 50);
 
     // Publish the process env for the runtime surface (`System/getenv`).
     // `init.environ_map` is already a `*Environ.Map` owned by `init`

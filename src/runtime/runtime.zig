@@ -293,7 +293,7 @@ pub const Runtime = struct {
 
     /// Join-at-exit registry (ADR-0174 D6): every started NON-daemon
     /// `(Thread. f)` value (pinned for its run, so the entries never
-    /// dangle). The app entry calls `thread.joinAllNonDaemon` after the
+    /// dangle). The app entry calls `thread.exitBarrier` after the
     /// program body — main waits like the JVM. Guarded by
     /// `user_threads_mutex` (`.start` can be called off-main).
     user_threads: std.ArrayList(@import("value/value.zig").Value) = .empty,
@@ -622,6 +622,25 @@ pub const Runtime = struct {
     }
 
     pub fn deinit(self: *Runtime) void {
+        // Teardown guard (ADR-0176 / D-548(a)): freeing the heap while ANY
+        // worker thread (future / agent drainer / Thread epilogue) is live
+        // corrupts the allocator under its feet (the roaming glibc
+        // `malloc_consolidate` aborts). The app exit barrier normally settles
+        // this first, but ERROR-UNWIND paths (a broken stdout pipe mid-print,
+        // a failed post-eval `try`) reach this defer directly — so the guard
+        // lives HERE, at the chokepoint every teardown passes through. Wait
+        // briefly for epilogue-only stragglers (µs-bounded by construction);
+        // a timeout means a thunk is genuinely running → SKIP all freeing
+        // (abandon the heap; the imminent process exit reclaims it).
+        if (!@import("gc/root_set.zig").awaitQuiescentWorkers(50 * 1_000_000)) return;
+        // Test-only fault injection (`CLJW_TORTURE_TEARDOWN_DELAY_MS`, D-548(a)
+        // red test): widen the teardown-vs-worker window AFTER the guard so a
+        // guard regression turns the race back into a deterministic abort.
+        {
+            const gc_torture = @import("gc/gc_torture.zig");
+            if (gc_torture.teardown_delay_ns != 0)
+                @import("concurrency/io_default.zig").sleep(gc_torture.teardown_delay_ns);
+        }
         // Free the interned empty-list singleton (gc.infra-allocated, not
         // GC-swept — D-164). Idempotent / no-op if never materialised.
         @import("collection/list.zig").deinitEmptyList(self);
