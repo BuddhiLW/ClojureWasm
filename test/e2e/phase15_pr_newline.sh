@@ -11,19 +11,23 @@ BIN="zig-out/bin/cljw"
 fail() { echo "FAIL $1" >&2; exit 1; }
 assert_eq() { local n="$1" g="$2" w="$3"; [[ "$g" == "$w" ]] || fail "$n: got '$g' want '$w'"; echo "PASS $n -> $w"; }
 
+# First-line extraction is `sed -n 1p`, NOT `head -1`: head's early pipe close
+# can EPIPE cljw's later write on a loaded host → non-zero exit → pipefail
+# kills the assignment without a FAIL line (the 2026-07-29 CI-runner flake).
+
 # pr renders a string in READABLE (quoted) form, no trailing newline
 assert_eq 'pr-string-quoted' \
-  "$("$BIN" -e '(pr "hi")' 2>&1 | head -1)" \
+  "$("$BIN" -e '(pr "hi")' 2>&1 | sed -n '1p')" \
   '"hi"nil'
 
 # print renders the same string UNQUOTED (contrast with pr)
 assert_eq 'print-string-unquoted' \
-  "$("$BIN" -e '(print "hi")' 2>&1 | head -1)" \
+  "$("$BIN" -e '(print "hi")' 2>&1 | sed -n '1p')" \
   'hinil'
 
 # pr on a keyword / number is the readable form, no newline
 assert_eq 'pr-keyword' \
-  "$("$BIN" -e '(pr :a)' 2>&1 | head -1)" \
+  "$("$BIN" -e '(pr :a)' 2>&1 | sed -n '1p')" \
   ':anil'
 
 # newline emits a line break (single (do …) form, so the echo lands once at
