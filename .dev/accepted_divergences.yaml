@@ -857,3 +857,17 @@ accepted:
       immediates already pinned. nil → 0 matches the JVM exactly.
     derives_from: "ADR-0059 (no-JVM) + ADR-0174 D5 (System close-out) + F-014 clause 1 (Properties is a platform artifact) + F-004 (NaN-box immediates carry identity in their bits)."
     pin: "test/e2e/phase14_system_members.sh (getprops_* / idhash_* cases)."
+  - id: "AD-056"
+    summary: "Process exit does not wait for pending futures/agents: a fire-and-forget `(future …)` / `(send …)` whose worker is still RUNNING at main-exit is killed by the exiting process (mainline: non-daemon pool threads keep the JVM alive until `shutdown-agents` / the 60s pool keepalive)."
+    example: "`(do (future (Thread/sleep 60000)) :ok)` => cljw prints :ok and exits immediately / mainline hangs ~60s (or until shutdown-agents)."
+    why: |-
+      cljw has no agent send-off executor pool with JVM thread-lifecycle
+      semantics (ADR-0059): futures are detached OS threads. Immediate exit
+      is the long-documented cljw behaviour (future.zig header) and the
+      useful one for a scripting binary (mainline's 60s exit hang is a
+      famous footgun). ADR-0176 makes that exit MEMORY-SAFE — a live worker
+      forces a daemon-style hard exit instead of a teardown under its feet —
+      without changing the semantics; a COMPLETED thunk's worker epilogue is
+      still waited for (bounded), so finished side effects are never cut.
+    derives_from: "ADR-0176 (live-worker teardown guard; the JVM-exact wait-for-futures flip enumerated + rejected there as a separate product decision) + ADR-0059 no-JVM (no executor pools) + ADR-0174 D6 (the daemon hard-exit idiom ADR-0176 generalises)."
+    pin: "test/e2e/phase14_future_promise_delay.sh — `exit_pending_future` (a 60s-sleeper future + prompt :ok exit, bounded)."

@@ -1195,22 +1195,39 @@ active:
       arc. Exposure (a) protocol RUN post-ADR-0175 (2026-07-29, 8-core x86_64
       linux, 4 rounds of 8× parallel phase14_future_promise_delay): 6/32
       exit-134, roaming case — rate ≈ the recorded pre-fix baselines (3/8
-      2026-06-25, 1/8 2026-07-14), so ADR-0175 neither fixes NOR worsens (a).
-      CONCLUSION: (a) is a DISTINCT race (not the spawn-to-register window)
-      and STAYS OPEN with its signature unchanged. Post-fix verification of
-      the gc_torture leg itself: drain-case stress 600/600 clean on the
-      4-vCPU-pinned x86_64 host (2026-07-29; pre-fix the same harness crashed
-      3/221 and 4/600).
+      2026-06-25, 1/8 2026-07-14), so ADR-0175 neither fixed nor worsened (a).
+      Post-fix verification of the gc_torture leg itself: drain-case stress
+      600/600 clean on the 4-vCPU-pinned x86_64 host (2026-07-29; pre-fix the
+      same harness crashed 3/221 and 4/600).
+      EXPOSURE (a) DISCHARGED 2026-07-29 (ADR-0176): a stderr-capture wrapper
+      harness finally caught the abort text — glibc heap corruption
+      (`malloc_consolidate(): unaligned fastbin chunk detected` / `corrupted
+      double-linked list`) on fire-and-forget-future exprs. ROOT CAUSE = the
+      PROCESS-TEARDOWN vs DETACHED-WORKER race: `defer rt.deinit()` freed the
+      GC heap + gpa structures while a future/agent worker was mid-thunk or
+      mid-EPILOGUE (join/deref wake at the result broadcast, BEFORE the
+      worker's unpin/unregister). FIX = the live-worker teardown guard
+      (`root_set.live_workers` counter; `thread.exitBarrier` half 3 =
+      bounded-quiesce-or-hard-exit, the ADR-0174 D6 daemon idiom generalised;
+      `Runtime.deinit`/`Env.deinit` chokepoint guards for error-unwind paths
+      — the DA fork's decisive finding; `CLJW_TORTURE_TEARDOWN_DELAY_MS`
+      canaries; AD-056 ledgers the exits-immediately divergence). VERIFIED:
+      pre-fix 6/32 → post-fix 0/96 across two campaigns on the same harness
+      (0/64 six-barrier shape + 0/32 final chokepoint shape, canaries green,
+      gc_torture drain 0/100 + 0/50 regression-clean). The fpd suite's
+      ncpu<4 SKIP gate is REMOVED (the 3-vCPU runner runs it again; nightly
+      is the watchdog). THIS ROW NOW SCOPES (b) ONLY.
     category: "runtime"
     barrier: |-
-      REPRO NOW IN HAND (2026-07-29, barrier partially dissolved): 8× parallel
-      `bash test/e2e/phase14_future_promise_delay.sh` (CLJW_SKIP_BUILD=1) on
-      ubuntunote reproduces (a) at ~6/32 per campaign — roaming exit-134, the
-      failing case varies per run, stderr swallowed by the per-case capture
-      (instrument the script or wrap the binary to capture the abort trace;
-      build with -Dprofile=true for symbolized Zig traces). Remaining work =
-      the thread-race investigation itself (delay realise lock / future spawn
-      path) using that harness.
+      (a) is DISCHARGED (ADR-0176) — residual scope = (b) ONLY: the
+      e2e_phase14_parallel_seq pmap wall-clock assert (<450ms for 4×150ms
+      sleeps) missing on the 3-vCPU hosted runner. A timing-envelope
+      property of a loaded low-core host, not a corruption; stays
+      ncpu>=4-gated. Discharge shape: either a robust-percentile re-assert
+      of the pmap parallelism property or an accepted timing-envelope note.
+      Repro harness (kept for any recurrence): 8× parallel fpd runs on
+      ubuntunote + the /tmp/cljw_cap stderr-capture wrapper +
+      -Dprofile=true builds for symbolized traces.
     last_reviewed: "2026-07-29"
   - id: "D-550"
     status: |-

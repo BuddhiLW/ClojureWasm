@@ -30,11 +30,14 @@
   **ADR-0175 spawn-to-register GC-safepoint fix** (the 2026-07-28
   x86_64-linux nightly gc_torture SIGABRT root-caused: registration is
   now a safepoint; TooManyThreads run-unregistered fallthrough closed;
-  D-548 note + D-566 opened). Next release owns the CHANGELOG entry.
+  D-566 opened), **ADR-0176 live-worker teardown guard** (D-548(a)
+  future/promise glibc-abort root-caused + DISCHARGED: exitBarrier +
+  deinit chokepoint guards; AD-056; fpd ncpu gate removed; pre 6/32 →
+  post 0/96). Next release owns the CHANGELOG entry.
 - **Forbidden this session**: bare `zig build test` WITHOUT `-Dwasm`;
   bare `zig build` for a probe (use ReleaseSafe). **The FULL gate MUST
-  run `--serial-e2e`, ALONE** (D-548 (a) future/promise SIGABRT + (b)
-  pmap wall-clock stay load-sensitive; recurrence protocol in the row).
+  run `--serial-e2e`, ALONE** ((a) is DISCHARGED per ADR-0176; (b) pmap
+  wall-clock stays load-sensitive — the serial discipline stands).
   **Never run a concurrent build during a gate.** `.claude/**` edits +
   cross-repo publishes may hit the auto-mode block — surface to the
   user. **D-549 distribution cluster (Docker/ghcr/notarization) is
@@ -81,8 +84,8 @@
 
 - **Perf campaign (§9.2.S) — PAUSED** (D-520 / D-386 / D-005/006).
 - **D-513** — clojure.core.reducers / clojure.repl / var :doc.
-- **D-548** — residual low-core exposures (a) future/promise SIGABRT
-  (b) pmap wall-clock; recurrence protocol recorded in the row.
+- **D-548** — (a) DISCHARGED (ADR-0176); residual = (b) pmap
+  wall-clock on the 3-vCPU runner (timing envelope, still gated).
 - CIDER upstream banner patch draft:
   `private/notes/cider-clojurewasm-banner-patch.md` (user-side PR).
 
