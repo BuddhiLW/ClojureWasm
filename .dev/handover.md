@@ -70,6 +70,12 @@
 
 ## Standing units (tracked in .dev/debt.yaml)
 
+- **D-565** — external-contributor reproducibility / doc-staleness sweep
+  (fresh-clone onboarding audit, Discussion #11). Build/test/CI reproduce
+  cleanly; gaps are doc rot (`zwasm_from_scratch`→`zwasm`, dead `OSS/zig`
+  ref, missing `cleanup_orphans.sh`, README 1.0.0-vs-1.5.1, autonomous-vs-
+  maintenance mismatch) + no CONTRIBUTING opt-out notes. Companion: zwasm D-526.
+
 - **Perf campaign (§9.2.S) — PAUSED** (D-520 / D-386 / D-005/006).
 - **D-513** — clojure.core.reducers / clojure.repl / var :doc.
 - **D-548** — residual low-core exposures (a) future/promise SIGABRT

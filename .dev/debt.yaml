@@ -24,6 +24,55 @@
 # md-table-align no longer pads it to ~800 KB of whitespace.
 
 active:
+  - id: "D-565"
+    status: |-
+      open (2026-07-28, external-contributor reproducibility audit — Discussion
+      #11 prompted a fresh-clone onboarding sweep). A stranger's `git clone` builds
+      + tests + gets full 3-OS CI gating with ZERO host-specific setup (see WORKS
+      below); everything that breaks is maintainer-side tooling, and the real
+      liability is DOC STALENESS, not broken machinery. Gaps:
+      (1) [staleness, broken even locally] retired co-dev dir name
+          `zwasm_from_scratch` (real dir = `~/Documents/MyProducts/zwasm/`) still
+          in `.claude/CLAUDE.md`, `.claude/rules/handover_framing.md`,
+          `.dev/ubuntunote_setup.md`, D-559-era rows here.
+      (2) [staleness, dead ref] `~/Documents/OSS/zig/` listed as a live textbook
+          reference (`.dev/reference_clones.md`, CLAUDE.md Identity table) but is
+          ABSENT even on the maintainer machine → Zig-stdlib Step-0 survey is dead.
+      (3) [staleness, missing global hook] `~/.claude/hooks/cleanup_orphans.sh`
+          cited as a live SessionStart reaper (`orphan_prevention.md`,
+          `reference_clones.md`) but does not exist → an orphan guarantee not
+          actually wired. Ship it in-repo under scripts/ (+ $CLAUDE_PROJECT_DIR)
+          or delete the claim.
+      (4) [staleness, README] version 1.0.0 (README) vs 1.5.1
+          (build.zig.zon/handover); size claim 7.8/7.5 MB vs measured 7.07 MB mac.
+      (5) [staleness, model guidance] `continue` SKILL names Opus 4.6/4.7 vs the
+          `claude-opus-4-8` pin in settings.json.
+      (6) [doc/reality, mode] CLAUDE.md + `continue` skill describe a never-stop
+          autonomous loop while README says PRs closed + handover says
+          PAUSED/Stopped → readers over-estimate the live cadence. Add a one-line
+          "maintenance mode" banner.
+      (7) [onboarding, no CONTRIBUTING note] how to opt OUT of forced-Japanese
+          chat (settings.json outputStyle + the SessionStart language hook); that
+          the reference-clone SURVEY workflow needs the gitignored
+          `.claude/settings.local.json` additionalDirectories + personal
+          `~/Documents/OSS` clones (a fresh clone's Step-0 survey has nothing to
+          read); undocumented external tools `clj` (hardcoded /opt/homebrew/bin/clj)
+          + `md-table-align`.
+      (8) [resume degrade] handover "First task on resume" names gitignored
+          `private/notes/*.md` probe recipes a fresh clone lacks — promote the
+          load-bearing ones into a tracked ADR/debt body or mark local-only.
+      WORKS (fair credit — weigh before "fixing" too much): flake.nix + flake.lock
+      pin Zig 0.16.0; build.zig.zon fetches zwasm (tag v2.3.0, lazy, -Dwasm-gated)
+      + zlinter by URL+SHA (no sibling checkout); the main `... ReleaseSafe` build +
+      `test/run_all.sh` run from a bare clone (the `~/Documents/OSS` refs in e2e
+      steps are GUARDED and skip); GitHub Actions `scripts/ci_gate.sh` reproduces
+      the local gate on mac+linux with no personal deps; every settings.json hook
+      is `$CLAUDE_PROJECT_DIR`-relative; the ADR/debt/ROADMAP/CHANGELOG base ships
+      in the clone; `cw v0` via `git worktree add ../cw-v0 v0.5.0`. Companion =
+      zwasm D-526 (same audit, other repo).
+    category: "docs-onboarding"
+    barrier: "none (autonomous doc-hygiene drain, easiest-first: items 1-5 are pure staleness sweeps, item 6 a one-line banner, items 7-8 want a short CONTRIBUTING/onboarding note). Not urgent (maintenance mode, PRs paused) but cheap and removes reader-misleading rot. Do items 1-3 first — broken even for the maintainer."
+    last_reviewed: "2026-07-28"
   - id: "D-564"
     status: |-
       open (2026-07-17, ADR-0174 D6 residual). Thread interrupt family
