@@ -31,7 +31,6 @@ const Value = value_mod.Value;
 const HeapHeader = value_mod.HeapHeader;
 const Runtime = @import("runtime.zig").Runtime;
 const Env = @import("env.zig").Env;
-const env_mod = @import("env.zig");
 const root_set = @import("gc/root_set.zig");
 const io_default = @import("concurrency/io_default.zig");
 const lock_tx = @import("concurrency/lock_tx.zig");
@@ -136,15 +135,9 @@ pub fn alloc(rt: *Runtime, env: *Env, thunk: Value, loc: SourceLocation) !Value 
 /// slots (no conveyed dynamic bindings yet — binding conveyance is a follow-up).
 fn worker(f: *Future) void {
     const fut_val = Value.encodeHeapPtr(.future, f);
-    var ctx: root_set.ThreadGcContext = .{
-        .frame_slot = &env_mod.current_frame,
-        .analysis_frame_slot = &root_set.analysis_frame_head,
-        .eval_frame_slot = &root_set.eval_frame_head,
-        .self_guard_slot = &root_set.gc_self_guard,
-        // Publish this worker's STM transaction so a `dosync` in the thunk is
-        // GC-rooted during a collect (#4a' in-txn-map rooting).
-        .tx_slot = @ptrCast(&lock_tx.current_tx),
-    };
+    // The tx_slot publishes this worker's STM transaction so a `dosync` in the
+    // thunk is GC-rooted during a collect (#4a' in-txn-map rooting).
+    var ctx = root_set.workerContext(@ptrCast(&lock_tx.current_tx));
     const registered = if (root_set.registerThread(&ctx)) |_| true else |_| false;
     defer if (registered) root_set.unregisterThread(&ctx);
 
@@ -155,16 +148,24 @@ fn worker(f: *Future) void {
 
     var result_state: FutureState = .realised_error;
     var result_value: Value = .nil_val;
-    if (f.rt.vtable) |vt| {
-        if (vt.callFn(f.rt, f.env, f.thunk, &.{}, .{})) |result| {
-            result_state = .realised_value;
-            result_value = result;
-        } else |_| {
-            // ADR-0120: marshal the worker's error into a GC-heap exception
-            // Value (survives this thread) so `deref` re-raises the REAL error
-            // (kind/message/location), not a generic `future_thunk_failed`.
-            result_state = .realised_error;
-            result_value = worker_error.capture(f.rt);
+    // ADR-0175: NEVER run the thunk unregistered (registry cap hit) — an
+    // unregistered mutator is invisible to the STW rendezvous + root walk,
+    // the exact corruption the registration safepoint closes. The future
+    // realises as an error WITHOUT allocating (this thread may not touch the
+    // GC heap): `cached` stays nil, so `deref` raises `future_thunk_failed`
+    // (errorValue's nil-guard routes it past the reraise).
+    if (registered) {
+        if (f.rt.vtable) |vt| {
+            if (vt.callFn(f.rt, f.env, f.thunk, &.{}, .{})) |result| {
+                result_state = .realised_value;
+                result_value = result;
+            } else |_| {
+                // ADR-0120: marshal the worker's error into a GC-heap exception
+                // Value (survives this thread) so `deref` re-raises the REAL error
+                // (kind/message/location), not a generic `future_thunk_failed`.
+                result_state = .realised_error;
+                result_value = worker_error.capture(f.rt);
+            }
         }
     }
 
@@ -241,7 +242,12 @@ pub fn errorValue(v: Value) ?Value {
     const f = v.decodePtr(*Future);
     io_default.lockMutex(&f.cell.mutex);
     defer io_default.unlockMutex(&f.cell.mutex);
-    return if (f.state == .realised_error) f.cached else null;
+    // Nil-guard: a future that failed WITHOUT a marshalled exception (worker
+    // registration refused at the registry cap — that path may not allocate
+    // one) has `cached == nil`; report "no exception value" so the deref
+    // consumer raises the generic `future_thunk_failed` instead of
+    // re-raising nil (ADR-0175).
+    return if (f.state == .realised_error and !f.cached.isNil()) f.cached else null;
 }
 
 /// Wait up to `timeout_ms` for the worker (the 3-arity `deref` support).

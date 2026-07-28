@@ -31,7 +31,6 @@ const value_mod = @import("value/value.zig");
 const Value = value_mod.Value;
 const Runtime = @import("runtime.zig").Runtime;
 const Env = @import("env.zig").Env;
-const env_mod = @import("env.zig");
 const root_set = @import("gc/root_set.zig");
 const io_default = @import("concurrency/io_default.zig");
 const lock_tx = @import("concurrency/lock_tx.zig");
@@ -159,20 +158,25 @@ pub fn start(rt: *Runtime, thread_val: Value, loc: SourceLocation) !Value {
 /// on the VM, mark done + wake joiners, drop the thunk edge, unpin.
 fn worker(thread_val: Value) void {
     const st = stateOf(thread_val);
-    var ctx: root_set.ThreadGcContext = .{
-        .frame_slot = &env_mod.current_frame,
-        .analysis_frame_slot = &root_set.analysis_frame_head,
-        .eval_frame_slot = &root_set.eval_frame_head,
-        .self_guard_slot = &root_set.gc_self_guard,
-        .tx_slot = @ptrCast(&lock_tx.current_tx),
-    };
+    var ctx = root_set.workerContext(@ptrCast(&lock_tx.current_tx));
     const registered = if (root_set.registerThread(&ctx)) |_| true else |_| false;
     defer if (registered) root_set.unregisterThread(&ctx);
 
     current_thread_val = thread_val;
     defer current_thread_val = .nil_val;
 
-    if (st.rt.vtable) |vt| {
+    // ADR-0175: NEVER run the thunk unregistered (registry cap hit) — an
+    // unregistered mutator is invisible to the STW rendezvous + root walk.
+    // Report to stderr WITHOUT allocating (worker_error.capture builds a GC
+    // exception; this thread may not touch the heap) and fall through to the
+    // done-epilogue, JVM-uncaught-handler style: the thread dies, joiners wake.
+    if (!registered) {
+        var buf: [256]u8 = undefined;
+        var fw = std.Io.File.stderr().writer(st.rt.io, &buf);
+        const w = &fw.interface;
+        w.print("Exception in thread \"{s}\" worker registration refused (thread cap); body not run\n", .{st.name}) catch {};
+        w.flush() catch {};
+    } else if (st.rt.vtable) |vt| {
         if (vt.callFn(st.rt, st.env, st.thunk, &.{}, .{})) |_| {
             // A thread's return value is discarded (JVM Runnable.run is void).
         } else |_| {

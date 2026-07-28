@@ -331,7 +331,7 @@ var registry_mutex: std.Io.Mutex = .init;
 
 /// Live registered-worker count, mirroring the non-null slots in
 /// `thread_registry`. Maintained under `registry_mutex` (register/unregister)
-/// but exposed lock-free via `registeredCountRelaxed` so `safepoint.stopWorld`
+/// but exposed lock-free via `registeredCountLockFree` so `safepoint.stopWorld`
 /// can re-read the rendezvous target while holding `sp_mutex` — taking
 /// `registry_mutex` under `sp_mutex` would invert the lock order against the
 /// unregister path (registry_mutex → sp_mutex wake). The array scan in
@@ -351,20 +351,69 @@ var registered_count: std.atomic.Value(u32) = .init(0);
 /// dormant D-244 #4 path, validated separately under user awareness.
 pub threadlocal var is_registered_worker: bool = false;
 
+/// Build the CALLING thread's standard worker context: all four TLS root
+/// slots plus the caller-supplied opaque `tx_slot` (opaque because root_set
+/// must not import lock_tx — see `ThreadGcContext.tx_slot`). Must run ON the
+/// worker thread (the addresses taken are its threadlocals). One shared
+/// builder so a future worker family cannot silently drop a slot (the
+/// slot-drift hazard the ADR-0175 review named).
+pub fn workerContext(tx_slot: *const ?*anyopaque) ThreadGcContext {
+    return .{
+        .frame_slot = &env_mod.current_frame,
+        .analysis_frame_slot = &analysis_frame_head,
+        .eval_frame_slot = &eval_frame_head,
+        .self_guard_slot = &gc_self_guard,
+        .tx_slot = tx_slot,
+    };
+}
+
 /// Register a worker thread's published roots. Locked (workers register
 /// at `Thread.spawn`). Returns `error.TooManyThreads` past the cap.
+///
+/// Registration is itself a GC SAFEPOINT (ADR-0175). A worker spawned while a
+/// stop-the-world collect was arming is invisible to that collect's rendezvous
+/// target (it was not yet in the registry), so `stopWorld` can return with
+/// target 0 and start walking roots while this thread comes to life. Without
+/// the post-publish park below, the newborn would run mutator code (push
+/// binding/eval frames, pop an agent action) CONCURRENTLY with the collector's
+/// `nextThreadRoots` walk — the spawn-to-register window (the
+/// phase16_gc_torture agent-drain GP fault on the 4-vCPU Linux runner).
+///
+/// The seq_cst pairing makes the handshake airtight (Dekker shape): the
+/// collector stores `gc_requested` then reads `registered_count`; this thread
+/// adds `registered_count` then loads `gc_requested`. Under seq_cst it is
+/// impossible that BOTH the collector misses this thread's count AND this
+/// thread misses the collector's flag — so either the collector waits for our
+/// park, or we park here before touching the heap. The park runs AFTER
+/// `registry_mutex` is released (a parked thread must never hold it — peers
+/// registering and the next walk would block behind a thread the collector
+/// will not wake). A freshly registered ctx publishes only empty TLS roots, so
+/// a collector already mid-walk reading our slot sees an empty contribution.
+///
+/// CONTRACT for callers: (a) no lock may be held at the call site (the park
+/// must not strand a lock the collector's world could need); (b) code run
+/// BEFORE this call must touch only spawner-pinned objects and pure bit-ops
+/// (an unregistered thread's roots are invisible to the collector); (c) on
+/// `TooManyThreads` the worker must NOT run its mutator body — it reports its
+/// domain failure without GC allocation and exits (an unregistered mutator is
+/// exactly the corruption this safepoint closes).
 pub fn registerThread(ctx: *ThreadGcContext) error{TooManyThreads}!void {
-    io_default.lockMutex(&registry_mutex);
-    defer io_default.unlockMutex(&registry_mutex);
-    for (&thread_registry) |*slot| {
-        if (slot.* == null) {
-            slot.* = ctx;
-            is_registered_worker = true;
-            _ = registered_count.fetchAdd(1, .release);
-            return;
-        }
+    {
+        io_default.lockMutex(&registry_mutex);
+        defer io_default.unlockMutex(&registry_mutex);
+        const idx: usize = blk: {
+            for (&thread_registry, 0..) |*slot, i| {
+                if (slot.* == null) break :blk i;
+            }
+            return error.TooManyThreads;
+        };
+        // Release-store so a lock-free walker (`threadContextAt`) that sees the
+        // slot also sees the fully-initialised ctx it points at.
+        @atomicStore(?*ThreadGcContext, &thread_registry[idx], ctx, .release);
+        is_registered_worker = true;
+        _ = registered_count.fetchAdd(1, .seq_cst);
     }
-    return error.TooManyThreads;
+    if (safepoint.gc_requested.load(.seq_cst)) safepoint.park();
 }
 
 /// Deregister a worker thread's context (at `Thread.join`). No-op if absent.
@@ -376,8 +425,8 @@ pub fn unregisterThread(ctx: *ThreadGcContext) void {
         defer io_default.unlockMutex(&registry_mutex);
         for (&thread_registry) |*slot| {
             if (slot.* == ctx) {
-                slot.* = null;
-                _ = registered_count.fetchSub(1, .release);
+                @atomicStore(?*ThreadGcContext, slot, null, .release);
+                _ = registered_count.fetchSub(1, .seq_cst);
                 removed = true;
                 break;
             }
@@ -394,9 +443,13 @@ pub fn unregisterThread(ctx: *ThreadGcContext) void {
 }
 
 /// Lock-free snapshot of the registered-worker count for `safepoint.stopWorld`'s
-/// rendezvous-target recompute (see `registered_count`).
-pub fn registeredCountRelaxed() u32 {
-    return registered_count.load(.acquire);
+/// rendezvous-target recompute (see `registered_count` — taking `registry_mutex`
+/// under `sp_mutex` would invert the unregister path's lock order). Seq_cst: the
+/// collector reads this AFTER its seq_cst `gc_requested` store, pairing with
+/// `registerThread`'s seq_cst count-add + flag-load so a registering newborn is
+/// either counted here or parks there (ADR-0175 spawn-window handshake).
+pub fn registeredCountLockFree() u32 {
+    return registered_count.load(.seq_cst);
 }
 
 /// Count of currently-registered worker contexts (test/introspection).
@@ -417,8 +470,11 @@ pub fn registeredThreadCount() usize {
 /// single-thread collect sees an empty registry → no-op. `markTxFn` receives the
 /// opaque `current_tx` value (the worker's `?*LockingTransaction`, reinterpreted).
 pub fn markRegisteredTxs(context: *anyopaque, markTxFn: *const fn (*anyopaque, ?*anyopaque) void) void {
-    for (thread_registry) |slot| {
-        if (slot) |ctx| markTxFn(context, ctx.tx_slot.*);
+    for (&thread_registry) |*slot| {
+        // Acquire-load: a newborn may register mid-collect (it then parks at
+        // its registration safepoint with all-empty roots — ADR-0175), so the
+        // slot read must be atomic against that concurrent release-store.
+        if (@atomicLoad(?*ThreadGcContext, slot, .acquire)) |ctx| markTxFn(context, ctx.tx_slot.*);
     }
 }
 
@@ -428,9 +484,12 @@ pub fn markRegisteredTxs(context: *anyopaque, markTxFn: *const fn (*anyopaque, ?
 // worker), read through its published TLS pointers. `.end` terminates the walk
 // past the registry cap. A sparse (null) registry slot yields an all-empty
 // contribution and the cursor advances. Reading the registry array during the
-// walk is safe because (a) it is empty until Phase-B real threads (#3a/#3b are
-// runtime-inert), and (b) the #3b-step2 safepoint guarantees no concurrent
-// register/unregister during collect.
+// walk is safe because (a) slot reads are atomic acquire-loads paired with the
+// register/unregister release-stores, (b) a newborn registering mid-collect
+// parks at its registration safepoint BEFORE running any mutator code, so a
+// mid-walk registration contributes only its empty TLS roots (ADR-0175), and
+// (c) unregistration cannot happen mid-collect — the rendezvous completed, so
+// every already-registered worker is parked (or blocked-counted).
 const ThreadRoots = struct {
     frame_head: ?*env_mod.BindingFrame,
     eval_head: ?*EvalFrame,
@@ -447,7 +506,7 @@ fn threadContextAt(idx: usize) ThreadSource {
     } };
     const ri = idx - 1;
     if (ri >= MAX_GC_THREADS) return .end;
-    if (thread_registry[ri]) |ctx| return .{ .roots = .{
+    if (@atomicLoad(?*ThreadGcContext, &thread_registry[ri], .acquire)) |ctx| return .{ .roots = .{
         .frame_head = ctx.frame_slot.*,
         .eval_head = ctx.eval_frame_slot.*,
         .self_guard = ctx.self_guard_slot.*,

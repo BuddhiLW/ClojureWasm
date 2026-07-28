@@ -365,15 +365,9 @@ fn enqueueDirect(rt: *Runtime, agent_val: Value, action: Action) !void {
 /// its operand-stack roots (the in-flight action), like `future.worker`.
 fn drainer(a: *Agent) void {
     const agent_val = Value.encodeHeapPtr(.agent, a);
-    var ctx: root_set.ThreadGcContext = .{
-        .frame_slot = &env_mod.current_frame,
-        .analysis_frame_slot = &root_set.analysis_frame_head,
-        .eval_frame_slot = &root_set.eval_frame_head,
-        .self_guard_slot = &root_set.gc_self_guard,
-        // Publish this drainer's STM transaction (an action may run a `dosync`)
-        // so it is GC-rooted during a collect (#4a' in-txn-map rooting).
-        .tx_slot = @ptrCast(&lock_tx.current_tx),
-    };
+    // The tx_slot publishes this drainer's STM transaction (an action may run
+    // a `dosync`) so it is GC-rooted during a collect (#4a' in-txn-map rooting).
+    var ctx = root_set.workerContext(@ptrCast(&lock_tx.current_tx));
     // Must NOT drain while unregistered: an unregistered worker's operand stack
     // is invisible to the mark phase, so a concurrent collect (when auto-collect
     // turns ON) would sweep objects live only on this thread → use-after-free. On

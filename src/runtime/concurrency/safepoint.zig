@@ -58,7 +58,10 @@ var resume_cond: std.Io.Condition = .init;
 
 /// Worker safe point: register as parked, wake the collector, then block until
 /// the pending collection finishes. Called when `gc_requested` is observed set
-/// at the `alloc` boundary or the VM back-edge poll. Signalling `all_parked` on
+/// at the `alloc` boundary, the VM back-edge poll, or the registration
+/// safepoint at the tail of `root_set.registerThread` (ADR-0175 — a worker
+/// born while a collect is arming/running parks before its first mutator
+/// step). Signalling `all_parked` on
 /// every entry (not only the last) is robust against the collector checking the
 /// count before this thread parks. The resume guard tests the FLAG, not the
 /// count, so a spurious `Condition` wakeup re-parks correctly.
@@ -96,7 +99,11 @@ pub fn stopWorld(self_registered: bool) void {
         if (waited > max_stopworld_wait_ns.load(.monotonic))
             max_stopworld_wait_ns.store(waited, .monotonic);
     }
-    gc_requested.store(true, .release);
+    // Seq_cst, pairing with `registerThread`'s seq_cst count-add + flag-load
+    // (ADR-0175): a worker mid-registration is either visible in the count read
+    // below (we wait for its park) or sees this flag and parks at its
+    // registration safepoint — never both-miss (the spawn-to-register window).
+    gc_requested.store(true, .seq_cst);
     io_default.lockMutex(&sp_mutex);
     defer io_default.unlockMutex(&sp_mutex);
     // Recompute the target on every wake: a worker that finishes a tiny action
@@ -107,7 +114,7 @@ pub fn stopWorld(self_registered: bool) void {
     // no `registry_mutex`-under-`sp_mutex` inversion. A late-arriving worker
     // raises the count and parks at its first poll; an overshoot relaxes `<`.
     while (true) {
-        const registered = root_set.registeredCountRelaxed();
+        const registered = root_set.registeredCountLockFree();
         const target: u32 = if (self_registered and registered > 0) registered - 1 else registered;
         if (parked_count >= target) return;
         io_default.condWait(&all_parked, &sp_mutex);
@@ -357,6 +364,56 @@ test "collectStopTheWorld with no other registered worker is a fenced collect (D
     try testing.expectEqual(@as(usize, 0), gc.allocations.items.len); // garbage swept
     try testing.expectEqual(@as(u64, 1), gc.stats.collect_count);
     try testing.expect(!gc_requested.load(.acquire));
+}
+
+test "registerThread during an active STW collect parks the newborn until resumeWorld (spawn-to-register window)" {
+    var tio: ThreadedIo = .{};
+    tio.start();
+    defer tio.deinit();
+
+    const Shared = struct {
+        /// True between stopWorld-return and resumeWorld on the main thread —
+        /// the span where NO registered worker may run mutator code.
+        var in_stw: std.atomic.Value(bool) = .init(false);
+        var ran_during_collect: std.atomic.Value(bool) = .init(false);
+        var registered_ret: std.atomic.Value(bool) = .init(false);
+
+        fn worker() void {
+            var ctx: root_set.ThreadGcContext = .{
+                .frame_slot = &env_mod.current_frame,
+                .analysis_frame_slot = &root_set.analysis_frame_head,
+                .eval_frame_slot = &root_set.eval_frame_head,
+                .self_guard_slot = &root_set.gc_self_guard,
+            };
+            root_set.registerThread(&ctx) catch return;
+            // First mutator step after registration: if the collector is still
+            // between stopWorld and resumeWorld here, the newborn raced the
+            // collect (the spawn-to-register window).
+            if (in_stw.load(.seq_cst)) ran_during_collect.store(true, .seq_cst);
+            registered_ret.store(true, .release);
+            root_set.unregisterThread(&ctx);
+        }
+    };
+    Shared.in_stw.store(false, .monotonic);
+    Shared.ran_during_collect.store(false, .monotonic);
+    Shared.registered_ret.store(false, .monotonic);
+
+    // Arm + complete the rendezvous with ZERO registered workers (target 0 →
+    // returns at once) — the collector is now "collecting".
+    stopWorld(false);
+    Shared.in_stw.store(true, .seq_cst);
+
+    // A worker born mid-collect must park inside registerThread until
+    // resumeWorld, never run its first mutator step during the collect.
+    var t = try std.Thread.spawn(.{}, Shared.worker, .{});
+    while (parkedCountForTest() == 0 and !Shared.registered_ret.load(.acquire)) std.atomic.spinLoopHint();
+
+    Shared.in_stw.store(false, .seq_cst);
+    resumeWorld();
+    t.join();
+
+    try testing.expect(!Shared.ran_during_collect.load(.seq_cst));
+    try testing.expectEqual(@as(u32, 0), parkedCountForTest());
 }
 
 test "collectStopTheWorld parks real workers allocating through gc.alloc, then resumes them (D-244 #4)" {
