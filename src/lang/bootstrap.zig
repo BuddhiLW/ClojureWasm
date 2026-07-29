@@ -6,8 +6,9 @@
 //!
 //! ### Multi-file loader (ADR-0032)
 //!
-//! `loadCore` iterates `FILES`, a flat table of `{label, source}`
-//! pairs. The loader carries **no** namespace knowledge — each `.clj`
+//! `loadCore` iterates `ACTIVE_FILES` — `FILES` (a flat table of
+//! `{label, source, wasm_only}`) minus the entries this build's options
+//! gate out. The loader carries **no** namespace knowledge — each `.clj`
 //! file declares its own namespace via a leading `(in-ns 'foo.bar)`
 //! form (analyzer special form per ADR-0032). After the last file,
 //! `current_ns` resets to `user/` so the REPL prompt lands there.
@@ -57,7 +58,18 @@ pub const FileEntry = struct {
     /// flate-compressed in the `bootstrap_sources` blob; read via
     /// `sourceText` (C5'-b, ADR-0173).
     source: ?[]const u8,
+    /// The file rides the `wasm/` primitive namespace, which is registered
+    /// only under `-Dwasm`. Its `wasm/…` call sites resolve at ANALYZE time,
+    /// so a build without the flag cannot compile it at all.
+    wasm_only: bool = false,
 };
+
+/// Is `entry` part of THIS build's bundled set? The ONE predicate behind both
+/// the walks (`ACTIVE_FILES`) and the resolver (`lookupEmbeddedFile`), so a
+/// gated file can never be active in one and inactive in the other.
+pub fn isActiveFile(entry: FileEntry) bool {
+    return build_options.wasm or !entry.wasm_only;
+}
 
 /// Bootstrap source table — load order matters. `core.clj` must be
 /// first because it lands `(def not ...)` and the future
@@ -79,8 +91,10 @@ pub const EAGER_NS = std.StaticStringMap(void).initComptime(.{
     // cljw-SPECIFIC (not in clj's auto-set): the Wasm-component `:require` desugar
     // (ADR-0135 am1) emits `(cljw.wasm/require-component-libspec …)` which is resolved
     // at ANALYZE time — before its own `(require 'cljw.wasm)` prelude EVALs — so the
-    // ns must already be loaded. Eager (91 lines, def-only top level — its `wasm/`
-    // primitive refs are resolved at call time, so loading is safe in any build).
+    // ns must already be loaded. Eager only where it EXISTS: its own `wasm/…` refs
+    // are likewise analyze-time, so the file is `wasm_only` and leaves ACTIVE_FILES
+    // (hence this eager set, which is only ever consulted per ACTIVE_FILES entry)
+    // in a build without `-Dwasm`.
     .{"cljw.wasm"},
 });
 
@@ -142,9 +156,11 @@ pub const FILES: []const FileEntry = &.{
     // clojure.test (FILES[10]) + clojure.stacktrace (FILES[19]). Appended last.
     .{ .label = "<clojure.test.tap>", .source = embedSrc("clj/clojure/test/tap.clj") },
     // cljw.wasm (W1, D-404) — require-a-component over the wasm/ primitives.
-    // Require-on-demand AND wasm-gated (the lookup below only serves it under
-    // `-Dwasm`, since the wasm/ ns it rides is absent otherwise). Appended last.
-    .{ .label = "<cljw.wasm>", .source = embedSrc("clj/cljw/wasm.clj") },
+    // Require-on-demand AND wasm-gated: `wasm_only` drops it from ACTIVE_FILES
+    // and from the lookup below in a build without `-Dwasm`. Its `wasm/…` call
+    // sites resolve at ANALYZE time, so a non-`-Dwasm` build cannot compile it
+    // at all — the file must leave every walk, not merely the resolver.
+    .{ .label = "<cljw.wasm>", .source = embedSrc("clj/cljw/wasm.clj"), .wasm_only = true },
     // clojure.spec.gen.alpha + clojure.spec.alpha — official stdlib (ships in
     // clojure.jar), so eager-bundled (the stdlib-eager / contrib-completeness
     // policy). gen loads FIRST (alpha `(:require clojure.spec.gen.alpha)`).
@@ -172,13 +188,28 @@ pub const FILES: []const FileEntry = &.{
     .{ .label = "<clojure.repl>", .source = embedSrc("clj/clojure/repl.clj") },
 };
 
+/// The build-active subset of `FILES`. **Every walk that compiles, emits, or
+/// replays bundled files iterates this, never `FILES`** — `FILES` keeps its
+/// full shape (and its stable indices) so `lookupEmbeddedFile` stays index-keyed.
+pub const ACTIVE_FILES: []const FileEntry = blk: {
+    var active: [FILES.len]FileEntry = undefined;
+    var n: usize = 0;
+    for (FILES) |file| {
+        if (!isActiveFile(file)) continue;
+        active[n] = file;
+        n += 1;
+    }
+    const frozen = active;
+    break :blk frozen[0..n];
+};
+
 /// The bundled `.clj` text for `label` (C5'-b). Raw mode (cache_gen)
 /// returns the embedded slice; the shipped cljw decompresses from the
 /// `bootstrap_sources` blob into `rt.load_arena` (session lifetime — the
 /// text backs SourceContext renders and source replays). Returns null for
 /// labels outside the bundled set.
 pub fn sourceText(rt: *Runtime, label: []const u8) ?[]const u8 {
-    for (FILES) |file| {
+    for (ACTIVE_FILES) |file| {
         if (!std.mem.eql(u8, file.label, label)) continue;
         if (file.source) |raw| return raw;
         break;
@@ -257,7 +288,8 @@ fn lookupEmbeddedFile(ns_name: []const u8) ?FileEntry {
     // cljw.wasm rides the `wasm/` primitive ns, which only exists in a `-Dwasm`
     // build — so it is resolvable only there (a non-wasm build reports the ns as
     // not found, honest, rather than failing on an unresolvable `wasm/…` later).
-    if (build_options.wasm and std.mem.eql(u8, ns_name, "cljw.wasm")) return FILES[23];
+    // The gate is `isActiveFile`, the SAME predicate ACTIVE_FILES uses.
+    if (std.mem.eql(u8, ns_name, "cljw.wasm")) return if (isActiveFile(FILES[23])) FILES[23] else null;
     if (std.mem.eql(u8, ns_name, "clojure.spec.gen.alpha")) return FILES[24];
     if (std.mem.eql(u8, ns_name, "clojure.spec.alpha")) return FILES[25];
     if (std.mem.eql(u8, ns_name, "clojure.core.specs.alpha")) return FILES[26];
@@ -305,8 +337,8 @@ pub fn loadCore(
     // ADR-0163: pre-register before the source files eval so each file's
     // intra-bootstrap `(:require other-bootstrap-lib)` is a loaded_libs no-op
     // (mirrors the AOT path; without it the new loadOrFindNs guard re-parses).
-    try markFilesLoaded(rt, FILES);
-    try loadCoreFiles(arena, rt, env, macro_table, FILES);
+    try markFilesLoaded(rt, ACTIVE_FILES);
+    try loadCoreFiles(arena, rt, env, macro_table, ACTIVE_FILES);
     try finalizeUserNs(rt, env);
 }
 
@@ -643,7 +675,7 @@ pub fn loadCoreAot(
     // (e.g. spec.alpha requires walk — both eager). Without this the loaded_libs
     // guard would re-parse. Run only the eager regions; every other ns replays from
     // its region on first `require` (loadOrFindNs → loadRegionNamespace).
-    for (FILES) |file| {
+    for (ACTIVE_FILES) |file| {
         const ns_name = nsNameFromLabel(file.label);
         if (isEagerNs(ns_name)) try markOneLoaded(rt, ns_name);
     }
@@ -651,7 +683,7 @@ pub fn loadCoreAot(
     // the whole eager set; lazy requires re-parse per replay (cheap slice walk).
     var blob_pool = try serialize.readBlobPool(rt.gpa, bootstrap_blob);
     defer if (blob_pool) |*cp| cp.deinit(rt.gpa);
-    for (FILES) |file| {
+    for (ACTIVE_FILES) |file| {
         const ns_name = nsNameFromLabel(file.label);
         if (!isEagerNs(ns_name)) continue;
         // A missing region means the embedded blob is malformed (build bug).
@@ -815,6 +847,33 @@ test "embeddedResolver returns null for unknown namespaces" {
     try testing.expect((try embeddedResolver(&rt, "no.such.ns")) == null);
     try testing.expect((try embeddedResolver(&rt, "")) == null);
     try testing.expect((try embeddedResolver(&rt, "clojure")) == null);
+}
+
+test "ACTIVE_FILES and lookupEmbeddedFile gate on the same predicate" {
+    // The non-wasm bootstrap break: cache_gen AOT-compiled every FILES entry
+    // while lookupEmbeddedFile refused to serve `cljw.wasm` without `-Dwasm`,
+    // so a build with the flag off died analysing a file it could never load
+    // ("No namespace: 'wasm'"). Both sides now read `isActiveFile`, and this
+    // test pins the coupling in EITHER build config — so the next gated file
+    // cannot be added to one walk and forgotten in the other.
+    //
+    // Only the INACTIVE direction is asserted: an active file need not be
+    // name-resolvable (`<clojure.core-meta>` and `<clojure.repl>` deliberately
+    // have no `lookupEmbeddedFile` row), but an inactive one must be absent
+    // from BOTH — that asymmetry is exactly what the break violated.
+    for (FILES) |file| {
+        if (isActiveFile(file)) continue;
+        // Inactive ⇒ unresolvable, and absent from the walked set.
+        try testing.expect(lookupEmbeddedFile(nsNameFromLabel(file.label)) == null);
+        for (ACTIVE_FILES) |active| {
+            try testing.expect(!std.mem.eql(u8, active.label, file.label));
+        }
+    }
+    // Exactly one gated file today; ACTIVE_FILES is FILES under `-Dwasm`.
+    try testing.expectEqual(
+        @as(usize, if (build_options.wasm) FILES.len else FILES.len - 1),
+        ACTIVE_FILES.len,
+    );
 }
 
 test "installEmbeddedResolver sets rt.require_resolver" {

@@ -185,8 +185,9 @@ pub fn buildEnvelope(
     return serialize.serializeEnvelope(allocator, all.items, null, components.items, &pb, true);
 }
 
-/// AOT-compile the WHOLE eager bootstrap (`bootstrap.FILES` — clojure.core +
-/// the 23 non-core bundled `.clj` libs) to one bytecode envelope, mirroring
+/// AOT-compile the WHOLE eager bootstrap (`bootstrap.ACTIVE_FILES` — clojure.core
+/// + the non-core bundled `.clj` libs this build carries) to one bytecode
+/// envelope, mirroring
 /// `bootstrap.loadCoreFiles`'s per-file read→analyze→compile→eval loop but
 /// CAPTURING each form's compiled chunk (D-452 Part B / ADR-0056 Cycle 3). The
 /// load path (`bootstrap.loadCoreAot`) runs this via `driver.runEnvelope`
@@ -361,9 +362,17 @@ const BuildSpec = union(enum) {
 /// per `spec`, and append it to a copy of the running cljw binary as a
 /// self-contained `"CLJC"`-trailered executable. `buildFile` / `buildMainFile`
 /// are the two thin entry points (F-009/F-011 — one setup, one write tail).
-fn buildArtifact(io: std.Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, out_path: []const u8, load_paths: []const []const u8, spec: BuildSpec) !void {
+///
+/// `stdout` is the CLI's one process-shared writer, threaded in for the same
+/// reason `tryRunEmbedded` takes it (D-096): build-time eval runs the entry's
+/// top-level forms, and their `println` must land on that single offset-tracking
+/// writer. A fresh per-call writer restarts at file offset 0, so on a seekable
+/// stdout (`cljw build app.clj > build.log`) every form overwrote the previous
+/// one and only the last survived.
+fn buildArtifact(io: std.Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, stdout: *std.Io.Writer, out_path: []const u8, load_paths: []const []const u8, spec: BuildSpec) !void {
     var rt = Runtime.init(io, gpa);
     defer rt.deinit();
+    rt.stdout = stdout;
     var env = try Env.init(&rt);
     defer env.deinit();
     driver.installVTable(&rt);
@@ -395,6 +404,9 @@ fn buildArtifact(io: std.Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, o
     var ow = out.writer(io, &wbuf);
     try ow.interface.writeAll(artifact);
     try ow.interface.flush();
+    // Build-time eval's own output, flushed BEFORE the exit barrier below —
+    // that barrier may hard-exit, which would drop a buffered tail.
+    try stdout.flush();
     // Exit barrier (ADR-0176): build-time eval may have spawned workers;
     // hard-exit if any is live rather than tear down under it (D-548(a)).
     @import("../runtime/thread.zig").exitBarrier(&rt);
@@ -404,18 +416,18 @@ fn buildArtifact(io: std.Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, o
 /// payload envelope and append it to a copy of the running cljw binary as a
 /// self-contained artifact with a `"CLJC"` trailer (ADR-0034 amendment 1/2).
 /// Build-time eval runs top-level side effects (A1-D2). The output is executable.
-pub fn buildFile(io: std.Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, in_path: []const u8, out_path: []const u8, load_paths: []const []const u8) !void {
+pub fn buildFile(io: std.Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, stdout: *std.Io.Writer, in_path: []const u8, out_path: []const u8, load_paths: []const []const u8) !void {
     const source = try readFileAll(io, gpa, in_path);
     defer gpa.free(source);
-    return buildArtifact(io, gpa, arena, out_path, load_paths, .{ .script = .{ .src = source, .label = in_path } });
+    return buildArtifact(io, gpa, arena, stdout, out_path, load_paths, .{ .script = .{ .src = source, .label = in_path } });
 }
 
 /// `cljw build -m <ns> [args…] -o <out>` (main mode, ADR-0034 am4): embed the
 /// require closure for `<ns>` + an entry manifest; the produced binary invokes
 /// `(<ns>/-main args)` at run, NOT at build (so a server `-main` does not hang
 /// the build).
-pub fn buildMainFile(io: std.Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, ns: []const u8, args: []const []const u8, out_path: []const u8, load_paths: []const []const u8) !void {
-    return buildArtifact(io, gpa, arena, out_path, load_paths, .{ .main = .{ .ns = ns, .args = args } });
+pub fn buildMainFile(io: std.Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, stdout: *std.Io.Writer, ns: []const u8, args: []const []const u8, out_path: []const u8, load_paths: []const []const u8) !void {
+    return buildArtifact(io, gpa, arena, stdout, out_path, load_paths, .{ .main = .{ .ns = ns, .args = args } });
 }
 
 /// Startup hook: if the running binary carries an embedded payload trailer,
@@ -657,7 +669,7 @@ test "aot: full bootstrap round-trips — a NON-core lib restores from bytecode 
         var table = macro_dispatch.Table.init(A);
         defer table.deinit();
         try bootstrap.setupCorePrefix(&rt, &env, &table);
-        blob = try buildBootstrapEnvelope(A, &rt, &env, &table, arena, bootstrap.FILES);
+        blob = try buildBootstrapEnvelope(A, &rt, &env, &table, arena, bootstrap.ACTIVE_FILES);
     }
     defer A.free(blob);
 
@@ -676,8 +688,8 @@ test "aot: full bootstrap round-trips — a NON-core lib restores from bytecode 
     try bootstrap.setupCorePrefix(&rt, &env, &table);
     // The whole eager bootstrap from the region blob (no .clj re-parse) — mirrors
     // the loadCoreAot path: pre-register loaded_libs, then run every region in order.
-    try bootstrap.markFilesLoaded(&rt, bootstrap.FILES);
-    try bootstrap.runEagerRegions(&rt, &env, arena, blob, bootstrap.FILES);
+    try bootstrap.markFilesLoaded(&rt, bootstrap.ACTIVE_FILES);
+    try bootstrap.runEagerRegions(&rt, &env, arena, blob, bootstrap.ACTIVE_FILES);
 
     // clojure.string/upper-case is a non-core lib var: present ONLY if the
     // non-core AOT chunks ran. Call it to prove the restored fn dispatches.

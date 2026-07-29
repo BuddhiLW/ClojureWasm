@@ -241,13 +241,13 @@ pub fn dispatch(init: std.process.Init) !void {
                 std.process.exit(1);
             }
             if (main_ns) |mns| {
-                builder.buildMainFile(io, gpa, arena, mns, main_args.items, out, deps.load_paths) catch |err| {
+                builder.buildMainFile(io, gpa, arena, stdout, mns, main_args.items, out, deps.load_paths) catch |err| {
                     try stderr.print("build failed: {s}\n", .{@errorName(err)});
                     try stderr.flush();
                     std.process.exit(1);
                 };
             } else {
-                builder.buildFile(io, gpa, arena, in_path.?, out, deps.load_paths) catch |err| {
+                builder.buildFile(io, gpa, arena, stdout, in_path.?, out, deps.load_paths) catch |err| {
                     try stderr.print("build failed: {s}\n", .{@errorName(err)});
                     try stderr.flush();
                     std.process.exit(1);
