@@ -5,6 +5,18 @@ All notable changes to ClojureWasm are documented here. The format follows
 [SemVer](https://semver.org/). SemVer compatibility guarantees start at the
 first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 
+## [Unreleased]
+
+### Changed
+
+- **zwasm pinned to v2.4.0** (its external-consumer release:
+  `-Dcompiler-rt` for linking `libzwasm.a` from a non-Zig toolchain, and
+  a DCE fix that keeps the WasmGC cohort out of sub-3.0 builds). Neither
+  reaches cljw — cljw links zwasm through Zig, which supplies its own
+  compiler-rt, and it builds at zwasm's default Wasm 3.0 level where the
+  DCE guard is inert. Pin hygiene, not a behaviour follow; `-Dwasm`
+  build + the phase16 wasm e2e suite verified green on the new pin.
+
 ## [1.5.1] - 2026-07-17
 
 Patch release: dependency follow.

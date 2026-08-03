@@ -10,7 +10,8 @@
   == the local full gate, all e2e), so a red push CI is the immediate
   e2e signal, not a next-day nightly. Commit **and** push (atomic
   Step 6). `build.zig.zon` `.zwasm` = tag pin
-  `v2.3.0` (2026-07-17 engine follow, no API change). Latest release:
+  `v2.4.0` (2026-08-03; zwasm's external-consumer release — nothing in
+  it reaches cljw, pin hygiene only). Latest release:
   **v1.5.1** (2026-07-17; zwasm-pin patch release on top of v1.5.0 =
   the ADR-0174 host-class campaign + Thread lifecycle; tap carries
   cljw 1.5.1 + zwasm). CHANGELOG is the release-history SSOT.

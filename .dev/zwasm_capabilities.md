@@ -2,9 +2,10 @@
 
 > **SSOT for "what does the zwasm we embed offer, and what has cljw adopted".**
 > cljw embeds **zwasm v2** (F-001, unavoidable). The dep is a **tag pin** —
-> **v2.3.0** (see § Pin), pinned 2026-07-17 — the WASI-0.3.0-official
-> inventory-sweep release (no embedding-API/JIT-output change); prior v2.2.1
-> (2026-07-16) was the binary-size campaign, v2.2.0 (`cf5d20d7`, 2026-07-09)
+> **v2.4.0** (see § Pin), pinned 2026-08-03 — the external-consumer release,
+> none of which reaches cljw; prior v2.3.0 (2026-07-17) was the
+> WASI-0.3.0-official inventory sweep, v2.2.1 (2026-07-16) the binary-size
+> campaign, v2.2.0 (`cf5d20d7`, 2026-07-09)
 > the AOT-full-fidelity release (ADR-0203). zwasm is itself under active
 > co-development (`~/Documents/MyProducts/zwasm`) and its embedding API is
 > *growing* — notably a **JIT-backed
@@ -44,16 +45,24 @@ a cljw-side shim.
 
 ## Pin
 
-- **TAG PIN — v2.3.0, pinned 2026-07-17.** `build.zig.zon`
-  `.zwasm` = `.url = "git+…/zwasm.git#v2.3.0"` + `.hash = "zwasm-2.3.0-FT1Fv8Qh…"`,
-  resolved from GitHub. The WASI-0.3.0-official inventory-sweep release:
-  docs truth-sweep vs the officially released WASI 0.3.0 (2026-06-11),
+- **TAG PIN — v2.4.0, pinned 2026-08-03.** `build.zig.zon`
+  `.zwasm` = `.url = "git+…/zwasm.git#v2.4.0"` + `.hash = "zwasm-2.4.0-FT1Fv9E0…"`,
+  resolved from GitHub. The external-consumer release: `-Dcompiler-rt`
+  bundles Zig's compiler-rt into `libzwasm.a` for non-Zig linkers
+  (zwasm #153/#154), and a DCE fix keeps the WasmGC cohort out of
+  sub-3.0 builds (zwasm #150). **Neither reaches cljw, structurally**:
+  cljw links zwasm through Zig (`b.lazyDependency`), which supplies its
+  own compiler-rt, and it passes no `-Dwasm` override so it builds at
+  zwasm's default `3.0` — where the DCE guard is `if (comptime false)`
+  and the real helper bodies run unchanged. So this pin is hygiene, not
+  a behaviour follow; no cljw-side size or output delta is claimed.
+  Verified: `zig build -Dwasm` + phase16 wasm e2e (ffi / engine_select /
+  run / component / require_component) all green on the new pin.
+  Executed under the user's standing tag-watch directive, user-
+  directed this session. Prior: **v2.3.0** (2026-07-17), the
+  WASI-0.3.0-official inventory sweep (docs truth-sweep,
   `wasi:clocks/system-clock` + `get-resolution` component-host support,
-  Homebrew packaging (`brew install clojurewasm/tap/zwasm`). NO
-  embedding-API / behaviour / JIT-output change — a pure engine follow
-  for cljw (the new surface is component-host-level, which cljw does not
-  use). Executed under the user's standing tag-watch directive, user-
-  directed this session. Prior: **v2.2.1** (2026-07-16), the binary-size
+  Homebrew packaging) — also a pure engine follow. Prior: **v2.2.1** (2026-07-16), the binary-size
   campaign (zwasm ADR-0204 / D-522 stage 1: JIT host-callback thunk
   collapse, `api.jit_host_bridge` 1,311 KB → 232 KB, zwasm CLI −21%;
   measured cljw effect: shipped binary 8,583,352 → **7,499,896 B
