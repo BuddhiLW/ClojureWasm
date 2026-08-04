@@ -9,13 +9,18 @@ reports seriously.
 
 ## Supported versions
 
-ClojureWasm is currently **pre-1.0** (`1.0.0-rc.*` / `1.0.0-alpha.*`). Security
-fixes land on the `main` branch and the newest pre-release tag.
+Security fixes land on the `main` branch and in the next release cut from it.
+Only the newest release line is supported — this is a small project and there
+is no backport branch.
 
-| Version                 | Supported |
-|-------------------------|-----------|
-| `1.0.0-rc.*` / `main`   | ✅        |
-| earlier `1.0.0-alpha.*` | ❌        |
+| Version                        | Supported |
+|--------------------------------|-----------|
+| `main`                         | ✅        |
+| newest `1.x` release           | ✅        |
+| any older release              | ❌        |
+
+If you are on Homebrew, `brew upgrade clojurewasm/tap/cljw` puts you on the
+supported line.
 
 ## Reporting a vulnerability
 

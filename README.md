@@ -17,10 +17,14 @@
 </p>
 
 > [!NOTE]
-> ClojureWasm has reached its first stable release (**1.0.0**), but it is built by
-> a very small team with limited resources. To keep that focus, **Issues and Pull Requests are not
-> being accepted** right now. You are very welcome to read along, try it, and
-> say hello in [GitHub Discussions](https://github.com/clojurewasm/ClojureWasm/discussions).
+> ClojureWasm is stable and released regularly; the current line is **1.x**
+> (see [Releases](https://github.com/clojurewasm/ClojureWasm/releases)). It is
+> built by a very small team, so replies can take a while — but
+> [Issues](https://github.com/clojurewasm/ClojureWasm/issues) and Pull Requests
+> are open. **The single most useful thing you can report is Clojure code that
+> behaves differently here than on the JVM**; there is an issue template for
+> exactly that. Questions and general discussion are welcome in
+> [Discussions](https://github.com/clojurewasm/ClojureWasm/discussions).
 
 ## What it is
 
