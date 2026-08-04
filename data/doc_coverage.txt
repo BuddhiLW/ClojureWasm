@@ -8,9 +8,10 @@
 # catches.
 #
 # Known clusters, so the list is read rather than skimmed:
-#   clojure.pprint — ~50 of these are cljw-internal `cl-*` formatter
-#     helpers that upstream keeps private. They are a leaked API surface
-#     rather than a documentation gap; the fix is `defn-`, not prose.
+#   clojure.pprint — the ~50 cljw-internal `cl-*` formatter helpers were
+#     made private 2026-08-04 (upstream keeps them private too), which is
+#     why this cluster is now small: they were a leaked API surface, not a
+#     documentation gap, and `defn-` was the fix rather than prose.
 #   clojure.math   — upstream's docstrings all end in a java.lang.Math
 #     Javadoc URL, so importing them verbatim would ship 45 Java-8 links
 #     as the reference for a runtime with no java.lang.Math. These need
@@ -201,56 +202,7 @@ clojure.math/to-degrees
 clojure.math/to-radians
 clojure.math/ulp
 clojure.pprint/*print-pprint-dispatch*
-clojure.pprint/cl-cap-words
-clojure.pprint/cl-cardinal
-clojure.pprint/cl-case
-clojure.pprint/cl-char-pretty
-clojure.pprint/cl-clauses
-clojure.pprint/cl-close
-clojure.pprint/cl-close-nested
-clojure.pprint/cl-col
-clojure.pprint/cl-digit?
-clojure.pprint/cl-dir
-clojure.pprint/cl-efloat
-clojure.pprint/cl-expand-exp
-clojure.pprint/cl-expand-fixed
-clojure.pprint/cl-ffixed
-clojure.pprint/cl-float-natural
-clojure.pprint/cl-float-parts
-clojure.pprint/cl-float-parts-base
 clojure.pprint/cl-format
-clojure.pprint/cl-get-fixed
-clojure.pprint/cl-gfloat
-clojure.pprint/cl-group
-clojure.pprint/cl-inc-s
-clojure.pprint/cl-insert-decimal
-clojure.pprint/cl-insert-scaled-decimal
-clojure.pprint/cl-int
-clojure.pprint/cl-iter
-clojure.pprint/cl-iter-sub
-clojure.pprint/cl-justify
-clojure.pprint/cl-ltrim
-clojure.pprint/cl-money
-clojure.pprint/cl-ones
-clojure.pprint/cl-ord-ones
-clojure.pprint/cl-ordinal
-clojure.pprint/cl-ordinalize-word
-clojure.pprint/cl-pad
-clojure.pprint/cl-pad-col
-clojure.pprint/cl-parse-int
-clojure.pprint/cl-radix
-clojure.pprint/cl-resolve-params
-clojure.pprint/cl-roman
-clojure.pprint/cl-roman-pairs
-clojure.pprint/cl-round-str
-clojure.pprint/cl-rtrim
-clojure.pprint/cl-run
-clojure.pprint/cl-scales
-clojure.pprint/cl-seg-escapes?
-clojure.pprint/cl-tab
-clojure.pprint/cl-tens
-clojure.pprint/cl-under-100
-clojure.pprint/cl-under-1000
 clojure.pprint/code-dispatch
 clojure.pprint/pprint
 clojure.pprint/print-table
