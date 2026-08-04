@@ -2059,16 +2059,16 @@ publics and had drifted to contradict its own source tree.
 
 ### 15.2 Local reference clones (already present)
 
-| Path                                                               | Purpose                                                                                                                             |
-|--------------------------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------|
-| cw v0 — git tag `v0.5.0`                                          | ClojureWasm v0 (89K LOC). Design reference; NOT in `main`'s tree (`-s ours` merge) — reach via `git worktree add ../cw-v0 v0.5.0`. |
-| `~/Documents/OSS/clojure/`                                         | Upstream Clojure JVM. core.clj / LispReader.java / Numbers.java.                                                                    |
-| `~/Documents/OSS/babashka/`                                        | Babashka (SCI-based). Pod / native / compatibility precedent.                                                                       |
-| `~/Documents/OSS/spec.alpha/`                                      | clojure.spec.alpha source.                                                                                                          |
-| `$(zig env \| grep std_dir)`                                        | Zig stdlib source — the pinned toolchain's own, not a clone (a clone drifts from the pin; ADR-0090 §Context).                        |
+| Path                                                               | Purpose                                                                                                                                     |
+|--------------------------------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------|
+| cw v0 — git tag `v0.5.0`                                          | ClojureWasm v0 (89K LOC). Design reference; NOT in `main`'s tree (`-s ours` merge) — reach via `git worktree add ../cw-v0 v0.5.0`.         |
+| `~/Documents/OSS/clojure/`                                         | Upstream Clojure JVM. core.clj / LispReader.java / Numbers.java.                                                                            |
+| `~/Documents/OSS/babashka/`                                        | Babashka (SCI-based). Pod / native / compatibility precedent.                                                                               |
+| `~/Documents/OSS/spec.alpha/`                                      | clojure.spec.alpha source.                                                                                                                  |
+| `$(zig env \| grep std_dir)`                                       | Zig stdlib source — the pinned toolchain's own, not a clone (a clone drifts from the pin; ADR-0090 §Context).                             |
 | `~/Documents/OSS/wasmtime/`                                        | Wasm runtime reference. **Clone on demand** (`git clone --depth 1 https://github.com/bytecodealliance/wasmtime`) — not present by default. |
-| `~/Documents/OSS/malli/`                                           | Spec alternative.                                                                                                                   |
-| `~/Documents/OSS/mattpocock_skills/improve-codebase-architecture/` | Module/Interface/Depth vocabulary and deepening principles.                                                                         |
+| `~/Documents/OSS/malli/`                                           | Spec alternative.                                                                                                                           |
+| `~/Documents/OSS/mattpocock_skills/improve-codebase-architecture/` | Module/Interface/Depth vocabulary and deepening principles.                                                                                 |
 
 ### 15.3 Official docs (web)
 
