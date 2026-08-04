@@ -19,31 +19,39 @@ fail() { echo "FAIL $1" >&2; exit 1; }
 F=test/e2e/fixtures/wasm/spam_stdout.wasm
 [ -f "$F" ] || fail "the spam fixture is missing"
 
-# Low fuel throughout: this asserts the MEMORY bound, and fuel is what ends the
-# run. At 1e6 fuel the uncapped guest produces 64 MB, which is the number that
-# makes each capped result below mean something.
+# Fuel is chosen per case for COST, not for coverage: the guest produces 64
+# bytes per unit of fuel, so a run's wall time is proportional to the volume it
+# would produce uncapped. 1e6 fuel (64 MB) costs ~60 s, and four of those made
+# this the most expensive step in the gate — so each case uses the least fuel
+# that still exceeds the cap it is testing.
+#   SMALL_FUEL 20000  -> ~1.28 MB uncapped: enough to overrun a 4096 / 100 cap
+#   DEF_FUEL  300000  -> ~19.2 MB uncapped: the least that overruns the 16 MiB
+#                        default, which is the one case that cannot be cheaper
+SMALL_FUEL=20000
+DEF_FUEL=300000
 run() { # run <opts> -> byte count
     "$BIN" -e "(println (count (:out (wasm/run \"$F\" $1))))" 2>/dev/null | head -1
 }
 
-got="$(run '{:fuel 1000000 :max-output-bytes 4096}')"
+got="$(run "{:fuel $SMALL_FUEL :max-output-bytes 4096}")"
 [[ "$got" == "4096" ]] || fail "explicit cap not honoured: expected 4096 bytes, got '$got'"
 echo "PASS explicit-cap -> $got"
 
-got="$(run '{:fuel 1000000 :max-output-bytes 100}')"
+got="$(run "{:fuel $SMALL_FUEL :max-output-bytes 100}")"
 [[ "$got" == "100" ]] || fail "small cap not honoured: expected 100 bytes, got '$got'"
 echo "PASS small-cap -> $got"
 
 # The default is finite, and well under what this guest would otherwise produce.
-got="$(run '{:fuel 1000000}')"
-[[ "$got" == "64000000" ]] && fail "the DEFAULT cap is not applied — the guest buffered 64 MB at 1e6 fuel, which is the pre-fix number"
-[[ "$got" -le 16777216 ]] || fail "default cap exceeded: got '$got' bytes"
+got="$(run "{:fuel $DEF_FUEL}")"
+[[ "$got" == "16777216" ]] || fail "the DEFAULT cap is not 16 MiB: got '$got' bytes (uncapped this fuel produces ~19.2 MB, so a larger number means no default applied)"
 echo "PASS default-cap-is-finite -> $got"
 
 # `<= 0` opts out, the same convention :fuel and :max-memory-pages use. This is
 # the case that proves the cap above is the cap and not some other limit.
-got="$(run '{:fuel 1000000 :max-output-bytes 0}')"
-[[ "$got" == "64000000" ]] || fail "unmetered opt-out changed the result: expected 64000000, got '$got'"
+# The load-bearing case: `<= 0` must give back the FULL volume, so the capped
+# numbers above are the cap and not some other limit. 20000 fuel * 64 B.
+got="$(run "{:fuel $SMALL_FUEL :max-output-bytes 0}")"
+[[ "$got" == "1280000" ]] || fail "unmetered opt-out changed the result: expected 1280000, got '$got'"
 echo "PASS unmetered-opt-out -> $got"
 
 # A guest that writes a normal amount is untouched.
