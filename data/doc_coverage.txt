@@ -12,10 +12,11 @@
 #     made private 2026-08-04 (upstream keeps them private too), which is
 #     why this cluster is now small: they were a leaked API surface, not a
 #     documentation gap, and `defn-` was the fix rather than prose.
-#   clojure.math   — upstream's docstrings all end in a java.lang.Math
-#     Javadoc URL, so importing them verbatim would ship 45 Java-8 links
-#     as the reference for a runtime with no java.lang.Math. These need
-#     authored prose.
+#   clojure.math   — DONE 2026-08-04 with AUTHORED prose, not imported:
+#     upstream's docstrings all end in a java.lang.Math Javadoc URL, which
+#     would be a Java-8 link as the reference for a runtime that has no
+#     java.lang.Math. Every behavioural claim in the authored text is a
+#     golden pair in test/diff/clj_corpus/math_doc_claims.txt.
 #   clojure.core   — the residue after core_meta.clj; mostly `-`-prefixed
 #     protocol methods and earmuffed dynamics upstream does not document
 #     either.
@@ -157,50 +158,6 @@ clojure.data/diff-sequential
 clojure.data/diff-similar
 clojure.data/equality-partition
 clojure.data/vectorize
-clojure.math/E
-clojure.math/IEEE-remainder
-clojure.math/PI
-clojure.math/acos
-clojure.math/add-exact
-clojure.math/asin
-clojure.math/atan
-clojure.math/atan2
-clojure.math/cbrt
-clojure.math/ceil
-clojure.math/copy-sign
-clojure.math/cos
-clojure.math/cosh
-clojure.math/decrement-exact
-clojure.math/exp
-clojure.math/expm1
-clojure.math/floor
-clojure.math/floor-div
-clojure.math/floor-mod
-clojure.math/get-exponent
-clojure.math/hypot
-clojure.math/increment-exact
-clojure.math/log
-clojure.math/log10
-clojure.math/log1p
-clojure.math/multiply-exact
-clojure.math/negate-exact
-clojure.math/next-after
-clojure.math/next-down
-clojure.math/next-up
-clojure.math/pow
-clojure.math/rint
-clojure.math/round
-clojure.math/scalb
-clojure.math/signum
-clojure.math/sin
-clojure.math/sinh
-clojure.math/sqrt
-clojure.math/subtract-exact
-clojure.math/tan
-clojure.math/tanh
-clojure.math/to-degrees
-clojure.math/to-radians
-clojure.math/ulp
 clojure.pprint/*print-pprint-dispatch*
 clojure.pprint/cl-format
 clojure.pprint/code-dispatch
