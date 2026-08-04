@@ -853,22 +853,22 @@ vars:
   "clojure.core/xml-seq": { impl: clj, flags: "-" }
   "clojure.core/zero?": { impl: zig, flags: "-" }
   "clojure.core/zipmap": { impl: clj, flags: "-" }
-  "clojure.data.csv/-write-csv-str": { impl: zig, flags: "-" }
+  "clojure.data.csv/-write-csv-str": { impl: zig, flags: "private" }
   "clojure.data.csv/read-csv": { impl: zig, flags: "-" }
   "clojure.data.csv/write-csv": { impl: clj, flags: "-" }
-  "clojure.data.json/-read-str-impl": { impl: zig, flags: "-" }
+  "clojure.data.json/-read-str-impl": { impl: zig, flags: "private" }
   "clojure.data.json/-transform-json": { impl: clj, flags: "private" }
-  "clojure.data.json/-write-str-impl": { impl: zig, flags: "-" }
+  "clojure.data.json/-write-str-impl": { impl: zig, flags: "private" }
   "clojure.data.json/read-str": { impl: clj, flags: "-" }
   "clojure.data.json/write-str": { impl: clj, flags: "-" }
-  "clojure.data/atom-diff": { impl: clj, flags: "-" }
+  "clojure.data/atom-diff": { impl: clj, flags: "private" }
   "clojure.data/diff": { impl: clj, flags: "-" }
-  "clojure.data/diff-associative": { impl: clj, flags: "-" }
-  "clojure.data/diff-associative-key": { impl: clj, flags: "-" }
-  "clojure.data/diff-sequential": { impl: clj, flags: "-" }
+  "clojure.data/diff-associative": { impl: clj, flags: "private" }
+  "clojure.data/diff-associative-key": { impl: clj, flags: "private" }
+  "clojure.data/diff-sequential": { impl: clj, flags: "private" }
   "clojure.data/diff-similar": { impl: clj, flags: "-" }
   "clojure.data/equality-partition": { impl: clj, flags: "-" }
-  "clojure.data/vectorize": { impl: clj, flags: "-" }
+  "clojure.data/vectorize": { impl: clj, flags: "private" }
   "clojure.datafy/datafy": { impl: clj, flags: "-" }
   "clojure.datafy/nav": { impl: clj, flags: "-" }
   "clojure.datafy/sortmap": { impl: clj, flags: "private" }

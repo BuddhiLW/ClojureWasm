@@ -15,7 +15,16 @@
 (ns clojure.data.csv
   (:refer-clojure))
 
-(def write-csv
+(def ^{:doc "Writes data to writer in CSV-format. data is a sequence of
+  sequences, one per row. Options are key-value pairs:
+
+  :separator  — the field separator (default \\,)
+  :quote      — the quote character (default \\\")
+  :newline    — :lf or :cr+lf (default :lf)
+
+  Returns nil."
+       :arglists (quote ([writer data & options]))}
+  write-csv
   (fn [writer data & options]
     (.write writer (apply -write-csv-str data options))
     nil))

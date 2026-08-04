@@ -344,6 +344,12 @@ const Entry = struct {
     f: dispatch.BuiltinFn,
 };
 
+/// These are the raw parsers `read-str` / `write-str` wrap; a caller has no
+/// reason to reach them, and upstream `clojure.data.json` has no such names.
+/// Interned `^:private` so they are not a public surface the project would owe
+/// documentation and compatibility for.
+const PRIVATE: env_mod.MetadataMap = .{ .private = true };
+
 const ENTRIES = [_]Entry{
     // Raw 1-arity parsers; the public `read-str`/`write-str` (clojure.data.json
     // ns, json.clj) wrap these to add the `:key-fn`/`:value-fn` options (D-401).
@@ -354,6 +360,6 @@ const ENTRIES = [_]Entry{
 pub fn register(env: *Env) !void {
     const ns = try env.findOrCreateNs("clojure.data.json");
     for (ENTRIES) |it| {
-        _ = try env.intern(ns, it.name, Value.initBuiltinFn(it.f), null);
+        _ = try env.intern(ns, it.name, Value.initBuiltinFn(it.f), PRIVATE);
     }
 }

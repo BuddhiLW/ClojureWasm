@@ -240,18 +240,26 @@ fn writeCsvField(w: *std.Io.Writer, s: []const u8, opts: CsvOpts) !void {
 const Entry = struct {
     name: []const u8,
     f: dispatch.BuiltinFn,
+    meta: Meta = .{},
 };
 
+/// `read-csv` is the public API; `-write-csv-str` is the string-returning impl
+/// that `write-csv` wraps, and has no upstream counterpart.
+const Meta = @import("../../runtime/env.zig").MetadataMap;
+
 const ENTRIES = [_]Entry{
-    .{ .name = "read-csv", .f = &readCsvFn },
+    .{ .name = "read-csv", .f = &readCsvFn, .meta = .{
+        .doc = "Reads CSV-data from the string s into a lazy sequence of vectors.\n\n  Valid options are\n    :separator (default \\,)\n    :quote (default \\\")",
+        .arglists = "([s] [s & options])",
+    } },
     // The public JVM-shape `write-csv` (writer-first, returns nil) wraps this
     // in csv.clj; the impl serialises to a string.
-    .{ .name = "-write-csv-str", .f = &writeCsvFn },
+    .{ .name = "-write-csv-str", .f = &writeCsvFn, .meta = .{ .private = true } },
 };
 
 pub fn register(env: *Env) !void {
     const ns = try env.findOrCreateNs("clojure.data.csv");
     for (ENTRIES) |it| {
-        _ = try env.intern(ns, it.name, Value.initBuiltinFn(it.f), null);
+        _ = try env.intern(ns, it.name, Value.initBuiltinFn(it.f), it.meta);
     }
 }
