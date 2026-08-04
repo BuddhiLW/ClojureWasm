@@ -213,6 +213,35 @@ fn bigFromU64(rt: *Runtime, n: u64) !Value {
     return try big_int.allocFromManaged(rt, &m, .bigint);
 }
 
+/// `[:tag …]` → the tag's keyword name. The shared shape check for `result` and
+/// `variant`, which ADR-0135 amendment 2 gave the same tagged-vector form so one
+/// destructuring idiom covers every WIT sum type.
+fn taggedVectorTag(v: Value, loc: SourceLocation) ![]const u8 {
+    if (v.tag() != .vector or vector_mod.count(v) == 0)
+        return error_catalog.raise(.wasm_opts_invalid, loc, .{ .detail = "a result / variant argument must be a [:tag payload] vector" });
+    const head = vector_mod.nth(v, 0);
+    if (head.tag() != .keyword)
+        return error_catalog.raise(.wasm_opts_invalid, loc, .{ .detail = "the first element of a result / variant argument must be a keyword" });
+    return keyword_mod.asKeyword(head).name;
+}
+
+/// The optional payload slot of a `[:tag payload]` vector, lowered against the
+/// arm's type. Absent slot + absent type is the payload-less case; a mismatch in
+/// either direction is a usage error rather than a silent nil.
+fn taggedVectorPayload(rt: *Runtime, scratch: std.mem.Allocator, v: Value, ty: ?*const WitType, loc: SourceLocation) !?*ComponentValue {
+    const has_slot = vector_mod.count(v) > 1;
+    if (ty == null) {
+        if (has_slot)
+            return error_catalog.raise(.wasm_opts_invalid, loc, .{ .detail = "this case carries no payload, but one was supplied" });
+        return null;
+    }
+    if (!has_slot)
+        return error_catalog.raise(.wasm_opts_invalid, loc, .{ .detail = "this case carries a payload, but none was supplied" });
+    const boxed = try scratch.create(ComponentValue);
+    boxed.* = try lower(rt, scratch, vector_mod.nth(v, 1), ty.?.*, loc);
+    return boxed;
+}
+
 /// Lower a cljw Value into a `ComponentValue` directed by the WIT param type
 /// (the ADR-0135 table, lower direction). Compound nodes allocate on `scratch`
 /// (an arena the invoke owns); strings borrow the GC string. enum/variant are
@@ -242,7 +271,15 @@ fn lower(rt: *Runtime, scratch: std.mem.Allocator, v: Value, ty: WitType, loc: S
             .s64 => .{ .s64 = try marshal.coerceInt(v, i64, loc) },
             .f32 => .{ .f32 = @floatCast(v.asFloat()) },
             .f64 => .{ .f64 = v.asFloat() },
-            .char => .{ .char = try marshal.coerceInt(v, u21, loc) },
+            // A WIT `char` is a Unicode scalar value, and cljw's char IS one
+            // (21-bit, unlike a JVM Character — ADR-0135 amendment 2). Accept
+            // the char directly; an integer codepoint is also accepted because
+            // the LIFT side hands back a char and a caller may have built one
+            // arithmetically. This row had never worked: it was
+            // `@intCast(v.asInteger())`, and `asInteger()` on a char value is
+            // not its codepoint, so the first end-to-end run of the typed
+            // fixture is what surfaced it.
+            .char => .{ .char = if (v.tag() == .char) v.asChar() else try marshal.coerceInt(v, u21, loc) },
             else => error_catalog.raise(.feature_not_supported, loc, .{ .name = "wasm/component-invoke: this WIT param type" }),
         },
         .record => |fields| {
@@ -294,7 +331,30 @@ fn lower(rt: *Runtime, scratch: std.mem.Allocator, v: Value, ty: WitType, loc: S
         },
         .own => return .{ .own = try rawResourceHandle(v, loc) },
         .borrow => return .{ .borrow = try rawResourceHandle(v, loc) },
-        .result, .variant => return error_catalog.raise(.feature_not_supported, loc, .{ .name = "wasm/component-invoke: result/variant param (rare on the input side)" }),
+        // The tagged-vector shapes ADR-0135 amendment 2 settled, in the LOWER
+        // direction: `[:ok v]` / `[:err e]` and `[:case-name payload]`, payload
+        // slot optional. Both were `feature_not_supported`, so the shapes the
+        // lift side produces could not be handed back — a component taking a
+        // `result` or `variant` param was unreachable, and the amendment's own
+        // round-trip was untestable.
+        .result => |r| {
+            const tag = try taggedVectorTag(v, loc);
+            const is_ok = std.mem.eql(u8, tag, "ok");
+            if (!is_ok and !std.mem.eql(u8, tag, "err"))
+                return error_catalog.raise(.wasm_opts_invalid, loc, .{ .detail = "a result argument must be [:ok v] or [:err e]" });
+            const pt: ?*const WitType = if (is_ok) r.ok else r.err;
+            const payload = try taggedVectorPayload(rt, scratch, v, pt, loc);
+            return .{ .result = .{ .is_ok = is_ok, .payload = payload } };
+        },
+        .variant => |cases| {
+            const tag = try taggedVectorTag(v, loc);
+            for (cases, 0..) |c, i| {
+                if (!std.mem.eql(u8, c.name, tag)) continue;
+                const payload = try taggedVectorPayload(rt, scratch, v, c.payload, loc);
+                return .{ .variant = .{ .case = @intCast(i), .case_name = c.name, .payload = payload } };
+            }
+            return error_catalog.raise(.wasm_opts_invalid, loc, .{ .detail = "the variant case keyword does not name a case of this type" });
+        },
     }
 }
 
@@ -706,4 +766,79 @@ test "lowering an out-of-range integer is a catchable error, not a panic" {
     );
     // …and an in-range value still passes.
     try testing.expectEqual(@as(u8, 200), try marshal.coerceInt(Value.initInteger(200), u8, loc));
+}
+
+/// `[:tag …]` from Zig, so a lowering test does not need a live component.
+fn taggedVec(rt: *Runtime, tag: []const u8, payload: ?Value) !Value {
+    var out = vector_mod.empty();
+    out = try vector_mod.conj(rt, out, try keyword_mod.intern(rt, null, tag));
+    if (payload) |pv| out = try vector_mod.conj(rt, out, pv);
+    return out;
+}
+
+test "result and variant lower from the tagged-vector shape the lift produces" {
+    var fix = TestFixture.init();
+    defer fix.deinit();
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const loc: SourceLocation = .{};
+
+    // Both were `feature_not_supported`, so ADR-0135 amendment 2's round-trip
+    // was one-way: a component taking a `result` or `variant` param could not
+    // be called at all, and the shapes the lift hands back could not be handed
+    // in. These assert the two directions now agree.
+    const u32_ty: WitType = .{ .prim = .u32 };
+    const str_ty: WitType = .{ .prim = .string };
+    const res_ty: WitType = .{ .result = .{ .ok = &u32_ty, .err = &str_ty } };
+
+    const ok = try lower(&fix.rt, a, try taggedVec(&fix.rt, "ok", Value.initInteger(7)), res_ty, loc);
+    try testing.expect(ok.result.is_ok);
+    try testing.expectEqual(@as(u32, 7), ok.result.payload.?.u32);
+
+    const err = try lower(&fix.rt, a, try taggedVec(&fix.rt, "err", try string_mod.alloc(&fix.rt, "boom")), res_ty, loc);
+    try testing.expect(!err.result.is_ok);
+    try testing.expectEqualStrings("boom", err.result.payload.?.string);
+
+    const f64_ty: WitType = .{ .prim = .f64 };
+    const cases = [_]WitType.Case{
+        .{ .name = "circle", .payload = &f64_ty },
+        .{ .name = "point", .payload = null },
+    };
+    const var_ty: WitType = .{ .variant = &cases };
+
+    const circle = try lower(&fix.rt, a, try taggedVec(&fix.rt, "circle", Value.initFloat(1.5)), var_ty, loc);
+    try testing.expectEqual(@as(u32, 0), circle.variant.case);
+    try testing.expectEqual(@as(f64, 1.5), circle.variant.payload.?.f64);
+
+    // A payload-less case is `[:tag]`, not `[:tag nil]` — the lift emits the
+    // one-element form, so lowering must accept exactly that.
+    const point = try lower(&fix.rt, a, try taggedVec(&fix.rt, "point", null), var_ty, loc);
+    try testing.expectEqual(@as(u32, 1), point.variant.case);
+    try testing.expect(point.variant.payload == null);
+}
+
+test "a malformed tagged vector is a catchable usage error, not a silent nil" {
+    var fix = TestFixture.init();
+    defer fix.deinit();
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const loc: SourceLocation = .{};
+
+    const u32_ty: WitType = .{ .prim = .u32 };
+    const str_ty: WitType = .{ .prim = .string };
+    const res_ty: WitType = .{ .result = .{ .ok = &u32_ty, .err = &str_ty } };
+    const cases = [_]WitType.Case{.{ .name = "point", .payload = null }};
+    const var_ty: WitType = .{ .variant = &cases };
+
+    // Not a vector at all.
+    try testing.expectError(error.ValueError, lower(&fix.rt, a, try keyword_mod.intern(&fix.rt, null, "ok"), res_ty, loc));
+    // A tag that names no case: silently choosing case 0 would send the guest
+    // a different variant than the caller wrote.
+    try testing.expectError(error.ValueError, lower(&fix.rt, a, try taggedVec(&fix.rt, "nope", Value.initInteger(1)), res_ty, loc));
+    try testing.expectError(error.ValueError, lower(&fix.rt, a, try taggedVec(&fix.rt, "square", Value.initInteger(1)), var_ty, loc));
+    // Payload arity disagreeing with the case's type, in both directions.
+    try testing.expectError(error.ValueError, lower(&fix.rt, a, try taggedVec(&fix.rt, "ok", null), res_ty, loc));
+    try testing.expectError(error.ValueError, lower(&fix.rt, a, try taggedVec(&fix.rt, "point", Value.initInteger(1)), var_ty, loc));
 }

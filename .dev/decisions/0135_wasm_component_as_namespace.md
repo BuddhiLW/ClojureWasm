@@ -399,3 +399,49 @@ D-404's stated blocker ("the full marshalling-table verification is BLOCKED on a
 typed component FIXTURE") as a side effect. Recorded as the next step rather
 than done here, because it is a cross-repo artifact with its own pinning
 question.
+
+## Amendment 3 (2026-08-04) — `result` / `variant` lowering existed only on paper
+
+Amendment 2 opened by stating that "`component.zig` already lifts/lowers
+record/tuple/variant/enum/option/result/flags/string/list per the §contract
+table". The lift half was true. The lower half was not: `component.zig` raised
+`feature_not_supported` for `result` **and** `variant` on the parameter side,
+with the justification "rare on the input side".
+
+Two things follow from that, and neither was visible while the claim stood:
+
+- **A component taking a `result` or `variant` parameter could not be called at
+  all** — not degraded, not approximate; the invoke aborted. `variant` is the
+  Component Model's ordinary sum type, so this was not a corner.
+- **The amendment's own round-trip was untestable.** The tagged-vector shapes
+  `[:ok v]` / `[:err e]` / `[:case-name payload]` were decided *because* one
+  destructuring idiom should cover every WIT sum type — but a shape the lift
+  emits and the lower side rejects is not a round-trip, and nothing could have
+  caught the disagreement.
+
+The `echo` fixture this ADR names as the shared falsifier carries
+`echo-result: func(v: result<u32, string>) -> result<u32, string>` and
+`echo-shape: func(v: shape) -> shape` precisely to exercise the parameter
+direction. Those two rows had never run.
+
+**Decision**: both lower. `result` accepts `[:ok v]` / `[:err e]`; `variant`
+accepts `[:case-name payload]`, with the payload slot present exactly when the
+case's type says it is. The two share one shape-check helper, mirroring the way
+the lift side shares one emitter — so the shapes cannot drift apart again
+without the helper being edited.
+
+A tag that names no case is an error rather than case 0, and a payload arity
+disagreeing with the case type is an error in both directions. Silently picking
+a case, or silently dropping a supplied payload, sends the guest a value the
+caller did not write; for a sum type that is a wrong-branch bug in the guest,
+not a lost detail.
+
+Verified against the `echo` fixture (all five rows round-trip, including the
+payload-less `[:point]`) and pinned by unit tests at the `lower()` boundary, so
+the coverage does not depend on a component fixture the pin cannot yet open.
+
+**Generalisation.** This is the fifth instance this cycle of *documented intent
+vs implementation mismatch* — a doc naming a capability the code does not have.
+The other four were caught by turning the claim into a gate. That is why the
+coverage here is a unit test rather than a note: a claim nothing executes is
+indistinguishable from a claim that is false.
