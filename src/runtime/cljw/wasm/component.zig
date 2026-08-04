@@ -355,22 +355,38 @@ fn lift(rt: *Runtime, cv: ComponentValue, loc: SourceLocation, component_handle:
             break :blk m;
         },
         .option => |opt| if (opt) |p| try lift(rt, p.*, loc, component_handle) else Value.nil_val,
+        // `[:ok v]` / `[:err e]`, the payload slot omitted when the arm carries
+        // none (ADR-0135 amendment 2). This REPLACES an err→throw mapping that
+        // discarded the error value entirely: the old arm raised `.wasm_trap`
+        // with no payload, so a component returning `err("not found")` reached
+        // the user as "WebAssembly module trapped (e.g. divide-by-zero,
+        // out-of-bounds, or an unreachable instruction)" — a different thing
+        // from a normal return, and the err value simply gone.
+        //
+        // Throwing also has no meaning off the return position: `lift` is
+        // recursive, so a `result` nested in a `list` or `record` aborted the
+        // whole lift and discarded the successfully-lifted prefix.
+        // `Explainer.md` is normative that `result` is the RECOVERY channel,
+        // i.e. a value. Throwing sugar belongs on top, not underneath.
         .result => |r| blk: {
-            if (r.is_ok) break :blk if (r.payload) |p| try lift(rt, p.*, loc, component_handle) else Value.nil_val;
-            // err arm → catchable cljw exception (ADR-0135 result→throw).
-            break :blk error_catalog.raise(.wasm_trap, loc, .{});
+            var out = vector_mod.empty();
+            out = try vector_mod.conj(rt, out, try keyword_mod.intern(rt, null, if (r.is_ok) "ok" else "err"));
+            if (r.payload) |p| out = try vector_mod.conj(rt, out, try lift(rt, p.*, loc, component_handle));
+            break :blk out;
         },
+        // `[:case-name payload]`, payload omitted when the case carries none —
+        // the same tagged-vector shape as `result`, so one destructuring idiom
+        // covers every WIT sum type. A case with no label (zwasm REQ-2 gives the
+        // ordinal only) falls back to the integer index in the tag slot.
         .variant => |vt| blk: {
-            // {:wit/case :name :value v} — the case label (REQ-2) when present.
-            var m = map_mod.empty();
-            const case_kw: Value = if (vt.case_name.len > 0)
+            var out = vector_mod.empty();
+            const case_tag: Value = if (vt.case_name.len > 0)
                 try keyword_mod.intern(rt, null, vt.case_name)
             else
                 Value.initInteger(vt.case);
-            m = try map_mod.assoc(rt, m, try keyword_mod.intern(rt, "wit", "case"), case_kw);
-            const payload: Value = if (vt.payload) |p| try lift(rt, p.*, loc, component_handle) else Value.nil_val;
-            m = try map_mod.assoc(rt, m, try keyword_mod.intern(rt, null, "value"), payload);
-            break :blk m;
+            out = try vector_mod.conj(rt, out, case_tag);
+            if (vt.payload) |p| out = try vector_mod.conj(rt, out, try lift(rt, p.*, loc, component_handle));
+            break :blk out;
         },
         .@"enum" => |e| if (e.label.len > 0)
             try keyword_mod.intern(rt, null, e.label)

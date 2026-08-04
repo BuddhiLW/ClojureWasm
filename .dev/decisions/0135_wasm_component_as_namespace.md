@@ -74,22 +74,22 @@ hand-written wrapper, no `.wit` sidecar.
 This table is the finished-form artifact. It is derivable from the public
 Canonical ABI spec and changes only when the spec does.
 
-| WIT type            | Clojure value                              | Notes                                                     |
-|---------------------|--------------------------------------------|-----------------------------------------------------------|
-| `bool`              | boolean                                    |                                                           |
-| `s8…s64`/`u8…u64` | long                                       | `u64`/`s64` may promote to BigInt at the f64 edge (F-005) |
-| `f32`/`f64`         | double                                     |                                                           |
-| `char`              | char                                       | Unicode scalar                                            |
-| `string`            | string                                     | UTF-8 ↔ cljw string                                      |
-| `list<T>`           | vector                                     | element-wise lift/lower                                   |
-| `tuple<A,B,…>`     | vector `[a b …]`                          | fixed arity                                               |
-| `record{a,b,…}`    | map `{:a … :b …}`                        | field names → keyword keys (kebab preserved)             |
-| `option<T>`         | `nil` \| T                                 | `none`→nil, `some(x)`→x                                 |
-| `result<T,E>`       | T \| **throw** `(ex-info … {:wit/err e})` | `ok`→value, `err`→catchable cljw exception              |
-| `variant`           | tagged map `{:wit/case :kw :value v}`      | (or a smaller shape if a cleaner one is chosen)           |
-| `enum`              | keyword                                    |                                                           |
-| `flags`             | set of keywords                            |                                                           |
-| `resource`          | opaque handle, GC-finalised                | borrow/own tracked; finaliser calls `resource.drop`       |
+| WIT type            | Clojure value                             | Notes                                                             |
+|---------------------|-------------------------------------------|-------------------------------------------------------------------|
+| `bool`              | boolean                                   |                                                                   |
+| `s8…s64`/`u8…u64` | long                                      | `u64`/`s64` may promote to BigInt at the f64 edge (F-005)         |
+| `f32`/`f64`         | double                                    |                                                                   |
+| `char`              | char                                      | Unicode scalar                                                    |
+| `string`            | string                                    | UTF-8 ↔ cljw string                                              |
+| `list<T>`           | vector                                    | element-wise lift/lower                                           |
+| `tuple<A,B,…>`     | vector `[a b …]`                         | fixed arity                                                       |
+| `record{a,b,…}`    | map `{:a … :b …}`                       | field names → keyword keys (kebab preserved)                     |
+| `option<T>`         | `nil` \| T                                | `none`→nil, `some(x)`→x                                         |
+| `result<T,E>`       | `[:ok v]` / `[:err e]`                    | payload slot omitted when the arm carries none (amendment 2)      |
+| `variant`           | `[:case-name payload]`                    | same tagged-vector shape as `result` (amendment 2)                |
+| `enum`              | keyword                                   |                                                                   |
+| `flags`             | set of keywords                           |                                                                   |
+| `resource`          | opaque handle, deterministically released | ADR-0159: NO GC finaliser; `own` drop on scope exit (amendment 2) |
 
 Exports that are interfaces/worlds nest as sub-namespaces or qualified
 names (TBD with zwasm's introspection shape). Imports the component *needs*
@@ -317,3 +317,85 @@ binary embed, ADR-0158) → E (resource ergonomics + registry). D-404 reframed f
   [MS OSS blog: components over OCI](https://opensource.microsoft.com/blog/2024/09/25/distributing-webassembly-components-using-oci-registries/).
 - Single-binary embedding precedent (precompile + link): Wasmtime pre-compiling
   (`.cwasm`), Wasmer `create-exe` (wasm→object→link).
+
+## Amendment 2 (2026-08-04) — `result` and `variant` become tagged vectors; the table is corrected against the code
+
+The 2026-08-04 cross-project audit compared this table against ClojureWit's
+`doc/design/0012-wit-clojure-type-mapping.md` (the sibling repo's mapping,
+implemented and falsified against a real `echo` component). Three rows differed.
+A Devil's-advocate fork then read `src/runtime/cljw/wasm/component.zig` and found
+that **this table also disagreed with cljw's own implementation on three rows** —
+so the inter-repo divergence was the smaller problem.
+
+### What was wrong here
+
+- **`result` discarded the error value.** The table promised
+  `throw (ex-info … {:wit/err e})`. The code raised `.wasm_trap` with no
+  payload, whose template reads "WebAssembly module trapped (e.g.
+  divide-by-zero, out-of-bounds, or an unreachable instruction)". A component
+  returning `err("not found")` reached the user as a *trap* — a different kind
+  of event — with the error value gone. Under `provisional_marker.md`'s table
+  that is the forbidden row: the user sees a plausible outcome while the
+  intended semantics are silently dropped.
+- **`result`-as-throw has no meaning off the return position.** `lift` is
+  recursive, so a `result` nested inside a `list` or `record` aborted the whole
+  lift and discarded the successfully-lifted prefix. `list<result<u32, string>>`
+  had no representation at all. `Explainer.md` is normative that `result` is the
+  *recovery* channel — a value, not a control transfer.
+- **`resource` said "GC-finalised; finaliser calls `resource.drop`".** ADR-0159
+  deliberately did the opposite: release is **deterministic**, and there is no
+  `host_finalise`. Both this project and ClojureWit independently landed on
+  explicit close, so this row recorded agreement as if it were a design.
+
+### The decision
+
+`result` lifts as **`[:ok v]` / `[:err e]`**, and `variant` as
+**`[:case-name payload]`**, with the payload slot omitted when the arm carries
+none. One tagged-vector idiom now covers every WIT sum type, and it destructures
+directly: `(let [[tag v] (c/f …)] …)`.
+
+The reasoning is cljw's own, not deference to the sibling. The nested-position
+hole and the discarded payload are defects in this implementation, and the
+Canonical ABI settles the direction. That ClojureWit reached the same shape from
+the same spec is corroboration — and where the spec constrains the *value* and
+not the *representation*, the two runtimes are expected to differ. `char` is
+exactly that case and is recorded below as a binding difference, not a bug.
+
+### `char` — a binding difference, not a divergence
+
+|        | cljw           | ClojureWit (JVM)     |
+|--------|----------------|----------------------|
+| `char` | Clojure `char` | `Integer` code point |
+
+ClojureWit rejected `Character` because a JVM `Character` is 16-bit and
+truncates the astral planes. That reason is host-specific and does not transfer:
+cljw's char is a 21-bit code point. Verified 2026-08-04 —
+`(char 0x10437)` returns `𐐷` on cljw and throws "Value out of range for char" on
+JVM Clojure. Both bind the same semantic row (*a Unicode scalar value*); the
+representation differs because the host char types differ. Shared Clojure glue
+moving between the two must convert (`(int c)` / `(char n)`).
+
+The surrogate-range hazard is shared: a value in `[0xD800, 0xDFFF]` is
+representable on both hosts and must trap on lowering.
+
+### Also corrected in the same cycle
+
+The integer rows were a *panic* rather than a mapping: lowering used a bare
+`@intCast` (a ReleaseSafe safety panic on out-of-range caller data) and lifting
+`u64` did the same on **guest-controlled** data. Fixed in `3662d5a9` by sharing
+`wasm/call`'s existing range check; `u64` above `i64` max and `s64` outside
+`i48` now lift exactly via BigInt, which this table already promised.
+
+### Not decided here
+
+`own` / `borrow` are one table row over a two-tier behaviour — `own` wraps only
+on the cached `component-call` path and lifts as a bare integer (no drop) on the
+one-shot `component-invoke` path. That is a real gap and belongs to D-404's
+resource phase, not to a mapping amendment.
+
+The shared falsifier — one typed `echo` component driven by both repos — is the
+mechanism that would keep the two tables from drifting again, and it discharges
+D-404's stated blocker ("the full marshalling-table verification is BLOCKED on a
+typed component FIXTURE") as a side effect. Recorded as the next step rather
+than done here, because it is a cross-repo artifact with its own pinning
+question.
