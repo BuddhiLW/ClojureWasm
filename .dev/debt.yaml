@@ -153,14 +153,23 @@ active:
           by the threshold. The two docs that cited the missing global hook also
           CONTRADICTED each other about whether it reaped JVMs — both now describe
           the shipped script.
-      (4) [staleness, README] version 1.0.0 (README) vs 1.5.1
-          (build.zig.zon/handover); size claim 7.8/7.5 MB vs measured 7.07 MB mac.
-      (5) [staleness, model guidance] `continue` SKILL names Opus 4.6/4.7 vs the
-          `claude-opus-4-8` pin in settings.json.
-      (6) [doc/reality, mode] CLAUDE.md + `continue` skill describe a never-stop
-          autonomous loop while README says PRs closed + handover says
-          PAUSED/Stopped → readers over-estimate the live cadence. Add a one-line
-          "maintenance mode" banner.
+      (4) DISCHARGED 2026-08-04 — README no longer hard-codes a version (it
+          points at Releases), and every size claim across README / landscape /
+          RELEASE_METRICS / ROADMAP is gated by `size_claims` (ADR-0172), so it
+          cannot rot again silently.
+      (5) DISCHARGED 2026-08-04 — the `continue` skill's model-selection
+          section named specific releases on the strength of a retrieval
+          comparison between two of them; both had been superseded by the
+          settings.json pin, so it was steering subagents to models OLDER than
+          the one running the loop. Replaced with the durable rule (subagents
+          inherit the pinned parent) plus where a re-measured model finding
+          belongs (`.dev/lessons/`, dated). A model name in prose is checked by
+          nothing, which is why it rotted.
+      (6) DISCHARGED 2026-08-04 — README's banner now states the real posture
+          (stable, 1.x line, Issues and PRs open, small team so replies are
+          slow) and `.github/CONTRIBUTING.md` says explicitly which loop
+          conventions do NOT apply to an outside contributor. The mismatch it
+          described is gone.
       (7) [onboarding] forced-Japanese chat FIXED 2026-07-29 — reduced to the single
           `outputStyle` setting (the SessionStart language printf + CLAUDE.md
           re-injection removed), with the settings.local.json override documented.

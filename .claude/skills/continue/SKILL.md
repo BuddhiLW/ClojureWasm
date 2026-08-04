@@ -127,15 +127,20 @@ importance**.
 - `audit_scaffolding` per task — runs at Phase boundary only (or
   every ~10 chapters).
 
-## Model selection (dual-model)
+## Model selection
 
-- **Per-task TDD loop (Step 0 → 7)**: current session's model —
-  Opus 4.7 is fine.
-- **Phase boundary chain (multi-agent fan-out)**: prefer **Opus 4.6**
-  for the long-context audit / simplify / chapter-write subagents —
-  Opus 4.7's MRCR v2 retrieval is known to degrade above ~100k
-  tokens versus 4.6. Sonnet 4.6 is a viable cost-efficient
-  alternative.
+Default: **a subagent inherits the parent model**, and the parent is
+whatever `.claude/settings.json` pins. Do not override per task.
 
-When unsure, default to subagent inheriting the parent model; flip
-to Opus 4.6 only if a long-context task underperforms.
+This section used to name specific models (4.6 for long-context
+fan-out, 4.7 for the loop) on the strength of a retrieval-degradation
+comparison between two releases. Both had been superseded by the
+pinned model before anyone noticed, so the advice was steering
+subagents toward models older than the one running the loop — and
+nothing here could have caught that, because a model name in prose is
+not checked against anything.
+
+A model-specific claim belongs where it can be re-measured, not in the
+resume procedure. If a long-context subagent underperforms, measure it
+on the models available at that moment and record the finding in
+`.dev/lessons/` with its date; do not encode a model name here.

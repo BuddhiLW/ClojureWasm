@@ -64,8 +64,24 @@ for id in $referenced; do
   grep -qx "$id" <<< "$defined" || missing="$missing $id"
 done
 
-# 3. quality-loop floor backlog (informational).
-floor=$(grep -c 'quality-loop floor:' "$DEBT" 2>/dev/null || true)
+# 3. quality-loop floor backlog — the number CLAUDE.md Step 0.5 drains
+# easiest-first, so it has to mean what it says. It counted the WHOLE file,
+# discharged rows included, and reported the total as "open rows": 21 against
+# an actual 6 (17 of the matches were in `discharged:`, and `grep -c` counts
+# lines rather than occurrences, hence 21 rather than 23). A backlog number
+# inflated 7x by finished work is the ledger-rot failure the discipline exists
+# to prevent, wearing the counter instead of the rows.
+#
+# The unit is ROWS, not matching lines: one row can name the floor several
+# times (D-210 does, four times) and would otherwise count as four items of
+# backlog.
+floor=$(awk '
+    /^active:/     { a = 1; next }
+    /^discharged:/ { if (a && hit) n++; a = 0; hit = 0 }
+    a && /^  - id:/            { if (hit) n++; hit = 0 }
+    a && /quality-loop floor:/ { hit = 1 }
+    END { if (a && hit) n++; print n + 0 }
+' "$DEBT")
 
 bad=0
 if [ -n "$phantom" ]; then
