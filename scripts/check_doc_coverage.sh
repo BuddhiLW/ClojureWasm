@@ -47,7 +47,19 @@ read -r -d '' PROBE <<'CLJ' || true
     (println (str n "/" s))))
 CLJ
 
-actual="$(printf '%s\n' "$PROBE" | timeout 120 "$BIN" - | LC_ALL=C sort)"
+# Portable bounded run: GNU `timeout`, else coreutils `gtimeout`, else
+# unbounded. The hosted macOS runners ship NEITHER — a bare `timeout` here made
+# this step exit 127 on every macOS CI run while passing locally, which is the
+# same trap `test/e2e/phase16_wasm_run.sh` documents. The bound is a backstop:
+# the probe reads metadata from an already-built binary and finishes in ~1 s.
+run_bounded() {
+    local secs="$1"; shift
+    if command -v timeout >/dev/null 2>&1; then timeout "$secs" "$@"
+    elif command -v gtimeout >/dev/null 2>&1; then gtimeout "$secs" "$@"
+    else "$@"; fi
+}
+
+actual="$(printf '%s\n' "$PROBE" | run_bounded 120 "$BIN" - | LC_ALL=C sort)"
 [ -n "$actual" ] || { echo "check_doc_coverage: the probe produced nothing — did it fail to load?" >&2; exit 1; }
 
 if [[ "${1:-}" == "--write" ]]; then
