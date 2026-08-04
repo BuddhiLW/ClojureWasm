@@ -871,3 +871,25 @@ accepted:
       still waited for (bounded), so finished side effects are never cut.
     derives_from: "ADR-0176 (live-worker teardown guard; the JVM-exact wait-for-futures flip enumerated + rejected there as a separate product decision) + ADR-0059 no-JVM (no executor pools) + ADR-0174 D6 (the daemon hard-exit idiom ADR-0176 generalises)."
     pin: "test/e2e/phase14_future_promise_delay.sh — `exit_pending_future` (a 60s-sleeper future + prompt :ok exit, bounded)."
+  - id: "AD-057"
+    summary: "clojure.core publishes 104 public names JVM Clojure does not: protocol names (ISeq, ILookup, Seqable, …), their `-name` methods (-first, -count, -assoc, …), and a few cljw-original conveniences (array?, queue?, re-find-all, …)."
+    example: "(contains? (set (map name (keys (ns-publics 'clojure.core)))) \"ISeq\") => cljw true / clj false. `clojure.lang.ISeq` is a Java INTERFACE upstream, not a clojure.core var."
+    why: |-
+      cljw has no Java, so the `clojure.lang.*` interfaces a JVM `deftype`
+      implements have no home. ADR-0007 Option beta routes that role through
+      protocols instead, and a protocol plus its methods must be PUBLIC for
+      `(deftype Foo [] ISeq (-first [_] :a))` to compile — exactly why
+      ClojureScript publishes `cljs.core/ISeq` and `cljs.core/-first`. Real
+      consumers depend on the names: `test/conformance/verified_projects/
+      data.finger-tree` implements the Seqable/ISeq/IPersistentStack/Indexed
+      stack by name.
+
+      Recorded because the absence of a record actively misled: the
+      2026-08-04 cross-project audit read this surface as "internal helpers
+      leaked into the public API", counted it as a SemVer liability, and
+      drafted a cleanup that would have broken every deftype against a host
+      interface. Nothing in the tree said otherwise, so the misreading was
+      reasonable. An intentional divergence nobody wrote down is
+      indistinguishable from a bug.
+    derives_from: "ADR-0007 (Option beta — TypeDescriptor + protocols in place of the JVM class/interface system) + ADR-0059 (no-JVM: clojure.lang.* are not host classes)."
+    pin: "test/e2e/phase14_core_surface_protocols.sh — deftype against ISeq / ILookup dispatches through first / get, and scripts/check_core_surface.sh asserts the extra-name set equals data/core_surface_extras.txt."

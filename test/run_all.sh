@@ -392,6 +392,7 @@ run_step "assert_e2e_releasesafe" 'mode=$(zig-out/bin/cljw --version 2>/dev/null
 run_step "size_claims"          "bash scripts/binary_size_report.sh --check zig-out/bin/cljw"
 run_step "capability_claims"    "bash scripts/check_capability_claims.sh"
 run_step "placement_drift"      "bash scripts/check_placement_status.sh"
+run_step "core_surface"         "bash scripts/check_core_surface.sh"
 
 # clj-diff corpus regression (cljw-only replay of golden `;;=> …` pairs —
 # no clj/network). Makes a "X/Y landed" discharge claim mechanically
@@ -755,6 +756,7 @@ run_step "e2e_phase14_extend_protocol_targets" "bash test/e2e/phase14_extend_pro
 run_step "e2e_phase14_extend_fn"             "bash test/e2e/phase14_extend_fn.sh"
 run_step "e2e_phase14_extend_abstract_base"  "bash test/e2e/phase14_extend_abstract_base.sh"
 run_step "e2e_phase14_deftype_imeta"         "bash test/e2e/phase14_deftype_imeta.sh"
+run_step "e2e_phase14_core_surface_protocols" "bash test/e2e/phase14_core_surface_protocols.sh"
 run_step "e2e_phase14_deftype_iseq"          "bash test/e2e/phase14_deftype_iseq.sh"
 run_step "e2e_phase14_deftype_overload_arity" "bash test/e2e/phase14_deftype_overload_arity.sh"
 run_step "e2e_phase14_deftype_indexed"       "bash test/e2e/phase14_deftype_indexed.sh"
