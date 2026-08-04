@@ -21,6 +21,8 @@
 const std = @import("std");
 const error_catalog = @import("../error/catalog.zig");
 const clock = @import("../clock.zig");
+const io_default = @import("io_default.zig");
+const Latch = @import("latch.zig").Latch;
 const ClojureWasmError = error_catalog.ClojureWasmError;
 
 pub const EvalBudget = struct {
@@ -62,6 +64,40 @@ pub const EvalBudget = struct {
                 self.tripped = .deadline;
                 return self.raiseDeadline();
             }
+        }
+    }
+
+    /// Charge WALL CLOCK without charging a step — the entry point a BLOCKING
+    /// primitive uses.
+    ///
+    /// `tick` only runs at a back-edge, and a blocking call makes none: it
+    /// consumes time without consuming steps. So `(Thread/sleep 25000)` under a
+    /// 3000 ms deadline ran the full 25 s and returned normally — the budget
+    /// advertises a wall-clock bound and did not have one. Measured on the
+    /// ClojureWasm playground, where one unauthenticated request could park the
+    /// server for as long as it asked (D-571).
+    ///
+    /// Unthrottled, unlike `tick`'s every-1024th-step clock read: a blocking
+    /// caller polls on a millisecond-scale slice, so one clock read per slice is
+    /// nothing, and throttling it by a step counter that is not advancing would
+    /// mean never reading at all.
+    pub fn checkDeadline(self: *EvalBudget, io: std.Io) ClojureWasmError!void {
+        return self.checkDeadlineAt(clock.nanoTime(io));
+    }
+
+    /// `checkDeadline` for a caller that has already read the clock — a
+    /// blocking primitive needs `now` anyway, to work out how long it may
+    /// sleep, and a second syscall for the same instant is waste.
+    pub fn checkDeadlineAt(self: *EvalBudget, now_ns: i64) ClojureWasmError!void {
+        switch (self.tripped) {
+            .none => {},
+            .steps => return self.raiseSteps(),
+            .deadline => return self.raiseDeadline(),
+        }
+        const deadline = self.deadline_ns orelse return;
+        if (now_ns > deadline) {
+            self.tripped = .deadline;
+            return self.raiseDeadline();
         }
     }
 
@@ -164,3 +200,101 @@ test "a deadline already in the past trips at the first throttle boundary" {
     try testing.expect(tripped);
     try testing.expect(b.tripped == .deadline);
 }
+
+/// The budget's wall-clock deadline as an absolute `clock.nanoTime` instant, or
+/// null when no deadline is armed. This is what a blocking primitive passes to
+/// `Latch.wait` so the wait cannot outlast the budget.
+pub fn deadlineOf(rt: anytype) ?i64 {
+    if (rt.eval_budget) |*b| return b.deadline_ns;
+    return null;
+}
+
+/// Charge the wall clock without charging a step — the check a blocking
+/// primitive makes after it stops blocking, to convert "I waited out the
+/// deadline" into the budget error.
+pub fn checkDeadlineNow(rt: anytype) ClojureWasmError!void {
+    if (rt.eval_budget) |*b| try b.checkDeadlineAt(clock.nanoTime(rt.io));
+}
+
+/// Sleep `total_ns`, honouring the eval budget's wall-clock deadline and waking
+/// early if `cancel` is raised.
+///
+/// Both signals are latches on an instant, so neither is polled for. The wait
+/// ends at `min(sleep end, budget deadline)`, or the moment `cancel` fires,
+/// whichever comes first — one wait, no slices.
+///
+/// The slicing this replaces cost real time. `future-cancel` needs to notice a
+/// cancel promptly, and with only a condition variable available the way to do
+/// that was to wake every 20 ms and look. Each wakeup overshoots by a few ms, so
+/// a 2000 ms sleep inside a future measured 2321-2358 ms — 17% long, on the most
+/// idiomatic metered-blocking expression in Clojure, whether or not any budget
+/// was armed. A latch is woken BY the cancel, so there is nothing to look for.
+///
+/// `rt` rather than a `*EvalBudget`: `with-budget` restores the slot BY VALUE in
+/// a `defer`, so a pointer captured before the sleep can outlive the optional's
+/// payload.
+pub fn budgetedSleep(rt: anytype, total_ns: u64, cancel: ?*Latch) ClojureWasmError!void {
+    const now = clock.nanoTime(rt.io);
+    if (rt.eval_budget) |*b| try b.checkDeadlineAt(now);
+
+    // `Thread/sleep` accepts any `long`, so `total_ns` can be saturated to
+    // maxInt(u64) — clamp before it reaches the i64 instant arithmetic.
+    const span: i64 = @intCast(@min(total_ns, @as(u64, std.math.maxInt(i64) / 2)));
+    var deadline = now +| span;
+    if (deadlineOf(rt)) |d| deadline = @min(deadline, d);
+
+    if (cancel) |latch| {
+        // Returns early iff the cancel fired; the caller re-checks and unwinds.
+        _ = latch.wait(deadline);
+    } else {
+        const remaining = deadline - clock.nanoTime(rt.io);
+        if (remaining > 0) io_default.sleep(@intCast(remaining));
+    }
+
+    // A deadline that landed during the sleep still trips, so the caller unwinds
+    // rather than returning as though it had waited out a budget it exceeded.
+    try checkDeadlineNow(rt);
+}
+
+test "budgetedSleep: a past deadline trips on the first poll" {
+    var fake: FakeRt = .{ .eval_budget = .{ .deadline_ns = clock.nanoTime(testing.io) - std.time.ns_per_s, .deadline_ms = 1 } };
+    try testing.expectError(error.ResourceExhausted, budgetedSleep(&fake, 5 * std.time.ns_per_s, null));
+    // Latched, so a second call re-raises the same axis rather than sleeping.
+    try testing.expectEqual(EvalBudget.Axis.deadline, fake.eval_budget.?.tripped);
+}
+
+test "budgetedSleep: a metered sleep that does NOT expire keeps its duration" {
+    // The regression this shape exists to prevent: slicing the sleep to poll for
+    // a cancel made every metered sleep ~20% long. Waiting on an instant means
+    // one uninterrupted wait whenever the deadline is beyond the sleep's end.
+    const want_ns: u64 = 120 * std.time.ns_per_ms;
+    var fake: FakeRt = .{ .eval_budget = .{
+        .deadline_ns = clock.nanoTime(testing.io) + 60 * std.time.ns_per_s,
+        .deadline_ms = 60_000,
+    } };
+    const t0 = clock.nanoTime(testing.io);
+    try budgetedSleep(&fake, want_ns, null);
+    const elapsed: u64 = @intCast(clock.nanoTime(testing.io) - t0);
+    // Generous upper bound: a loaded CI runner oversleeps. The point is that it
+    // is not 1.2x, which is what a per-slice poll cost.
+    try testing.expect(elapsed >= want_ns);
+    try testing.expect(elapsed < want_ns * 3 / 2);
+}
+
+test "budgetedSleep: no budget and no cancel poll is one uninterrupted sleep" {
+    var fake: FakeRt = .{ .eval_budget = null };
+    const want_ns: u64 = 40 * std.time.ns_per_ms;
+    const t0 = clock.nanoTime(testing.io);
+    try budgetedSleep(&fake, want_ns, null);
+    const elapsed: u64 = @intCast(clock.nanoTime(testing.io) - t0);
+    try testing.expect(elapsed >= want_ns);
+}
+
+/// The two fields `budgetedSleep` reads off a Runtime. Kept minimal on purpose:
+/// the helper takes `anytype` so it can be exercised without standing up a real
+/// Runtime, and re-reading `eval_budget` per iteration (rather than caching a
+/// pointer) is the property this stand-in also has.
+const FakeRt = struct {
+    eval_budget: ?EvalBudget,
+    io: std.Io = testing.io,
+};

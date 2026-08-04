@@ -33,6 +33,8 @@ const Runtime = @import("runtime.zig").Runtime;
 const Env = @import("env.zig").Env;
 const root_set = @import("gc/root_set.zig");
 const io_default = @import("concurrency/io_default.zig");
+const Latch = @import("concurrency/latch.zig").Latch;
+const clock = @import("clock.zig");
 const lock_tx = @import("concurrency/lock_tx.zig");
 const tag_ops = @import("gc/tag_ops.zig");
 const gc_heap_mod = @import("gc/gc_heap.zig");
@@ -50,14 +52,23 @@ pub const FutureState = enum(u8) {
     cancelled = 3,
 };
 
-/// The blocking result cell, held off the GC heap (`std.Io.Condition` has
+/// The blocking result cell, held off the GC heap (its sync members have
 /// automatic layout, so it cannot live in the `extern` Future). Infra-allocated
-/// (`rt.gpa`) at construction, freed by the Future's finaliser. `deref` waits on
-/// `cond`; the worker broadcasts it. Stable address (infra alloc never moves),
-/// so a parked deref'er's wait target is valid for the cell's lifetime.
+/// (`rt.gpa`) at construction, freed by the Future's finaliser. Stable address
+/// (infra alloc never moves), so a parked deref'er's wait target is valid for
+/// the cell's lifetime.
+///
+/// `mutex` guards the PAYLOAD (`state` / `cached`); `settled` carries the EDGE.
+/// Realisation is monotonic — once settled, never unsettled — so it is a latch
+/// rather than a condition, and a latch is what can be waited on with a
+/// deadline (see `concurrency/latch.zig`). Publish under the mutex, then
+/// `signal`: `set` releases the prior writes, so a waiter that sees the latch
+/// sees the payload.
 const FutureCell = struct {
     mutex: std.Io.Mutex = .init,
-    cond: std.Io.Condition = .init,
+    /// Raised once the future reaches any terminal state (value, error, or
+    /// cancelled) — every reason a deref'er has to stop waiting.
+    settled: Latch = .{},
 };
 
 pub const Future = extern struct {
@@ -90,6 +101,19 @@ pub threadlocal var current_future: ?*Future = null;
 /// primitive polls this to abort promptly (ADR-0153 sub-step 2a). false on the
 /// main thread (no `current_future`) or an un-cancelled worker. Reads the state
 /// under the cell mutex (the same serialisation `cancel` writes under).
+/// The latch a blocking primitive on THIS worker waits on so a `future-cancel`
+/// wakes it immediately, or null on the main thread / a non-worker thread.
+///
+/// It is the future's `settled` latch: cancellation is one of the terminal
+/// states, so the edge a deref'er waits for and the edge a sleeping worker
+/// waits for are the same edge. A worker waiting on its own future's settle
+/// cannot deadlock — only `future-cancel` and the worker's own epilogue raise
+/// it, and the epilogue runs after the thunk has returned.
+pub fn currentCancelLatch() ?*Latch {
+    const f = current_future orelse return null;
+    return &f.cell.settled;
+}
+
 pub fn cancelRequested() bool {
     const f = current_future orelse return false;
     io_default.lockMutex(&f.cell.mutex);
@@ -184,8 +208,8 @@ fn worker(f: *Future) void {
         f.cached = result_value;
         f.state = result_state;
     }
-    io_default.condBroadcast(&f.cell.cond);
     io_default.unlockMutex(&f.cell.mutex);
+    f.cell.settled.signal();
     _ = f.rt.gc.unpin(fut_val);
 }
 
@@ -206,7 +230,10 @@ pub fn cancel(v: Value) bool {
     defer io_default.unlockMutex(&f.cell.mutex);
     if (f.state == .pending) {
         f.state = .cancelled;
-        io_default.condBroadcast(&f.cell.cond);
+        // Signalled under the mutex here (unlike the worker's epilogue, which
+        // unlocks first) because `defer unlockMutex` owns the exit path; `set`
+        // takes no lock, so there is nothing to deadlock against.
+        f.cell.settled.signal();
         return true;
     }
     return false;
@@ -229,14 +256,14 @@ pub fn isFuture(v: Value) bool {
 /// cached value (`.realised_value`) or `null` (`.realised_error`; the caller
 /// raises `future_thunk_failed`). The block uses the result cell's condition
 /// via the `io_default` singleton (set to the real threaded io in `main`).
-pub fn deref(v: Value) ?Value {
+pub fn deref(v: Value, deadline_ns: ?i64) ?Value {
     std.debug.assert(v.tag() == .future);
     const f = v.decodePtr(*Future);
+    // Wait OUTSIDE the mutex: the latch is the edge, the mutex only guards the
+    // payload we read after it.
+    if (!f.cell.settled.wait(deadline_ns)) return null;
     io_default.lockMutex(&f.cell.mutex);
     defer io_default.unlockMutex(&f.cell.mutex);
-    while (f.state == .pending) {
-        io_default.condWait(&f.cell.cond, &f.cell.mutex);
-    }
     return if (f.state == .realised_value) f.cached else null;
 }
 
@@ -258,20 +285,13 @@ pub fn errorValue(v: Value) ?Value {
 }
 
 /// Wait up to `timeout_ms` for the worker (the 3-arity `deref` support).
-/// Zig 0.16's `std.Io.Condition` has no timed wait, so this POLLS
-/// `isRealised` in 1ms sleeps against a wall-clock deadline — ample
-/// precision for the coordination use the timed deref serves. Returns
-/// false on timeout (caller returns its timeout-val); true means the
-/// regular `deref` path now returns without blocking (a failed future
-/// still re-raises properly there).
+/// Returns false on timeout (caller returns its timeout-val); true means the
+/// regular `deref` path now returns without blocking (a failed future still
+/// re-raises properly there).
 pub fn waitRealised(io: std.Io, v: Value, timeout_ms: i64) bool {
-    const clock = @import("clock.zig");
-    const deadline = clock.currentMillis(io) + @max(timeout_ms, 0);
-    while (!isRealised(v)) {
-        if (clock.currentMillis(io) >= deadline) return false;
-        io_default.sleep(1_000_000); // 1ms
-    }
-    return true;
+    std.debug.assert(v.tag() == .future);
+    const f = v.decodePtr(*Future);
+    return f.cell.settled.wait(clock.nanoTime(io) + @max(timeout_ms, 0) * std.time.ns_per_ms);
 }
 
 /// `(realized? f)` — non-blocking: true iff the worker has finished (value or
