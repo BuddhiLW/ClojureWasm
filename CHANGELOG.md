@@ -7,6 +7,65 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 
 ## [Unreleased]
 
+## [1.8.0] - 2026-08-04
+
+**Upgrade if you use Wasm components, or if you use `doc` / `find-doc`.**
+A component with more than one export could not be loaded at all, and `doc` on
+most of `clojure.core` printed nothing.
+
+### Added
+
+- **`clojure.core.reducers`.** The full sequential surface — `r/map`,
+  `r/filter`, `r/remove`, `r/mapcat`, `r/flatten`, `r/take`, `r/take-while`,
+  `r/drop`, `r/reduce`, `r/fold`, `r/foldcat`, `r/cat`, `r/monoid`,
+  `r/append!` — with the curried one-arity forms. 31 of 32 probed expressions
+  are byte-identical to JVM Clojure; the one difference is set print order.
+  `fold` computes the same value as upstream's but never in parallel: there is
+  no ForkJoinPool here, so it takes the same single-reduce arm upstream itself
+  takes for lists, ranges and sets. Its docstring says so.
+- **`wasm/run` takes `:max-output-bytes` and `:timeout-ms`**, alongside the
+  existing `:fuel` and `:max-memory-pages`. Both default to finite values
+  (16 MiB per captured stream, 60 s); `0` or a negative value opts out.
+
+### Fixed
+
+- **A Wasm component with two or more exports failed to load.** Every fixture
+  in this project and in zwasm exported exactly one function, so
+  `(:require ["x.wasm" :as x])` — the headline feature — had only ever been
+  exercised on single-function components. Fixed in zwasm v2.4.1, which this
+  release pins.
+- **`wasm/run` could be made to exhaust host memory.** It buffered the guest's
+  stdout and stderr without limit, and the fuel budget does not bound that:
+  fuel counts instructions, and how many bytes an instruction writes is the
+  guest's choice. Measured, a guest could force ~64 GB before its fuel ran
+  out. Also had no wall-clock bound — the same guest could run for roughly 18
+  hours inside the default fuel budget.
+- **A resource handle from a one-shot `wasm/component-invoke` was already
+  invalid when you received it**, because the component was torn down before
+  the call returned. Handle numbers are per-instance table indices starting at
+  1, so passing it on could silently operate on a *different* resource. The
+  component now lives as long as the handle does, and a handle is bound to the
+  component that minted it.
+- **`result` and `variant` could not be passed INTO a component.** They lifted
+  out correctly, so the round-trip the mapping table describes was one-way.
+- **`(doc reduce)` printed nothing** — and so did `assoc`, `conj`, `first`,
+  `apply`, `=` and 320 others. The generated metadata table covered 246 of 685
+  `clojure.core` publics and none of the ~290 implemented as native
+  primitives, so `find-doc` and `apropos` were searching a third of core while
+  answering as though they had searched all of it. Now 572 of 684.
+- **`(clojure.set/intersection)` returned `nil`** where Clojure throws
+  `ArityException`, and no var in `clojure.set` reported `:arglists`.
+
+### Changed
+
+- **`clojure.pprint` no longer publishes 49 internal formatter helpers**
+  (`cl-tens`, `cl-roman`, `cl-under-1000`, …). Upstream keeps them private;
+  they were public here only because they were written as `defn`. `cl-format`
+  and the other six documented names are unaffected. Same for five
+  `clojure.data` internals and three contrib parser implementation details.
+- **`clojure.math` gained docstrings**, written for this runtime rather than
+  imported — upstream's all end in a `java.lang.Math` Javadoc URL.
+
 ## [1.7.0] - 2026-08-04
 
 **Upgrade if you load Wasm components.** An untrusted component could kill the
