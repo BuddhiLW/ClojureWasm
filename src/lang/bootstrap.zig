@@ -187,6 +187,10 @@ pub const FILES: []const FileEntry = &.{
     // clojure.repl (D-513) — doc/dir/apropos/find-doc/demunge over the D-305
     // :doc/:arglists metadata; require-on-demand (NOT eager). Appended last.
     .{ .label = "<clojure.repl>", .source = embedSrc("clj/clojure/repl.clj") },
+    // clojure.core.reducers (D-513 (1)) — the reducer/folder ops over IReduce,
+    // plus a SEQUENTIAL fold (AD-058: no ForkJoinPool). require-on-demand; clj
+    // does not auto-load it either, so eager here would break F-011 parity.
+    .{ .label = "<clojure.core.reducers>", .source = embedSrc("clj/clojure/core/reducers.clj") },
 };
 
 /// The build-active subset of `FILES`. **Every walk that compiles, emits, or
@@ -296,6 +300,12 @@ fn lookupEmbeddedFile(ns_name: []const u8) ?FileEntry {
     if (std.mem.eql(u8, ns_name, "clojure.core.specs.alpha")) return FILES[26];
     if (std.mem.eql(u8, ns_name, "clojure.datafy")) return FILES[27];
     if (std.mem.eql(u8, ns_name, "clojure.test.junit")) return FILES[28];
+    // FILES[29] `<clojure.core-meta>` and FILES[30] `<clojure.repl>` have no row
+    // here — the first is in EAGER_NS (loaded at startup, never required), the
+    // second is a gap tracked as D-569 (a build without a region blob cannot
+    // resolve it). Do not follow the second as a precedent: a new bundled
+    // namespace gets a row.
+    if (std.mem.eql(u8, ns_name, "clojure.core.reducers")) return FILES[31];
     return null;
 }
 

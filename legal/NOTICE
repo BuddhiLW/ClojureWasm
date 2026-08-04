@@ -1,10 +1,11 @@
 ClojureWasm independently reimplements the Clojure language. The namespaces
 under src/lang/clj/clojure/** implement Clojure / Clojure-contrib APIs
 (originally (c) Rich Hickey and contributors, Eclipse Public License 1.0).
-Two files reproduce upstream source text and retain the original notice
+Three files reproduce upstream source text and retain the original notice
 under EPL-2.0 per EPL-1.0 §7:
   - src/lang/clj/clojure/template.clj (clojure.template, by Stuart Sierra)
   - src/lang/clj/clojure/core/protocols.clj (docstrings)
+  - src/lang/clj/clojure/core/reducers.clj (clojure.core.reducers, by Rich Hickey)
 All other namespaces are independent reimplementations (no upstream source
 text reproduced). ClojureWasm is not affiliated with or endorsed by the
 Clojure project.

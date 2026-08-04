@@ -893,3 +893,31 @@ accepted:
       indistinguishable from a bug.
     derives_from: "ADR-0007 (Option beta — TypeDescriptor + protocols in place of the JVM class/interface system) + ADR-0059 (no-JVM: clojure.lang.* are not host classes)."
     pin: "test/e2e/phase14_core_surface_protocols.sh — deftype against ISeq / ILookup dispatches through first / get, and scripts/check_core_surface.sh asserts the extra-name set equals data/core_surface_extras.txt."
+  - id: "AD-058"
+    area: "clojure.core.reducers"
+    summary: |-
+      `clojure.core.reducers/fold` computes the same value as JVM Clojure's but
+      never in parallel. The reduce-combine tree is identical — `foldvec` still
+      splits a vector recursively at `n`, `Cat`'s `coll-fold` still combines its
+      two branches — it is simply evaluated in one thread instead of forked onto
+      a work-stealing pool.
+      The VALUE is not a divergence; the performance CHARACTERISTIC is, and only
+      on the two collection types JVM Clojure special-cases (`IPersistentVector`,
+      `PersistentHashMap`). Everywhere else — lists, ranges, sets, lazy seqs —
+      JVM Clojure already takes the same single-reduce arm, its own source
+      commenting it `;;can't fold, single reduce`. `fold`'s contract says
+      operations *may* be performed in parallel, so a caller who relies on the
+      value gets exactly what upstream gives them; a caller who relies on the
+      speedup gets a correct answer more slowly, with no way to find that out
+      from the code — which is why it is written down here and in the fn's own
+      docstring, taking ClojureScript's sentence verbatim: "Note: Performing
+      operations in parallel is currently not implemented."
+      A `future`-backed parallel `foldvec` was considered and rejected for the
+      introducing cycle: `fold`'s whole point is a work-stealing pool with cutoff
+      `n`, and a naive future-per-half spawns O(count/n) OS threads — worse than
+      sequential for realistic inputs — while pulling a namespace transducers
+      largely superseded into GC-rooting and thread-safety review. ClojureScript
+      has shipped the sequential shape for a decade. The seam is two functions
+      (`foldvec`, `Cat`'s `coll-fold`), so a later parallelisation is local.
+    derives_from: "ADR-0093 (no ForkJoinPool / java.util.concurrent executor surface) + ADR-0059 (no-JVM) + the ClojureScript precedent (clojure/core/reducers.cljs ships the same sequential fold)."
+    pin: "test/e2e/phase16_clojure_core_reducers.sh — `fold-value-on-a-large-vector` (a 10,000-element vector, well past any plausible cutoff n) and `fold-with-a-distinct-combiner` (the 4-arity arm, where a combiner that is not the reducef must still be honoured). Both assert the VALUE, so a later parallelisation cannot change it. Plus test/diff/clj_corpus/reducers.txt, whose fold rows are golden pairs against real clj."

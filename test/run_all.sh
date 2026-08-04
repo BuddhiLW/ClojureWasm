@@ -646,6 +646,7 @@ run_step "e2e_phase16_host_stream"          "bash test/e2e/phase16_host_stream.s
 run_step "e2e_phase16_stdin_read_line"      "bash test/e2e/phase16_stdin_read_line.sh"
 run_step "e2e_phase16_clojure_java_io_streams" "bash test/e2e/phase16_clojure_java_io_streams.sh"
 run_step "e2e_phase16_clojure_repl" "bash test/e2e/phase16_clojure_repl.sh"
+run_step "e2e_phase16_clojure_core_reducers" "bash test/e2e/phase16_clojure_core_reducers.sh"
 run_step "e2e_phase16_clojure_java_io_copy" "bash test/e2e/phase16_clojure_java_io_copy.sh"
 run_step "e2e_phase16_cljw_json_fs"         "bash test/e2e/phase16_cljw_json_fs.sh"
 run_step "e2e_phase16_tokenizer_long_input" "bash test/e2e/phase16_tokenizer_long_input.sh"

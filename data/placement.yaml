@@ -23,11 +23,11 @@
 
 schema_version: "2.0"
 summary:
-  namespaces_required: 31
-  total: 1327
+  namespaces_required: 32
+  total: 1352
   zig: 394
-  clj: 725
-  value: 202
+  clj: 747
+  value: 205
   unbound: 6
 vars:
   "cljw.error/*error-context*": { impl: value, flags: "dynamic" }
@@ -130,6 +130,31 @@ vars:
   "clojure.core.protocols/datafy": { impl: value, flags: "-" }
   "clojure.core.protocols/kv-reduce": { impl: value, flags: "-" }
   "clojure.core.protocols/nav": { impl: value, flags: "-" }
+  "clojure.core.reducers/->Cat": { impl: clj, flags: "-" }
+  "clojure.core.reducers/Cat": { impl: value, flags: "-" }
+  "clojure.core.reducers/CollFold": { impl: value, flags: "-" }
+  "clojure.core.reducers/append!": { impl: clj, flags: "-" }
+  "clojure.core.reducers/cat": { impl: clj, flags: "-" }
+  "clojure.core.reducers/coll-fold": { impl: value, flags: "-" }
+  "clojure.core.reducers/defcurried": { impl: clj, flags: "private,macro" }
+  "clojure.core.reducers/do-curried": { impl: clj, flags: "private" }
+  "clojure.core.reducers/do-rfn": { impl: clj, flags: "private" }
+  "clojure.core.reducers/drop": { impl: clj, flags: "-" }
+  "clojure.core.reducers/filter": { impl: clj, flags: "-" }
+  "clojure.core.reducers/flatten": { impl: clj, flags: "-" }
+  "clojure.core.reducers/fold": { impl: clj, flags: "-" }
+  "clojure.core.reducers/foldcat": { impl: clj, flags: "-" }
+  "clojure.core.reducers/folder": { impl: clj, flags: "-" }
+  "clojure.core.reducers/foldvec": { impl: clj, flags: "private" }
+  "clojure.core.reducers/map": { impl: clj, flags: "-" }
+  "clojure.core.reducers/mapcat": { impl: clj, flags: "-" }
+  "clojure.core.reducers/monoid": { impl: clj, flags: "-" }
+  "clojure.core.reducers/reduce": { impl: clj, flags: "-" }
+  "clojure.core.reducers/reducer": { impl: clj, flags: "-" }
+  "clojure.core.reducers/remove": { impl: clj, flags: "-" }
+  "clojure.core.reducers/rfn": { impl: clj, flags: "private,macro" }
+  "clojure.core.reducers/take": { impl: clj, flags: "-" }
+  "clojure.core.reducers/take-while": { impl: clj, flags: "-" }
   "clojure.core.specs.alpha/even-number-of-forms?": { impl: clj, flags: "-" }
   "clojure.core.specs.alpha/quotable": { impl: clj, flags: "private,macro" }
   "clojure.core/*": { impl: zig, flags: "-" }
