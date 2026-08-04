@@ -921,3 +921,27 @@ accepted:
       (`foldvec`, `Cat`'s `coll-fold`), so a later parallelisation is local.
     derives_from: "ADR-0093 (no ForkJoinPool / java.util.concurrent executor surface) + ADR-0059 (no-JVM) + the ClojureScript precedent (clojure/core/reducers.cljs ships the same sequential fold)."
     pin: "test/e2e/phase16_clojure_core_reducers.sh — `fold-value-on-a-large-vector` (a 10,000-element vector, well past any plausible cutoff n) and `fold-with-a-distinct-combiner` (the 4-arity arm, where a combiner that is not the reducef must still be honoured). Both assert the VALUE, so a later parallelisation cannot change it. Plus test/diff/clj_corpus/reducers.txt, whose fold rows are golden pairs against real clj."
+  - id: "AD-059"
+    area: "clojure.set"
+    summary: |-
+      cljw's `clojure.set` docstrings are reproduced from upstream Clojure, and
+      the file therefore carries the variant-1 attribution header rather than
+      variant 2's "no upstream source text is reproduced".
+      This is a licensing-posture note rather than a behavioural divergence, but
+      it is recorded here because it is the FIRST reimplementation file to flip
+      that way and the precedent matters: an independent reimplementation whose
+      docstrings are copied is not one that reproduces "no upstream source
+      text", and saying otherwise in a header is the same class of untrue claim
+      `legal/NOTICE` carried until 2026-08-04.
+      Copied rather than authored on purpose here: `union`, `intersection`,
+      `difference`, `subset?` and `superset?` do exactly what upstream does —
+      verified against the `clj` oracle including the 0-arity ArityException —
+      so upstream's one-line descriptions are correct for cljw, and every
+      Clojure user already knows them. Where the behaviour or the host DIFFERS,
+      the docstring must be authored instead; `clojure.math` is the standing
+      counter-example (its upstream docstrings end in java.lang.Math Javadoc
+      URLs and assert an exception cljw does not throw), and it stays
+      undocumented in `data/doc_coverage.txt` rather than take text that would
+      be wrong.
+    derives_from: "ADR-0181 (doc coverage is a ledger of decisions) + .claude/rules/clj_attribution.md (the two header variants) + EPL-1.0 §7 redistribution."
+    pin: "scripts/check_clj_attribution.sh --gate (the variant-1 file set must equal legal/NOTICE's list, both directions) + test/diff/clj_corpus/set_arity.txt (17 golden pairs incl. every arity and the :doc/:arglists reads)."
