@@ -692,7 +692,7 @@ const BUCKET_MAX_PAIRS: u32 = 31;
 /// `.hash_collision_map_node`) — the child re-encode sites cannot hardcode
 /// the tag once buckets exist.
 fn nodeValue(n: *HamtMapNode) Value {
-    return Value.encodeHeapPtr(@enumFromInt(n.header.tag), n);
+    return Value.encodeHeapPtrRuntime(@enumFromInt(n.header.tag), n);
 }
 
 /// Fresh 2-pair collision bucket (the shift-exhaustion replacement for

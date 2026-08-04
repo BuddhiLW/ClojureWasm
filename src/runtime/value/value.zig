@@ -124,7 +124,28 @@ pub const Value = enum(u64) {
 
     /// Pack a heap pointer + HeapTag into a Value. The pointer must be
     /// 8-byte aligned so the low 3 bits are zero.
-    pub fn encodeHeapPtr(ht: HeapTag, ptr: anytype) Value {
+    ///
+    /// `ht` is `comptime` so a heap-only tag is a COMPILE ERROR at the call
+    /// site rather than a convention (ADR-0179). 182 of the 184 call sites
+    /// already pass an enum literal, so this costs them nothing; the one site
+    /// that computes its tag at runtime uses `encodeHeapPtrRuntime`.
+    pub fn encodeHeapPtr(comptime ht: HeapTag, ptr: anytype) Value {
+        comptime {
+            if (!heap_tag_mod.boxable(ht)) @compileError(
+                "encodeHeapPtr: '" ++ @tagName(ht) ++ "' is a heap-only tag — it lives on " ++
+                    "HeapHeader and is never a Value (ADR-0179 census). If it must become a " ++
+                    "Value, remove it from heap_tag.heap_only and say why.",
+            );
+        }
+        return encodeHeapPtrRuntime(ht, ptr);
+    }
+
+    /// The runtime-tag form, for the single site that re-encodes a trie node
+    /// preserving whichever tag its header already carries
+    /// (`collection/map.zig`). Same packing; the boxability check is an assert
+    /// instead of a compile error, because the tag is not known until run time.
+    pub fn encodeHeapPtrRuntime(ht: HeapTag, ptr: anytype) Value {
+        std.debug.assert(heap_tag_mod.boxable(ht));
         const addr: u64 = @intFromPtr(ptr);
         std.debug.assert(addr & nb.NB_ADDR_ALIGN_MASK == 0);
         const shifted = addr >> nb.NB_ADDR_ALIGN_SHIFT;

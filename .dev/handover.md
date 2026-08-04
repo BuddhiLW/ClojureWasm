@@ -16,23 +16,22 @@
   safepoint, ADR-0176 live-worker teardown, D-347 unmetered `wasm/run`, D-339
   `run-server` head deadline — plus the opened Issues/PR surface).
   CHANGELOG is the release-history SSOT.
-- **First task on resume MUST be**: the NaN-box tag-space surgery
-  (`private/notes/2026-08-04-nanbox-tag-space-investigation.md` has the
-  measured classification + the ADR outline). The audit's "64/64 full, needs a
-  user F-004 decision" was WRONG: 53 tags are actually NaN-boxed, 3 are
-  heap-only (`tail_node` / `hamt_map_node` / `tval` — GC-traced, never a
-  Value), and **7 are pure unused reservations** (`reader_conditional` /
-  `class` / `array_chunk` / `matcher` / `tuple` / `box` / `wasm_fn` — zero
-  references outside the enum; `Class` is a `.type_descriptor` and `Matcher`
-  is a `host_instance`). So ~10 slots are recoverable WITHOUT touching F-004.
-  Treating the reservations as binding was the Reservation-as-bias smell
-  CLAUDE.md names explicitly. Then **P1-6** (WIT↔Clojure type-mapping shared
-  spec with ClojureWit).
-  The 2026-08-04 audit-remediation arc otherwise closed: doc-truth +
-  `size_claims` widened (`77f690a3`), Issues/PR opened (`e897cbfc`),
-  ADR-0177 capability-claim gate (`92d7926d`), D-339 (`c601aa75`), ADR-0178
-  generated placement index (`4c52ebcc`), AD-057 + core-surface gate
-  (`18e9ea5f`), D-347 (`b4b5ef83`), D-343 + security triage (`6bdeeeb2`).
+- **First task on resume MUST be**: **P1-6** — the WIT↔Clojure type-mapping
+  divergence with ClojureWit. Measured 2026-08-04: cljw's ADR-0135 table and
+  ClojureWit's `doc/design/0012` disagree on **3 rows**, and ClojureWit's shapes
+  are the implemented, argued ones (its S1 is closed; cljw's D-404 marshalling
+  is not built). `result` → cljw draft throws, Wit returns `[:ok v]`/`[:err e]`
+  with opt-in `unwrap` sugar (Wit's reasoning: throwing "has no meaning in
+  non-return position, inverts WIT's error channel, and fights laziness").
+  `variant` → cljw `{:wit/case :kw :value v}`, Wit `[:case-name value]`.
+  `char` → a PRINCIPLED divergence, not a bug: Wit maps to an Integer codepoint
+  because a JVM `Character` is 16-bit and truncates; cljw's char is a 21-bit
+  codepoint, verified — `(char 0x10437)` → `𐐷` on cljw, "Value out of range for
+  char" on JVM clj. Land an ADR-0135 amendment aligning `result` + `variant`
+  to the implemented shapes and recording `char` as host-forced, BEFORE D-404
+  implements the draft's shapes.
+  The 2026-08-04 audit-remediation arc is otherwise closed — see git log
+  `77f690a3`..`82adf824` plus ADR-0179.
 - **Unreleased on main**: envelope v9 (op_var_meta — def-meta rides
   the AOT wire), computed def-meta (D-316) — incl. `:tag` uniform-eval
   (`^String`→Class, `^Foo`→name error; the bare-symbol workaround

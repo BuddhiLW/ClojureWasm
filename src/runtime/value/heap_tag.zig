@@ -41,6 +41,8 @@
 
 /// Heap object discriminant — 64 entries (4 group × 16 sub-type) per
 /// F-004 + ADR-0027 §2. Each entry's integer value is the contiguous
+const std = @import("std");
+
 /// slot index used by both the NaN-box encoding and the per-Tag dispatch
 /// tables in `runtime/gc/tag_ops.zig`.
 pub const HeapTag = enum(u8) {
@@ -162,4 +164,115 @@ pub fn isGcManaged(tag: HeapTag) bool {
         .keyword, .var_ref, .ns => false,
         else => true,
     };
+}
+
+// ---------------------------------------------------------------------------
+// Slot census (ADR-0179)
+//
+// The 2026-08-04 audit counted the 64 names below and concluded the tag space
+// was "100% full — a new type has nowhere to go, and only a user F-004
+// amendment can unblock it". Names are not uses. Measured by use, 11 of the 64
+// addresses are not doing NaN-box work, and no F-004 amendment is required to
+// see that.
+//
+// Getting this census right took three attempts, all of them the same class of
+// error as the audit's, so the classification is enforced here rather than
+// described:
+//
+//   - a COMPUTED-tag encode site was missed by a syntactic grep
+//     (`map.zig` encodes trie nodes via `@enumFromInt(n.header.tag)`), which
+//     wrongly moved `hamt_map_node` out of the boxed set;
+//   - a TEST-ONLY encode was counted as production, which wrongly kept
+//     `wasm_funcref` / `wasm_externref` in it;
+//   - the three counts summed to 63, not 64 — `@"volatile"` uses Zig's `@"…"`
+//     escape and the pattern did not match it.
+//
+// `assertCensusCloses` below fails the build on the third class directly, and
+// `boxable` makes the first class a compile error at the call site.
+
+/// Tags that exist ONLY as a `HeapHeader.tag` — GC-traced heap objects that are
+/// never encoded into a `Value`, so they consume no NaN-box sub-type address in
+/// practice. `PersistentVector.tail` is a raw `?*TailNode` field; `TVal` is
+/// reached only through `Ref.tvals` (`stm/tval.zig` states the invariant in its
+/// own header: "No `Value.Tag.tval` exists").
+pub const heap_only = [_]HeapTag{ .tail_node, .tval };
+
+/// Named day-1 reservations with ZERO production reference — no encode, no
+/// `HeapHeader.init`, no `tag_ops` registration. Two are subsumed by a
+/// different representation that shipped instead: a `Class` value is a
+/// `.type_descriptor`, and `Matcher` is an ADR-0106 `host_instance`.
+///
+/// These are NOT deleted and NOT renamed. F-004's body names
+/// `reader_conditional` and the Wasm family in its day-1 type set, and D-043's
+/// discharge records this project's reading — "F-004 fixes 64 slots + the
+/// day-1 type set, not intra-group ORDER" — so repurposing one is a user
+/// decision. `wasm_fn` / `wasm_funcref` / `wasm_externref` additionally carry
+/// D-259's open deferred decision about how they become first-class Values.
+///
+/// Publishing the list is the point: when a new type needs an address, the
+/// question is "may `box` become `chan`", not "may we amend the 64-slot
+/// layout". No layout amendment is needed.
+pub const unallocated = [_]HeapTag{
+    .reader_conditional, .class,   .array_chunk,  .matcher,        .tuple,
+    .box,                .wasm_fn, .wasm_funcref, .wasm_externref,
+};
+
+fn inList(comptime list: []const HeapTag, tag: HeapTag) bool {
+    inline for (list) |t| if (t == tag) return true;
+    return false;
+}
+
+/// True when `tag` may be encoded into a `Value` via `Value.encodeHeapPtr`.
+/// An unallocated slot is boxable — it simply has no producer yet.
+pub fn boxable(tag: HeapTag) bool {
+    return !inList(&heap_only, tag);
+}
+
+/// The check that would have caught both the audit's error and all three of the
+/// classification's: {boxed} ∪ {heap-only} ∪ {unallocated} must PARTITION the
+/// enum — disjoint, exhaustive, and summing to the field count. A census that
+/// does not close fails the build with its own arithmetic in the message.
+pub fn assertCensusCloses() void {
+    comptime {
+        const fields = @typeInfo(HeapTag).@"enum".fields;
+        for (heap_only) |h| {
+            if (inList(&unallocated, h))
+                @compileError("heap_tag census: a tag is both heap-only and unallocated");
+        }
+        var boxed_in_production: usize = 0;
+        for (fields) |f| {
+            const tag: HeapTag = @enumFromInt(f.value);
+            if (inList(&heap_only, tag)) continue;
+            if (inList(&unallocated, tag)) continue;
+            boxed_in_production += 1;
+            if (f.value >= 64)
+                @compileError("heap_tag census: a boxed tag sits outside the 64 NaN-box addresses (F-004)");
+        }
+        const total = boxed_in_production + heap_only.len + unallocated.len;
+        if (total != fields.len) @compileError(std.fmt.comptimePrint(
+            "heap_tag census does not close: {d} boxed + {d} heap-only + {d} unallocated = {d}, but HeapTag has {d} fields",
+            .{ boxed_in_production, heap_only.len, unallocated.len, total, fields.len },
+        ));
+        if (fields.len > 64)
+            @compileError("HeapTag exceeds the 64 NaN-box addresses F-004 fixes");
+    }
+}
+
+comptime {
+    assertCensusCloses();
+}
+
+test "slot census closes and reports the measured headroom" {
+    const fields = @typeInfo(HeapTag).@"enum".fields;
+    try std.testing.expectEqual(@as(usize, 64), fields.len);
+    try std.testing.expectEqual(@as(usize, 2), heap_only.len);
+    try std.testing.expectEqual(@as(usize, 9), unallocated.len);
+    // 11 addresses are not doing NaN-box work — the correction to the
+    // 2026-08-04 audit's "100% full".
+    try std.testing.expectEqual(@as(usize, 11), heap_only.len + unallocated.len);
+    try std.testing.expect(boxable(.string));
+    try std.testing.expect(!boxable(.tval));
+    try std.testing.expect(!boxable(.tail_node));
+    // An unallocated slot is boxable — it has no producer, not a prohibition.
+    try std.testing.expect(boxable(.box));
 }
