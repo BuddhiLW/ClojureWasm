@@ -66,12 +66,28 @@ SIZE_CLAIM_FILES="${SIZE_CLAIM_FILES:-README.md docs/landscape.md bench/RELEASE_
 # historical row). Exemptions are visible in the source and greppable.
 SIZE_EXEMPT_MARKER='<!--size:other-->'
 
+# The documented figures are for ONE platform (macOS arm64 — see the header and
+# ADR-0172). A Linux x86_64 build of the same source is measurably bigger
+# (8.31 MB vs 7.37 MB when this was written, ~13%), so comparing prose written
+# about the reference artifact against a non-reference build is comparing two
+# different things — it failed the x86_64 gate leg on its first run for exactly
+# that reason. The BUDGET CEILING still applies everywhere: that one is about
+# the artifact not growing without a decision, which is host-independent.
+is_reference_platform() {
+    [[ "$(uname -s)" == "Darwin" && "$(uname -m)" == "arm64" ]]
+}
+
 if [[ "$MODE" == "check" ]]; then
     if [[ "$ACTUAL" -gt "$BUDGET_CEILING_BYTES" ]]; then
         echo "size_claims: built binary ${ACTUAL_MB} MB (${ACTUAL} B) exceeds the ADR-0172 derived ceiling ($BUDGET_CEILING_BYTES B)." >&2
         echo "  Attribute with 'bash scripts/binary_size_report.sh' (-Dprofile build for symbols), then land a lever" >&2
         echo "  or consciously amend the budget table in .dev/decisions/0172_binary_size_budget_and_ledger.md." >&2
         exit 1
+    fi
+
+    if ! is_reference_platform; then
+        echo "    size_claims: ceiling ok (${ACTUAL_MB} MB); claim-drift check skipped — the documented figures are macOS arm64 (ADR-0172 reference platform), this is $(uname -s)/$(uname -m)"
+        exit 0
     fi
 
     checked=0

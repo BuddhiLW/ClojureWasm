@@ -90,9 +90,13 @@ emit() {
         printf "  value: %d\n", count["value"] + 0
         printf "  unbound: %d\n", count["unbound"] + 0
         print "vars:"
-        # Sorted output so the drift diff is stable across map-iteration order.
-        for (i = 1; i <= n; i++) print rows[i] | "sort"
-        close("sort")
+        # Sorted so the drift diff is stable across map-iteration order — and
+        # LC_ALL=C so it is stable across HOSTS too. Without it, macOS and GNU
+        # sort disagree on where punctuation and case fall (`*`, `!`, `-`), so
+        # the identical var set produced a different file on each host and the
+        # drift gate failed on the x86_64 leg with a pure reordering diff.
+        for (i = 1; i <= n; i++) print rows[i] | "LC_ALL=C sort"
+        close("LC_ALL=C sort")
     }' | awk -F'\t' '
         /^[^ #]/ && NF == 3 {
             gsub(/"/, "\\\"", $1)
