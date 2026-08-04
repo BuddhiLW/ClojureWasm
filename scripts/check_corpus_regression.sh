@@ -79,7 +79,7 @@ for f in "${files[@]}"; do
                     # value, so a prepended `(require …)` would print `nil` as the first line
                     # and `head -1` would grab it instead of the prn output. Stdin prints only
                     # explicit output (the prn). (memory: cljw_e_prints_each_form.)
-                    got="$(printf '%s(prn %s)' "$reqs" "$expr" | run_bounded "$BIN" - 2>&1 | head -1)"
+                    got="$(printf '%s(prn %s)' "$reqs" "$expr" | run_bounded "$BIN" - 2>&1 | sed -n 1p)"
                     total=$((total + 1))
                     if [ "$got" != "$want" ]; then
                         printf 'DRIFT [%s] %s\n   want=[%s]\n    got=[%s]\n' "$(basename "$f" .txt)" "$expr" "$want" "$got"

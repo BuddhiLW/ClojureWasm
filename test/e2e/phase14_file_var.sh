@@ -23,11 +23,11 @@ assert_eq 'file-reports-path' "$("$BIN" "$TMP/probe.clj" 2>&1 | tail -1)" "\"$TM
 # Non-file sources report clj's exact sentinel. The guard is a positive test
 # (a real path never starts with '<'), not a denylist — a denylist missed the
 # `<-e>` label and reported it as the file name.
-assert_eq 'e-form-sentinel'  "$("$BIN" -e '(println (pr-str *file*))' 2>&1 | head -1)" '"NO_SOURCE_PATH"'
-assert_eq 'stdin-sentinel'   "$(printf '(println (pr-str *file*))\n' | "$BIN" - 2>&1 | head -1)" '"NO_SOURCE_PATH"'
+assert_eq 'e-form-sentinel'  "$("$BIN" -e '(println (pr-str *file*))' 2>&1 | sed -n 1p)" '"NO_SOURCE_PATH"'
+assert_eq 'stdin-sentinel'   "$(printf '(println (pr-str *file*))\n' | "$BIN" - 2>&1 | sed -n 1p)" '"NO_SOURCE_PATH"'
 
 # It is ^:dynamic, so a caller can rebind it the way tooling does.
-got="$("$BIN" -e '(binding [*file* "x.clj"] (println (pr-str *file*)))' 2>&1 | head -1)"
+got="$("$BIN" -e '(binding [*file* "x.clj"] (println (pr-str *file*)))' 2>&1 | sed -n 1p)"
 assert_eq 'rebindable' "$got" '"x.clj"'
 
 echo "OK — phase14_file_var (4 cases) green"

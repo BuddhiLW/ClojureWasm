@@ -247,7 +247,7 @@ PY
 # 3-message error protocol with the CLI-grade rich rendering,
 # completions / lookup / eldoc, describe deriving ops + real version,
 # ns-honoring + per-session ns isolation, *1/*2/*3 history. ---
-python3 - "$PORT" "$("$BIN" --version | head -1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)" <<'PY' || fail "nrepl_cider_fidelity: $(tail -5 /tmp/cljw_nrepl_stderr.$$ 2>/dev/null)"
+python3 - "$PORT" "$("$BIN" --version | sed -n 1p | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | sed -n 1p)" <<'PY' || fail "nrepl_cider_fidelity: $(tail -5 /tmp/cljw_nrepl_stderr.$$ 2>/dev/null)"
 import socket, sys, time
 
 def encode(v):

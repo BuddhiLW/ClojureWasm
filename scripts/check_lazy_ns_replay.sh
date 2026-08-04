@@ -39,7 +39,7 @@ while IFS= read -r f; do
     out="$(run_bounded "$BIN" -e "(require '$ns)" 2>&1)"
     rc=$?
     if [ "$rc" -ne 0 ]; then
-        echo "FAIL lazy-replay [$ns]: exit $rc — $(printf '%s' "$out" | grep -iE 'error|exception' | head -1)"
+        echo "FAIL lazy-replay [$ns]: exit $rc — $(printf '%s' "$out" | grep -iE 'error|exception' | sed -n 1p)"
         fails=$((fails + 1))
     fi
 done < <(find src/lang/clj -name '*.clj' | sort)

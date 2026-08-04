@@ -11,14 +11,15 @@
         // zwasm v2 embedding API (F-001 / D-037). `lazy` so the DEFAULT build +
         // gate never resolve it — only `-Dwasm` (b.lazyDependency) does.
         //
-        // Pinned to a COMMIT rather than a tag, unusually: `main` carries the
-        // component export index-space fix (zwasm #157) that cljw's headline
-        // feature is blocked on — a component with two or more exports failed
-        // validation, so `(:require ["x.wasm" :as x])` could only ever load
-        // single-function components. Cutting the tag that would carry it is
-        // user-only in zwasm (its ADR-0156), so waiting for one would leave the
-        // feature broken here for no engineering reason. Move this to the tag
-        // when it is cut; the hash pins the content either way.
+        // PINNED to STABLE tag **v2.4.1** (2026-08-04). Unlike the pin-hygiene
+        // bumps before it, this one is load-bearing twice over — both fixes were
+        // found FROM cljw and neither was reachable by zwasm's own fixtures:
+        //   #157 a component with 2+ exports failed validation, so
+        //        `(:require ["x.wasm" :as x])` could only ever load a
+        //        single-function component — the headline feature, blocked.
+        //   #158/#159 a captured run had no output bound. Measured here: 64 MB
+        //        per 1e6 fuel, ~64 GB under the default fuel budget. `wasm/run`
+        //        passes `:max-output-bytes` (D-349).
         //
         // Tag history: v2.4.0 (2026-08-03) external-consumer release
         // (`-Dcompiler-rt`, sub-3.0 DCE); v2.3.0 (2026-07-17) WASI-0.3.0 sweep;
@@ -26,8 +27,8 @@
         // full fidelity. cljw's embedding surface (Engine/Module/Instance via
         // `.auto` = JIT-default, D-488) is unchanged by all of them.
         .zwasm = .{
-            .url = "git+https://github.com/clojurewasm/zwasm.git#1ecc7a8a2d4ccde0806f9b2b14b744bb400e0d66",
-            .hash = "zwasm-2.4.0-FT1Fv_VyjQD5Hcs8umGc7ZbFAlNfXfMPoa17x6kHpViZ",
+            .url = "git+https://github.com/clojurewasm/zwasm.git?ref=v2.4.1#c45188a639aba8ee7298209539134a61643b2bd4",
+            .hash = "zwasm-2.4.1-FT1Fv0J0jQDowvbJuWRyBg6N0aX7lj52ldrm7T7HWzBr",
             .lazy = true,
         },
     },

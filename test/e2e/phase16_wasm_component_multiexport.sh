@@ -27,18 +27,18 @@ F=test/e2e/fixtures/wasm
 
 # The single-export control, kept: it is what made the original failure legible
 # as being about export COUNT rather than about components in general.
-got="$("$BIN" -e '(println (count (wasm/component-exports "test/e2e/fixtures/wasm/greet_component.wasm")))' 2>&1 | head -1)"
+got="$("$BIN" -e '(println (count (wasm/component-exports "test/e2e/fixtures/wasm/greet_component.wasm")))' 2>&1 | sed -n 1p)"
 [[ "$got" == "1" ]] || fail "single-export control did not load: got '$got'"
 echo "PASS single-export-control -> $got"
 
 # Two exports — the minimal reproduction of the engine bug.
-got="$("$BIN" -e '(println (count (wasm/component-exports "test/e2e/fixtures/wasm/two_export_component.wasm")))' 2>&1 | head -1)"
+got="$("$BIN" -e '(println (count (wasm/component-exports "test/e2e/fixtures/wasm/two_export_component.wasm")))' 2>&1 | sed -n 1p)"
 [[ "$got" == "2" ]] || fail "two-export component did not list both exports: got '$got'"
 echo "PASS two-export-loads -> $got"
 
 # Sixteen exports — the typed fixture. An exact count, so a regression that
 # silently DROPS exports (rather than failing outright) is caught too.
-got="$("$BIN" -e '(println (count (wasm/component-exports "test/e2e/fixtures/wasm/echo.component.wasm")))' 2>&1 | head -1)"
+got="$("$BIN" -e '(println (count (wasm/component-exports "test/e2e/fixtures/wasm/echo.component.wasm")))' 2>&1 | sed -n 1p)"
 [[ "$got" == "16" ]] || fail "typed fixture: expected 16 exports, got '$got'"
 echo "PASS typed-fixture-lists-all-exports -> $got"
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# test/e2e/phase16_wasm_run_output_cap.sh — D-349.
+# test/e2e/phase16_wasm_run_output_cap.sh — D-349 + D-570.
 #
 # `(wasm/run …)` buffers the guest's stdout and stderr in HOST memory, and
 # neither of the other two budgets bounds that: fuel bounds instructions, and
@@ -30,7 +30,7 @@ F=test/e2e/fixtures/wasm/spam_stdout.wasm
 SMALL_FUEL=20000
 DEF_FUEL=300000
 run() { # run <opts> -> byte count
-    "$BIN" -e "(println (count (:out (wasm/run \"$F\" $1))))" 2>/dev/null | head -1
+    "$BIN" -e "(println (count (:out (wasm/run \"$F\" $1))))" 2>/dev/null | sed -n 1p
 }
 
 got="$(run "{:fuel $SMALL_FUEL :max-output-bytes 4096}")"
@@ -55,8 +55,31 @@ got="$(run "{:fuel $SMALL_FUEL :max-output-bytes 0}")"
 echo "PASS unmetered-opt-out -> $got"
 
 # A guest that writes a normal amount is untouched.
-got="$("$BIN" -e '(println (pr-str (:out (wasm/run "test/e2e/fixtures/wasm_run_probe.wasm" {:args ["prog" "7"]}))))' 2>/dev/null | head -1)"
+got="$("$BIN" -e '(println (pr-str (:out (wasm/run "test/e2e/fixtures/wasm_run_probe.wasm" {:args ["prog" "7"]}))))' 2>/dev/null | sed -n 1p)"
 [[ -n "$got" && "$got" != '""' ]] || fail "an ordinary guest lost its output under the default cap: got '$got'"
 echo "PASS ordinary-guest-unaffected -> $got"
 
-echo "OK — phase16_wasm_run_output_cap (5 cases) green"
+# --- the wall-clock axis (D-570) ------------------------------------------
+#
+# Fuel is a very poor proxy for time. Measured on the SAME 1,000,000 fuel: this
+# host-call-heavy guest took 66 s, and a compute-bound guest took 0.087 s — a
+# ~760x spread, so the 1e9 default fuel permits roughly 18 HOURS for the first
+# shape. Capping output bounds the memory and does nothing about that: a guest
+# that ignores `.nospc` keeps burning fuel with its writes discarded.
+start=$(date +%s)
+"$BIN" -e "(wasm/run \"$F\" {:timeout-ms 2000})" >/dev/null 2>&1 || true
+elapsed=$(( $(date +%s) - start ))
+[[ "$elapsed" -le 8 ]] || fail "an explicit :timeout-ms 2000 did not stop the guest: took ${elapsed}s"
+echo "PASS explicit-timeout -> ${elapsed}s"
+
+# The default is finite. Asserted against the guest's UNCAPPED time rather than
+# a clock reading: at this fuel it would run ~13 s uncapped, so finishing well
+# inside that is the default doing its job. Bounded loosely because a loaded CI
+# runner is slow, and a flaky timing assertion is worse than a coarse one.
+start=$(date +%s)
+"$BIN" -e "(wasm/run \"$F\" {:fuel 200000})" >/dev/null 2>&1 || true
+elapsed=$(( $(date +%s) - start ))
+[[ "$elapsed" -le 90 ]] || fail "the default wall-clock cap is not applied: took ${elapsed}s"
+echo "PASS default-timeout-is-finite -> ${elapsed}s"
+
+echo "OK — phase16_wasm_run_output_cap (7 cases) green"

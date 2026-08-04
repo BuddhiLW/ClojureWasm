@@ -138,7 +138,7 @@ if command -v size >/dev/null 2>&1; then
     if size -m "$BIN" >/dev/null 2>&1; then
         size -m "$BIN" | grep -E "Segment|Section|total" | grep -v PAGEZERO
     else
-        size -A "$BIN" | head -25
+        size -A "$BIN" | sed -n 25p
     fi
 fi
 

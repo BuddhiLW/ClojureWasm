@@ -194,7 +194,7 @@ for entry in "${BENCHMARKS[@]}"; do
 CEOF
 
   # Verify CW output
-  cw_output=$($CLJW "$cw_clj" 2>&1 | head -1 | tr -d '[:space:]')
+  cw_output=$($CLJW "$cw_clj" 2>&1 | sed -n 1p | tr -d '[:space:]')
   if [[ "$cw_output" != "$expected_clean" ]]; then
     echo -e "  ${RED}SKIP${RESET} $name: CW output mismatch (got=$cw_output expected=$expected_clean)"
     continue

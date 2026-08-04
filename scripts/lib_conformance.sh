@@ -102,11 +102,11 @@ run_cljw() {
     local errf
     errf="$(mktemp /tmp/lib_conf_err.XXXXXX)"
     out="$(printf '%s\n(prn %s)\n' "$prog" "$expr" \
-        | (cd "$CTX_DIR" && timeout 20 "$BIN" - 2>"$errf") | head -1)"
+        | (cd "$CTX_DIR" && timeout 20 "$BIN" - 2>"$errf") | sed -n 1p)"
     if [ -z "$out" ]; then
         # First NON-diagnostic stderr line ("note: …" = the deps.edn
         # Maven-skip advisory, not the error).
-        out="$(grep -v '^note: ' "$errf" | head -1)"
+        out="$(grep -v '^note: ' "$errf" | sed -n 1p)"
     fi
     rm -f "$errf"
     printf '%s\n' "$out"

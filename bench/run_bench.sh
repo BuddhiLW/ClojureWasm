@@ -126,7 +126,7 @@ for bench_dir in "${BENCH_DIRS[@]}"; do
 
   # Correctness probe FIRST: a broken benchmark is reported and skipped, never
   # aborting the whole suite (one bad workload must not kill the run).
-  actual=$($CLJW "$bench_dir/bench.clj" 2>&1 | head -1 | tr -d '[:space:]' || true)
+  actual=$($CLJW "$bench_dir/bench.clj" 2>&1 | sed -n 1p | tr -d '[:space:]' || true)
   if [[ "$actual" != "$expected_clean" ]]; then
     echo -e "${YELLOW}SKIP${RESET} (output=$actual expected=$expected_clean)"
     skipped=$((skipped + 1))

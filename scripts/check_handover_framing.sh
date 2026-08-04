@@ -133,7 +133,7 @@ fi
 # grep -c returns 0 with exit 1 when no matches, and `|| echo 0` then
 # appends another "0" → multi-line value breaks arithmetic. Use a
 # direct line-count via wc instead.
-JUST_LANDED_COUNT=$(grep -c '^## Just landed' "$TARGET_FILE" 2>/dev/null | head -1)
+JUST_LANDED_COUNT=$(grep -c '^## Just landed' "$TARGET_FILE" 2>/dev/null | sed -n 1p)
 JUST_LANDED_COUNT=${JUST_LANDED_COUNT:-0}
 if (( JUST_LANDED_COUNT > 1 )); then
   echo "" >&2

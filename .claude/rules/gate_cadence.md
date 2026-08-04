@@ -144,6 +144,28 @@ core does NOT cover appears (the miss-window grows beyond CLI/REPL/
 filesystem/http/GC e2e — re-scope what the smoke runs); or the batch of
 5 proves wrong in practice.
 
+## Local and CI must run the SAME configuration
+
+`scripts/ci_gate.sh` runs the full gate as `test/run_all.sh --serial-e2e`.
+`scripts/run_gate.sh` now defaults to the same flag, and
+`scripts/check_gate_parity.sh` (gate step `gate_parity`) asserts both still do.
+
+This was false for months. `run_gate.sh` passed nothing, so `run_all.sh` took
+its `PARALLEL_E2E=1` default: "the local full gate is green" and "CI is green"
+were statements about two different runs, while `ci_gate.sh`'s own header said
+they were the same one.
+
+It is not cosmetic. The parallel path captures each job's output to a file; the
+serial path pipes it. So an e2e whose producer took SIGPIPE from a `head -N`
+died silently under serial and passed under parallel — green on every local
+full gate, red on every push (2026-08-04). `scripts/check_epipe_head.sh` closes
+that specific hazard; `gate_parity` closes the class of "CI runs something
+local does not".
+
+**If you change either launcher's mode, change both, and update `ci_gate.sh`'s
+header claim in the same commit.** A parity claim that only a comment makes is
+the thing that failed here.
+
 ## Related
 
 - [ADR-0107](../../.dev/decisions/0107_pipeline_gate_smoke_authorized.md) —

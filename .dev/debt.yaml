@@ -24,37 +24,6 @@
 # md-table-align no longer pads it to ~800 KB of whitespace.
 
 active:
-  - id: "D-570"
-    status: |-
-      open (2026-08-04, D-349's residual). `(wasm/run …)` bounds a guest's
-      INSTRUCTIONS (`:fuel`), its MEMORY (`:max-memory-pages`) and now its
-      captured OUTPUT (`:max-output-bytes`) — but not its WALL CLOCK. Measured:
-      a guest looping on `fd_write` and ignoring the `.nospc` the cap returns
-      keeps burning fuel with its output discarded, and 1e8 fuel is ~300 s. Under
-      the 1e9 default that is tens of minutes of a wedged host process, with
-      memory flat the whole time — so nothing surfaces it as a leak.
-      Fuel is a poor proxy for time because instruction cost is not uniform: a
-      host call through the WASI boundary is far slower than an arithmetic op,
-      and a guest chooses the mix.
-      SHAPE: zwasm's `cli.run.Limits` already HAS `timeout_ms` (it drives a
-      cooperative-interruption flag both engines poll); cljw passes null. The
-      cljw side is the same three lines the other three axes took. The open
-      question is the DEFAULT — a finite wall-clock default would break a
-      legitimately long-running guest (a compiler, a test binary), which the
-      other three axes do not, so it needs a decision rather than a copy of the
-      pattern.
-    category: "security"
-    barrier: |-
-      quality-loop floor: wasm resource bounds. No technical blocker — zwasm's
-      axis exists. Needs the default-value decision above; shipping it as
-      opt-in-only would be a knob nothing sets, which is the failure mode this
-      cycle has been closing elsewhere.
-    first_raised: "2026-08-04"
-    last_reviewed: "2026-08-04"
-    refs: |-
-      D-349 (the memory half, discharged); zwasm `src/cli/run.zig`
-      `Limits.timeout_ms`; src/runtime/cljw/wasm/engine.zig (`RunOpts`, where
-      the three existing axes are threaded).
   - id: "D-568"
     status: |-
       open (2026-08-04, ADR-0159 amendment 1 § implementer-verification item (a)).
@@ -7053,6 +7022,35 @@ discharged:
       `<= 0` opt-out returning the full 64 MB so the capped numbers mean
       something, and an ordinary guest keeping its output).
     last_reviewed: "2026-08-04"
+  - id: "D-570"
+    status: |-
+      DISCHARGED 2026-08-04, same day it opened. `(wasm/run …)` takes
+      `:timeout-ms` beside `:fuel` / `:max-memory-pages` / `:max-output-bytes`,
+      defaulting to 60 s with the same `<= 0` opt-out.
+      The row's open question was the DEFAULT VALUE, and a measurement settled
+      it rather than taste. On the SAME 1,000,000 fuel: a host-call-heavy guest
+      took **66 s**, a compute-bound one **0.087 s** — a ~760x spread. So fuel
+      is a very poor proxy for time, and the 1e9 default permits roughly **18
+      HOURS** of wall clock for the first shape while a real guest finishes in
+      under a tenth of a second.
+      60 s turns 18 hours into a minute and still leaves a legitimate guest
+      ~700x the time the measured one needed. The asymmetry is what decides it:
+      too low cuts off a long-but-legitimate guest, which is recoverable (raise
+      `:timeout-ms`, and the error says so); absent, a wedged host process looks
+      like a hang for hours, which is not. Opt-in-only would have been a knob
+      nothing sets — the failure mode this whole day was spent closing.
+    category: "security"
+    barrier: |-
+      none — discharged. Pinned by `test/e2e/phase16_wasm_run_output_cap.sh`
+      (explicit `:timeout-ms 2000` stops a guest that would run ~13 s at that
+      fuel; the default is asserted finite against the same guest's uncapped
+      time, loosely bounded so a loaded CI runner cannot make it flaky).
+    first_raised: "2026-08-04"
+    last_reviewed: "2026-08-04"
+    refs: |-
+      D-349 (the memory half, discharged); zwasm `src/cli/run.zig`
+      `Limits.timeout_ms`; src/runtime/cljw/wasm/engine.zig (`RunOpts`, where
+      the three existing axes are threaded).
 conventions: |-
   - Structure: two top-level lists — `active:` and `discharged:`. Active entries carry id / status / category / barrier (+ optional quality_floor / last_reviewed); discharged entries carry id / discharged_at / resolution. Edit as YAML (no Markdown table to align).
   - New debt: grep `.dev/debt.yaml` for class-overlap before adding (per `.claude/rules/debt_dedup.md`).

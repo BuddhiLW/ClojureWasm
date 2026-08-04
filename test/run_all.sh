@@ -405,6 +405,13 @@ run_step "clj_attribution"      "bash scripts/check_clj_attribution.sh --gate"
 # was generated once and gated by nothing, so it rotted to covering under half
 # of clojure.core while `find-doc` kept answering confidently (ADR-0181).
 run_step "doc_coverage"         "bash scripts/check_doc_coverage.sh"
+# `| head -N` fed by a command is a silent-death trap under pipefail: the
+# producer takes SIGPIPE, the script dies before printing its diagnostic, and it
+# only bites on a loaded machine. ab84126b fixed four sites and left 24.
+run_step "epipe_head"           "bash scripts/check_epipe_head.sh"
+# The local full gate and CI's must be the SAME run. ci_gate.sh claimed they
+# were; nothing checked, and they were not (parallel vs serial e2e).
+run_step "gate_parity"          "bash scripts/check_gate_parity.sh"
 
 # clj-diff corpus regression (cljw-only replay of golden `;;=> …` pairs —
 # no clj/network). Makes a "X/Y landed" discharge claim mechanically

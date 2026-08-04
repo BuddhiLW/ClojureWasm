@@ -63,5 +63,5 @@ echo "  A var moved between Zig and .clj, or was added / removed, without the" >
 echo "  index following. Regenerate in the same commit as the change:" >&2
 echo "      bash scripts/gen_placement.sh" >&2
 echo "" >&2
-diff "$YAML" "$TMP" | head -40 >&2
+diff "$YAML" "$TMP" | sed -n 40p >&2
 exit 1

@@ -132,9 +132,9 @@ for i in $(seq 0 $((n - 1))); do
     e="${exprs[$i]}"
     cj="${clj_lines[$i]:-<clj-missing>}"
     if [ -n "$cljw_reqs" ]; then
-        cw="$(timeout 20 "$BIN" -e "(do $cljw_reqs (prn $e))" 2>&1 | head -1)"
+        cw="$(timeout 20 "$BIN" -e "(do $cljw_reqs (prn $e))" 2>&1 | sed -n 1p)"
     else
-        cw="$(timeout 20 "$BIN" -e "(prn $e)" 2>&1 | head -1)"
+        cw="$(timeout 20 "$BIN" -e "(prn $e)" 2>&1 | sed -n 1p)"
     fi
     if [ "$cw" = "$cj" ]; then
         printf 'OK   %s\n' "$e"

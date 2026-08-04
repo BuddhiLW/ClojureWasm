@@ -15,7 +15,7 @@ fail() { echo "FAIL $1" >&2; exit 1; }
 
 ck() { # ck <name> <expr> <expected>
     local got
-    got="$("$BIN" -e "$2" 2>&1 | head -1)"
+    got="$("$BIN" -e "$2" 2>&1 | sed -n 1p)"
     [[ "$got" == "$3" ]] || fail "$1: expected '$3', got '$got'"
     echo "PASS $1 -> $got"
 }

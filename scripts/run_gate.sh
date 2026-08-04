@@ -19,8 +19,11 @@
 #      died) — precise: ppid==1 only, so a live gate's children and any
 #      legitimate interactive `cljw` are untouched.
 #   3. Run exactly ONE gate under a bounded timeout (default 300 s —
-#      generous for a ~50 s gate once nothing contends; a gate that
-#      exceeds it is stuck, not slow, so killing it is correct).
+#      generous for a ~190 s parallel / ~350 s serial gate once nothing
+#      contends; a gate that exceeds it is stuck, not slow. Raised to 600 with
+#      --serial-e2e now the default here: the serial path is ~2x the parallel
+#      wall, and a bound that kills a healthy gate is worse than no bound —
+#      it exits 0 through a pipeline and reads as a pass.
 #
 # USAGE
 #   bash scripts/run_gate.sh                 # reap + run one gate
@@ -35,7 +38,7 @@ set -uo pipefail
 cd "$(dirname "$0")/.."
 
 SELF=$$
-TIMEOUT="${GATE_TIMEOUT:-300}"
+TIMEOUT="${GATE_TIMEOUT:-600}"
 
 reap_gates() {
     local pid ppid n
@@ -69,4 +72,22 @@ if [ "${1:-}" = "reap" ]; then
     exit 0
 fi
 
-exec timeout "$TIMEOUT" bash test/run_all.sh "$@"
+# `--serial-e2e` unless the caller already picked a mode. THE LOCAL FULL GATE
+# MUST RUN WHAT CI RUNS. `scripts/ci_gate.sh` passes `--serial-e2e`; this script
+# passed nothing, so `run_all.sh` defaulted to `PARALLEL_E2E=1` and the local
+# "full gate green" validated a DIFFERENT configuration from the one that
+# gates a push. That divergence is how a serial-only failure reached CI green-
+# locally (2026-08-04: an EPIPE race in an e2e, invisible in the parallel path
+# because each parallel job's output is captured to a file rather than piped).
+# CLAUDE.md and handover have both said "the FULL gate MUST run --serial-e2e"
+# for months; nothing made it true.
+#
+# Pass `--jobs N` or `--smoke` explicitly to opt out.
+MODE=(--serial-e2e)
+for a in "$@"; do
+    case "$a" in
+        --serial-e2e | --jobs | --smoke) MODE=() ;;
+    esac
+done
+
+exec timeout "$TIMEOUT" bash test/run_all.sh "${MODE[@]}" "$@"

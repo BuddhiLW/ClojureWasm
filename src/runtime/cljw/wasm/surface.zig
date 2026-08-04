@@ -316,6 +316,7 @@ pub fn wasmRunFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocati
         if (try axisFromMap(rt, m, "fuel", loc)) |b| run_opts.fuel = b;
         if (try axisFromMap(rt, m, "max-memory-pages", loc)) |b| run_opts.max_memory_pages = b;
         if (try axisFromMap(rt, m, "max-output-bytes", loc)) |b| run_opts.max_output_bytes = b;
+        if (try axisFromMap(rt, m, "timeout-ms", loc)) |b| run_opts.timeout_ms = b;
     }
 
     const res = engine.run(rt.gpa, rt.io, bytes, run_opts) catch

@@ -286,10 +286,14 @@ while batching). SSOT: [`.claude/rules/gate_cadence.md`](../.claude/rules/gate_c
   (`zig build -Dwasm -Doptimize=ReleaseSafe` = the gate config), not the Debug default.
 - **Batched full gate** (run ALONE): `bash scripts/run_gate.sh` reaps any
   orphan `run_all.sh` tree + PID-1-orphaned `cljw` probes, then `exec`s
-  `timeout 300 bash test/run_all.sh` (writes `.dev/.gate_pass`; cadence
-  hook unaffected; orphan-safe per
+  `timeout 600 bash test/run_all.sh --serial-e2e` — **the same configuration
+  `ci_gate.sh` runs**, so a local green means what a push will mean
+  (`gate_parity` asserts it; before 2026-08-04 the local gate ran the parallel
+  e2e path and CI ran serial, and a serial-only failure was invisible locally).
+  Writes `.dev/.gate_pass`; the cadence hook is unaffected, and it stays
+  orphan-safe per
   [`.claude/rules/orphan_prevention.md`](../.claude/rules/orphan_prevention.md)
-  § Gate launcher + memory `premature-gate-notification`). Run it at the
+  § Gate launcher + memory `premature-gate-notification`. Run it at the
   5-commit ceiling / Phase boundary / pre-tag — backgroundable as a
   look-ahead. On-demand reap without a gate: `bash scripts/run_gate.sh reap`.
   If a full gate fails on ONLY a non-code check (e.g. `check_debt_id_refs`),

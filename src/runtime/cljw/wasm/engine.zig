@@ -118,7 +118,25 @@ pub const RunOpts = struct {
     /// before this existed — a guest looping on a 64-byte `fd_write` buffered
     /// 64 MB per 1e6 fuel, i.e. ~64 GB under the default fuel budget.
     max_output_bytes: ?Budget = null,
+    /// Wall-clock cap in milliseconds (D-570). The fourth axis, and the one the
+    /// other three do not imply: **fuel is a very poor proxy for time.**
+    /// Measured on the same 1,000,000 fuel — a host-call-heavy guest took 66 s,
+    /// a compute-bound one 0.087 s. A ~760x spread, so the 1e9 default fuel
+    /// permits roughly 18 HOURS of wall clock for the first shape.
+    timeout_ms: ?Budget = null,
 };
+
+/// Default wall-clock cap. Chosen from the measurement above rather than taste:
+/// it turns the pathological shape's ~18 hours into one minute, while leaving a
+/// legitimate guest ~700x the time the measured one needed. `<= 0` opts out on
+/// the same convention as the other three axes.
+///
+/// The asymmetry decides the value. Too low cuts off a long-but-legitimate
+/// guest, which is recoverable — the caller raises `:timeout-ms` and the error
+/// says so. Absent, a wedged host process looks like a hang for hours, which is
+/// not. So a finite default with a clear error beats opt-in-only, which would
+/// have been a knob nothing sets.
+pub const default_timeout_ms: u64 = 60_000;
 
 /// Default cap on each captured stream. Generous for the demo / CLI uses
 /// `wasm/run` is for (a compiler's diagnostics, a test binary's output) and
@@ -163,6 +181,7 @@ pub fn run(alloc: std.mem.Allocator, io: std.Io, bytes: []const u8, opts: RunOpt
         },
         // D-349: the third axis, and the one the other two do not imply.
         .max_output_bytes = (opts.max_output_bytes orelse Budget{ .limited = default_max_output_bytes }).toOptional(),
+        .timeout_ms = (opts.timeout_ms orelse Budget{ .limited = default_timeout_ms }).toOptional(),
     };
 
     const exit = try zwasm.cli.run.runWasmCapturedFull(

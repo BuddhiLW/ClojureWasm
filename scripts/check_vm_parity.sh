@@ -76,7 +76,7 @@ for t in test/e2e/*.sh; do
     if run_bounded 180 bash "$t" >/tmp/vmp_e2e.txt 2>&1; then
         : # green — stay quiet (the suite is ~250 steps)
     else
-        echo "  FAIL on tree-walk         : $name  ($(grep -iE 'FAIL|error' /tmp/vmp_e2e.txt | head -1 | cut -c1-100))"
+        echo "  FAIL on tree-walk         : $name  ($(grep -iE 'FAIL|error' /tmp/vmp_e2e.txt | sed -n 1p | cut -c1-100))"
         fails=$((fails + 1))
     fi
 done

@@ -18,13 +18,13 @@ BIN="zig-out/bin/cljw"
 fail() { echo "FAIL $1" >&2; exit 1; }
 
 # 1. The protocol and its method are both resolvable from user code.
-got=$("$BIN" -e '(println [(some? (resolve (quote ISeq))) (some? (resolve (quote -first)))])' 2>&1 | head -1)
+got=$("$BIN" -e '(println [(some? (resolve (quote ISeq))) (some? (resolve (quote -first)))])' 2>&1 | sed -n 1p)
 [[ "$got" == "[true true]" ]] || fail "ISeq / -first not resolvable: got '$got'"
 echo "PASS core-surface-protocol-resolvable -> $got"
 
 # 2. A user deftype implements the protocol by those names and the ordinary
 #    clojure.core fn dispatches to it. This is what the surface is FOR.
-got=$("$BIN" - <<'EOF' 2>&1 | head -1
+got=$("$BIN" - <<'EOF' 2>&1 | sed -n 1p
 (deftype TwoSeq []
   ISeq
   (-first [_] :a)
@@ -36,7 +36,7 @@ EOF
 echo "PASS core-surface-deftype-dispatch -> $got"
 
 # 3. A lookup protocol, to show it is not one special case.
-got=$("$BIN" - <<'EOF' 2>&1 | head -1
+got=$("$BIN" - <<'EOF' 2>&1 | sed -n 1p
 (deftype OneKey []
   ILookup
   (-lookup [_ k] (when (= k :hit) 42)))

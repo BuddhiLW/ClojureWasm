@@ -56,7 +56,7 @@ while IFS= read -r hit; do
     file="${hit%%:*}"
     rest="${hit#*:}"
     lineno="${rest%%:*}"
-    id=$(printf '%s' "$hit" | grep -oE 'claim:planned:D-[0-9]+' | head -1 | sed 's/claim:planned://')
+    id=$(printf '%s' "$hit" | grep -oE 'claim:planned:D-[0-9]+' | sed -n 1p | sed 's/claim:planned://')
     found_markers=$((found_markers + 1))
     [[ "$MODE" == list ]] && echo "    planned  $file:$lineno  -> $id"
 
