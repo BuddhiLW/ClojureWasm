@@ -544,6 +544,17 @@ active:
     last_reviewed: "2026-06-06"
   - id: "D-338"
     status: "open — security (SE-2, wasm host-import capability allowlist). FORWARD-LOOKING: today engine.load() instantiates wasm modules with an EMPTY import object (engine.zig:92 `inst_opts`), so only zero-import modules load — safe, but by ACCIDENT. There is no default-deny allowlist; the day the first host import (defineWasi/defineFunc) is wired into load(), it would be granted to ALL modules with no per-load gate. Building the allowlist NOW gates nothing (zero import-providing code path → excessive-skeleton smell), so it is scheduled, not built."
+    reviewed_2026_08_04: |-
+      Premise re-checked and still holds: `engine.load` passes no import object,
+      so only zero-import modules instantiate — safe, still by construction
+      rather than by an allowlist. Building the allowlist today would gate
+      nothing (no import-providing code path exists), which is the
+      excessive-skeleton smell. Stays scheduled to the cycle that wires the first
+      host import.
+      Cross-check for that cycle: the SIBLING axis got fixed today (D-347 — the
+      run path was unmetered while the load path was bounded). The lesson
+      transfers: when a second surface is added next to a hardened one, its
+      DEFAULTS are the thing to check, not just its features.
     category: "security"
     barrier: |-
       Lands in the SAME commit as the first host import wired into engine.load():
@@ -552,9 +563,41 @@ active:
       WasiCtxBuilder, with a test that FAILS the day an unlisted import is wired.
       Until a host import exists, this is a non-gating reservation (deferred per the
       skeleton smell). Cross-ref SE-2, 50_sharp_edges.md, engine.zig:92.
-    last_reviewed: "2026-06-09"
+    last_reviewed: "2026-08-04"
   - id: "D-343"
-    status: "open — security (FS-jail code-loading scope). The FS-jail (ADR-0123) confines DATA surfaces (slurp/spit/wasm/load) but NOT code-loading: `(require …)` reads .clj off rt.load_paths (require_resolver.zig:46 file_io.readAll) with no jail check. Intentional for v1 — load_paths are operator deploy-config (CLJW_PATH/deps.edn), not request data, and a lib tree legitimately lives outside the data root, so jailing require would break normal lib loading. The narrow request-reachable residual is `(require (symbol request-data))` → munged-ns traversal (mungeNsToPath only does .→/ and -→_, no `..` strip). Surfaced by the 2026-06-09 review."
+    status: |-
+      NARROWED + residual DISCHARGED 2026-08-04. The row's headline fear —
+      "munged-ns traversal (mungeNsToPath only does .→/ and -→_, no `..` strip)"
+      — was investigated by reproduction and is NOT reachable. The munge maps
+      `.` → `/` PER CHARACTER, so it can never emit a literal `..` path
+      segment: `..a.b` becomes `//a/b`, not `../a/b`. Probed 2026-08-04 with a
+      file planted above every load path (`(require (symbol "..outside.leak"))`
+      with `:paths ["src"]`): refused. There is no escape above the classpath
+      through this path.
+      What the probe DID find is a clj-PARITY defect, not a jail escape: once
+      `//a/b` is joined onto a load path, POSIX collapses the doubled slash, so
+      `..a.b` / `.a.b` / `a..b` became silent aliases for `a.b` under some
+      load-path shapes (reproduced with `-cp .`). JVM Clojure refuses these —
+      its classloader looks for the literal resource `//a/b.clj` and reports
+      "Could not locate //secret/leak.clj … on classpath" (oracle-checked
+      2026-08-04). Since such a name cannot be written through the reader
+      (`(quote ..a.b)` does not parse), it is only reachable via
+      `(require (symbol s))` with a computed name — the same shape the row
+      worried about, now refused for the right reason.
+      FIXED: `mungeNsToPath` returns null for a name with an empty
+      dot-separated segment (leading / trailing / doubled dot, or empty), so it
+      resolves to nothing exactly like clj's classloader. Checked at the NAME
+      boundary rather than by normalising the path, because the property is
+      about the name and a path-level check would depend on host separator
+      collapsing. Pin: unit test "mungeNsToPath refuses an empty namespace
+      segment (D-343)" in src/lang/require_resolver.zig — deterministic, no
+      filesystem (an e2e attempt passed for load-path-shape reasons rather than
+      the property under test, so it was dropped).
+      STILL OPEN (the row's other half, unchanged): `(require …)` reads .clj off
+      rt.load_paths with no FS-jail check. That is intentional for v1 —
+      load_paths are operator deploy-config (CLJW_PATH / deps.edn), not request
+      data, and jailing require would break normal lib loading from a tree
+      outside the data root.
     category: "security"
     barrier: |-
       blocked-by: a deploy needing code-loading confinement OR `(require request-data)`
@@ -564,7 +607,7 @@ active:
       so a request-derived ns can't escape load_paths. Low priority: require-of-
       untrusted-data is an unusual pattern; load_paths are operator-controlled.
       Cross-ref ADR-0123 § Scope, require_resolver.zig, SE-6/7.
-    last_reviewed: "2026-06-09"
+    last_reviewed: "2026-08-04"
   - id: "D-353"
     status: "open — SCI-style capability gating (var/ns allow-deny) (isolation dim (c)). cljw resolves ANY var (env.zig:173); there is no allow/deny on which vars/namespaces evaluated code may reach (cf. SCI's :allow/:deny/:namespaces). A compat_tiers.yaml-driven allow-list at the var-resolution choke point would let an embedder restrict untrusted code to a safe surface. Surfaced 2026-06-09 (isolation scope study)."
     category: "isolation"
@@ -682,6 +725,12 @@ active:
     last_reviewed: "2026-06-07"
   - id: "D-341"
     status: "open — security (SE-8, eval-free deploy build). `eval` (+ read-string) is public with no confinement story. read-string is ALREADY eval-free by design (ADR-0122 / AD-026 — `#=` not evaluated; the read-eval RCE footgun is closed). The residual is the `eval`/nREPL surface itself: a deployed serverless edge binary should be able to ship eval-free, author opts IN."
+    reviewed_2026_08_04: |-
+      Unchanged and correctly classified as a product feature, not a
+      vulnerability: read-string is already eval-free by design (ADR-0122 /
+      AD-026), so the residual is only "let a deploy ship WITHOUT the eval/nREPL
+      surface at all", which is a build-configuration decision with a user-facing
+      surface — not a hole to close.
     category: "security"
     barrier: |-
       blocked-by: a deploy-binary build profile being defined. Then add a
@@ -691,9 +740,16 @@ active:
       deny flag; default-deny in the deploy profile only (local CLI keeps eval). The
       read-string half is already closed (ADR-0122). Cross-ref SE-8, ADR-0122,
       core.zig eval surface.
-    last_reviewed: "2026-06-09"
+    last_reviewed: "2026-08-04"
   - id: "D-346"
     status: "open — security (VM operand-stack on large literal). Evaluating a large collection LITERAL (e.g. `(count [1 1 … ×40000])`) overflows the VM operand stack → `internal_error: vm: operand stack overflow` (uncatchable, exit 70). NOT a crash/panic (the tokenizer overflow-panic was the separate, fixed finding) — a clean process-end. Lower severity: it is reached by EVALUATING a large literal (untrusted CODE), not by READING data (read-string builds the collection in the reader, not via operand pushes), and untrusted-code-eval is already a higher-trust scenario. Surfaced 2026-06-09 while testing the tokenizer fix."
+    reviewed_2026_08_04: |-
+      REPRODUCED, unchanged, still low. `(count [1 1 … x40000])` from a file exits
+      70 with "vm: operand stack overflow" — a clean uncatchable process end, not
+      a crash or a memory-safety fault. Reachable only by EVALUATING untrusted
+      code (read-string builds the collection in the reader, not via operand
+      pushes), which is already the higher-trust scenario, so the severity
+      ordering behind the deferral holds.
     category: "security"
     barrier: |-
       blocked-by: untrusted large-literal eval becoming a tracked threat. Options:
@@ -701,7 +757,7 @@ active:
       or compiling a large vector/map literal to a bulk-build (not N operand pushes).
       Low priority (eval-of-untrusted-code path; clean exit-70, not a crash).
       Cross-ref the tokenizer long-input fix, vm.zig operand stack.
-    last_reviewed: "2026-06-09"
+    last_reviewed: "2026-08-04"
   - id: "D-349"
     status: "open — robustness. `(wasm/run …)` buffers the guest's ENTIRE stdout + stderr into GC strings before returning. A guest that prints unbounded output grows memory without limit (in the playground the OS sandbox bounds it; generally it is a gap). A streaming / size-capped capture is the finished form. Surfaced 2026-06-09 (ADR-0124, DA alternative-c insight)."
     category: "robustness"
@@ -992,6 +1048,20 @@ active:
     last_reviewed: "2026-08-04"
   - id: "D-342"
     status: "open — security (SE-6/7 finished form). The FS-jail v1 (ADR-0123, lexical containment) blocks `..`/absolute-path traversal portably but does NOT resolve symlinks: a symlink planted INSIDE the jail pointing outside is followed. Documented residual (mitigate via read-only mount / no symlinks in jail). The symlink-SAFE finished form is the ADR-0123 DA Alt-2."
+    reviewed_2026_08_04: |-
+      REPRODUCED, unchanged, correctly scheduled. With CLJW_FS_ROOT=/tmp/jail and
+      a symlink planted at jail/data/link.txt -> /tmp/outside/secret.txt,
+      `(slurp "data/link.txt")` returns the outside file's contents, while the
+      lexical control `(slurp "../outside/secret.txt")` is correctly refused
+      ("escapes the configured filesystem root"). So v1 does exactly what
+      ADR-0123 documents — no more, no less.
+      NOT fixed this cycle, deliberately: ADR-0123's Alternatives already weighed
+      a cheaper realpath-then-compare and the finished form is per-component
+      openat / O_NOFOLLOW with a root dirfd (kernel-enforced on Linux via
+      RESOLVE_BENEATH). Bolting on a racy realpath check would be smallest-diff
+      bias against a finished form this project already chose, and would trade a
+      HONEST documented limit for a check that looks like a guarantee. Stays
+      scheduled.
     category: "security"
     barrier: |-
       blocked-by: a portable symlink-safe path-resolution mechanism. Finished form
@@ -1003,7 +1073,7 @@ active:
       surgery). Build when symlink-planting (needs prior jail-write access) becomes
       a tracked threat OR std.Io gains portable resolve_beneath. Cross-ref ADR-0123,
       D-340 (v1), SE-6/7.
-    last_reviewed: "2026-06-09"
+    last_reviewed: "2026-08-04"
   - id: "D-347"
     status: |-
       DISCHARGED 2026-08-04 — and the row's own premise was stale. It claimed
