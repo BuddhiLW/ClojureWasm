@@ -7,6 +7,52 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-08-04
+
+**Upgrade if you use threads, futures, promises, or `wasm/run`.** This
+release carries four fixes for ways cljw could hang or abort, two of them
+outstanding since 1.5.1 (2026-07-17).
+
+### Fixed
+
+- **A live worker at process exit could abort (glibc `abort`).** A
+  `future` / `promise` whose worker was still running while the runtime tore
+  down could crash the process instead of exiting. `exitBarrier` plus
+  deinit-chokepoint guards make a live worker force a daemon-style hard exit
+  rather than a teardown under its own feet. Measured: 6 failures in 32 runs
+  before, 0 in 96 after. (ADR-0176, AD-056)
+- **Thread registration was not a GC safepoint (SIGABRT on x86_64 Linux).**
+  The window between spawning a worker and registering it with the collector
+  was not a safepoint, so a collection landing in that window could abort.
+  Registration is now a safepoint, and the `TooManyThreads`
+  run-unregistered fallthrough is closed. (ADR-0175)
+- **`(wasm/run …)` ran guests unmetered — an infinite loop in a guest hung
+  the host forever.** `wasm/load` has always defaulted to a finite fuel and
+  memory budget; `wasm/run` passed no budget at all, so the two sibling
+  surfaces had opposite postures. `wasm/run` now takes the same finite
+  default. Measured: a spinning guest ran past 15s before, traps
+  `out_of_fuel` in about 1s after.
+- **`cljw.http.server` could be wedged by one unfinished request.** The
+  accept loop had no read deadline, so a client that opened a connection and
+  never completed the request head held the whole server — which binds
+  0.0.0.0 — indefinitely. A request-head deadline now bounds it. Measured: a
+  half-open connection blocked the next client for 12s before, 1s after.
+  (Note: a serial server still handles one connection at a time; this bounds
+  the wedge, it does not add concurrency.)
+- **Namespace names with an empty segment resolved.** `(require (symbol
+  "..a.b"))` could load `a.b` because the munge collapsed the doubled
+  separator. JVM Clojure refuses such names; so does cljw now. These names
+  cannot be written through the reader, so only computed namespace names are
+  affected.
+
+### Added
+
+- **`run-server` accepts `:header-timeout-ms`** — how long a connection may
+  take to deliver its request head. Default 10000; `0` disables the deadline.
+- **`wasm/run` accepts `:fuel` and `:max-memory-pages`** — the same budget
+  keys `wasm/load` already took. `0` or negative means unmetered, which is
+  how you opt a trusted command out of the new default.
+
 ### Changed
 
 - **zwasm pinned to v2.4.0** (its external-consumer release:
@@ -16,6 +62,21 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
   compiler-rt, and it builds at zwasm's default Wasm 3.0 level where the
   DCE guard is inert. Pin hygiene, not a behaviour follow; `-Dwasm`
   build + the phase16 wasm e2e suite verified green on the new pin.
+- **Issues and Pull Requests are open.** Reports of Clojure code that
+  behaves differently here than on the JVM are the most useful thing you can
+  file; there is an issue template for exactly that. Outside contributors are
+  explicitly not asked to follow the internal commit / ledger conventions —
+  see CONTRIBUTING.
+
+### Note for upgraders
+
+Two behaviour changes can surface in working code:
+
+1. `(wasm/run …)` is now fuel-bounded by default. A legitimately long-running
+   guest that exceeds roughly 1e9 instructions will trap; pass `{:fuel 0}` to
+   restore the previous unbounded behaviour.
+2. `(require (symbol s))` with a computed `s` containing a leading, trailing,
+   or doubled dot no longer resolves. Well-formed names are unaffected.
 
 ## [1.5.1] - 2026-07-17
 
