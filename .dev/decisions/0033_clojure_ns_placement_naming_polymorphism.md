@@ -381,3 +381,21 @@ Phase 6.16.a-0 cycle 以降の Affected files:
   (public wrapper / user qualified denied / filter denied / same-ns
   ok)。 D-071 row 更新は次 commit (sub-cycle b/c/d で ADR-0035 完了
   時に併せて Part 3 完了に flip)。
+
+- **2026-08-04 (ADR-0178)**: the **migration schedule** this ADR carried is
+  recorded **complete**; the **placement rule (D2-D5) is unchanged and still
+  governs new vars**. D-062, the cluster row tracking the Pattern A/B migration
+  of the Phase 6.9-6.11 Zig-written vars, was discharged 2026-05-27 with
+  `clojure.string/escape` as the sole residual (D-094) — but `data/placement.yaml`
+  never followed: 42 of its 49 rows still read `status: transient_zig` for vars
+  whose `.clj` bodies had already shipped, and the file had drifted further
+  (two `leaf_loc` paths pointing at nonexistent files, two of three cited helper
+  scripts never written, no gate reading it, 49 of ~683 publics covered).
+  ADR-0178 replaces the hand-maintained file with a **generated** index derived
+  from `(cljw.internal/__dump-placement)` over every bundled namespace, plus a
+  `placement_drift` gate. What the generated index deliberately does NOT record
+  is D7's aspirational half — "this var's current placement is not its intended
+  one" is a judgement with a barrier and belongs in `.dev/debt.yaml` (today one
+  row, D-094). No forward policy about where future `clojure.core` vars should
+  live is stamped: that would be F-003 seizure over an unbuilt residual, and D5
+  already answers it for hot paths (fast-path = Tag switch).

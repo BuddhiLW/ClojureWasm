@@ -1859,6 +1859,70 @@ fn dumpHostClassesFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLo
     return string_mod.alloc(rt, aw.writer.buffered());
 }
 
+/// `(cljw.internal/__dump-placement)` — machine-readable dump of where every
+/// interned Var's implementation actually lives. One `V <ns>/<name> <impl>
+/// <flags>` line per Var in every registered namespace's own `mappings`
+/// (`refers` are the SAME Var seen from elsewhere, so including them would
+/// double-count).
+///
+/// `<impl>` is derived from the root value's tag, which is the code truth for
+/// the ADR-0033 placement question:
+///
+///   - `zig`   — the root is a `builtin_fn`: a Zig-implemented primitive
+///               interned from `lang/primitive/**` (ADR-0033 Pattern B1, or a
+///               B2 `-name` leaf — the `zig-leaf` flag separates those two).
+///   - `clj`   — the root is a `fn_val`: produced by a `(def …)` in a bundled
+///               `.clj` (Pattern A composition, a B2 one-line shim, or C-thin).
+///   - `value` — not a function at all (a var holding data, e.g. `*out*`).
+///   - `unbound` — declared without a root (`(def x)` / `internDeclare`).
+///
+/// `<flags>` is a comma-separated subset of `private,macro,dynamic,zig-leaf,
+/// unsupported`, or `-` when none are set.
+///
+/// Feeds `scripts/gen_placement.sh` + the `placement_drift` gate (ADR-0178).
+/// The hand-maintained `data/placement.yaml` covered 49 of 683 publics and had
+/// drifted to the point of contradicting the code — it is generated from this
+/// dump now, for the same reason `__dump-host-classes` exists (ADR-0174 D9).
+/// Line order is map-iteration order; consumers sort.
+fn dumpPlacementFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
+    try error_catalog.checkArity("__dump-placement", args, 0, loc);
+    var aw: std.Io.Writer.Allocating = .init(rt.gpa);
+    defer aw.deinit();
+    var ns_it = env.namespaces.iterator();
+    while (ns_it.next()) |ns_entry| {
+        const ns = ns_entry.value_ptr.*;
+        var v_it = ns.mappings.iterator();
+        while (v_it.next()) |v_entry| {
+            const v = v_entry.value_ptr.*;
+            const impl: []const u8 = if (!v.bound)
+                "unbound"
+            else switch (v.root.tag()) {
+                .builtin_fn => "zig",
+                .fn_val, .multi_fn => "clj",
+                else => "value",
+            };
+            try aw.writer.print("V {s}/{s} {s} ", .{ ns.name, v_entry.key_ptr.*, impl });
+            var wrote_flag = false;
+            inline for (.{
+                .{ v.flags.private, "private" },
+                .{ v.flags.macro_, "macro" },
+                .{ v.flags.dynamic, "dynamic" },
+                .{ v.flags.zig_leaf, "zig-leaf" },
+                .{ v.flags.unsupported, "unsupported" },
+            }) |pair| {
+                if (pair[0]) {
+                    if (wrote_flag) try aw.writer.writeAll(",");
+                    try aw.writer.writeAll(pair[1]);
+                    wrote_flag = true;
+                }
+            }
+            if (!wrote_flag) try aw.writer.writeAll("-");
+            try aw.writer.writeAll("\n");
+        }
+    }
+    return string_mod.alloc(rt, aw.writer.buffered());
+}
+
 /// `(enumeration-seq e)` / `(iterator-seq i)` — clojure.core fns that wrap a
 /// `java.util.Enumeration` / `Iterator`. cljw has no such host iteration type
 /// (ADR-0059), so these ship as explicit-error stubs (the allowed transient-stub
@@ -1882,6 +1946,7 @@ fn iteratorSeqFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocati
 const ENTRIES = [_]Entry{
     .{ .name = "__unsupported-host-ref", .f = &unsupportedHostRefFn },
     .{ .name = "__dump-host-classes", .f = &dumpHostClassesFn },
+    .{ .name = "__dump-placement", .f = &dumpPlacementFn },
     .{ .name = "enumeration-seq", .f = &enumerationSeqFn },
     .{ .name = "iterator-seq", .f = &iteratorSeqFn },
     .{ .name = "hash", .f = &hashFn },

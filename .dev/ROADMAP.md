@@ -674,7 +674,7 @@ ClojureWasm/                         (working dir on disk)
 │   ├── compat_tiers.yaml           per-namespace tier (created at Phase 10)
 │   ├── handover.md                 session-state memo (created when needed mid-task)
 │   ├── debt.yaml                   row-level debt ledger (ADR-0072; replaced the planned known_issues.md)
-│   ├── placement.yaml              Clojure-ns var placement SSOT (ADR-0033; covers the planned status/vars.yaml)
+│   ├── placement.yaml              GENERATED per-var placement index (ADR-0178; supersedes status/vars.yaml)
 │   ├── principle.md                Bad Smell catalogue + revision depths
 │   └── project_facts.md            user-declared invariants (F-001…)
 │
@@ -2048,9 +2048,14 @@ landed); do not create `compat_tiers.md`.
 
 #### `.dev/status/vars.yaml` — SUPERSEDED (not created)
 
-Per-var tracking is covered by `placement.yaml` (Clojure-ns var placement SSOT,
-ADR-0033) + `compat_tiers.yaml` (var/class tier). The originally-planned
-`status/vars.yaml` + `generate_vars_yaml.clj` generator were not built.
+Per-var tracking is covered by `placement.yaml` + `compat_tiers.yaml` (var/class
+tier). The originally-planned `status/vars.yaml` + `generate_vars_yaml.clj`
+generator were not built — and per **ADR-0178** they no longer need to be:
+`placement.yaml` IS a generator's output now (`scripts/gen_placement.sh` reading
+`(cljw.internal/__dump-placement)`), covering every var in every bundled
+namespace, with the `placement_drift` gate failing on any disagreement with the
+code. The hand-maintained form it replaced covered 49 of ~683 `clojure.core`
+publics and had drifted to contradict its own source tree.
 
 ### 15.2 Local reference clones (already present)
 

@@ -34,5 +34,6 @@ templates in **ROADMAP §15.2**:
 - `debt.yaml` — row-level debt ledger (ADR-0072; replaced the planned
   `known_issues.md`). The live SSOT for technical debt.
 - `data/compat_tiers.yaml` — per-namespace/class Clojure tier table.
-- `data/placement.yaml` — Clojure-ns var placement SSOT (ADR-0033; covers the planned
-  `status/vars.yaml` var tracking, which was not built).
+- `data/placement.yaml` — GENERATED per-var placement index (ADR-0178; supersedes
+  the planned `status/vars.yaml` tracking, which was never built). Regenerate with
+  `scripts/gen_placement.sh`; the `placement_drift` gate keeps it honest.

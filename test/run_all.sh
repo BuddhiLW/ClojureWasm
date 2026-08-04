@@ -391,6 +391,7 @@ run_step "assert_e2e_releasesafe" 'mode=$(zig-out/bin/cljw --version 2>/dev/null
 # was 9.5 MB — is the vigilance failure this step closes structurally.
 run_step "size_claims"          "bash scripts/binary_size_report.sh --check zig-out/bin/cljw"
 run_step "capability_claims"    "bash scripts/check_capability_claims.sh"
+run_step "placement_drift"      "bash scripts/check_placement_status.sh"
 
 # clj-diff corpus regression (cljw-only replay of golden `;;=> …` pairs —
 # no clj/network). Makes a "X/Y landed" discharge claim mechanically
