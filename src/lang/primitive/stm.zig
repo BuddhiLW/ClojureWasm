@@ -206,7 +206,14 @@ pub fn deliverFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocati
     _ = env;
     try error_catalog.checkArity("deliver", args, 2, loc);
     if (args[0].tag() != .promise)
-        return error_catalog.raise(.feature_not_supported, loc, .{ .name = "deliver: first arg must be a promise" });
+        // clj throws a catchable ClassCastException for `(deliver 42 1)`, so a
+        // wrong-typed first arg is a `.type_error`, not the uncatchable
+        // `.not_implemented` — same miscategorisation as the timed `deref` above.
+        return error_catalog.raise(.type_arg_invalid, loc, .{
+            .fn_name = "deliver",
+            .expected = "a promise",
+            .actual = @tagName(args[0].tag()),
+        });
     return promise_mod.deliver(args[0], args[1]);
 }
 

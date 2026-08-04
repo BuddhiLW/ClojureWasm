@@ -55,6 +55,7 @@ pub const Code = enum {
     reader_tag_unknown,
     uuid_string_invalid,
     inst_string_invalid,
+    json_string_invalid,
     integer_literal_invalid,
     float_literal_invalid,
     string_unterminated,
@@ -556,6 +557,19 @@ pub fn entry(comptime code: Code) Entry {
             .kind = .syntax_error,
             .phase = .parse,
             .template = "Invalid instant (#inst) string: {[s]s}",
+        },
+        // Malformed JSON is bad DATA, so this is CATCHABLE — the whole point of
+        // parsing untrusted input is that the caller handles a rejection. It was
+        // `feature_not_supported` (kind `.not_implemented`, deliberately
+        // uncatchable so an unsupported feature cannot be swallowed), which made
+        // every JSON-consuming program unable to reject bad input. Same
+        // miscategorisation the STM ops carried; same fix.
+        .json_string_invalid => .{
+            .kind = .syntax_error,
+            .phase = .parse,
+            // The reason, not the input: the input is untrusted and unbounded,
+            // and echoing a megabyte of it into a message helps nobody.
+            .template = "JSON error ({[reason]s})",
         },
         .integer_literal_invalid => .{
             .kind = .number_error,

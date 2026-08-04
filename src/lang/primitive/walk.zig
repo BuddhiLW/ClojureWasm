@@ -31,7 +31,14 @@ const root_set = @import("../../runtime/gc/root_set.zig");
 
 fn callOne(rt: *Runtime, env: *Env, fn_val: Value, arg: Value, loc: SourceLocation) anyerror!Value {
     if (fn_val.tag() != .fn_val and fn_val.tag() != .builtin_fn)
-        return error_catalog.raise(.feature_not_supported, loc, .{ .name = "clojure.walk callback (non-fn)" });
+        // clj throws a catchable ClassCastException when the walk callback is
+        // not invokable, so this is a `.type_error`, not the uncatchable
+        // `.not_implemented`.
+        return error_catalog.raise(.type_arg_invalid, loc, .{
+            .fn_name = "clojure.walk",
+            .expected = "a fn",
+            .actual = @tagName(fn_val.tag()),
+        });
     const vt = rt.vtable orelse return error_catalog.raise(.feature_not_supported, loc, .{ .name = "clojure.walk (vtable not installed)" });
     const args = [_]Value{arg};
     return vt.callFn(rt, env, fn_val, &args, loc);

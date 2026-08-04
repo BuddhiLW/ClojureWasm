@@ -415,7 +415,14 @@ pub fn escape(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation)
         else => .unsupported,
     };
     if (cmap_kind == .unsupported)
-        return error_catalog.raise(.feature_not_supported, loc, .{ .name = "clojure.string/escape with non-map non-fn cmap" });
+        // clj throws a catchable ClassCastException when cmap is neither a map
+        // nor a fn, so this is a `.type_error`, not the uncatchable
+        // `.not_implemented`.
+        return error_catalog.raise(.type_arg_invalid, loc, .{
+            .fn_name = "clojure.string/escape",
+            .expected = "a map or a fn",
+            .actual = @tagName(args[1].tag()),
+        });
 
     var out: std.ArrayList(u8) = .empty;
     defer out.deinit(rt.gc.infra);

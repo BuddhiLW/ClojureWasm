@@ -69,10 +69,8 @@ pub fn readStrFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocati
     var arena = std.heap.ArenaAllocator.init(rt.gpa);
     defer arena.deinit();
 
-    const parsed = std.json.parseFromSlice(std.json.Value, arena.allocator(), source, .{}) catch {
-        return error_catalog.raise(.feature_not_supported, loc, .{
-            .name = "JSON parse error in clojure.data.json/read-str",
-        });
+    const parsed = std.json.parseFromSlice(std.json.Value, arena.allocator(), source, .{}) catch |err| {
+        return error_catalog.raise(.json_string_invalid, loc, .{ .reason = @errorName(err) });
     };
     // GC: read-str fabricates an unpublished result tree (vectors/maps/strings)
     // via recursive jsonToCw + bulk fromSlice/fromLiteralPairs buffers that are
@@ -194,8 +192,13 @@ pub fn writeStrFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocat
     errdefer aw.deinit();
     cwToJson(args[0], &aw.writer, opts) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
-        else => return error_catalog.raise(.feature_not_supported, loc, .{
-            .name = "JSON write error in clojure.data.json/write-str",
+        // A value with no JSON encoding is bad DATA, so this is CATCHABLE (clj
+        // throws "Don't know how to write JSON of class …"), not the
+        // uncatchable `.not_implemented` — see `.json_string_invalid`.
+        else => return error_catalog.raise(.type_arg_invalid, loc, .{
+            .fn_name = "write-str",
+            .expected = "a value with a JSON encoding",
+            .actual = @tagName(args[0].tag()),
         }),
     };
     const owned = try aw.toOwnedSlice();
