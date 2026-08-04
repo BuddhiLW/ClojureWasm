@@ -309,6 +309,12 @@ pub fn wasmRunFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocati
             }
         }
         run_opts.preopens = preopens.items;
+
+        // D-347: the same budget axes `wasm/load` accepts, so a caller can
+        // widen or lift the default for a trusted command. Absent = the finite
+        // default; `<= 0` = `.unmetered`.
+        if (try axisFromMap(rt, m, "fuel", loc)) |b| run_opts.fuel = b;
+        if (try axisFromMap(rt, m, "max-memory-pages", loc)) |b| run_opts.max_memory_pages = b;
     }
 
     const res = engine.run(rt.gpa, rt.io, bytes, run_opts) catch

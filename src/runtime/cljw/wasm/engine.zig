@@ -107,6 +107,11 @@ pub const RunOpts = struct {
     preopens: []const PreopenDir = &.{},
     env_keys: []const []const u8 = &.{},
     env_vals: []const []const u8 = &.{},
+    /// Runtime budgets, mirroring `LoadOpts` (D-347). A null axis takes the
+    /// same finite default `wasm/load` gets, so an untrusted WASI command is
+    /// bounded out of the box; `.unmetered` opts a trusted module out.
+    fuel: ?Budget = null,
+    max_memory_pages: ?Budget = null,
 };
 
 /// Captured result of a WASI command run. `out`/`err` are owned by the caller's
@@ -130,10 +135,23 @@ pub fn run(alloc: std.mem.Allocator, io: std.Io, bytes: []const u8, opts: RunOpt
     var err_list: std.ArrayList(u8) = .empty;
     errdefer err_list.deinit(alloc);
 
-    // NOTE: zwasm's C-API WASI run path does not thread fuel/max-memory budgets
-    // (unlike `wasm/load`), so a wasm/run module is currently unmetered — bounded
-    // by the OS sandbox (wall-clock + ulimit) in the playground. Threading
-    // budgets through the C-API run path is a tracked zwasm gap (D-347).
+    // D-347: the C-API WASI run path takes a `Limits` struct whose axes all
+    // default to null = UNMETERED, while `Module.InstantiateOpts` (the
+    // `wasm/load` path) defaults to a finite budget. Passing `.{}` here left
+    // `(wasm/run …)` unbounded — an infinite loop in an untrusted guest hung
+    // the host process forever, while the same loop under `wasm/load` was
+    // fuel-trapped. The two surfaces now share one posture: bounded by default,
+    // `.unmetered` is opt-in. Note the unit change — zwasm's run path caps
+    // memory in BYTES, its instantiate path in 64 KiB PAGES.
+    const page_size: u64 = 65536;
+    const limits: zwasm.cli.run.Limits = .{
+        .fuel = (opts.fuel orelse Budget{ .limited = zwasm.Module.default_fuel }).toOptional(),
+        .max_memory_bytes = switch (opts.max_memory_pages orelse Budget{ .limited = zwasm.Module.default_max_memory_pages }) {
+            .unmetered => null,
+            .limited => |pages| pages * page_size,
+        },
+    };
+
     const exit = try zwasm.cli.run.runWasmCapturedFull(
         alloc,
         io,
@@ -147,7 +165,7 @@ pub fn run(alloc: std.mem.Allocator, io: std.Io, bytes: []const u8, opts: RunOpt
         opts.env_keys,
         opts.env_vals,
         null, // invoke_args
-        .{}, // limits — zwasm-HEAD Limits param (D-347 budget seam); defaults for now
+        limits,
     );
 
     return .{

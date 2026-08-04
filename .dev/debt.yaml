@@ -1005,15 +1005,40 @@ active:
       D-340 (v1), SE-6/7.
     last_reviewed: "2026-06-09"
   - id: "D-347"
-    status: "open — security. `(wasm/run …)` runs the module via zwasm's C-API WASI path (runWasmCapturedFull), which does NOT thread fuel / max-memory budgets the way `(wasm/load …)` → Module.instantiate does. So a wasm/run module is currently UNMETERED (an infinite loop / runaway alloc in the guest is not fuel-trapped). In the playground this is bounded by the OS sandbox (wall-clock timeout + ulimit); for a general cljw embedder it is a gap. Surfaced 2026-06-09 implementing wasm/run (ADR-0124)."
+    status: |-
+      DISCHARGED 2026-08-04 — and the row's own premise was stale. It claimed
+      zwasm's C-API WASI run path does not thread fuel / max-memory budgets; by
+      the pinned v2.4.0 that path takes a
+      `cli.run.Limits{ fuel, max_memory_bytes, max_table_elements, timeout_ms }`
+      and arms it (zwasm ADR-0179 / D-314). cljw was simply passing `.{}`, whose
+      axes all default to null = UNMETERED, while `Module.InstantiateOpts` (the
+      `wasm/load` path) defaults to FINITE. So the two surfaces had OPPOSITE
+      postures: `(wasm/load …)` fuel-trapped an infinite loop, `(wasm/run …)`
+      hung the host process forever.
+      Reproduced before the fix: `(wasm/run "wasm_spin.wasm")` still running at
+      15s (timeout exit 124).
+      FIXED: `RunOpts` gains `fuel` / `max_memory_pages` mirroring `LoadOpts`;
+      `engine.run` maps them into `Limits` — note the unit change, the run path
+      caps memory in BYTES and the instantiate path in 64 KiB PAGES — and
+      defaults each axis to zwasm's finite default; `wasm/run`'s opts map now
+      accepts the same `:fuel` / `:max-memory-pages` keys as `wasm/load`
+      (`<= 0` = `.unmetered`, the opt-out for a trusted command).
+      Post-fix: the default traps `out_of_fuel` in 1s, and `{:fuel 0}` still
+      runs unbounded, so the opt-out is intact.
+      Pin: e2e `phase16_wasm_run.sh` case `wasm-run-fuel-metered-by-default`
+      + fixture `test/e2e/fixtures/wasm_spin.wat` / `.wasm`.
     category: "security"
     barrier: |-
-      blocked-by: zwasm threading fuel / max-memory through the C-API WASI run
-      path (wasm_instance_new / runWasmCapturedFull). zwasm-side capability gap
-      (F-001 record-and-feed-back). Until then, untrusted wasm/run callers must
-      supply OS-level bounds (the playground does). Cross-ref engine.zig `run`
-      NOTE comment + ADR-0124.
-    last_reviewed: "2026-06-09"
+      NONE — discharged. The barrier this row carried ("blocked-by: zwasm
+      threading fuel / max-memory through the C-API WASI run path") had already
+      dissolved on the zwasm side and nobody re-evaluated it: the row's
+      last_reviewed sat at 2026-06-09 for two months while the capability
+      shipped. Lesson for the Step 0.5 sweep — a `blocked-by: <upstream
+      capability>` barrier over a dependency we co-develop and re-pin regularly
+      is exactly the kind that goes stale silently, because the pin bump
+      (v2.3.0 -> v2.4.0, commit 7cc7cdc4) is reviewed for BEHAVIOUR FOLLOW, not
+      for barriers it dissolves. Cross-ref ADR-0124.
+    last_reviewed: "2026-08-04"
   - id: "D-382"
     status: "PARTIAL (2026-06-10, user-directed neutral-time modeling). STAGE 1 (Timestamp) LANDED: java.sql.Timestamp is a real nanosecond-precision instant — a no-slot 2-field `.typed_instance` ([epoch_ms, nanos]) with a per-Runtime descriptor (runtime/time/ timestamp.zig, mirroring the Date model ADR-0079 — NO new NaN-box tag, the debt's earlier 'likely needs a slot' was wrong per the survey). parseInstantMillis refactored to a shared `parseInstantFields` {epoch_ms, nanos, offset_min} (one grammar SSOT, F-011); `formatInstantNanos` prints the 9-digit fraction. `clojure.instant/read-instant-timestamp` wraps the `rt/__read-instant-timestamp` primitive (F-009 thin surface); inst?/inst-ms broadened to Timestamp (clj's Inst protocol). CLJ-EXACT (oracle-verified): print form `#inst \"…123456789-00:00\"`, (class)→Timestamp, inst?/inst-ms, `=` by epoch+nanos, Timestamp ≠ an =-instant Date. e2e phase15_clojure_instant. Collapsing to Date was the rejected smell (user 2026-06-10: 「Date にcollapseはbad smellを感じる」). REMAINING — STAGE 2 (Calendar): java.util.Calendar is field-rich (tz + .get FIELD + mutable); a minimal offset-only Calendar is low-value (unusable without fields), so the field API is a larger unit (a reduced-field cljw Calendar would need a new AD). read-instant-calendar stays absent (honest NameError) until the field surface is designed. STAGE 3 (optional): java.sql.Timestamp / java.util.Calendar HOST surfaces (compat_tiers) wrapping the same neutral model (F-009). The neutral runtime/time/ home + the Timestamp template are now in place, so Stage 2/3 extend rather than design anew."
     category: "interop"
