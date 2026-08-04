@@ -7,6 +7,42 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 
 ## [Unreleased]
 
+## [1.7.0] - 2026-08-04
+
+**Upgrade if you load Wasm components.** An untrusted component could kill the
+host process, and `result` errors were reaching you as generic Wasm traps with
+the error value discarded.
+
+### Fixed
+
+- **An untrusted Wasm component could kill the host process.** The component
+  marshaller used bare integer casts, which in the shipped ReleaseSafe build
+  are process-killing safety panics rather than catchable errors. Two paths
+  were reachable: lowering an out-of-range argument (`(c/f 300)` against a WIT
+  `u8`), and — worse, because the data is the guest's — lifting a `u64` above
+  `i64`'s maximum. Both now go through the same range check the core-module
+  `wasm/call` surface has always used. A `u64` beyond `i64` and an `s64`
+  beyond 48 bits now lift exactly via BigInt instead of panicking or silently
+  becoming a lossy float.
+
+### Changed
+
+- **`result` and `variant` lift as tagged vectors.** `result` is now
+  `[:ok v]` / `[:err e]` and `variant` is `[:case-name payload]`, with the
+  payload slot omitted when the arm carries none — one destructuring idiom for
+  every WIT sum type. This replaces an `err`→throw mapping that **discarded the
+  error value**: the old path raised a generic Wasm *trap*, so a component
+  returning `err("not found")` reached you as "WebAssembly module trapped" with
+  the message gone. Throwing also had no meaning off the return position — a
+  `result` nested in a `list` or `record` aborted the whole conversion.
+  (ADR-0135 amendment 2.)
+
+### Added
+
+- **`clojure.core/*file*`** — the source being evaluated, matching JVM Clojure:
+  the script path when a file runs, and `"NO_SOURCE_PATH"` otherwise. Still
+  `^:dynamic`, so tooling can rebind it.
+
 ## [1.6.0] - 2026-08-04
 
 **Upgrade if you use threads, futures, promises, or `wasm/run`.** This

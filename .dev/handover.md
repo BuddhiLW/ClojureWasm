@@ -12,24 +12,20 @@
   Step 6). `build.zig.zon` `.zwasm` = tag pin
   `v2.4.0` (2026-08-03; zwasm's external-consumer release — nothing in
   it reaches cljw, pin hygiene only). Latest release:
-  **v1.6.0** (2026-08-04; four hang/abort fixes — ADR-0175 spawn-to-register
-  safepoint, ADR-0176 live-worker teardown, D-347 unmetered `wasm/run`, D-339
-  `run-server` head deadline — plus the opened Issues/PR surface).
-  CHANGELOG is the release-history SSOT.
-- **First task on resume MUST be**: **P1-6** — the WIT↔Clojure type-mapping
-  divergence with ClojureWit. Measured 2026-08-04: cljw's ADR-0135 table and
-  ClojureWit's `doc/design/0012` disagree on **3 rows**, and ClojureWit's shapes
-  are the implemented, argued ones (its S1 is closed; cljw's D-404 marshalling
-  is not built). `result` → cljw draft throws, Wit returns `[:ok v]`/`[:err e]`
-  with opt-in `unwrap` sugar (Wit's reasoning: throwing "has no meaning in
-  non-return position, inverts WIT's error channel, and fights laziness").
-  `variant` → cljw `{:wit/case :kw :value v}`, Wit `[:case-name value]`.
-  `char` → a PRINCIPLED divergence, not a bug: Wit maps to an Integer codepoint
-  because a JVM `Character` is 16-bit and truncates; cljw's char is a 21-bit
-  codepoint, verified — `(char 0x10437)` → `𐐷` on cljw, "Value out of range for
-  char" on JVM clj. Land an ADR-0135 amendment aligning `result` + `variant`
-  to the implemented shapes and recording `char` as host-forced, BEFORE D-404
-  implements the draft's shapes.
+  **v1.7.0** (2026-08-04; the component marshaller could kill the host on
+  guest data — bare `@intCast` = a ReleaseSafe panic; `result` lifts as
+  `[:ok v]`/`[:err e]` per ADR-0135 am2, replacing a throw that DISCARDED the
+  err payload; `*file*` lands). v1.6.0 earlier the same day carried four
+  hang/abort fixes. CHANGELOG is the release-history SSOT.
+- **First task on resume MUST be**: the shared typed `echo` component fixture,
+  driven by BOTH repos. It is the mechanism that stops cljw's and ClojureWit's
+  WIT tables drifting apart again (ADR-0135 am2 aligned them by hand once), and
+  it discharges D-404's blocker ("verification is BLOCKED on a typed component
+  FIXTURE; only greet + resource_counter exist"). ClojureWit's
+  `dev/resources/echo.wat` needs no Rust toolchain, so cljw can drive the same
+  binary. Then D-404's resource phase: `own` lifts as a bare integer on the
+  one-shot `component-invoke` path and is never dropped (the cached
+  `component-call` path wraps correctly).
   The 2026-08-04 audit-remediation arc is otherwise closed — see git log
   `77f690a3`..`82adf824` plus ADR-0179.
 - **Unreleased on main**: envelope v9 (op_var_meta — def-meta rides
@@ -78,8 +74,8 @@
   path rot (`zwasm_from_scratch`→`zwasm`, dead `OSS/zig` ref,
   `cleanup_orphans.sh`). Companion: zwasm D-526.
 
-- **Perf campaign (§9.2.S) — PAUSED** (D-520 / D-386 / D-005/006).
-- **D-513** — clojure.core.reducers / clojure.repl / var :doc.
+- **Perf campaign (§9.2.S) — PAUSED** (D-520 / D-386 / D-005/006). **D-513** —
+  clojure.core.reducers / clojure.repl / var :doc.
 - **D-548** — (a) DISCHARGED (ADR-0176); residual = (b) pmap
   wall-clock on the 3-vCPU runner (timing envelope, still gated).
 - CIDER upstream banner patch draft (user-side PR):
