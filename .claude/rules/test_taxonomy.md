@@ -57,6 +57,25 @@ future layer's directory).
 - Layer 4: a benchmark dir `bench/benchmarks/NN_<name>/` (run on demand).
 - Layer 5: upstream filename is preserved.
 
+## Wall-clock assertions: lower bounds and orders of magnitude only
+
+Layer 1 says "deterministic". Elapsed time is not, and the gate runs on shared
+CI runners whose scheduling noise is larger than most effects worth measuring.
+
+- **A lower bound is safe.** Load makes an operation slower, never faster, so
+  "this sleep did not return early" holds on any machine.
+- **An order-of-magnitude upper bound is safe.** "It did not wait out the whole
+  10 s deadline" discriminates a real hang from a busy machine.
+- **A RATIO upper bound is a flake generator.** `elapsed < want * 3/2` cannot
+  separate a 20% systematic regression from a 50% busy runner, so it eventually
+  fails for the one reason it was not written to detect. 2026-08-05:
+  `budgetedSleep: a metered sleep … keeps its duration` asserted exactly that,
+  passed every local full gate, and failed on the CI macOS runner.
+
+A performance ratio is a **measurement**, so take it on a quiet machine (Layer 4
+`bench/`, run on demand) and record the numbers in the ADR. The unit test keeps
+the deterministic half.
+
 ## Counter-examples
 
 Don't write a Layer 1 unit test that shells out to `cljw` (that

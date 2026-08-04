@@ -97,7 +97,10 @@ test "wait on an already-signalled latch returns immediately" {
     l.signal();
     const t0 = clock.nanoTime(th.io());
     try testing.expect(l.wait(t0 + 10 * std.time.ns_per_s));
-    try testing.expect(clock.nanoTime(th.io()) - t0 < 100 * std.time.ns_per_ms);
+    // Order-of-magnitude bound, not a ratio: the failure it catches is "waited
+    // out the whole 10 s deadline". A tighter bound would measure the CI
+    // runner's load rather than this code (see eval_budget.zig's note).
+    try testing.expect(clock.nanoTime(th.io()) - t0 < 2 * std.time.ns_per_s);
 }
 
 test "wait honours the deadline and reports not-signalled" {
@@ -122,7 +125,8 @@ test "a deadline already in the past does not block" {
     var l: Latch = .{};
     const t0 = clock.nanoTime(th.io());
     try testing.expect(!l.wait(t0 - std.time.ns_per_s));
-    try testing.expect(clock.nanoTime(th.io()) - t0 < 100 * std.time.ns_per_ms);
+    // As above: catches "blocked anyway", not a few ms of scheduling noise.
+    try testing.expect(clock.nanoTime(th.io()) - t0 < 2 * std.time.ns_per_s);
 }
 
 test "a waiter wakes on signal without waiting out its deadline" {
