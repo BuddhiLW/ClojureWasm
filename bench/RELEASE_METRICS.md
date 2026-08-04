@@ -44,11 +44,11 @@ because they are not what anyone downloads. <!--size:other-->
 
 ### Growth history
 
-| Date       | Bytes     | Note                                                        |
-|------------|-----------|-------------------------------------------------------------|
-| 2026-07-16 | 9,469,816 | before the ADR-0172 binary-size campaign                    |
-| 2026-07-16 | 6,974,584 | after the campaign (−26.3% in one pass)                     |
-| 2026-08-04 | 7,368,808 | before the core_meta regeneration |
+| Date       | Bytes     | Note                                                                                                                                                                                                     |
+|------------|-----------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| 2026-07-16 | 9,469,816 | before the ADR-0172 binary-size campaign                                                                                                                                                                 |
+| 2026-07-16 | 6,974,584 | after the campaign (−26.3% in one pass)                                                                                                                                                                  |
+| 2026-08-04 | 7,368,808 | before the core_meta regeneration                                                                                                                                                                        |
 | 2026-08-04 | 7,549,512 | current — core_meta.clj went 291 → 628 rows (ADR-0181); +180,704 B buys documentation for 326 more `clojure.core` vars, including `reduce` / `assoc` / `conj` / `first`. Still well under the ceiling. |
 
 The ADR-0172 campaign levers were: unwind-table strip (O-052), envelope-v7
