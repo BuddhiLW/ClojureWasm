@@ -978,7 +978,7 @@ active:
       rung 6, D-281/ADR-0103 (host_inert supertype precedent for inert-accept).
     last_reviewed: "2026-07-02"
   - id: "D-339"
-    status: "open — security (SE-3, HTTP server slowloris). The cljw.http.server accept loop is serial + blocking with NO socket read/idle/header deadline (server.zig:63-71); one client that opens a connection and never completes the request head wedges the WHOLE server (binds 0.0.0.0, internet-facing in a container). The 8 MB body cap guards volume, not time. High severity (one packet DoSes a public deploy)."
+    status: "PARTIAL (2026-08-04) — the unbounded wedge is CLOSED; the serial-throughput half remains. Was: the accept loop is serial + blocking with NO socket read/idle/header deadline, so one client that opens a connection and never completes the request head wedged the WHOLE server forever (binds 0.0.0.0, internet-facing in a container); one packet DoSed a public deploy. FIXED: `run-server` now arms SO_RCVTIMEO on every accepted connection before the first read (`armReceiveDeadline`, server.zig), default 10s, tunable via `:header-timeout-ms` in the opts map (0 disables). e2e `phase16_http_server.sh` case `http-slowloris-recovers` holds a half-open connection and asserts the next client is served in <5s — it measured 12s before the fix (i.e. the server only recovered when the ATTACKER gave up) and 1s after. REMAINING: a serial server still handles one connection at a time, so N held connections still cost N x timeout of throughput. Removing that needs per-connection concurrency, which is NOT a drive-by: a Ring handler runs Clojure, so its thread must be a registered GC worker (ADR-0175 safepoint discipline). That is the D-257 threading follow-on named in server.zig's module doc, and it owns the residual."
     category: "security"
     barrier: |-
       blocked-by: the Phase-15 concurrency model (cancellable Io). The
@@ -989,7 +989,7 @@ active:
       (zig_tips.md: concurrency arrives Phase 15; D-257 lists per-conn threading as a
       follow-on). Forcing it now would be premature (F-003). Land per-conn + default
       deadline when Phase-15 concurrency lands. Cross-ref SE-3, server.zig, D-257.
-    last_reviewed: "2026-06-09"
+    last_reviewed: "2026-08-04"
   - id: "D-342"
     status: "open — security (SE-6/7 finished form). The FS-jail v1 (ADR-0123, lexical containment) blocks `..`/absolute-path traversal portably but does NOT resolve symlinks: a symlink planted INSIDE the jail pointing outside is followed. Documented residual (mitigate via read-only mount / no symlinks in jail). The symlink-SAFE finished form is the ADR-0123 DA Alt-2."
     category: "security"

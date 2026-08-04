@@ -61,9 +61,54 @@ fn headerFieldClean(s: []const u8) bool {
     return true;
 }
 
+/// Default request-head read deadline in milliseconds (D-339 / SE-3). Ten
+/// seconds is the same order as nginx's `client_header_timeout` and Go's
+/// documented `ReadHeaderTimeout` examples: far longer than any legitimate
+/// client needs to finish a request line + headers over a live connection,
+/// far shorter than "forever".
+pub const default_header_timeout_ms: i64 = 10_000;
+
+/// Arm a receive deadline on an accepted connection (D-339 / SE-3).
+///
+/// The accept loop is serial by design, so a peer that opens a connection and
+/// never finishes sending the request head blocks EVERY other client for as
+/// long as the read blocks — and with no deadline that is forever, so a single
+/// packet takes down a public deploy (the server binds 0.0.0.0). `SO_RCVTIMEO`
+/// turns that unbounded wedge into a bounded one: the stalled read fails, the
+/// loop drops the connection and serves the next client.
+///
+/// This bounds the wedge; it does not remove it. A serial server still handles
+/// one connection at a time, so an attacker holding N connections still costs
+/// N × timeout of throughput. Removing that needs per-connection concurrency,
+/// which is a different change with GC-registration consequences (a handler
+/// runs Clojure, so its thread must be a registered GC worker per ADR-0175) —
+/// tracked separately as the D-257 threading follow-on, not smuggled in here.
+///
+/// Best-effort: a platform that rejects the option leaves the socket blocking
+/// rather than failing the request. Nothing else in the loop depends on it.
+fn armReceiveDeadline(handle: std.posix.socket_t, timeout_ms: i64) void {
+    if (timeout_ms <= 0) return; // 0 / negative = caller opted out
+    const tv: std.posix.timeval = .{
+        .sec = @intCast(@divTrunc(timeout_ms, 1000)),
+        .usec = @intCast(@rem(timeout_ms, 1000) * 1000),
+    };
+    std.posix.setsockopt(handle, std.posix.SOL.SOCKET, std.posix.SO.RCVTIMEO, std.mem.asBytes(&tv)) catch {
+        // Best-effort by design — see the doc comment. No recovery to attempt
+        // and no user-visible surface to report it on.
+    };
+}
+
 /// Bind `0.0.0.0:port` and serve forever (blocking, serial), dispatching each
-/// request through `handler` (a Ring `(fn [req] resp)`).
-pub fn runServer(rt: *Runtime, env: *Env, handler: Value, port: u16, loc: SourceLocation) anyerror!Value {
+/// request through `handler` (a Ring `(fn [req] resp)`). `header_timeout_ms`
+/// bounds how long a connection may take to deliver its request head (D-339).
+pub fn runServer(
+    rt: *Runtime,
+    env: *Env,
+    handler: Value,
+    port: u16,
+    header_timeout_ms: i64,
+    loc: SourceLocation,
+) anyerror!Value {
     const io = rt.io;
     const kw_method = try keyword_mod.intern(rt, null, "request-method");
     const kw_uri = try keyword_mod.intern(rt, null, "uri");
@@ -82,6 +127,10 @@ pub fn runServer(rt: *Runtime, env: *Env, handler: Value, port: u16, loc: Source
     while (true) {
         var stream = server.accept(io) catch continue;
         defer stream.close(io);
+        // D-339: bound the request-head read BEFORE the first read on this
+        // connection, so a peer that stalls mid-head cannot hold the serial
+        // loop open indefinitely.
+        armReceiveDeadline(stream.socket.handle, header_timeout_ms);
         var rbuf: [16384]u8 = undefined;
         var wbuf: [16384]u8 = undefined;
         var sr = stream.reader(io, &rbuf);
@@ -226,8 +275,10 @@ fn buildRequest(rt: *Runtime, req: *std.http.Server.Request, kw_method: Value, k
 // D2 zone rule: lang/primitive/ may not import a surface, so the host fns + their
 // ns registration live here and are wired via runtime/cljw/_host_api.zig.
 
-/// `(run-server handler {:port N})` — Ring-style. `handler` is `(fn [req] resp)`;
-/// `opts` carries `:port` (a bare integer port is also accepted). Blocking.
+/// `(run-server handler {:port N :header-timeout-ms MS})` — Ring-style.
+/// `handler` is `(fn [req] resp)`; `opts` carries `:port` (a bare integer port
+/// is also accepted) and the optional `:header-timeout-ms` (D-339; default
+/// `default_header_timeout_ms`, `0` disables the deadline). Blocking.
 pub fn runServerFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
     try error_catalog.checkArity("run-server", args, 2, loc);
     const handler = args[0];
@@ -242,7 +293,16 @@ pub fn runServerFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLoca
     };
     if (port < 1 or port > 65535)
         return error_catalog.raiseInternal(loc, "run-server: port out of range (1..65535)");
-    return runServer(rt, env, handler, @intCast(port), loc);
+    const header_timeout_ms: i64 = blk: {
+        if (opts.isInt()) break :blk default_header_timeout_ms;
+        const kw_ht = try keyword_mod.intern(rt, null, "header-timeout-ms");
+        const t = map_mod.get(opts, kw_ht) catch Value.nil_val;
+        if (t.isNil()) break :blk default_header_timeout_ms;
+        if (!t.isInt())
+            return error_catalog.raiseInternal(loc, "run-server: :header-timeout-ms must be an integer (milliseconds; 0 disables)");
+        break :blk t.asInteger();
+    };
+    return runServer(rt, env, handler, @intCast(port), header_timeout_ms, loc);
 }
 
 /// Create the `cljw.http.server` / `cljw.http.client` host namespaces. Called by

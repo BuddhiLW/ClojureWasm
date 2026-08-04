@@ -23,4 +23,7 @@
                                      :body "should become 500"}
       (= (:request-method req) :post) {:status 201 :body "created"}
       :else {:status 200 :body (str "GET " (:uri req))}))
-  {:port 8157})
+  ;; :header-timeout-ms is short here so the D-339 slowloris case runs fast;
+  ;; the shipped default is 10000. Legitimate requests complete in milliseconds,
+  ;; so 1500 does not affect the other cases.
+  {:port 8157 :header-timeout-ms 1500})
