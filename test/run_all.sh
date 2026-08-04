@@ -49,7 +49,13 @@ E2E_JOBS="${E2E_JOBS:-8}"
 # how many smoke-only commits ride before a full gate is forced.
 SMOKE_MODE=0
 SMOKE_E2E=""
-SMOKE_CORE="zig_fmt_check,zig_build_test_vm,zig_build_test_tree_walk,zlinter,build_cljw,lazy_ns_replay,corpus_regression"
+# `test_reach` / `e2e_reach` are in the core because they catch the one failure
+# the smoke is otherwise blind to: a test file that was WRITTEN but never RUNS.
+# Both are seconds. A new e2e added in a smoke-authorised commit rode to CI
+# unregistered on 2026-08-05 (the full gate caught it, one push too late) —
+# a green smoke should not be able to say "the tests pass" about a test that
+# is not wired in.
+SMOKE_CORE="zig_fmt_check,zig_build_test_vm,zig_build_test_tree_walk,zlinter,build_cljw,lazy_ns_replay,corpus_regression,test_reach,e2e_reach"
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
