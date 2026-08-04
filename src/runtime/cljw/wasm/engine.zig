@@ -112,7 +112,18 @@ pub const RunOpts = struct {
     /// bounded out of the box; `.unmetered` opts a trusted module out.
     fuel: ?Budget = null,
     max_memory_pages: ?Budget = null,
+    /// Cap on the captured stdout and stderr, PER stream (D-349). Neither of
+    /// the budgets above bounds it: fuel bounds instructions, and how many
+    /// bytes an instruction writes is entirely the guest's choice. Measured
+    /// before this existed — a guest looping on a 64-byte `fd_write` buffered
+    /// 64 MB per 1e6 fuel, i.e. ~64 GB under the default fuel budget.
+    max_output_bytes: ?Budget = null,
 };
+
+/// Default cap on each captured stream. Generous for the demo / CLI uses
+/// `wasm/run` is for (a compiler's diagnostics, a test binary's output) and
+/// nowhere near enough to matter as host memory. `:unmetered` opts out.
+pub const default_max_output_bytes: u64 = 16 * 1024 * 1024;
 
 /// Captured result of a WASI command run. `out`/`err` are owned by the caller's
 /// allocator (the surface copies them into GC strings, then frees them).
@@ -150,6 +161,8 @@ pub fn run(alloc: std.mem.Allocator, io: std.Io, bytes: []const u8, opts: RunOpt
             .unmetered => null,
             .limited => |pages| pages * page_size,
         },
+        // D-349: the third axis, and the one the other two do not imply.
+        .max_output_bytes = (opts.max_output_bytes orelse Budget{ .limited = default_max_output_bytes }).toOptional(),
     };
 
     const exit = try zwasm.cli.run.runWasmCapturedFull(

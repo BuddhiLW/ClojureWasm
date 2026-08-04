@@ -315,6 +315,7 @@ pub fn wasmRunFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocati
         // default; `<= 0` = `.unmetered`.
         if (try axisFromMap(rt, m, "fuel", loc)) |b| run_opts.fuel = b;
         if (try axisFromMap(rt, m, "max-memory-pages", loc)) |b| run_opts.max_memory_pages = b;
+        if (try axisFromMap(rt, m, "max-output-bytes", loc)) |b| run_opts.max_output_bytes = b;
     }
 
     const res = engine.run(rt.gpa, rt.io, bytes, run_opts) catch

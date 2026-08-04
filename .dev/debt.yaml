@@ -24,6 +24,37 @@
 # md-table-align no longer pads it to ~800 KB of whitespace.
 
 active:
+  - id: "D-570"
+    status: |-
+      open (2026-08-04, D-349's residual). `(wasm/run …)` bounds a guest's
+      INSTRUCTIONS (`:fuel`), its MEMORY (`:max-memory-pages`) and now its
+      captured OUTPUT (`:max-output-bytes`) — but not its WALL CLOCK. Measured:
+      a guest looping on `fd_write` and ignoring the `.nospc` the cap returns
+      keeps burning fuel with its output discarded, and 1e8 fuel is ~300 s. Under
+      the 1e9 default that is tens of minutes of a wedged host process, with
+      memory flat the whole time — so nothing surfaces it as a leak.
+      Fuel is a poor proxy for time because instruction cost is not uniform: a
+      host call through the WASI boundary is far slower than an arithmetic op,
+      and a guest chooses the mix.
+      SHAPE: zwasm's `cli.run.Limits` already HAS `timeout_ms` (it drives a
+      cooperative-interruption flag both engines poll); cljw passes null. The
+      cljw side is the same three lines the other three axes took. The open
+      question is the DEFAULT — a finite wall-clock default would break a
+      legitimately long-running guest (a compiler, a test binary), which the
+      other three axes do not, so it needs a decision rather than a copy of the
+      pattern.
+    category: "security"
+    barrier: |-
+      quality-loop floor: wasm resource bounds. No technical blocker — zwasm's
+      axis exists. Needs the default-value decision above; shipping it as
+      opt-in-only would be a knob nothing sets, which is the failure mode this
+      cycle has been closing elsewhere.
+    first_raised: "2026-08-04"
+    last_reviewed: "2026-08-04"
+    refs: |-
+      D-349 (the memory half, discharged); zwasm `src/cli/run.zig`
+      `Limits.timeout_ms`; src/runtime/cljw/wasm/engine.zig (`RunOpts`, where
+      the three existing axes are threaded).
   - id: "D-568"
     status: |-
       open (2026-08-04, ADR-0159 amendment 1 § implementer-verification item (a)).
@@ -831,39 +862,6 @@ active:
       or compiling a large vector/map literal to a bulk-build (not N operand pushes).
       Low priority (eval-of-untrusted-code path; clean exit-70, not a crash).
       Cross-ref the tokenizer long-input fix, vm.zig operand stack.
-    last_reviewed: "2026-08-04"
-  - id: "D-349"
-    status: |-
-      open — security, RE-MEASURED 2026-08-04 and worse than the row said.
-      `(wasm/run …)` buffers the guest's ENTIRE stdout + stderr before
-      returning. The row read as a theoretical gap the playground's OS sandbox
-      covered. It is a straightforward host memory-exhaustion vector on
-      guest-controlled data, and D-347's fuel fix (landed the same day) does NOT
-      bound it usefully.
-      MEASURED with a 25-line WASI guest that writes a 64-byte line to stdout in
-      an infinite loop: **fuel 1,000,000 produced exactly 64,000,000 bytes of
-      buffered host memory** — 64 bytes per unit of fuel. zwasm's default fuel is
-      1e9, so a guest under the DEFAULT budget can force cljw to buffer on the
-      order of **64 GB** before the fuel trap fires. A 1e8-fuel run (~6.4 GB) had
-      to be killed at 120s.
-      The fuel budget is the wrong instrument here: it bounds instructions, and
-      output-per-instruction is entirely the guest's choice.
-      SHAPE: zwasm's `cli.run.Limits` needs a `max_output_bytes` axis, and its
-      WASI host must stop appending (truncate + signal, rather than trap — a
-      truncated capture is more useful to the caller than a lost one) once the
-      cap is hit. cljw then passes a finite default the same way it now passes
-      finite fuel and memory, with `:max-output-bytes` on the opts map and
-      `:unmetered` opt-in. cljw cannot fix this alone: it hands zwasm an
-      `ArrayList` and zwasm's WASI host appends to it directly
-      (`src/cli/run.zig`, `host.stdout_buffer = b`).
-    category: "security"
-    barrier: |-
-      blocked-by: a `max_output_bytes` axis on zwasm's captured-run Limits + the
-      WASI host honouring it. Small and located; cljw side is then the same
-      three lines D-347 added for fuel / max-memory. NOT low priority any more —
-      the 2026-08-04 measurement (64 GB reachable under the default budget)
-      moves this from "a gap in principle" to the same class as the three
-      guest-data host-crash bugs fixed on 2026-08-04.
     last_reviewed: "2026-08-04"
   - id: "D-384"
     status: |-
@@ -7024,6 +7022,37 @@ discharged:
       .dev/decisions/0180_bundled_ns_lookup_is_derived.md (the ADR, with the DA
       fork's falsification verbatim); src/lang/bootstrap.zig (`FileEntry.ns`,
       `lookupEmbeddedFile`, the comptime uniqueness block, the coupling test).
+  - id: "D-349"
+    status: |-
+      DISCHARGED 2026-08-04 (zwasm #158 + #159, cljw `:max-output-bytes`).
+      MEASURED before: a 25-line WASI guest writing a 64-byte line in a loop
+      buffered exactly 64,000,000 bytes for 1,000,000 fuel — 64 bytes per unit —
+      so ~64 GB under zwasm's 1e9 default fuel. At 1e8 fuel the process reached
+      ~6.4 GB RSS and had to be killed. D-347's fuel fix, landed the same day,
+      did NOT bound it: fuel bounds instructions and bytes-per-instruction is
+      the guest's choice.
+      AFTER: the same 1e8-fuel run peaks at ~33 MB RSS. `wasm/run` takes
+      `:max-output-bytes` beside `:fuel` and `:max-memory-pages`, defaulting to
+      16 MiB per stream, with `<= 0` opting out on the same convention. zwasm
+      keeps the prefix that fits and returns `.nospc` — the errno a real fd
+      gives when the device is full — rather than accepting the write silently.
+      The fix took TWO zwasm PRs, and the second is the lesson: #158 wired the
+      cap onto `runWasmJitCaptured`'s host, and the C-API captured path — the
+      one cljw actually uses — builds its own host, so the axis existed and did
+      nothing for the consumer that motivated it. Caught by measuring the capped
+      run, not by reading the diff.
+      RESIDUAL, tracked as D-570: the cap bounds MEMORY, not TIME. A guest that
+      ignores `.nospc` keeps burning fuel with its output discarded, and 1e8
+      fuel is ~300 s of wall clock — so under the 1e9 default a spam guest runs
+      for tens of minutes. zwasm's `Limits.timeout_ms` is the instrument;
+      cljw passes null.
+    category: "security"
+    barrier: |-
+      none — discharged. Pinned by `test/e2e/phase16_wasm_run_output_cap.sh`
+      (5 cases: explicit cap, small cap, the default being finite, the
+      `<= 0` opt-out returning the full 64 MB so the capped numbers mean
+      something, and an ordinary guest keeping its output).
+    last_reviewed: "2026-08-04"
 conventions: |-
   - Structure: two top-level lists — `active:` and `discharged:`. Active entries carry id / status / category / barrier (+ optional quality_floor / last_reviewed); discharged entries carry id / discharged_at / resolution. Edit as YAML (no Markdown table to align).
   - New debt: grep `.dev/debt.yaml` for class-overlap before adding (per `.claude/rules/debt_dedup.md`).

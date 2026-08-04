@@ -666,6 +666,10 @@ run_step "e2e_phase16_tokenizer_long_input" "bash test/e2e/phase16_tokenizer_lon
 run_step "e2e_phase16_wasm_ffi"             "bash test/e2e/phase16_wasm_ffi.sh"
 run_step "e2e_phase16_wasm_engine_select"   "bash test/e2e/phase16_wasm_engine_select.sh"
 run_step "e2e_phase16_wasm_run"             "bash test/e2e/phase16_wasm_run.sh"
+# D-349: the third budget axis. Fuel bounds instructions; how many bytes an
+# instruction writes is the guest's choice, so only a capture cap bounds host
+# memory. Measured pre-fix: 64 MB per 1e6 fuel, ~6.4 GB RSS at 1e8.
+run_step "e2e_phase16_wasm_run_output_cap" "bash test/e2e/phase16_wasm_run_output_cap.sh"
 run_step "e2e_phase16_wasm_component"       "bash test/e2e/phase16_wasm_component.sh"
 run_step "e2e_phase16_wasm_require_component" "bash test/e2e/phase16_wasm_require_component.sh"
 run_step "e2e_phase15_for_while"            "bash test/e2e/phase15_for_while.sh"

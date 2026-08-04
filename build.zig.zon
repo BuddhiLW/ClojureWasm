@@ -26,8 +26,8 @@
         // full fidelity. cljw's embedding surface (Engine/Module/Instance via
         // `.auto` = JIT-default, D-488) is unchanged by all of them.
         .zwasm = .{
-            .url = "git+https://github.com/clojurewasm/zwasm.git#515a16db3dea9d903de265d9e93d7272a1a4bdfa",
-            .hash = "zwasm-2.4.0-FT1FvwJOjQDFbVnvBgYBeZHYqtfBOtRZbVB0_qTiu3_y",
+            .url = "git+https://github.com/clojurewasm/zwasm.git#1ecc7a8a2d4ccde0806f9b2b14b744bb400e0d66",
+            .hash = "zwasm-2.4.0-FT1Fv_VyjQD5Hcs8umGc7ZbFAlNfXfMPoa17x6kHpViZ",
             .lazy = true,
         },
     },
