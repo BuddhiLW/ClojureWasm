@@ -15,14 +15,19 @@
   **v1.5.1** (2026-07-17; zwasm-pin patch release on top of v1.5.0 =
   the ADR-0174 host-class campaign + Thread lifecycle; tap carries
   cljw 1.5.1 + zwasm). CHANGELOG is the release-history SSOT.
-- **First task on resume MUST be**: self-select from the live
-  `.dev/debt.yaml` `active:` list, easiest-first. D-563 / D-561 /
-  D-316 / D-383 / D-522 (dedicated sweeps) are DISCHARGED since
-  v1.5.0. Next candidates: **D-058** (error-renderer bundled-file
-  context mis-attribution — probe recipe in
-  `private/notes/d316-d383-meta-and-bootstrap-regex.md`), **D-564**
-  residuals (Thread interrupt family, instance-method fills, Alt C
-  class_registry SSOT), D-513 remainder.
+- **First task on resume MUST be**: continue the 2026-08-04 audit-remediation
+  arc (`private/analysis/2026-08-04-tri-project/09_improvement_backlog.md` is
+  the ordered list). Landed so far: doc-truth + `size_claims` widened
+  (`77f690a3`), Issues/PR surface opened (`e897cbfc`), **ADR-0177**
+  capability-claim gate + ROADMAP §1.1/§1.2/§1.3/§8.1/§8.3/§10.3 amendment.
+  Next in order: **P1-2** (`data/placement.yaml` — kill or gate; it cites 3
+  scripts of which 2 do not exist, is not wired into `run_all.sh`, covers
+  49/683 vars, unchanged since 2026-05-25), **P1-5** (`category: security`
+  active rows, one sweep), **P1-4** (`clojure.core` public surface: ~60 `-`
+  internals + ~30 interface names are `ns-publics` — must land before 2.0),
+  **P1-1** (NaN-box tag space is 64/64 — ADR + F-004 question for the user),
+  then **release v1.6.0** and the distribution follow (tap + the three demo
+  repos, all still pinned to cljw v1.0.0).
 - **Unreleased on main**: envelope v9 (op_var_meta — def-meta rides
   the AOT wire), computed def-meta (D-316) — incl. `:tag` uniform-eval
   (`^String`→Class, `^Foo`→name error; the bare-symbol workaround
@@ -46,34 +51,19 @@
   External-publish payloads need `test -s` + read-back guards (memory
   `external-publish-payload-guard`).
 
-## Current state (2026-07-17; details = CHANGELOG + git log)
+## Current state (details = CHANGELOG + git log)
 
-- **v1.5.0 released** — the ADR-0174 host-class campaign (user-directed
-  2026-07-16): ONE canonical descriptor per class (fqcn = JVM FQCN for
-  Java-surface-backed classes; the typed_instance two-descriptor split
-  merged; `cljw.` prefix leak dead), bare/qualified class symbols
-  resolve as values, member-miss = precise position-split diagnostics,
-  `Class` first-class, System closed out (getProperties/getenv-0/
-  clearProperty/identityHashCode/gc + in/out/err stdio streams),
-  **Thread lifecycle** (ctor/start/join/isAlive/names/daemon +
-  join-at-exit; live daemon at exit = JVM-exact hard exit — the
-  ubuntunote teardown-race fix), constants + enum statics + Pattern
-  flags-compile + Duration/parse + File temp, envelope v8, and the
-  **compat_members gate** (`scripts/check_compat_members.sh` +
-  `__dump-host-classes`; compat_tiers member lists machine-true,
-  `opaque_members:` = deliberate skips). Binary: mac 7,073,240 B /
-  linux ~8.01MB (ADR-0172 revision notes the conscious growth;
-  README claim "about 7.5 MB").
-- Binary-size campaign (v1.4.0, ADR-0172/0173) + the v1.3.x arc
-  (Character UCD, ADR-0171 rt-ns merge, CIDER completion parity,
-  D-562 AD inventory): see CHANGELOG.
-- Debug tooling: `scripts/nrepl_send.py` (nREPL client),
-  `scripts/clj_diff_sweep.sh` + corpora (now incl. `character.txt`,
-  `hash_compare.txt`, `records_method_values.txt`),
-  `scripts/binary_size_report.sh` (size report + claims check).
-- nREPL is single-connection (serial accept, D-117(a)): a second
-  client waits while an editor is attached — probe via a fresh server,
-  not the editor's port.
+- **v1.5.1** is the released line; v1.5.0 was the ADR-0174 host-class campaign
+  + Thread lifecycle. The v1.4.0 binary-size campaign (ADR-0172/0173) and the
+  v1.3.x arc are in CHANGELOG.
+- Debug tooling: `scripts/nrepl_send.py`, `scripts/clj_diff_sweep.sh` +
+  corpora, `scripts/binary_size_report.sh` (now gates every public size claim,
+  ADR-0177), `scripts/check_capability_claims.sh` (ADR-0177).
+- nREPL is single-connection (serial accept, D-117(a)): a second client waits
+  while an editor is attached — probe via a fresh server, not the editor's port.
+- **Issues and PRs are OPEN** as of 2026-08-04 (`e897cbfc`); three issue
+  templates + a rewritten CONTRIBUTING that exempts outside contributors from
+  the loop's own conventions.
 
 ## Standing units (tracked in .dev/debt.yaml)
 
@@ -97,13 +87,6 @@ fusion→JIT (gap III)**. zwasm JIT (ADR-0200) is the cljw default;
 remaining = components-through-the-JIT (zwasm-side, D-500). Distal —
 needs a user nod; the §9.2.T public-ization sweep (easiest-first debt
 drain) is the active near-term mode.
-
-## Stopped — user requested
-
-User instruction (2026-07-17): "どこか切りの良いところが来たら（取組中の
-完遂）、pushして停止でOK". The in-flight D-383 unit was completed +
-pushed. Resume at the Resume contract's first-task rule (easiest-first
-debt drain; next candidate D-058).
 
 ## Reading order (resume)
 

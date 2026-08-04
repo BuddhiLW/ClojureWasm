@@ -71,25 +71,35 @@ per CLAUDE.md `§ When the active work unit completes`.
 and Wasm support, implemented in Zig 0.16.0.**
 
 - **No JVM**: single static binary within the ADR-0172 per-component size
-  budget (measured 9.5 MB at v1.3.1, derived ceiling ≈ 12 MB → ≈ 10 MB after
-  queued levers; the pre-engine "≤ 5 MB" target was retired when the embedded
-  Wasm JIT engine — ~3 MB of code by itself, F-001 — landed), cold start ≤ 10 ms
-- **Edge execution**: runs on Cloudflare Workers / Fastly / Fermyon Spin
-  and other Wasm Component Model hosts
+  budget (measured 7.37 MB at v1.5.1, enforced ceiling
+  8,800,000 bytes; the pre-engine "≤ 5 MB" target <!--size:other--> was retired when the embedded
+  Wasm JIT engine — roughly 3 MB of code by itself <!--size:other-->, F-001 — landed), cold start
+  ≤ 10 ms
+- **Wasm interop**: load a Wasm core module or component in-process and call it
+  like a namespace <!--claim:shipped--> (§8.2, ADR-0135). Running *cljw itself*
+  as a Wasm guest — the artifact that would let it run on Cloudflare Workers /
+  Fastly / Fermyon Spin — remains an **aim, not a capability**
+  <!--claim:planned:D-552-->; it is research-first and user-nod-gated, and no
+  `wasm32` target exists in `build.zig` today.
 - **Language semantics compatible**: preserve Clojure JVM's *observable*
   behaviour. The Java interop surface (`.method`, `Class/`) is mapped onto
   v2's internal `Class` concept, not Java itself.
-- **Teachable**: shrink code volume to 30–40 % of v1 (89K LOC) and document
-  the design decision behind every phase.
+- **Teachable**: every subsystem readable end-to-end, with the design decision
+  behind each one written down. (The original "shrink to 30–40 % of v1 (89K
+  LOC)" target is **retired**, not met: measured 124,712 LOC of Zig at v1.5.1,
+  of which 18,534 is generated Unicode tables — ~119 % of v1 even excluding
+  those. The redesign bought a Wasm engine, a full numeric tower, STM, and an
+  AOT path that v1 did not have. A LOC count was always a proxy for
+  readability; §1.2 axis 3 states the property directly, so the proxy goes.)
 
 ### 1.2 Differentiation (3 axes)
 
-| # | Axis                               | Edge over the field                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
-|---|------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| 1 | **Edge-native Clojure**            | Babashka is native but produces no Wasm. SCI is JS-only. v2 makes Wasm Component a first-class output.                                                                                                                                                                                                                                                                                                                                                              |
-| 2 | **Wasm-native interop**            | `require` a Wasm **component** as a Clojure ns (finished form: **ADR-0135** + **Amendment 1**, 2026-06-21 user-directed — `(:require ["x.wasm" :as x])`, resolution order, type leverage, single-binary embed **ADR-0158**, always-latest **F-016**). **ACTIVE epic = D-404** (blocker dissolved; phases A ns-`:require` wiring → B resolution → C types → D single-binary → E resource/registry). Inversely, expose Clojure functions as WIT exports (later). |
-| 3 | **Comprehensible runtime**         | Codebase is small enough to be read end-to-end. Each phase ships a written walkthrough.                                                                                                                                                                                                                                                                                                                                                                             |
-| 4 | **Zig-level optimisation ceiling** | The *meta*-differentiator. Babashka rides GraalVM, clj rides the JVM: to make a hot path fast you must work *within* the host's object model / bytecode / GC. cljw is Zig from the metal up, so any primitive can be rewritten / fused / comptime-specialised (NaN-box, superinstructions, D-133 JIT) as a **Zig PR, not a host-engineering project** — a higher optimisation ceiling than any JVM-bound Clojure, provable per-workload.                           |
+| # | Axis                               | Edge over the field                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+|---|------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| 1 | **Edge-native Clojure**            | **AIM, NOT BUILT** <!--claim:planned:D-552-->. Babashka is native but produces no Wasm; SCI is JS-only; making a Wasm Component a first-class *output* of cljw would be the differentiator — and it does not exist. No `wasm32` target in `build.zig`; `cljw build` emits a native binary with a bytecode trailer. Owner: **D-552** (research-first, user-nod-gated). Sequenced behind axis 2 by F-010. Compiling *Clojure source* to a component is a sibling project's scope (ClojureWit), not a cljw plan. |
+| 2 | **Wasm-native interop**            | `require` a Wasm **component** as a Clojure ns (finished form: **ADR-0135** + **Amendment 1**, 2026-06-21 user-directed — `(:require ["x.wasm" :as x])`, resolution order, type leverage, single-binary embed **ADR-0158**, always-latest **F-016**). **ACTIVE epic = D-404** (blocker dissolved; phases A ns-`:require` wiring → B resolution → C types → D single-binary → E resource/registry). Inversely, expose Clojure functions as WIT exports (later).                                            |
+| 3 | **Comprehensible runtime**         | Codebase is small enough to be read end-to-end. Each phase ships a written walkthrough.                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| 4 | **Zig-level optimisation ceiling** | The *meta*-differentiator. Babashka rides GraalVM, clj rides the JVM: to make a hot path fast you must work *within* the host's object model / bytecode / GC. cljw is Zig from the metal up, so any primitive can be rewritten / fused / comptime-specialised (NaN-box, superinstructions, D-133 JIT) as a **Zig PR, not a host-engineering project** — a higher optimisation ceiling than any JVM-bound Clojure, provable per-workload.                                                                      |
 
 **Axis 2 is the north star** (ADR-0099 / **ADR-0135**): WebAssembly component as
 a first-class namespace — the analogue of clj↔Java / cljs↔JS / cljd↔Dart, but
@@ -109,9 +119,12 @@ discipline is to keep the hot paths clean while the compat grind adds slow-OK
 ### 1.3 Intended users
 
 - **Clojurians shipping to edge / serverless** who find Babashka / SCI
-  short on concurrency or Wasm interop.
-- **Wasm-ecosystem users** who want to call a Clojure runtime as a
-  component, or distribute a Clojure DSL as a Wasm component.
+  short on concurrency or Wasm interop. (Today cljw serves them as a native
+  binary with fast cold start; the Wasm-guest deployment path is D-552.)
+- **Wasm-ecosystem users** who want to pull a Wasm component into a Clojure
+  program <!--claim:shipped-->. The inverse — calling a Clojure runtime *as* a
+  component, or distributing a Clojure DSL as one — is **not built**
+  <!--claim:planned:D-552-->.
 - **Learners of runtime implementation** who want design decisions and
   implementation in lockstep.
 
@@ -942,13 +955,25 @@ comptime gate.
 
 ### 8.1 Adopted: hybrid
 
-**Two artifacts from one source tree**:
-1. **Native CLI** (`cljw`): the usual binary for macOS / Linux x86_64 / aarch64.
-2. **Wasm Component** (`cljw.wasm`): Component-Model conformant; exports
-   `clojure.eval` and friends via WIT.
+**One artifact ships; a second is an aim.**
 
-The `Runtime` struct does not depend on the backend, so both fall out of
-the same `std.Io` abstraction.
+1. **Native CLI** (`cljw`) — the usual binary for macOS / Linux x86_64 /
+   aarch64. <!--claim:shipped-->
+2. **Wasm Component** (`cljw.wasm`) — Component-Model conformant, exporting
+   `clojure.eval` and friends via WIT. **NOT IMPLEMENTED**
+   <!--claim:planned:D-552-->. `build.zig` has no `wasm32` target, and
+   `cljw build` emits a native binary with an embedded bytecode payload
+   (`src/app/builder.zig`), not a `.wasm`. Owner: **D-552** — research-first,
+   implementation user-nod-gated.
+
+The hybrid remains the *intent*: the `Runtime` struct does not depend on the
+backend, so in principle both fall out of the same `std.Io` abstraction. What
+D-552 has to settle first is not the build flag but the architecture behind it
+— memory management and the GC/allocator story in linear memory, sandbox-first
+assumptions for the interpreter, and the browser / edge / Node host models.
+Note the standing tension recorded in §8.3: the NaN-boxed value representation
+and the mark-sweep heap live in linear memory, so such a build would not share
+objects with WasmGC-based languages.
 
 ### 8.2 Component as a first-class namespace (the finished form — ADR-0135)
 
@@ -970,15 +995,17 @@ needed)** — lives in **ADR-0135**. Today's `(wasm/load)`+`(wasm/call handle
 
 ### 8.3 WIT / Component Model timeline
 
-| Capability                            | Phase                     | Note                                                           |
-|---------------------------------------|---------------------------|----------------------------------------------------------------|
-| WASI 0.2 (preview2)                   | Phase 14                  | Component build begins. Minimal exports.                       |
-| `wasm/load`+`wasm/call` core FFI      | done (spike)              | ADR-0099 minimal core-module surface; the layer below ADR-0135 |
-| **Component-as-namespace** (ADR-0135) | when zwasm CM API freezes | introspect component → ns; WIT↔clj mapping; D-404            |
-| Pod loader                            | Phase 14-15               | `app/pod.zig`                                                  |
-| WIT auto-binding                      | Phase 19                  | adopt wit-bindgen or similar                                   |
-| WASI 0.3 (concurrency)                | Phase 19+                 | when std.Io WASI backend stabilises                            |
-| WasmGC                                | v0.2+                     | conflicts with NaN boxing; linear memory leads                 |
+Everything here is cljw **consuming** Wasm except the row marked otherwise.
+
+| Capability                            | Status        | Note                                                                                              |
+|---------------------------------------|---------------|---------------------------------------------------------------------------------------------------|
+| `wasm/load`+`wasm/call` core FFI      | **BUILT**     | ADR-0099 minimal core-module surface; the layer below ADR-0135 <!--claim:shipped-->               |
+| **Component-as-namespace** (ADR-0135) | **BUILT**     | introspect component → ns; WIT↔clj mapping. Param-marshalling tail = D-404 <!--claim:shipped--> |
+| Pod loader                            | **BUILT**     | `app/pod.zig` <!--claim:shipped-->                                                                |
+| WIT auto-binding                      | not built     | adopt wit-bindgen or similar; gap area II <!--claim:planned:D-404-->                              |
+| WASI 0.3 (concurrency)                | not built     | when the `std.Io` WASI backend stabilises <!--claim:planned:D-036-->                              |
+| **cljw itself as a component**        | **not built** | the §8.1 artifact 2 — no `wasm32` target exists <!--claim:planned:D-552-->                      |
+| WasmGC                                | not built     | conflicts with NaN boxing; linear memory leads <!--claim:planned:D-552-->                         |
 
 ---
 
@@ -1569,21 +1596,27 @@ goes in just before Phase 4. Used during Phases 4-7.
 
 ### 10.3 v0.1.0 targets
 
-| Bench             | v0.1.0 target | Stretch |
-|-------------------|---------------|---------|
-| Cold start        | < 12 ms       | < 8 ms  |
-| Warm start        | < 4 ms        | < 2 ms  |
-| Binary size       | < 3.5 MB      | < 2 MB  |
-| fib_recursive     | 24 ms         | 18 ms   |
-| map_filter_reduce | 17 ms         | 10 ms   |
-| transduce         | 16 ms         | 10 ms   |
-| lazy_chain        | 16 ms         | 10 ms   |
-| Idle memory       | < 25 MB       | < 15 MB |
-| Wasm cold start   | < 50 ms       | < 20 ms |
+| Bench             | v0.1.0 target | Stretch |                   |
+|-------------------|---------------|---------|-------------------|
+| Cold start        | < 12 ms       | < 8 ms  |                   |
+| Warm start        | < 4 ms        | < 2 ms  |                   |
+| Binary size       | superseded    | —      |                   |
+| fib_recursive     | 24 ms         | 18 ms   |                   |
+| map_filter_reduce | 17 ms         | 10 ms   |                   |
+| transduce         | 16 ms         | 10 ms   |                   |
+| lazy_chain        | 16 ms         | 10 ms   |                   |
+| Idle memory       | < 25 MB       | < 15 MB | <!--size:other--> |
 
-The binary-size row is a v0.1.0-era figure that predates the embedded zwasm
-JIT engine (~3 MB of code by itself); the live size budget is ADR-0172's
-per-component ledger (measured 9.5 MB at v1.3.1).
+The binary-size row was a v0.1.0-era figure that predates the embedded zwasm
+JIT engine (roughly 3 MB of code by itself <!--size:other-->). It is **superseded** by ADR-0172's
+per-component ledger; the live figure is 7.37 MB at v1.5.1
+against an enforced ceiling of 8,800,000 bytes, checked on every full gate by
+`scripts/binary_size_report.sh --check`. A target this table states and nothing
+measures is the exact rot the 2026-08-04 audit found in three other documents.
+
+The old **"Wasm cold start < 50 ms"** row is **removed**: it set a performance
+target for the §8.1 artifact 2 (cljw running as a Wasm guest), which does not
+exist <!--claim:planned:D-552-->. It belongs to D-552 and returns with it.
 
 ### 10.4 Fused reduce via structural metadata
 

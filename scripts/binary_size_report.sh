@@ -59,7 +59,7 @@ ACTUAL_MB=$(awk "BEGIN{printf \"%.2f\", $ACTUAL/1000000}")
 
 # Every public document that states the shipped binary's size. Overridable so a
 # new doc can be added without editing the script body.
-SIZE_CLAIM_FILES="${SIZE_CLAIM_FILES:-README.md docs/landscape.md bench/RELEASE_METRICS.md}"
+SIZE_CLAIM_FILES="${SIZE_CLAIM_FILES:-README.md docs/landscape.md bench/RELEASE_METRICS.md .dev/ROADMAP.md}"
 
 # A line carrying this marker is exempt: the figure on it is deliberately not
 # the shipped size (another project's binary, the ReleaseSmall floor, a dated
