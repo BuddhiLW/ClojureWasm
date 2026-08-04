@@ -28,7 +28,9 @@ for marker in \
   "PASS component-invoke-greet" \
   "PASS component-exports" \
   "PASS load-component-handle-reuse" \
-  "PASS resource-chain"; do
+  "PASS resource-chain" \
+  "PASS one-shot-resource-outlives-call" \
+  "PASS resource-handle-is-bound-to-its-component"; do
   echo "$out" | grep -q "$marker" || fail "missing: $marker
 $out"
 done

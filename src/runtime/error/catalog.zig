@@ -454,6 +454,16 @@ pub const Code = enum {
     /// args: `.{}` — a Wasm component resource handle was used after it was dropped
     /// (`wasm/resource-drop` / a `with-resource` scope already released it).
     wasm_resource_dropped,
+    /// args: `.{}` — a resource argument was not a resource handle. A raw integer
+    /// used to be accepted here and indexed the guest's resource table directly:
+    /// unchecked (`asInteger` does not verify the tag), and negative values were
+    /// a ReleaseSafe `@intCast` panic on caller data (ADR-0159 amendment 1).
+    wasm_resource_expected,
+    /// args: `.{}` — a resource handle minted by one component was passed to a
+    /// different component. Its handle number means something in BOTH resource
+    /// tables, so without this check the call silently operates on whatever the
+    /// callee happens to have at that index (ADR-0159 amendment 1).
+    wasm_resource_foreign,
     /// args: `.{}` — `wasm/call`'s export-name argument was not a string.
     wasm_export_name_invalid,
     /// args: `.{ .name = "..." }` — `wasm/call` found no export of that name.
@@ -1608,6 +1618,16 @@ pub fn entry(comptime code: Code) Entry {
             .kind = .value_error,
             .phase = .eval,
             .template = "wasm component resource handle used after it was dropped",
+        },
+        .wasm_resource_expected => .{
+            .kind = .type_error,
+            .phase = .eval,
+            .template = "wasm component: this argument must be a resource handle returned by a component call, not a raw handle number",
+        },
+        .wasm_resource_foreign => .{
+            .kind = .value_error,
+            .phase = .eval,
+            .template = "wasm component: this resource handle belongs to a different component",
         },
         .wasm_export_name_invalid => .{
             .kind = .type_error,

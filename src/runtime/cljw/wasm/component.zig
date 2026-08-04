@@ -228,7 +228,7 @@ fn taggedVectorTag(v: Value, loc: SourceLocation) ![]const u8 {
 /// The optional payload slot of a `[:tag payload]` vector, lowered against the
 /// arm's type. Absent slot + absent type is the payload-less case; a mismatch in
 /// either direction is a usage error rather than a silent nil.
-fn taggedVectorPayload(rt: *Runtime, scratch: std.mem.Allocator, v: Value, ty: ?*const WitType, loc: SourceLocation) !?*ComponentValue {
+fn taggedVectorPayload(rt: *Runtime, scratch: std.mem.Allocator, v: Value, ty: ?*const WitType, loc: SourceLocation, owner: Value) !?*ComponentValue {
     const has_slot = vector_mod.count(v) > 1;
     if (ty == null) {
         if (has_slot)
@@ -238,7 +238,7 @@ fn taggedVectorPayload(rt: *Runtime, scratch: std.mem.Allocator, v: Value, ty: ?
     if (!has_slot)
         return error_catalog.raise(.wasm_opts_invalid, loc, .{ .detail = "this case carries a payload, but none was supplied" });
     const boxed = try scratch.create(ComponentValue);
-    boxed.* = try lower(rt, scratch, vector_mod.nth(v, 1), ty.?.*, loc);
+    boxed.* = try lower(rt, scratch, vector_mod.nth(v, 1), ty.?.*, loc, owner);
     return boxed;
 }
 
@@ -247,7 +247,7 @@ fn taggedVectorPayload(rt: *Runtime, scratch: std.mem.Allocator, v: Value, ty: ?
 /// (an arena the invoke owns); strings borrow the GC string. enum/variant are
 /// passed by ORDINAL (zwasm REQ-2: the lower path is label-less; a cljw keyword
 /// maps to its ordinal via the WitType labels here).
-fn lower(rt: *Runtime, scratch: std.mem.Allocator, v: Value, ty: WitType, loc: SourceLocation) anyerror!ComponentValue {
+fn lower(rt: *Runtime, scratch: std.mem.Allocator, v: Value, ty: WitType, loc: SourceLocation, owner: Value) anyerror!ComponentValue {
     switch (ty) {
         .prim => |p| return switch (p) {
             .bool => .{ .bool = v.isTruthy() },
@@ -290,7 +290,7 @@ fn lower(rt: *Runtime, scratch: std.mem.Allocator, v: Value, ty: WitType, loc: S
             for (fields, 0..) |f, i| {
                 const kw = try keyword_mod.intern(rt, null, f.name);
                 const fv = map_mod.get(v, kw) catch Value.nil_val;
-                out[i] = .{ .name = f.name, .value = try lower(rt, scratch, fv, f.ty, loc) };
+                out[i] = .{ .name = f.name, .value = try lower(rt, scratch, fv, f.ty, loc, owner) };
             }
             return .{ .record = out };
         },
@@ -300,20 +300,20 @@ fn lower(rt: *Runtime, scratch: std.mem.Allocator, v: Value, ty: WitType, loc: S
             const n = vector_mod.count(v);
             const items = try scratch.alloc(ComponentValue, n);
             var i: u32 = 0;
-            while (i < n) : (i += 1) items[i] = try lower(rt, scratch, vector_mod.nth(v, i), elem.*, loc);
+            while (i < n) : (i += 1) items[i] = try lower(rt, scratch, vector_mod.nth(v, i), elem.*, loc, owner);
             return .{ .list = items };
         },
         .tuple => |types| {
             if (v.tag() != .vector or vector_mod.count(v) != types.len)
                 return error_catalog.raise(.wasm_opts_invalid, loc, .{ .detail = "a WIT tuple param expects a vector of the tuple arity" });
             const items = try scratch.alloc(ComponentValue, types.len);
-            for (types, 0..) |t, i| items[i] = try lower(rt, scratch, vector_mod.nth(v, @intCast(i)), t, loc);
+            for (types, 0..) |t, i| items[i] = try lower(rt, scratch, vector_mod.nth(v, @intCast(i)), t, loc, owner);
             return .{ .tuple = items };
         },
         .option => |inner| {
             if (v.isNil()) return .{ .option = null };
             const boxed = try scratch.create(ComponentValue);
-            boxed.* = try lower(rt, scratch, v, inner.*, loc);
+            boxed.* = try lower(rt, scratch, v, inner.*, loc, owner);
             return .{ .option = boxed };
         },
         .enum_ => |labels| {
@@ -329,8 +329,8 @@ fn lower(rt: *Runtime, scratch: std.mem.Allocator, v: Value, ty: WitType, loc: S
             }
             return .{ .flags = .{ .bits = bits } };
         },
-        .own => return .{ .own = try rawResourceHandle(v, loc) },
-        .borrow => return .{ .borrow = try rawResourceHandle(v, loc) },
+        .own => return .{ .own = try rawResourceHandle(v, owner, loc) },
+        .borrow => return .{ .borrow = try rawResourceHandle(v, owner, loc) },
         // The tagged-vector shapes ADR-0135 amendment 2 settled, in the LOWER
         // direction: `[:ok v]` / `[:err e]` and `[:case-name payload]`, payload
         // slot optional. Both were `feature_not_supported`, so the shapes the
@@ -343,14 +343,14 @@ fn lower(rt: *Runtime, scratch: std.mem.Allocator, v: Value, ty: WitType, loc: S
             if (!is_ok and !std.mem.eql(u8, tag, "err"))
                 return error_catalog.raise(.wasm_opts_invalid, loc, .{ .detail = "a result argument must be [:ok v] or [:err e]" });
             const pt: ?*const WitType = if (is_ok) r.ok else r.err;
-            const payload = try taggedVectorPayload(rt, scratch, v, pt, loc);
+            const payload = try taggedVectorPayload(rt, scratch, v, pt, loc, owner);
             return .{ .result = .{ .is_ok = is_ok, .payload = payload } };
         },
         .variant => |cases| {
             const tag = try taggedVectorTag(v, loc);
             for (cases, 0..) |c, i| {
                 if (!std.mem.eql(u8, c.name, tag)) continue;
-                const payload = try taggedVectorPayload(rt, scratch, v, c.payload, loc);
+                const payload = try taggedVectorPayload(rt, scratch, v, c.payload, loc, owner);
                 return .{ .variant = .{ .case = @intCast(i), .case_name = c.name, .payload = payload } };
             }
             return error_catalog.raise(.wasm_opts_invalid, loc, .{ .detail = "the variant case keyword does not name a case of this type" });
@@ -511,16 +511,29 @@ fn isResourceHandle(v: Value) bool {
     return v.tag() == .host_instance and host_instance.asHostInstance(v).descriptor == &resource_descriptor;
 }
 
-/// Extract the raw zwasm handle from `v` for a `borrow`/`own` param: a resource
-/// wrapper yields state[1] (raising if already dropped); a bare integer (the
-/// one-shot path / a hand-passed handle) yields itself.
-fn rawResourceHandle(v: Value, loc: SourceLocation) anyerror!u32 {
-    if (isResourceHandle(v)) {
-        const inst = host_instance.asHostInstance(v);
-        if (inst.state[2] != 0) return error_catalog.raise(.wasm_resource_dropped, loc, .{});
-        return @intCast(inst.state[1]);
-    }
-    return @intCast(v.asInteger());
+/// Extract the raw zwasm handle from `v` for a `borrow`/`own` param. `owner` is
+/// the component being called; the wrapper must belong to it.
+///
+/// The wrapper is the ONLY accepted form. A bare integer used to fall through to
+/// `@intCast(v.asInteger())`, which is wrong three times over: `asInteger` does
+/// not check the tag (any Value became a table index), a negative integer is a
+/// ReleaseSafe `@intCast` panic on caller data — the exact host-crash class the
+/// numeric rows in this file closed — and a handle number carries no owner, so
+/// it indexes whichever table it is handed to. There is no legitimate source of
+/// a raw handle number: every one a caller can hold came out of a component
+/// call already wrapped.
+///
+/// The owner check is what ADR-0159's Consequences already claimed ("can't be
+/// passed to another component's method") and nothing enforced. It matters
+/// because handle numbers are dense per-instance table indices starting at 1
+/// (zwasm `resource_table.zig`), so a foreign handle does not reliably fail —
+/// it names a DIFFERENT live resource in the callee.
+fn rawResourceHandle(v: Value, owner: Value, loc: SourceLocation) anyerror!u32 {
+    if (!isResourceHandle(v)) return error_catalog.raise(.wasm_resource_expected, loc, .{});
+    const inst = host_instance.asHostInstance(v);
+    if (inst.state[2] != 0) return error_catalog.raise(.wasm_resource_dropped, loc, .{});
+    if (inst.state[0] != @intFromEnum(owner)) return error_catalog.raise(.wasm_resource_foreign, loc, .{});
+    return @intCast(inst.state[1]);
 }
 
 /// `(wasm/resource-drop h)` — release a component `own` resource: run its guest
@@ -548,8 +561,11 @@ pub fn resourceDropFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceL
 }
 
 /// `(wasm/component-invoke "p.wasm" "func" & args)` — one-shot typed invoke
-/// (open → resolveFuncSig → lower → invokeTyped → lift → teardown). The require
-/// path will cache the instance; this is the experiment's roundtrip probe.
+/// (open → resolveFuncSig → lower → invokeTyped → lift → teardown).
+///
+/// "One-shot" describes the CALL, not the component's lifetime: when the result
+/// holds a resource handle the component outlives the call, because the handle
+/// names something inside it. See the branch in the body.
 pub fn componentInvokeFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
     _ = env;
     try error_catalog.checkArityMin("wasm/component-invoke", args, 2, loc);
@@ -557,36 +573,89 @@ pub fn componentInvokeFn(rt: *Runtime, env: *Env, args: []const Value, loc: Sour
         return error_catalog.raise(.wasm_export_name_invalid, loc, .{});
     const bytes = try readComponentBytes(rt, args[0], loc);
     defer rt.gpa.free(bytes);
+    const fname = string_mod.asString(args[1]);
 
-    var engine = zwasm.Engine.init(rt.gpa, .{}) catch
-        return error_catalog.raise(.wasm_load_failed, loc, .{});
-    defer engine.deinit();
-    var host: WasiHost = undefined;
-    var opened = try openComponent(rt, &engine, &host, bytes, loc);
-    defer host.deinit();
-    defer opened.deinit();
+    // Heap-allocated even though most calls tear it down at return: whether the
+    // component must OUTLIVE the call is decided from the signature, which is not
+    // known until it is open. Stack locals (what this used to use) foreclose that
+    // decision — they made an `own` result a handle into a table destroyed one
+    // line later: a number naming nothing, or naming a DIFFERENT resource in
+    // whatever instance it was next handed to (ADR-0159 amendment 1).
+    const box = try openComponentBoxed(rt, bytes, loc);
+    var escapes = false;
+    defer if (!escapes) freeComponentBox(rt, box);
 
-    // One-shot: no persistent component to own an `own` result → null handle
-    // (the `own` lifts to a bare integer; resource ownership needs component-call).
-    return invokeOnOpened(rt, &opened, string_mod.asString(args[1]), args[2..], loc, null);
+    var arena = std.heap.ArenaAllocator.init(rt.gpa);
+    defer arena.deinit();
+    const sig = (box.opened.resolveFuncSig(arena.allocator(), fname) catch null) orelse
+        return error_catalog.raise(.wasm_export_not_found, loc, .{ .name = fname });
+
+    if (sig.result == null or !witTypeHoldsResource(sig.result.?)) {
+        // Nothing in the result can outlive the instance, so the one-shot keeps
+        // its deterministic teardown — the common case is unchanged.
+        //
+        // `owner` is nil: the component was created inside this call, so no
+        // handle a caller could hold belongs to it, and every resource ARGUMENT
+        // is rejected. That is the right answer rather than a special rule —
+        // a resource param on this path never had a valid value.
+        return invokeWithSig(rt, &box.opened, sig, fname, args[2..], loc, Value.nil_val);
+    }
+
+    // The result names something inside the instance, so the instance's lifetime
+    // becomes its reachability — the same GC-owned box `wasm/load-component`
+    // builds. `own` then has ONE meaning on both entry points, and
+    // `resource-drop` / `with-resource` work here exactly as they do there.
+    const handle = try host_instance.alloc(rt, &component_descriptor, .{ @intFromPtr(box), 0, 0, 0 });
+    escapes = true;
+    return invokeWithSig(rt, &box.opened, sig, fname, args[2..], loc, handle);
 }
 
-/// resolveFuncSig → lower args → invokeTyped → lift result, on an already-open
-/// `Opened`. Shared by the one-shot `component-invoke` and the handle-based
-/// `component-call` (the latter persists the Opened across calls).
-/// `component_handle` (ADR-0159): the cached component's `.host_instance` Value
-/// for `component-call`, so an `own` result wraps into a GC-resource rooting it;
-/// null for the one-shot path.
-fn invokeOnOpened(rt: *Runtime, opened: *comp.Opened, fname: []const u8, call_args: []const Value, loc: SourceLocation, component_handle: ?Value) anyerror!Value {
+/// Does this WIT type hold a resource handle anywhere inside it? Recursive
+/// because `record { handle: own<T> }` and `list<own<T>>` are handles too — a
+/// check that only looked at the top level would let the nested ones through.
+fn witTypeHoldsResource(ty: WitType) bool {
+    return switch (ty) {
+        .own, .borrow => true,
+        .list, .option => |inner| witTypeHoldsResource(inner.*),
+        .tuple => |ts| for (ts) |t| {
+            if (witTypeHoldsResource(t)) break true;
+        } else false,
+        .record => |fs| for (fs) |f| {
+            if (witTypeHoldsResource(f.ty)) break true;
+        } else false,
+        .variant => |cs| for (cs) |c| {
+            if (c.payload) |pt| if (witTypeHoldsResource(pt.*)) break true;
+        } else false,
+        .result => |r| (r.ok != null and witTypeHoldsResource(r.ok.?.*)) or
+            (r.err != null and witTypeHoldsResource(r.err.?.*)),
+        .prim, .enum_, .flags => false,
+    };
+}
+
+/// resolveFuncSig → `invokeWithSig`, on an already-open `Opened`. The
+/// `component-call` entry point; the one-shot resolves the signature itself
+/// because it decides the component's lifetime from it.
+fn invokeOnOpened(rt: *Runtime, opened: *comp.Opened, fname: []const u8, call_args: []const Value, loc: SourceLocation, component_handle: Value) anyerror!Value {
     var arena = std.heap.ArenaAllocator.init(rt.gpa);
     defer arena.deinit();
     const sig = (opened.resolveFuncSig(arena.allocator(), fname) catch null) orelse
         return error_catalog.raise(.wasm_export_not_found, loc, .{ .name = fname });
+    return invokeWithSig(rt, opened, sig, fname, call_args, loc, component_handle);
+}
+
+/// lower args → invokeTyped → lift result, against an already-resolved signature.
+/// `component_handle` (ADR-0159) is the component that owns both sides: an `own`
+/// result wraps into a GC-resource rooting it, and a resource ARGUMENT must
+/// already belong to it. `nil` means the component is anonymous (a one-shot whose
+/// result holds no resource) — then no resource argument can be valid either.
+fn invokeWithSig(rt: *Runtime, opened: *comp.Opened, sig: anytype, fname: []const u8, call_args: []const Value, loc: SourceLocation, component_handle: Value) anyerror!Value {
+    var arena = std.heap.ArenaAllocator.init(rt.gpa);
+    defer arena.deinit();
     if (call_args.len != sig.params.len)
         return error_catalog.raise(.wasm_arity_mismatch, loc, .{ .name = fname, .expected = sig.params.len, .actual = call_args.len });
 
     const in = try arena.allocator().alloc(ComponentValue, call_args.len);
-    for (call_args, sig.params, 0..) |a, p, i| in[i] = try lower(rt, arena.allocator(), a, p.ty, loc);
+    for (call_args, sig.params, 0..) |a, p, i| in[i] = try lower(rt, arena.allocator(), a, p.ty, loc, component_handle);
 
     const out = opened.invokeTyped(fname, in, rt.gpa) catch
         return error_catalog.raise(.wasm_trap, loc, .{});
@@ -623,6 +692,42 @@ const ComponentLoaded = struct {
 /// `*ComponentLoaded`. Frees the zwasm triple in LIFO order. No-GC-trace: every
 /// field lives in zwasm's separate space (F-006), so the descriptor sets no
 /// `host_trace`.
+/// Open a component into the heap-allocated `ComponentLoaded` triple both entry
+/// points hand to the GC. Every partial-failure unwind lives here rather than at
+/// the call sites: the one-shot path has to decide AFTER opening whether the box
+/// escapes, and a caller-side `errdefer` for the same resources would then fire
+/// alongside its own teardown and double-free (it did — an `0xaa…` segfault on
+/// the error path).
+fn openComponentBoxed(rt: *Runtime, bytes: []const u8, loc: SourceLocation) anyerror!*ComponentLoaded {
+    const engine = try rt.gpa.create(zwasm.Engine);
+    errdefer rt.gpa.destroy(engine);
+    engine.* = zwasm.Engine.init(rt.gpa, .{}) catch
+        return error_catalog.raise(.wasm_load_failed, loc, .{});
+    errdefer engine.deinit();
+
+    const host = try rt.gpa.create(WasiHost);
+    errdefer rt.gpa.destroy(host);
+    var opened = try openComponent(rt, engine, host, bytes, loc);
+    // LIFO: `opened` borrows `host`, so host.deinit registers first and runs last.
+    errdefer host.deinit();
+    errdefer opened.deinit();
+
+    const box = try rt.gpa.create(ComponentLoaded);
+    box.* = .{ .engine = engine, .host = host, .opened = opened };
+    return box;
+}
+
+/// Release a `ComponentLoaded` — the same order `componentFinalise` uses, for a
+/// box that never reached the GC.
+fn freeComponentBox(rt: *Runtime, box: *ComponentLoaded) void {
+    box.opened.deinit();
+    box.host.deinit();
+    box.engine.deinit();
+    rt.gpa.destroy(box.host);
+    rt.gpa.destroy(box.engine);
+    rt.gpa.destroy(box);
+}
+
 fn componentFinalise(infra: std.mem.Allocator, state: *[host_instance.STATE_WORDS]u64) void {
     const box: *ComponentLoaded = @ptrFromInt(state[0]);
     box.opened.deinit();
@@ -654,23 +759,8 @@ pub fn loadComponentFn(rt: *Runtime, env: *Env, args: []const Value, loc: Source
     const bytes = try readComponentBytes(rt, args[0], loc);
     defer rt.gpa.free(bytes); // REQ-7: the Opened owns its bytes — drop the load buffer now.
 
-    const engine = try rt.gpa.create(zwasm.Engine);
-    errdefer rt.gpa.destroy(engine);
-    engine.* = zwasm.Engine.init(rt.gpa, .{}) catch
-        return error_catalog.raise(.wasm_load_failed, loc, .{});
-    errdefer engine.deinit();
-
-    const host = try rt.gpa.create(WasiHost);
-    errdefer rt.gpa.destroy(host);
-    var opened = try openComponent(rt, engine, host, bytes, loc);
-    // errdefer order: opened.deinit must run BEFORE host.deinit (it borrows host),
-    // so register host.deinit FIRST (runs last under LIFO).
-    errdefer host.deinit();
-    errdefer opened.deinit();
-
-    const box = try rt.gpa.create(ComponentLoaded);
-    errdefer rt.gpa.destroy(box);
-    box.* = .{ .engine = engine, .host = host, .opened = opened };
+    const box = try openComponentBoxed(rt, bytes, loc);
+    errdefer freeComponentBox(rt, box);
     return host_instance.alloc(rt, &component_descriptor, .{ @intFromPtr(box), 0, 0, 0 });
 }
 
@@ -683,15 +773,25 @@ pub fn loadComponentFn(rt: *Runtime, env: *Env, args: []const Value, loc: Source
 pub fn componentCallFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
     _ = env;
     try error_catalog.checkArityMin("wasm/component-call", args, 2, loc);
-    if (args[0].tag() != .host_instance or
-        host_instance.asHostInstance(args[0]).descriptor != &component_descriptor)
-        return error_catalog.raise(.wasm_opts_invalid, loc, .{ .detail = "wasm/component-call expects a (wasm/load-component …) handle" });
+    // A RESOURCE handle also names its component — it carries the owner in
+    // state[0], which is the whole point of the wrapper. Accepting it here is
+    // what makes a resource returned by a one-shot `component-invoke` usable:
+    // that component has no other name, so without this the caller would hold a
+    // live handle it could only drop, never call a method on.
+    const comp_handle = if (isResourceHandle(args[0])) blk: {
+        const inst = host_instance.asHostInstance(args[0]);
+        if (inst.state[2] != 0) return error_catalog.raise(.wasm_resource_dropped, loc, .{});
+        break :blk @as(Value, @enumFromInt(inst.state[0]));
+    } else args[0];
+    if (comp_handle.tag() != .host_instance or
+        host_instance.asHostInstance(comp_handle).descriptor != &component_descriptor)
+        return error_catalog.raise(.wasm_opts_invalid, loc, .{ .detail = "wasm/component-call expects a (wasm/load-component …) handle or a resource handle from one" });
     if (!args[1].isString())
         return error_catalog.raise(.wasm_export_name_invalid, loc, .{});
-    const box: *ComponentLoaded = @ptrFromInt(host_instance.asHostInstance(args[0]).state[0]);
+    const box: *ComponentLoaded = @ptrFromInt(host_instance.asHostInstance(comp_handle).state[0]);
     // Pass the component handle so an `own` result wraps into a GC-resource that
     // roots THIS component (ADR-0159).
-    return invokeOnOpened(rt, &box.opened, string_mod.asString(args[1]), args[2..], loc, args[0]);
+    return invokeOnOpened(rt, &box.opened, string_mod.asString(args[1]), args[2..], loc, comp_handle);
 }
 
 const testing = std.testing;
@@ -792,11 +892,11 @@ test "result and variant lower from the tagged-vector shape the lift produces" {
     const str_ty: WitType = .{ .prim = .string };
     const res_ty: WitType = .{ .result = .{ .ok = &u32_ty, .err = &str_ty } };
 
-    const ok = try lower(&fix.rt, a, try taggedVec(&fix.rt, "ok", Value.initInteger(7)), res_ty, loc);
+    const ok = try lower(&fix.rt, a, try taggedVec(&fix.rt, "ok", Value.initInteger(7)), res_ty, loc, Value.nil_val);
     try testing.expect(ok.result.is_ok);
     try testing.expectEqual(@as(u32, 7), ok.result.payload.?.u32);
 
-    const err = try lower(&fix.rt, a, try taggedVec(&fix.rt, "err", try string_mod.alloc(&fix.rt, "boom")), res_ty, loc);
+    const err = try lower(&fix.rt, a, try taggedVec(&fix.rt, "err", try string_mod.alloc(&fix.rt, "boom")), res_ty, loc, Value.nil_val);
     try testing.expect(!err.result.is_ok);
     try testing.expectEqualStrings("boom", err.result.payload.?.string);
 
@@ -807,13 +907,13 @@ test "result and variant lower from the tagged-vector shape the lift produces" {
     };
     const var_ty: WitType = .{ .variant = &cases };
 
-    const circle = try lower(&fix.rt, a, try taggedVec(&fix.rt, "circle", Value.initFloat(1.5)), var_ty, loc);
+    const circle = try lower(&fix.rt, a, try taggedVec(&fix.rt, "circle", Value.initFloat(1.5)), var_ty, loc, Value.nil_val);
     try testing.expectEqual(@as(u32, 0), circle.variant.case);
     try testing.expectEqual(@as(f64, 1.5), circle.variant.payload.?.f64);
 
     // A payload-less case is `[:tag]`, not `[:tag nil]` — the lift emits the
     // one-element form, so lowering must accept exactly that.
-    const point = try lower(&fix.rt, a, try taggedVec(&fix.rt, "point", null), var_ty, loc);
+    const point = try lower(&fix.rt, a, try taggedVec(&fix.rt, "point", null), var_ty, loc, Value.nil_val);
     try testing.expectEqual(@as(u32, 1), point.variant.case);
     try testing.expect(point.variant.payload == null);
 }
@@ -833,12 +933,55 @@ test "a malformed tagged vector is a catchable usage error, not a silent nil" {
     const var_ty: WitType = .{ .variant = &cases };
 
     // Not a vector at all.
-    try testing.expectError(error.ValueError, lower(&fix.rt, a, try keyword_mod.intern(&fix.rt, null, "ok"), res_ty, loc));
+    try testing.expectError(error.ValueError, lower(&fix.rt, a, try keyword_mod.intern(&fix.rt, null, "ok"), res_ty, loc, Value.nil_val));
     // A tag that names no case: silently choosing case 0 would send the guest
     // a different variant than the caller wrote.
-    try testing.expectError(error.ValueError, lower(&fix.rt, a, try taggedVec(&fix.rt, "nope", Value.initInteger(1)), res_ty, loc));
-    try testing.expectError(error.ValueError, lower(&fix.rt, a, try taggedVec(&fix.rt, "square", Value.initInteger(1)), var_ty, loc));
+    try testing.expectError(error.ValueError, lower(&fix.rt, a, try taggedVec(&fix.rt, "nope", Value.initInteger(1)), res_ty, loc, Value.nil_val));
+    try testing.expectError(error.ValueError, lower(&fix.rt, a, try taggedVec(&fix.rt, "square", Value.initInteger(1)), var_ty, loc, Value.nil_val));
     // Payload arity disagreeing with the case's type, in both directions.
-    try testing.expectError(error.ValueError, lower(&fix.rt, a, try taggedVec(&fix.rt, "ok", null), res_ty, loc));
-    try testing.expectError(error.ValueError, lower(&fix.rt, a, try taggedVec(&fix.rt, "point", Value.initInteger(1)), var_ty, loc));
+    try testing.expectError(error.ValueError, lower(&fix.rt, a, try taggedVec(&fix.rt, "ok", null), res_ty, loc, Value.nil_val));
+    try testing.expectError(error.ValueError, lower(&fix.rt, a, try taggedVec(&fix.rt, "point", Value.initInteger(1)), var_ty, loc, Value.nil_val));
+}
+
+test "a resource nested inside an aggregate still makes the component outlive the call" {
+    // The one-shot's lifetime decision reads this predicate. A top-level-only
+    // check would pass `record { text: string, handle: own<T> }` through the
+    // teardown branch and hand back a wrapper whose component is already gone —
+    // the same defect the fix removes, one level down.
+    const own_ty: WitType = .{ .own = 0 };
+    const str_ty: WitType = .{ .prim = .string };
+    try testing.expect(witTypeHoldsResource(own_ty));
+    try testing.expect(witTypeHoldsResource(.{ .borrow = 0 }));
+    try testing.expect(!witTypeHoldsResource(str_ty));
+    try testing.expect(!witTypeHoldsResource(.{ .enum_ = &.{"a"} }));
+
+    try testing.expect(witTypeHoldsResource(.{ .list = &own_ty }));
+    try testing.expect(witTypeHoldsResource(.{ .option = &own_ty }));
+    try testing.expect(!witTypeHoldsResource(.{ .list = &str_ty }));
+
+    const fields = [_]WitType.Field{
+        .{ .name = "text", .ty = str_ty },
+        .{ .name = "handle", .ty = own_ty },
+    };
+    try testing.expect(witTypeHoldsResource(.{ .record = &fields }));
+    try testing.expect(!witTypeHoldsResource(.{ .record = &[_]WitType.Field{.{ .name = "text", .ty = str_ty }} }));
+
+    try testing.expect(witTypeHoldsResource(.{ .tuple = &[_]WitType{ str_ty, own_ty } }));
+    try testing.expect(!witTypeHoldsResource(.{ .tuple = &[_]WitType{ str_ty, str_ty } }));
+
+    const cases = [_]WitType.Case{
+        .{ .name = "none", .payload = null },
+        .{ .name = "some", .payload = &own_ty },
+    };
+    try testing.expect(witTypeHoldsResource(.{ .variant = &cases }));
+    try testing.expect(!witTypeHoldsResource(.{ .variant = &[_]WitType.Case{.{ .name = "none", .payload = null }} }));
+
+    // Both arms of a result, and neither.
+    try testing.expect(witTypeHoldsResource(.{ .result = .{ .ok = &own_ty, .err = &str_ty } }));
+    try testing.expect(witTypeHoldsResource(.{ .result = .{ .ok = &str_ty, .err = &own_ty } }));
+    try testing.expect(!witTypeHoldsResource(.{ .result = .{ .ok = &str_ty, .err = null } }));
+
+    // Nesting through two levels — `list<record { handle: own<T> }>`.
+    const rec: WitType = .{ .record = &fields };
+    try testing.expect(witTypeHoldsResource(.{ .list = &rec }));
 }

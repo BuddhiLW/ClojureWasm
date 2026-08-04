@@ -70,6 +70,33 @@ active:
       root-cause note); test/e2e/phase16_wasm_component_multiexport.sh;
       zwasm D-527; D-404 (the fixture blocker this discharges half of);
       ADR-0135 (the mapping table the fixture exists to falsify).
+  - id: "D-568"
+    status: |-
+      open (2026-08-04, ADR-0159 amendment 1 § implementer-verification item (a)).
+      `Opened.dropResource` returns `NoResourceTable` for zwasm's `.single`
+      (non-WASI-P2) component variant, and cljw maps every zwasm invoke/drop
+      failure to the catch-all `wasm_trap` — "WebAssembly module trapped (e.g.
+      divide-by-zero, out-of-bounds, or an unreachable instruction)". So a
+      resource-bearing single-module component reports a MISLEADING cause: the
+      component does not have a resource table at all, which is a structural
+      property, not a trap. Needs its own Code with a template naming the real
+      condition. Not fixed in the amendment-1 cycle because no fixture in the
+      tree reaches it (`resource_counter` is a WASI-P2 graph), so a fix would
+      have shipped untested — the exact false-positive-discharge shape
+      `clj_diff_sweep.md` Discipline 1 forbids. Fix together with a `.single`
+      resource fixture, or when zwasm grows a resource table for that variant.
+    category: "wasm"
+    barrier: |-
+      quality-loop floor: error-message fidelity. No blocker — needs a `.single`
+      component fixture carrying a resource so the new Code is exercised rather
+      than asserted.
+    first_raised: "2026-08-04"
+    last_reviewed: "2026-08-04"
+    refs: |-
+      .dev/decisions/0159_wasm_resource_lifecycle.md § Amendment 1 (the
+      verification item that raised it); src/runtime/cljw/wasm/component.zig
+      (`invokeWithSig`, `resourceDropFn` — both map to `wasm_trap`);
+      zwasm src/api/component.zig `dropResource`.
   - id: "D-566"
     status: |-
       open (2026-07-29, ADR-0175 deferred-hardening row). Alloc-side
