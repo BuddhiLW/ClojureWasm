@@ -112,11 +112,11 @@ Measured on the built ReleaseSafe binary.
   that with a condition variable was to wake every 20 ms and look. Each wakeup
   overshoots by a few ms.
 
-  | | before | after |
-  |---|---|---|
+  |                                 | before       | after            |
+  |---------------------------------|--------------|------------------|
   | `@(future (Thread/sleep 2000))` | 2321-2358 ms | **2000-2001 ms** |
-  | `(Thread/sleep 2000)` on main | 2002-2005 ms | 2004-2005 ms |
-  | `future-cancel` latency | ≤ 20 ms | **0 ms** |
+  | `(Thread/sleep 2000)` on main   | 2002-2005 ms | 2004-2005 ms     |
+  | `future-cancel` latency         | ≤ 20 ms     | **0 ms**         |
 
   A latch is woken *by* the cancel, so there is nothing to look for. This is the
   argument for the larger diff: the smaller shape left this untouched while
