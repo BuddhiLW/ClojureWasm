@@ -10,13 +10,22 @@
 #
 # Gate mode:
 #   bash scripts/binary_size_report.sh --check [BIN]
-#     Compares README.md's headline size claim (the FIRST "<N> MB" match
-#     in the file — keep the claim the first MB figure in README) against
-#     BIN's measured size. Fails (exit 1) when the drift exceeds 10%.
-#     This is the structural fix for the 2026-07 rot incident where
-#     README said "about 3.8 MB" while the shipped binary was 9.5 MB.
+#     Checks EVERY "<N> MB" figure in every file listed in SIZE_CLAIM_FILES
+#     against BIN's measured size. Fails (exit 1) when any of them drifts
+#     more than 10%. A figure that is deliberately NOT the shipped size
+#     (babashka's binary, the ReleaseSmall floor, a historical row) must
+#     carry an inline `<!--size:other-->` marker on the same line — so the
+#     exemption is explicit and greppable, never silent.
 #     Wired into test/run_all.sh as the `size_claims` step (full gate;
 #     runs right after build_cljw so the binary is fresh).
+#
+#     History: the check originally read ONLY README.md's first MB figure.
+#     The 2026-08-04 audit found that docs/landscape.md ("~3 MB", 2.4x
+#     under) and bench/RELEASE_METRICS.md (a table saying 6.97 MB with
+#     prose two paragraphs below still claiming 3.24 MB) had both rotted
+#     precisely because nothing checked them — the same shape as zwasm's
+#     2026-08-03 `ungated-negative-doc-claim-rotted-into-a-lie` lesson.
+#     Every public size claim is gated now.
 #
 # Reference platform for ADR-0172 numbers: macOS arm64, ReleaseSafe,
 # -Dwasm, stripped (= the brew artifact config). MB here is decimal
@@ -48,27 +57,64 @@ else
 fi
 ACTUAL_MB=$(awk "BEGIN{printf \"%.2f\", $ACTUAL/1000000}")
 
+# Every public document that states the shipped binary's size. Overridable so a
+# new doc can be added without editing the script body.
+SIZE_CLAIM_FILES="${SIZE_CLAIM_FILES:-README.md docs/landscape.md bench/RELEASE_METRICS.md}"
+
+# A line carrying this marker is exempt: the figure on it is deliberately not
+# the shipped size (another project's binary, the ReleaseSmall floor, a dated
+# historical row). Exemptions are visible in the source and greppable.
+SIZE_EXEMPT_MARKER='<!--size:other-->'
+
 if [[ "$MODE" == "check" ]]; then
-    CLAIM=$(grep -m1 -oE '[0-9]+(\.[0-9]+)? MB' README.md | head -1 | grep -oE '[0-9]+(\.[0-9]+)?' || true)
-    if [[ -z "$CLAIM" ]]; then
-        echo "size_claims: no '<N> MB' size claim found in README.md — add one (ADR-0172)" >&2
-        exit 1
-    fi
     if [[ "$ACTUAL" -gt "$BUDGET_CEILING_BYTES" ]]; then
         echo "size_claims: built binary ${ACTUAL_MB} MB (${ACTUAL} B) exceeds the ADR-0172 derived ceiling ($BUDGET_CEILING_BYTES B)." >&2
         echo "  Attribute with 'bash scripts/binary_size_report.sh' (-Dprofile build for symbols), then land a lever" >&2
         echo "  or consciously amend the budget table in .dev/decisions/0172_binary_size_budget_and_ledger.md." >&2
         exit 1
     fi
-    DRIFT=$(awk "BEGIN{c=$CLAIM*1000000; d=($ACTUAL-c)/c; if(d<0)d=-d; printf \"%.3f\", d}")
-    OK=$(awk "BEGIN{print ($DRIFT <= 0.10) ? 1 : 0}")
-    if [[ "$OK" == "1" ]]; then
-        echo "    size_claims: README claims ${CLAIM} MB, measured ${ACTUAL_MB} MB (${ACTUAL} B) — within 10%"
-        exit 0
+
+    checked=0
+    exempt=0
+    failed=0
+    for f in $SIZE_CLAIM_FILES; do
+        if [[ ! -f "$f" ]]; then
+            echo "size_claims: listed file not found: $f (fix SIZE_CLAIM_FILES in scripts/binary_size_report.sh)" >&2
+            exit 1
+        fi
+        while IFS=: read -r lineno line; do
+            [[ -z "$lineno" ]] && continue
+            if [[ "$line" == *"$SIZE_EXEMPT_MARKER"* ]]; then
+                exempt=$((exempt + 1))
+                continue
+            fi
+            # A line may carry more than one figure; check each.
+            while read -r claim; do
+                [[ -z "$claim" ]] && continue
+                checked=$((checked + 1))
+                DRIFT=$(awk "BEGIN{c=$claim*1000000; d=($ACTUAL-c)/c; if(d<0)d=-d; printf \"%.3f\", d}")
+                OK=$(awk "BEGIN{print ($DRIFT <= 0.10) ? 1 : 0}")
+                if [[ "$OK" != "1" ]]; then
+                    failed=$((failed + 1))
+                    echo "size_claims: $f:$lineno claims ${claim} MB but the built binary is ${ACTUAL_MB} MB (${ACTUAL} B) — drift >10%." >&2
+                    echo "  → $(printf '%s' "$line" | sed 's/^[[:space:]]*//' | cut -c1-100)" >&2
+                fi
+            done < <(printf '%s\n' "$line" | grep -oE '[0-9]+(\.[0-9]+)? ?MB' | grep -oE '[0-9]+(\.[0-9]+)?')
+        done < <(grep -nE '[0-9]+(\.[0-9]+)? ?MB' "$f" || true)
+    done
+
+    if [[ "$checked" -eq 0 ]]; then
+        echo "size_claims: no gated '<N> MB' size claim found in: $SIZE_CLAIM_FILES" >&2
+        echo "  At least README.md must state the shipped size (ADR-0172). Did every claim get an exemption marker?" >&2
+        exit 1
     fi
-    echo "size_claims: README claims ${CLAIM} MB but the built binary is ${ACTUAL_MB} MB (${ACTUAL} B) — drift >10%." >&2
-    echo "  Update README's size figure (and CHANGELOG on release) per ADR-0172; do not let the claim rot." >&2
-    exit 1
+    if [[ "$failed" -gt 0 ]]; then
+        echo "  Update the figure (and CHANGELOG on release) per ADR-0172, or mark the line $SIZE_EXEMPT_MARKER" >&2
+        echo "  if it deliberately reports something other than the shipped binary. Do not let a claim rot." >&2
+        exit 1
+    fi
+    echo "    size_claims: ${checked} claim(s) across $(echo "$SIZE_CLAIM_FILES" | wc -w | tr -d ' ') file(s) match ${ACTUAL_MB} MB (${ACTUAL} B) within 10%; ${exempt} line(s) exempt"
+    exit 0
 fi
 
 echo "== $BIN: ${ACTUAL} bytes (${ACTUAL_MB} MB decimal)"
