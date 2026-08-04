@@ -6744,7 +6744,25 @@ discharged:
   - id: "D-473"
     status: "DISCHARGED 2026-07-02 (audit, dedup): duplicate-tracks D-513 item (1) — clojure.core.reducers absence. Folded into D-513; no information lost. ORIGINAL: open (2026-06-20, fresh-namespace probe). `clojure.core.reducers` is NOT implemented — `(require '[clojure.core.reducers])` → 'Could not locate clojure.core.reducers on the require resolver'. (clojure.zip + clojure.pprint DO resolve + work — verified `(z/node (z/right (z/down (z/vector-zip [1 [2 3] 4]))))` → [2 3]; `(pp/cl-format nil \"~:d\" 1234567)` → \"1,234,567\".) reducers provides the reducer/folder protocol + r/map/r/filter/r/remove/r/mapcat/r/take/r/drop/r/flatten + r/reduce + r/fold (the parallel reduce-combine). LOW priority + substantial + partly hard: (a) NICHE — clojure 1.7 transducers (which cljw fully supports) largely SUPERSEDED reducers for new code; reducers is legacy-ish. (b) r/fold's PARALLELISM needs a fork/join thread pool — cljw's concurrency model (per-agent worker, no java.util.concurrent ForkJoinPool, ADR-0093) would run fold SEQUENTIALLY (a correct-but-not-parallel fallback, like clj's fold on a non-foldable coll); the sequential reducer ops (r/map/r/filter/r/reduce) are tractable as a .clj namespace over the existing seq/transduce machinery but the parallel speedup is not reproducible. Take up only on a real consumer (a lib that requires clojure.core.reducers); if so, implement the sequential surface as a src/lang/clj/clojure/core/reducers.clj over reduce/transduce + a sequential r/fold. Mechanise via a clj_corpus area when landed."
     category: "clj-parity"
-    barrier: "item (1) DISCHARGED 2026-08-04 (see status). Residual = finding 3's non-core scope: docstrings for the LAZY bundled namespaces (clojure.set / zip / pprint / test / math / data all return nil for (:doc (meta #'...)), measured 2026-08-04), because extract_core_meta.sh runs at bootstrap when their vars are not yet interned. Needs a per-namespace meta table applied at lazy-load time; adding one bundled file per namespace is entangled with D-569 (the second, hand-written resolution table). quality-loop floor: doc surface."
+    barrier: |-
+      item (1) DISCHARGED 2026-08-04. Finding (3) RE-SCOPED the same day by
+      ADR-0181 — the diagnosis in this row was wrong about where the gap was.
+      It blamed lazy-namespace load order; the actual hole was that
+      `core_meta.clj` had rotted to 291 rows where its own generator produces
+      628, covering ZERO of the ~290 Zig-primitive core vars, so `reduce` /
+      `assoc` / `conj` / `first` / `apply` / `=` were undocumented and
+      `find-doc` searched 36% of core while answering confidently. Regenerated
+      (coverage 246 → 572 of 684) and gated by `doc_coverage`.
+      RESIDUAL, now visible rather than guessed at (`data/doc_coverage.txt`,
+      312 rows): ~110 contrib vars with an upstream counterpart need AUTHORED
+      prose, not imported — upstream's `clojure.math` docstrings all end in a
+      java.lang.Math Javadoc URL and assert an exception cljw does not throw.
+      ~50 of `clojure.pprint`'s publics are leaked `cl-*` internals whose fix is
+      `defn-`, not prose. And `clojure.set`'s 0/12 arglists is an obsolete
+      D-070 fossil (`(def union (fn* [& sets] …))`) now that multi-arity `defn`
+      works — rewriting it also forces the unfiled `(clojure.set/intersection)`
+      0-arity divergence (cljw nil, clj ArityException) to be decided.
+      quality-loop floor: doc surface.
     last_reviewed: "2026-07-02"
   - id: "D-430"
     status: "DISCHARGED 2026-07-06 — instaparse works END-TO-END. The final arc (this session, 3 fixes): (1) var-alias — analyzeVar resolves NS aliases (Env.findNsOrAlias, ADR-0035 D3 precedence; 5-site consolidation; e2e phase14_var_special) -> instaparse.core LOADS; (2) count-on-CharSequence — countFn's typed_instance arm gained clj RT.countFrom's CharSequence->-cs-length fallback (instaparse Segment deftype; e2e phase14_instaparse_substrate charsequence_count) -> regexp grammars run; (3) HashCollision — the NON-DETERMINISTIC crash on the 4-grammar probe was the D-155 HAMT full-32-bit-collision stub firing on GLL's pointer-hash-folded keys; the collision bucket landed (see D-155's discharge). VERIFIED: 4 grammar classes (string literals / `'a'+` repeats / regex terminals `#'[0-9]+'` / left recursion `expr = add | term` / nested parens) parse == clj; failure? true on a non-match; 5-run byte-identical; 59-term + 160-char large-input stress 3-run stable. The re-matcher-CharSequence boundary suspected earlier never fires (regex grammars pass Segments through fine — no gap found). PRIOR HISTORY: the per-run-varying garbage-bytes NameError was the 3-layer GC-rooting family (ADR-0169: AnalysisFrame; formToValue accumulators; TypeDescriptor trace); the ORIGINAL mis-tokenization divergence is GONE (parse trees byte-match clj). Any future instaparse gap is a NEW discovery, not this row."

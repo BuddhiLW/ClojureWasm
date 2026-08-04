@@ -401,6 +401,10 @@ run_step "reference_clones"     "bash scripts/check_reference_clones.sh"
 # The commit hook checks this too, but CI does not run hooks — and the notice
 # said "Three files" for nine, so the claim needs something that executes.
 run_step "clj_attribution"      "bash scripts/check_clj_attribution.sh --gate"
+# Every public var without a docstring is a RECORDED decision. core_meta.clj
+# was generated once and gated by nothing, so it rotted to covering under half
+# of clojure.core while `find-doc` kept answering confidently (ADR-0181).
+run_step "doc_coverage"         "bash scripts/check_doc_coverage.sh"
 
 # clj-diff corpus regression (cljw-only replay of golden `;;=> …` pairs —
 # no clj/network). Makes a "X/Y landed" discharge claim mechanically

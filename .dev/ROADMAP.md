@@ -71,7 +71,7 @@ per CLAUDE.md `§ When the active work unit completes`.
 and Wasm support, implemented in Zig 0.16.0.**
 
 - **No JVM**: single static binary within the ADR-0172 per-component size
-  budget (measured 7.37 MB at v1.5.1, enforced ceiling
+  budget (measured 7.55 MB at 2026-08-04, enforced ceiling
   8,800,000 bytes; the pre-engine "≤ 5 MB" target <!--size:other--> was retired when the embedded
   Wasm JIT engine — roughly 3 MB of code by itself <!--size:other-->, F-001 — landed), cold start
   ≤ 10 ms

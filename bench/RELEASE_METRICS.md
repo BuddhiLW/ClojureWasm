@@ -18,7 +18,7 @@ download: `-Dwasm -Doptimize=ReleaseSafe`, with the zwasm JIT engine embedded.
 
 | Build                                                               | On-disk (build-stripped)      |
 |---------------------------------------------------------------------|-------------------------------|
-| **ReleaseSafe `-Dwasm`** — the release build, the shipped artifact | **7.37 MB** (7,368,808 bytes) |
+| **ReleaseSafe `-Dwasm`** — the release build, the shipped artifact | **7.55 MB** (7,549,512 bytes) |
 
 Measured with Zig 0.16.0 for `aarch64-macos`, re-measured **2026-08-04**.
 
@@ -48,7 +48,8 @@ because they are not what anyone downloads. <!--size:other-->
 |------------|-----------|-------------------------------------------------------------|
 | 2026-07-16 | 9,469,816 | before the ADR-0172 binary-size campaign                    |
 | 2026-07-16 | 6,974,584 | after the campaign (−26.3% in one pass)                     |
-| 2026-08-04 | 7,368,808 | current — +5.6% since the campaign, well under the ceiling |
+| 2026-08-04 | 7,368,808 | before the core_meta regeneration |
+| 2026-08-04 | 7,549,512 | current — core_meta.clj went 291 → 628 rows (ADR-0181); +180,704 B buys documentation for 326 more `clojure.core` vars, including `reduce` / `assoc` / `conj` / `first`. Still well under the ceiling. |
 
 The ADR-0172 campaign levers were: unwind-table strip (O-052), envelope-v7
 constant pool + flate regions/sources (ADR-0173), zwasm v2.2.1 thunk collapse,
