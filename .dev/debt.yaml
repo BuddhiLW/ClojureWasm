@@ -24,6 +24,122 @@
 # md-table-align no longer pads it to ~800 KB of whitespace.
 
 active:
+  - id: "D-571"
+    status: |-
+      open (2026-08-04, ADR-0182 § Consequences). The eval budget's wall-clock
+      deadline bounds `Thread/sleep` and NOTHING ELSE that blocks. Measured
+      under a 1000 ms deadline: `@(promise)` never returns; `(await agent)`
+      never returns; `(read-line)` returns when its writer does.
+      `budgetedSleep` — the helper ADR-0182 added — canNOT serve them: they
+      block on `std.Io.Condition.waitUncancelable`, which has no timed variant.
+      The BOUNDED WAIT primitive they need is NOT missing, though: Zig 0.16
+      ships `std.Io.Event.waitTimeout(event, io, Io.Timeout)`, and
+      `Io.Timeout.deadline` is exactly the absolute-instant bound ADR-0182
+      describes. Verified by execution on the pinned toolchain: a `.deadline`
+      bound returns `error.Timeout` at 201 ms for a 200 ms deadline, and a
+      30 s bound wakes at 105 ms when another thread `set()`s the latch.
+      `Condition` was the wrong primitive independently of timeouts — future
+      realisation, promise delivery and thread termination are all MONOTONIC
+      one-shot latches, which is what `Io.Event` is. So the work is a
+      CONVERSION, not a design: give `Future.cell` / `ThreadState` an
+      `Io.Event` beside the mutex (set AFTER the payload is published), bound
+      every wait by `min(caller timeout, budget deadline)`, and delete both
+      `future.waitRealised`'s 1 ms poll and `budgetedSleep`'s 20 ms clamp.
+      That also removes a live clj-parity break: with no budget armed at all,
+      `@(future (Thread/sleep 2000))` measures 2321-2358 ms (+17 %) because
+      `future-cancel`'s poll period slices the sleep, vs 2002-2005 ms on the
+      main thread.
+      TWO ADJACENT HOLES in the same threat model, both pre-existing, both
+      reachable by one expression on a public endpoint that evaluates
+      caller-supplied code:
+      (a) `(Thread/sleep 100000000000000)` aborted the process with an
+          integer-overflow panic. FIXED 2026-08-04 in the ADR-0182 cycle
+          (saturating conversion) — recorded here because it was found with
+          the rest and belongs to the same audit.
+      (b) A `Thread.` started INSIDE a `with-budget` extent outlives it
+          UNMETERED (the slot is restored by value on extent exit, so the
+          worker's per-back-edge re-deref finds null), and cljw's join-at-exit
+          barrier then keeps the process alive with it. One expression, one
+          spinning core, no recovery short of SIGKILL. Still open.
+    category: "security"
+    barrier: |-
+      quality-loop floor: eval-budget completeness. (b) needs a decision about
+      whether a budget is a per-eval SCOPE that spawned threads inherit, or a
+      slot ambient code happens to read — which is the same question ADR-0182
+      declined to settle. The condvar family needs a bounded-wait primitive
+      first.
+    first_raised: "2026-08-04"
+    last_reviewed: "2026-08-04"
+    refs: |-
+      .dev/decisions/0182_the_eval_budget_bounds_blocking_calls.md (Consequences
+      + Alternatives, where each of these was measured);
+      src/runtime/concurrency/eval_budget.zig (`budgetedSleep`);
+      src/runtime/future.zig / promise.zig / thread.zig (the condvar waiters).
+  - id: "D-572"
+    status: |-
+      open (2026-08-04). The cw-playground demo evaluates untrusted submissions
+      IN-PROCESS and depends on the eval budget for isolation. An in-process
+      budget is a resource governor, not an isolation boundary: it bounds what
+      the metered thread does between two safe points, and cannot bound what
+      that thread SPAWNED (D-571(b)), what a condvar is waiting for (D-571), or
+      an abort. Measured on a local instance: `GET /api/health` took 22.0 s
+      while one eval was parked, because `cljw.http.server` accepts serially
+      (D-117(a)) — so even a perfectly bounded eval blocks the next request for
+      up to the deadline.
+      SHAPE: evaluate each submission in a SUBPROCESS (`cljw -e`) under an OS
+      timeout plus an rlimit, killing the process group on expiry. That closes
+      the spawned-thread case, the panic case, the condvar cases and the
+      serial-accept case in one move, for ~10-30 ms of process startup per
+      submission — free for a demo evaluating human-typed snippets.
+      `playground/sandbox.clj` currently advertises "No babashka, no
+      subprocess" as a feature; on the evidence it is the source of each hole.
+    category: "security"
+    barrier: |-
+      quality-loop floor: demo isolation. Not a cljw defect — a demo-layer
+      architecture decision, in a repo outside this one. Raise it there; cljw's
+      side is D-571.
+    first_raised: "2026-08-04"
+    last_reviewed: "2026-08-04"
+    refs: |-
+      ~/Documents/MyProducts/cw-playground/server/playground/sandbox.clj;
+      D-571 (the runtime half); D-117(a) (serial accept).
+  - id: "D-573"
+    status: |-
+      PARTIALLY DISCHARGED 2026-08-04 (ADR-0183): the GC trigger is now steered
+      by the MEASURED GC time share instead of a byte constant. Measured on a
+      Rush Hour BFS (cw-arcade), same 3.17 GB allocated either way: 755
+      collections / 17.9 s -> 69 collections / 7.5 s, with no benchmark
+      regression.
+      RESIDUAL, and it is the deeper defect: **`last_live_bytes` under-reports
+      what marking costs.** `sweep()` counts only the GC record block, omitting
+      finaliser-owned side buffers (String bytes, BigInt limbs) and everything
+      in `persistent_marks` (traced on every collection, never swept, never
+      counted). Measured 78 MB reported against 359 MB RSS — 4.6x. So
+      `last_live * 2` is not a proportional-to-cost heap target, and the
+      adaptive arm can read as INERT while the collector is in fact tracing a
+      large graph. The BFS is that false negative: it reports 747 KB live while
+      a collection measurably costs 13.6 ms (marginal, via
+      `CLJW_GC_TORTURE_ALLOC` at three periods on the real workload).
+      With honest accounting the adaptive arm may govern on its own. Go's
+      answer to this exact problem (1.18) was to COMPLETE the marginal cost
+      model rather than add a heuristic on top of an incomplete one.
+      Also open: `conservativeStackScan` rebuilds a hash table over every live
+      allocation per collection — a real O(heap) fixed cost with a known
+      cheaper idiom (Boehm's page table). Not what the BFS paid, but it bites
+      the tree_walk backend as soon as its trigger is wired.
+    category: "perf"
+    barrier: |-
+      quality-loop floor: GC cost model. No blocker — the fix is to count what
+      is traced (ideally objects, since mark cost is per-object) rather than
+      what is swept. The time-share steering does NOT depend on it, which is
+      why it could land first.
+    first_raised: "2026-08-04"
+    last_reviewed: "2026-08-04"
+    refs: |-
+      .dev/decisions/0183_gc_trigger_is_steered_by_measured_time.md;
+      private/notes/2026-08-04-gc-heap-sizing-survey.md (the cross-runtime
+      survey + every measurement); src/runtime/gc/mark_sweep.zig (`sweep`,
+      `steerFloor`, `conservativeStackScan`).
   - id: "D-568"
     status: |-
       open (2026-08-04, ADR-0159 amendment 1 § implementer-verification item (a)).

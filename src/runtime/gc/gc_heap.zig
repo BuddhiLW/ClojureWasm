@@ -67,6 +67,34 @@ const Value = value_mod.Value;
 /// fewer STW fences) at ~3MB extra peak. Tune via `CLJW_GC_THRESHOLD_MB`.
 pub const default_gc_threshold_bytes: usize = 4 * 1024 * 1024;
 
+/// Ceiling for the ramping floor (D-573). 64 MB is where the measured curve
+/// knees: on the Rush Hour BFS, 4 MB -> 17.7 s, 16 MB -> 9.6 s, 64 MB -> 7.6 s,
+/// 256 MB -> 7.1 s. Past 64 MB the remaining 6% costs 4x the resident heap,
+/// which is the wrong trade for a runtime whose selling point is a small
+/// footprint. `CLJW_GC_THRESHOLD_MB` still overrides the STARTING floor for a
+/// caller who knows their workload.
+pub const max_threshold_floor_bytes: usize = 64 * 1024 * 1024;
+
+/// Target share of wall clock spent collecting, as a percent (D-573).
+///
+/// The floor is steered by the MEASURED ratio rather than by a byte constant or
+/// a collection count, because that ratio is the thing anyone actually cares
+/// about, and because it is the quantity the theory is written in: for a
+/// mark-sweep collector, GC share is `mark_cost(live) / bytes_between_collects`,
+/// so raising the trigger lowers the share directly and is independent of how
+/// big the live set happens to be.
+///
+/// The JVM exposes exactly this as `-XX:GCTimeRatio`; its default asks for
+/// about 1 % in the throughput collector. 10 % is deliberately laxer: cljw's
+/// collector is non-generational, so it re-marks the whole live set every time
+/// and cannot reach 1 % without letting the heap grow far past what a small
+/// runtime should hold.
+///
+/// Measured motivation: a Rush Hour BFS with a 747 KB live set spent 10.1 s of
+/// 17.9 s collecting, because the 4 MB floor fired 755 times and each collect
+/// re-marked the same live graph.
+pub const gc_time_target_percent: u64 = 10;
+
 /// Minimum allocation size (bytes) per ADR-0028 §3: the freed payload
 /// must host the FreeNode overlay at offset 8 (8 bytes header +
 /// ≥ 8 bytes payload = 16 bytes minimum). Allocations of types
@@ -113,6 +141,11 @@ pub const Stats = struct {
     /// block from the free pool (vs a fresh `rawAlloc`/malloc). pool_hits/alloc_count
     /// = the reuse rate — a low rate means same-size churn is re-malloc'ing.
     pool_hits: u64 = 0,
+    /// D-573: nanoseconds spent inside `collectStopTheWorld`, and the wall clock
+    /// at the first collection. Their ratio is the GC time fraction the floor
+    /// is steered by — the same quantity the JVM exposes as `-XX:GCTimeRatio`.
+    gc_ns_total: u64 = 0,
+    first_collect_ns: i64 = 0,
 };
 
 /// Per-allocation record on the GcHeap live list. Stores the type-
@@ -196,6 +229,11 @@ pub const GcHeap = struct {
     /// `CLJW_GC_THRESHOLD_MB` knob survives each collect's recompute (which would
     /// otherwise reset the floor to the module default). Defaults to the module const.
     threshold_floor_bytes: usize = default_gc_threshold_bytes,
+    /// The floor the steering may not go BELOW — the default, or whatever
+    /// CLJW_GC_THRESHOLD_MB set. Steering moves `threshold_floor_bytes`
+    /// between this and `max_threshold_floor_bytes`.
+    base_threshold_floor_bytes: usize = default_gc_threshold_bytes,
+
     /// Bytes allocated since the last `collect()` invocation. Trips
     /// collection when it exceeds `threshold_bytes`.
     bytes_since_last_gc: usize = 0,
@@ -231,6 +269,7 @@ pub const GcHeap = struct {
             if (std.fmt.parseInt(usize, raw, 10) catch null) |mb| {
                 if (mb > 0) {
                     g.threshold_floor_bytes = mb * 1024 * 1024;
+                    g.base_threshold_floor_bytes = g.threshold_floor_bytes;
                     g.threshold_bytes = g.threshold_floor_bytes;
                 }
             }
@@ -245,10 +284,10 @@ pub const GcHeap = struct {
         // under host load. Off by default = one null-check.
         if (@import("../process_env.zig").get("CLJW_GC_STATS") != null) {
             const s = self.stats;
-            std.debug.print("[gc-stats] allocs={d} pool_hits={d} mallocs={d} reuse={d}% collects={d} sweeps={d} bytes_alloc={d}\n", .{
-                s.alloc_count,                                                   s.pool_hits,     s.alloc_count - s.pool_hits,
-                if (s.alloc_count > 0) s.pool_hits * 100 / s.alloc_count else 0, s.collect_count, s.sweep_count,
-                s.bytes_allocated,
+            std.debug.print("[gc-stats] allocs={d} pool_hits={d} mallocs={d} reuse={d}% collects={d} sweeps={d} bytes_alloc={d} last_live={d} floor_mb={d}\n", .{
+                s.alloc_count,                                                   s.pool_hits,       s.alloc_count - s.pool_hits,
+                if (s.alloc_count > 0) s.pool_hits * 100 / s.alloc_count else 0, s.collect_count,   s.sweep_count,
+                s.bytes_allocated,                                               s.last_live_bytes, self.threshold_floor_bytes / (1024 * 1024),
             });
         }
         // Drain every live allocation back to infra. Calls the per-tag

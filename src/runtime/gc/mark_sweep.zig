@@ -24,6 +24,9 @@
 //! and reserved for an explicit clear pass). All four are landed.
 
 const std = @import("std");
+const clock = @import("../clock.zig");
+const max_threshold_floor_bytes = @import("gc_heap.zig").max_threshold_floor_bytes;
+const gc_time_target_percent = @import("gc_heap.zig").gc_time_target_percent;
 const testing = std.testing;
 
 const gc_heap_mod = @import("gc_heap.zig");
@@ -225,9 +228,41 @@ pub fn collect(gc: *GcHeap, ctx: root_set_mod.WalkContext) void {
     // All roots are shaded gray; blacken transitively (ADR-0028 amendment 3).
     drainGray(gc);
     sweep(gc);
-    // D-519 (ADR-0164): the floor is the per-heap `threshold_floor_bytes` (default
-    // = the module const, overridable by CLJW_GC_THRESHOLD_MB) so the knob survives
-    // this recompute; the adaptive `last_live*2` arm is unchanged (growth workloads).
+    // D-573: ramp the FLOOR when a collection turns out to have been mostly
+    // garbage.
+    //
+    // ADR-0164 set a fixed 4 MB floor and noted, correctly, that for a churn
+    // workload `last_live ~ 0` makes the adaptive `last_live*2` arm inert — so
+    // the constant becomes the operative number. It was tuned against short
+    // benchmark scripts. On a long allocation-heavy program a constant is the
+    // wrong shape, because the cost of a collection is mostly FIXED (root scan
+    // + sweep of the side table), not proportional to what it reclaims.
+    //
+    // Measured on a Rush Hour BFS (cw-arcade), same 3.17 GB allocated over
+    // 26.2M allocations either way:
+    //
+    //     floor    collections   wall
+    //     4 MB         755       17.7 s
+    //     64 MB         47        7.6 s
+    //
+    // 708 collections avoided, 10.1 s saved — about 13 ms of fixed cost each,
+    // paid to reclaim a heap that was nearly all garbage.
+    //
+    // The condition is exactly the situation ADR-0164 named: the adaptive arm is
+    // INERT (`last_live*2` does not reach the floor), so the constant is what
+    // governs — and we collected anyway. That is the case where collecting more
+    // often buys nothing, so double the floor, capped. Once the live set grows
+    // enough for `last_live*2` to exceed the floor, the adaptive arm takes over
+    // and the floor stops mattering, which is why the ramp does not need to
+    // come back down.
+    //
+    // A short script is unaffected: the ramp needs collections to happen, and
+    // one that never crosses 4 MB never collects. `string_ops` — ADR-0164's
+    // named canary, continuous string allocation — ramps, so it collects LESS
+    // than before, not more.
+    // The floor is the per-heap `threshold_floor_bytes` (default = the module
+    // const, overridable by CLJW_GC_THRESHOLD_MB) so the knob survives this
+    // recompute; the adaptive `last_live*2` arm is unchanged (growth workloads).
     gc.threshold_bytes = @max(
         gc.threshold_floor_bytes,
         gc.stats.last_live_bytes *| 2,
@@ -304,9 +339,56 @@ fn conservativeStackScan(gc: *GcHeap) void {
 /// a safe point) `stopWorld` returns immediately and this is just `collect`
 /// with a no-op fence — so it is correct (if heavier) even single-threaded.
 pub fn collectStopTheWorld(gc: *GcHeap, ctx: root_set_mod.WalkContext, self_registered: bool) void {
+    // D-573: time the collection so the floor can be steered by the MEASURED
+    // GC share rather than by a byte constant. The process-wide io clock —
+    // every collect site can reach it without an io parameter, and `.awake` is
+    // monotonic, which is what a duration needs.
+    const started = clock.nanoTime(io_default.get());
     safepoint.stopWorld(self_registered);
     collect(gc, ctx);
     safepoint.resumeWorld();
+    const ended = clock.nanoTime(io_default.get());
+    gc.stats.gc_ns_total +|= @intCast(@max(0, ended - started));
+    if (gc.stats.first_collect_ns == 0) gc.stats.first_collect_ns = started;
+    steerFloor(gc, ended);
+}
+
+/// Move `threshold_floor_bytes` toward whatever keeps the measured GC share at
+/// `gc_time_target_percent`.
+///
+/// The share is `gc_ns_total / (now - first_collect_ns)` — wall clock since the
+/// program first had to collect, which is the window the floor can influence.
+/// Over target, the collector is running too often for what it costs to mark
+/// this program's live set: double the floor, so twice as much garbage
+/// accumulates per collection and the share roughly halves. Under target with
+/// room to spare, ease back down, so a program whose live set shrank stops
+/// holding a floor it no longer needs.
+///
+/// Doubling/halving rather than solving for a target: the share is a lagging
+/// average, so a single-step solve would oscillate. It converges in a handful
+/// of collections either way, which is fast against the hundreds a program has
+/// to make before the floor matters at all.
+fn steerFloor(gc: *GcHeap, now_ns: i64) void {
+    const elapsed = now_ns - gc.stats.first_collect_ns;
+    // Below this there is no meaningful ratio yet — a first collection is 100 %
+    // of the time since the first collection, which says nothing.
+    if (elapsed < 50 * std.time.ns_per_ms) return;
+    const share_pct = gc.stats.gc_ns_total * 100 / @as(u64, @intCast(elapsed));
+    if (share_pct > gc_time_target_percent) {
+        if (gc.threshold_floor_bytes < max_threshold_floor_bytes) {
+            gc.threshold_floor_bytes = @min(
+                max_threshold_floor_bytes,
+                gc.threshold_floor_bytes *| 2,
+            );
+        }
+    } else if (share_pct * 4 < gc_time_target_percent and
+        gc.threshold_floor_bytes > gc.base_threshold_floor_bytes)
+    {
+        gc.threshold_floor_bytes = @max(
+            gc.base_threshold_floor_bytes,
+            gc.threshold_floor_bytes / 2,
+        );
+    }
 }
 
 // --- tests ---
