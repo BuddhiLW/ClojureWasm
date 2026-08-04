@@ -70,6 +70,47 @@ active:
       root-cause note); test/e2e/phase16_wasm_component_multiexport.sh;
       zwasm D-527; D-404 (the fixture blocker this discharges half of);
       ADR-0135 (the mapping table the fixture exists to falsify).
+  - id: "D-569"
+    status: |-
+      open (2026-08-04, found while measuring the D-513 docstring gap). Two
+      resolution paths for a bundled namespace disagree about which namespaces
+      exist. `loadOrFindNs` (src/eval/loader.zig:120) tries the bytecode REGION
+      blob first, keyed by `nsNameFromLabel` over `ACTIVE_FILES` — derived, so
+      every FILES row is reachable. It falls back to `embeddedResolver` →
+      `lookupEmbeddedFile` (src/lang/bootstrap.zig), a HAND-WRITTEN
+      name→`FILES[N]` table whose indices must be kept in sync by hand; three
+      comments in the file exist solely to warn future edits not to disturb the
+      indices. The two are already out of step: `clojure.repl` has a FILES row
+      and a region, but NO `lookupEmbeddedFile` row, so in any build without a
+      region blob (unit tests, the cache_gen host tool) `(require 'clojure.repl)`
+      cannot resolve. The shipped binary always has the blob, so nothing fails
+      today — the cost is a silent trap for whoever adds the next bundled
+      namespace, since forgetting the second table produces no error in the
+      configuration they will test in. `clojure.core-meta`'s absence from the
+      table is fine and separate (it is in `EAGER_NS`, loaded at startup).
+      SHAPE: make the lookup derived like the region path — iterate FILES,
+      compare `nsNameFromLabel(f.label)`, gate on `isActiveFile` — and move the
+      two deliberate exclusions onto the FileEntry as a field, so the exception
+      is data on the row a reader is already looking at rather than an absence
+      in a second list. That removes the index-stability constraint the three
+      comments defend, which is the actual prize.
+      NOT done in the finding cycle: the index-keyed design is deliberate and
+      documented, so overturning it is an ADR-level change (depth 3) rather than
+      a drive-by, and the finding surfaced mid-unit.
+    category: "bootstrap"
+    barrier: |-
+      quality-loop floor: derivable-fact-maintained-by-hand. No blocker — needs
+      an ADR + a DA fork per the depth-3 rule, plus the `bootstrap.zig` test at
+      the ACTIVE_FILES/lookupEmbeddedFile coupling extended to assert the
+      POSITIVE direction (every active, name-resolvable file resolves), which is
+      the assertion whose absence let the two lists drift.
+    first_raised: "2026-08-04"
+    last_reviewed: "2026-08-04"
+    refs: |-
+      src/lang/bootstrap.zig (`lookupEmbeddedFile`, `FILES`, `ACTIVE_FILES`,
+      `nsNameFromLabel`, and the coupling test that asserts only the inactive
+      direction); src/eval/loader.zig:120 `loadOrFindNs`; D-513 (the docstring
+      work that would add six more rows to both tables).
   - id: "D-568"
     status: |-
       open (2026-08-04, ADR-0159 amendment 1 § implementer-verification item (a)).
