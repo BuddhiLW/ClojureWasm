@@ -39,6 +39,7 @@ const Env = env_mod.Env;
 const Value = @import("../runtime/value/value.zig").Value;
 const error_context = @import("../runtime/error/context.zig");
 const map_collection = @import("../runtime/collection/map.zig");
+const string_collection = @import("../runtime/collection/string.zig");
 const symbol_mod = @import("../runtime/symbol.zig");
 const print_mod = @import("../runtime/print.zig");
 const writer_value = @import("../runtime/writer_value.zig");
@@ -488,6 +489,21 @@ fn registerMathContextVar(rt: *Runtime, env: *Env) !void {
     rt.math_context_var = mc;
 }
 
+/// Intern `clojure.core/*file*` as a `^:dynamic` Var whose root is clj's exact
+/// `"NO_SOURCE_PATH"` sentinel, and cache it on `rt.file_var`. JVM Clojure
+/// reports that string when there is no source file (`clj -M -e '…'`), the
+/// script path when one is run, and the classpath-relative resource name while
+/// a namespace loads — all three verified against clj 2026-08-04. cljw had no
+/// `*file*` at all, which is why the error renderer and any macro that wants
+/// its own source location had nothing to read.
+fn registerFileVar(rt: *Runtime, env: *Env) !void {
+    const core = try env.findOrCreateNs("clojure.core");
+    const sentinel = try string_collection.alloc(rt, "NO_SOURCE_PATH");
+    const fv = try env.intern(core, "*file*", sentinel, null);
+    fv.flags.dynamic = true;
+    rt.file_var = fv;
+}
+
 /// The bootstrap prefix WITHOUT `loadCore`: install the embedded require
 /// resolver + register the kernel primitives + bootstrap macros. Splitting
 /// this out lets the AOT-bootstrap path (ADR-0056) build a fresh env to
@@ -515,6 +531,7 @@ pub fn setupCorePrefix(rt: *Runtime, env: *Env, macro_table: *macro_dispatch.Tab
     // D-467: intern *math-context* + cache on rt.math_context_var so BigDecimal
     // division can honour a `with-precision` binding.
     try registerMathContextVar(rt, env);
+    try registerFileVar(rt, env);
     // ADR-0088: intern *print-length* / *print-level* (root nil = unlimited)
     // + cache pointers so the renderer honours a user `binding`.
     try registerPrintLimitVars(rt, env);

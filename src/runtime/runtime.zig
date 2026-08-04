@@ -184,6 +184,14 @@ pub const Runtime = struct {
     /// of raising on a non-terminating expansion. Type-erased (mirrors `agent_var`).
     math_context_var: ?*anyopaque = null,
 
+    /// Cached `*Var` for `clojure.core/*file*`, interned `^:dynamic` at
+    /// bootstrap with the clj-exact root `"NO_SOURCE_PATH"`. The runner sets it
+    /// to the script path when a file is run, and the require path binds it to
+    /// the resolved resource label around a namespace load, so an error
+    /// renderer or a macro can ask "which file am I in?" the way JVM Clojure
+    /// lets it. Type-erased (mirrors `agent_var`).
+    file_var: ?*anyopaque = null,
+
     /// ADR-0130: cached canonical `clojure.core` arith/comparison Vars
     /// (+ - * < <= > >= =), indexed by `intrinsic.ArithOp` (type-erased like the
     /// data-reader vars; cast back to `*const env.Var` at the compiler gate + VM

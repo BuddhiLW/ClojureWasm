@@ -20,7 +20,9 @@ const macro_dispatch = @import("../eval/macro_dispatch.zig");
 const driver = @import("../eval/driver.zig");
 const evaluator = @import("../eval/evaluator.zig");
 const Runtime = @import("../runtime/runtime.zig").Runtime;
-const Env = @import("../runtime/env.zig").Env;
+const env_mod = @import("../runtime/env.zig");
+const Env = env_mod.Env;
+const string_collection = @import("../runtime/collection/string.zig");
 const Value = @import("../runtime/value/value.zig").Value;
 const bootstrap = @import("../lang/bootstrap.zig");
 const require_resolver = @import("../lang/require_resolver.zig");
@@ -124,6 +126,22 @@ pub fn runSource(
     if (eval_budget.pendingHeapCeiling()) |cap| {
         rt.gc.heap_ceiling = cap;
         rt.gc.heap_exceeded_hook = &eval_budget.heapExceededHook;
+    }
+
+    // `*file*` reports the source being evaluated, as JVM Clojure does: the
+    // script path when a file runs, and the `NO_SOURCE_PATH` sentinel bootstrap
+    // installed otherwise (`clj -M -e '…'` reports exactly that string). Set on
+    // the root rather than a binding frame because a whole `runSource` call IS
+    // one file's evaluation — there is no scope to pop back to.
+    if (rt.file_var) |fv_opaque| {
+        const fv: *env_mod.Var = @ptrCast(@alignCast(fv_opaque));
+        // Positive test, not a denylist of pseudo-labels: every non-file source
+        // is labelled `<…>` (`<-e>`, `<stdin>`, `<repl>`), and a real path never
+        // starts with `<`. An earlier denylist missed `<-e>` and reported it as
+        // the file name.
+        if (source_label.len > 0 and source_label[0] != '<') {
+            fv.root = try string_collection.alloc(&rt, source_label);
+        }
     }
 
     // --- Read - Analyse - Eval - Print loop ---
