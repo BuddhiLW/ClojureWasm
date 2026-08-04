@@ -17,22 +17,20 @@
   `[:ok v]`/`[:err e]` per ADR-0135 am2, replacing a throw that DISCARDED the
   err payload; `*file*` lands). v1.6.0 earlier the same day carried four
   hang/abort fixes. CHANGELOG is the release-history SSOT.
-- **First task on resume MUST be**: **D-567** — cljw's headline feature
-  (`(:require ["x.wasm" :as x])`) loads only SINGLE-EXPORT components. Any
-  component with 2+ exports fails with `InvalidSort`; reproduced with zwasm's
-  own CLI, so it is engine-side, and root-caused into
-  `zwasm/src/feature/component/types.zig` (the `.@"export"` section arm appends
-  only to `type_space`; a func export also creates a func-index-space entry, so
-  from the second export onward each lift's sortidx reads out of bounds). Filed
-  as zwasm **D-527** with a two-line WIT reproduction. cljw cannot work around
-  it. Either fix zwasm D-527 (small, located) or wait for it. The typed fixture
-  it blocks is already checked in
-  (`test/e2e/fixtures/wasm/echo.component.wasm`, 16 lifted functions, every
-  ADR-0135 row) and `phase16_wasm_component_multiexport.sh` pins the gap as a
-  clean error. When D-527 lands, flip that e2e to assert the exports + the
-  marshalling table — that discharges D-404's fixture blocker.
-  Then: D-404's resource phase (`own` lifts as a bare integer and is never
-  dropped on the one-shot `component-invoke` path).
+- **First task on resume**: **D-567 is unblocked on the zwasm side but the
+  merge is USER-GATED.** zwasm PR #157 (`clojurewasm/zwasm`, branch
+  `develop/component-export-index-space`) fixes the export index-space
+  accounting AND a follow-on it exposed (an export could satisfy its own
+  sortidx bound — caught by the official corpus `types_02`, which CI runs and
+  local `zig build test` does not). 3-OS CI green, MERGEABLE/CLEAN. The
+  auto-mode classifier blocked `gh pr merge`, so it needs a user merge + tag.
+  Verified end-to-end against a locally-patched zwasm before the pin was
+  restored: `echo.component.wasm` lists all 16 exports and every ADR-0135 row
+  round-trips, astral-plane `\u{10437}` included. **After the merge + tag**:
+  bump `build.zig.zon`'s `.zwasm` pin, then flip
+  `phase16_wasm_component_multiexport.sh` from gap-pin to asserting the exports
+  + the marshalling table — that discharges D-404's fixture blocker and D-567.
+  D-404's resource phase is DONE (ADR-0159 amendment 1, this session).
 - **Unreleased on main**: envelope v9 (op_var_meta — def-meta rides
   the AOT wire), computed def-meta (D-316) — incl. `:tag` uniform-eval
   (`^String`→Class, `^Foo`→name error; the bare-symbol workaround
@@ -74,13 +72,19 @@
 ## Standing units (tracked in .dev/debt.yaml)
 
 - **D-565** — external-contributor reproducibility / doc-staleness sweep
-  (Discussion #11). PARTLY drained 2026-08-04: README version + CONTRIBUTING
-  opt-out notes landed with the Issues/PR opening (`e897cbfc`). Residual is
-  path rot (`zwasm_from_scratch`→`zwasm`, dead `OSS/zig` ref,
-  `cleanup_orphans.sh`). Companion: zwasm D-526.
+  (Discussion #11). Items (1)-(6) DISCHARGED 2026-08-04. Two of them were not
+  doc rot: `scripts/cleanup_orphans.sh` did not exist anywhere (now in-repo +
+  wired as a SessionStart hook), and `scripts/run_wasm_gate.sh` guarded on a
+  directory renamed long ago, so it had been exiting 0 without running.
+  `scripts/check_reference_clones.sh` is the new gate that would have caught
+  the dead reference paths. Residual: (7) survey-workflow setup notes, (8)
+  handover pointing at gitignored `private/notes/` recipes. Companion: zwasm
+  D-526.
 
-- **Perf campaign (§9.2.S) — PAUSED** (D-520 / D-386 / D-005/006). **D-513** —
-  clojure.core.reducers / clojure.repl / var :doc.
+- **Perf campaign (§9.2.S) — PAUSED** (D-520 / D-386 / D-005/006). **D-513**
+  item (1) `clojure.core.reducers` is the only remaining piece (repl + var :doc
+  landed); it is IN PROGRESS — its "take up on a real consumer" deferral is the
+  pattern the 2026-06-25 drain-order decision forbids.
 - **D-548** — (a) DISCHARGED (ADR-0176); residual = (b) pmap
   wall-clock on the 3-vCPU runner (timing envelope, still gated).
 - CIDER upstream banner patch draft (user-side PR):
