@@ -397,6 +397,10 @@ run_step "core_surface"         "bash scripts/check_core_surface.sh"
 # claims are live; a path that is not there yields a survey that skips its
 # ground truth and reports success anyway. Skips on a fresh clone (D-565).
 run_step "reference_clones"     "bash scripts/check_reference_clones.sh"
+# legal/NOTICE must list exactly the files reproducing upstream source text.
+# The commit hook checks this too, but CI does not run hooks — and the notice
+# said "Three files" for nine, so the claim needs something that executes.
+run_step "clj_attribution"      "bash scripts/check_clj_attribution.sh --gate"
 
 # clj-diff corpus regression (cljw-only replay of golden `;;=> …` pairs —
 # no clj/network). Makes a "X/Y landed" discharge claim mechanically

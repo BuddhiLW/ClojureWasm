@@ -833,13 +833,38 @@ active:
       Cross-ref the tokenizer long-input fix, vm.zig operand stack.
     last_reviewed: "2026-08-04"
   - id: "D-349"
-    status: "open — robustness. `(wasm/run …)` buffers the guest's ENTIRE stdout + stderr into GC strings before returning. A guest that prints unbounded output grows memory without limit (in the playground the OS sandbox bounds it; generally it is a gap). A streaming / size-capped capture is the finished form. Surfaced 2026-06-09 (ADR-0124, DA alternative-c insight)."
-    category: "robustness"
+    status: |-
+      open — security, RE-MEASURED 2026-08-04 and worse than the row said.
+      `(wasm/run …)` buffers the guest's ENTIRE stdout + stderr before
+      returning. The row read as a theoretical gap the playground's OS sandbox
+      covered. It is a straightforward host memory-exhaustion vector on
+      guest-controlled data, and D-347's fuel fix (landed the same day) does NOT
+      bound it usefully.
+      MEASURED with a 25-line WASI guest that writes a 64-byte line to stdout in
+      an infinite loop: **fuel 1,000,000 produced exactly 64,000,000 bytes of
+      buffered host memory** — 64 bytes per unit of fuel. zwasm's default fuel is
+      1e9, so a guest under the DEFAULT budget can force cljw to buffer on the
+      order of **64 GB** before the fuel trap fires. A 1e8-fuel run (~6.4 GB) had
+      to be killed at 120s.
+      The fuel budget is the wrong instrument here: it bounds instructions, and
+      output-per-instruction is entirely the guest's choice.
+      SHAPE: zwasm's `cli.run.Limits` needs a `max_output_bytes` axis, and its
+      WASI host must stop appending (truncate + signal, rather than trap — a
+      truncated capture is more useful to the caller than a lost one) once the
+      cap is hit. cljw then passes a finite default the same way it now passes
+      finite fuel and memory, with `:max-output-bytes` on the opts map and
+      `:unmetered` opt-in. cljw cannot fix this alone: it hands zwasm an
+      `ArrayList` and zwasm's WASI host appends to it directly
+      (`src/cli/run.zig`, `host.stdout_buffer = b`).
+    category: "security"
     barrier: |-
-      blocked-by: a capped or streaming capture API on zwasm's WASI host
-      (incremental flush / max-bytes). Tie to D-347 (both are wasm/run resource
-      bounds). Low priority while wasm/run is demo/trusted-module scoped.
-    last_reviewed: "2026-06-09"
+      blocked-by: a `max_output_bytes` axis on zwasm's captured-run Limits + the
+      WASI host honouring it. Small and located; cljw side is then the same
+      three lines D-347 added for fuel / max-memory. NOT low priority any more —
+      the 2026-08-04 measurement (64 GB reachable under the default budget)
+      moves this from "a gap in principle" to the same class as the three
+      guest-data host-crash bugs fixed on 2026-08-04.
+    last_reviewed: "2026-08-04"
   - id: "D-384"
     status: |-
       open (2026-06-10) — the wasm cross-runtime comparison (`bench/wasm_bench.sh`,

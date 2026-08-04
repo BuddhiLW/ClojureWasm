@@ -26,9 +26,17 @@ set -euo pipefail
 
 source "$(dirname "$0")/hook_lib.sh"
 
-hook_read_command
-hook_is_git_commit || exit 0
-hook_cd_project_root
+# Two entry points. As a PreToolUse hook it reads the command from stdin and
+# only acts on `git commit`. With `--gate` it runs the same checks directly, so
+# CI — which does not run hooks — catches the same defects. A hook nothing else
+# re-runs only protects the machine it is installed on.
+if [[ "${1:-}" == "--gate" ]]; then
+  cd "$(dirname "$0")/.."
+else
+  hook_read_command
+  hook_is_git_commit || exit 0
+  hook_cd_project_root
+fi
 
 CLJ_DIR="src/lang/clj/clojure"
 [[ -d "$CLJ_DIR" ]] || exit 0
@@ -46,6 +54,31 @@ while IFS= read -r f; do
 done < <(find "$CLJ_DIR" -type f -name '*.clj' | sort)
 
 if [[ ${#missing[@]} -eq 0 ]]; then
+  # Second invariant: legal/NOTICE lists exactly the files that reproduce
+  # upstream source text. The SPDX check above cannot see this — both header
+  # variants carry the same SPDX line — so the variant-① set drifted from the
+  # notice for six files before anyone counted (2026-08-04: the notice said
+  # "Three files" while nine carried the banner). A notice that under-reports
+  # attribution is a legal-accuracy defect in a public EPL-2.0 project, and it
+  # is exactly the kind of claim only an executed check keeps honest.
+  banner_files="$(grep -rl 'Copyright (c) Rich Hickey\|Copyright (c) Stuart Sierra\|by Jason Sankey' "$CLJ_DIR" --include='*.clj' 2>/dev/null | sort || true)"
+  notice_files="$(grep -oE 'src/lang/clj/clojure/[A-Za-z0-9._/-]+\.clj' legal/NOTICE 2>/dev/null | sort -u || true)"
+  if [[ "$banner_files" != "$notice_files" ]]; then
+    {
+      echo "✗ commit blocked by scripts/check_clj_attribution.sh"
+      echo
+      echo "legal/NOTICE does not list exactly the files that reproduce upstream source text."
+      echo "  Carrying the upstream banner but NOT in NOTICE:"
+      comm -23 <(printf '%s\n' "$banner_files") <(printf '%s\n' "$notice_files") | sed 's/^/    /'
+      echo "  Listed in NOTICE but NOT carrying the banner:"
+      comm -13 <(printf '%s\n' "$banner_files") <(printf '%s\n' "$notice_files") | sed 's/^/    /'
+      echo
+      echo "A file reproducing upstream text must appear in legal/NOTICE, and the count"
+      echo "sentence at the top must match. See .claude/rules/clj_attribution.md."
+    } >&2
+    exit 2
+  fi
+  [[ "${1:-}" == "--gate" ]] && echo "    clj_attribution: $(find "$CLJ_DIR" -name '*.clj' | wc -l | tr -d ' ') file(s) carry SPDX; NOTICE lists exactly the $(printf '%s\n' "$banner_files" | wc -l | tr -d ' ') reproducing upstream text"
   exit 0
 fi
 
