@@ -10,22 +10,24 @@
         },
         // zwasm v2 embedding API (F-001 / D-037). `lazy` so the DEFAULT build +
         // gate never resolve it — only `-Dwasm` (b.lazyDependency) does.
-        // PINNED to STABLE tag **v2.4.0** (2026-08-03): the external-consumer
-        // release — `-Dcompiler-rt` for linking libzwasm.a from a non-Zig
-        // toolchain, plus a DCE fix keeping the WasmGC cohort out of sub-3.0
-        // builds. NEITHER reaches cljw: cljw links zwasm through Zig
-        // (`b.lazyDependency`), which supplies its own compiler-rt, and it
-        // builds at zwasm's default `-Dwasm=3.0`, so the sub-3.0 DCE fix is
-        // out of scope. This pin is hygiene — keeping the tag current, not
-        // chasing a behaviour change. Prior v2.3.0 (2026-07-17) = WASI-0.3.0
-        // inventory sweep; v2.2.1 (2026-07-16) = binary-size campaign (zwasm
-        // ADR-0204 / D-522, CLI -21%); v2.2.0 (2026-07-09) = AOT full fidelity
-        // (ADR-0203). cljw's embedding surface (Engine/Module/Instance via
-        // `.auto` =JIT-default, D-488) is unchanged. lazy + flag-guard means a
-        // churning dep cannot break the default gate.
+        //
+        // Pinned to a COMMIT rather than a tag, unusually: `main` carries the
+        // component export index-space fix (zwasm #157) that cljw's headline
+        // feature is blocked on — a component with two or more exports failed
+        // validation, so `(:require ["x.wasm" :as x])` could only ever load
+        // single-function components. Cutting the tag that would carry it is
+        // user-only in zwasm (its ADR-0156), so waiting for one would leave the
+        // feature broken here for no engineering reason. Move this to the tag
+        // when it is cut; the hash pins the content either way.
+        //
+        // Tag history: v2.4.0 (2026-08-03) external-consumer release
+        // (`-Dcompiler-rt`, sub-3.0 DCE); v2.3.0 (2026-07-17) WASI-0.3.0 sweep;
+        // v2.2.1 (2026-07-16) binary-size campaign; v2.2.0 (2026-07-09) AOT
+        // full fidelity. cljw's embedding surface (Engine/Module/Instance via
+        // `.auto` = JIT-default, D-488) is unchanged by all of them.
         .zwasm = .{
-            .url = "git+https://github.com/clojurewasm/zwasm.git#v2.4.0",
-            .hash = "zwasm-2.4.0-FT1Fv9E0jQCqP2Pd8DiSEWZMwqmdl-uPzntoEnBxDlro",
+            .url = "git+https://github.com/clojurewasm/zwasm.git#515a16db3dea9d903de265d9e93d7272a1a4bdfa",
+            .hash = "zwasm-2.4.0-FT1FvwJOjQDFbVnvBgYBeZHYqtfBOtRZbVB0_qTiu3_y",
             .lazy = true,
         },
     },

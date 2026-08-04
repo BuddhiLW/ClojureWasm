@@ -24,52 +24,6 @@
 # md-table-align no longer pads it to ~800 KB of whitespace.
 
 active:
-  - id: "D-567"
-    status: |-
-      NOW (2026-08-04) — cljw's headline feature loads only SINGLE-EXPORT
-      components. `(:require ["x.wasm" :as x])` is sold as "a component becomes
-      a namespace", and a namespace with one function is not a namespace. Every
-      real component exports several.
-      Reproduced: any component with >= 2 exports fails to instantiate. Minimal
-      case `test/e2e/fixtures/wasm/two_export_component.wasm` — two scalar
-      echoes (`bool`, `s32`), nothing else. Confirmed across three independent
-      pairs (bool+s32, f32+f64, s32+u64); a single export loads regardless of
-      type complexity (a lone `string` echo is fine).
-      ENGINE-SIDE, not cljw's: zwasm's own CLI reports the same
-      `InvalidSort` on the same file, while the single-export control reaches
-      `ArgArityMismatch` (i.e. it loaded). Root cause located in
-      `zwasm/src/feature/component/types.zig`: `component_funcs` is appended for
-      imports, canon lifts and aliases but NOT for the index-space entries that
-      component-level `export`s create, so from the second export onward each
-      lift's index reads out of bounds and `validate.zig`'s
-      `.func => if (ex.index >= info.component_funcs.items.len)` fires. Filed as
-      zwasm D-527 with the reproduction.
-      WHY IT WENT UNNOTICED: both component fixtures in the tree
-      (`greet_component`, `resource_counter`) export exactly one function, so
-      the two-export case had never run. This is the blind spot D-404's
-      "BLOCKED on a typed component FIXTURE" was hiding — the fixture's FIRST
-      use found it.
-      LANDED THIS CYCLE: the typed fixture itself
-      (`test/e2e/fixtures/wasm/echo.component.wasm`, 16 lifted functions
-      covering every ADR-0135 row), rebuilt from ClojureWit's hand-written WAT
-      guest (EPL-2.0, same org; note ClojureWit's checked-in `.wasm` is older
-      than its own `.wat` — rebuild, do not copy), plus
-      `phase16_wasm_component_multiexport.sh`, which PINS the gap as a clean
-      catchable error rather than hiding it. When zwasm D-527 lands, that e2e
-      flips to asserting the exports + the marshalling table, which discharges
-      D-404's fixture blocker.
-    category: "wasm"
-    barrier: |-
-      blocked-by: zwasm D-527 (component export index-space accounting). cljw
-      cannot work around it — the rejection is in zwasm's component validator,
-      before any cljw code sees the module.
-    first_raised: "2026-08-04"
-    last_reviewed: "2026-08-04"
-    refs: |-
-      test/e2e/fixtures/wasm/README_echo.md (provenance + rebuild recipe +
-      root-cause note); test/e2e/phase16_wasm_component_multiexport.sh;
-      zwasm D-527; D-404 (the fixture blocker this discharges half of);
-      ADR-0135 (the mapping table the fixture exists to falsify).
   - id: "D-569"
     status: |-
       open (2026-08-04, found while measuring the D-513 docstring gap). Two
@@ -1267,7 +1221,7 @@ active:
       instant.zig (the existing neutral parser read-instant-date already reuses).
     last_reviewed: "2026-06-10"
   - id: "D-404"
-    status: "STATUS NOTE 2026-07-02 (audit): the 2026-06-14 BLOCKED-on-REQ-7 freeze below is STALE — the barrier records the blocker resolved 2026-06-21 and Impl A-E landed. True remainder = the :cljw/wasm-deps deps.edn coordinate arm only. ORIGINAL: PARTIAL (W1 first slice landed 2026-06-14): require-a-component WORKS — cljw.wasm/require-component (src/lang/clj/cljw/wasm.clj, wasm-gated bundled ns) interns one Var per component export into an :as namespace via clojure.core/intern + load-component + component-exports + component-call; export-name cleanup (#[constructor]/#[method] markers, pkg:iface/ prefix, resource type prefix stripped). (greeter/greet \"world\") -> \"Hello, world!\"; resource counter ctor/increment/get -> 6. e2e phase16_wasm_require_component.sh (-Dwasm). REMAINING W1 (:refer form DONE 2026-06-14): full WIT<->EDN marshalling table (record/variant/enum/option/result/flags/tuple — today only string/int/float/bool/char + resource handle via component-call); doc/arglists from WIT. W2: deps.edn {:wasm/component …} coords. === PARTIAL (2026-06-13): one-shot CM-API adoption WORKS, instance-caching BLOCKED on zwasm REQ-7. The zwasm-watch fired — all 6 cw CM-API requests landed (zwasm pin 5795c3d0). The experiment (push-suppressed, git stash@{0} 'wasm-component-experiment'; relative-path build.zig.zon) adopted comp.open/Opened + resolveFuncSig/WitType + REQ-2 labels: `(wasm/component-invoke …)` does greet (string→string), typed_payload (record/list/result roundtrip), resource constructor — hand-rolled TypeCtx/Opened deleted, full ADR-0135 value mapping. NEXT (instance caching → require-a-component) is BLOCKED: storing comp.open's Opened in a host heap box breaks resolveFuncSig (Opened not relocatable) → zwasm REQ-7 relayed (private/20260613_handover_from_zwasm/cw_finding_REQ7_opened_heap_stability.md; openBoxed→*Opened or relocatable Opened). Resume: watch that channel for a REQ-7 response → pop stash, re-land instance-caching (code written, in this session's history + note). Full state: private/notes/p14-wasm-component-experiment.md (§ instance caching + Extended challenge). Was: zwasm-WATCH → UNBLOCKING → open. NOTE 2026-06-14: the full marshalling-table verification is BLOCKED on a typed component FIXTURE — only greet (string) + resource_counter exist; record/variant/result need a new .wasm exercising those WIT types (or descope). doc/arglists need WIT introspection on the handle. Until a fixture lands, W1 self-selects to Track S."
+    status: "MARSHALLING TABLE DISCHARGED 2026-08-04: the fixture blocker (\"the full marshalling-table verification is BLOCKED on a typed component FIXTURE\") is gone — `test/e2e/fixtures/wasm/echo.component.wasm` (16 lifted functions) loads now that zwasm #157 landed, and `phase16_wasm_component_multiexport.sh` asserts 20 rows of the ADR-0135 table in BOTH directions. The RESOURCE phase is also done (ADR-0159 amendment 1: the one-shot `own` lift, the bare-integer parameter hole, and the missing owner check). Remaining: the :cljw/wasm-deps deps.edn coordinate arm. STATUS NOTE 2026-07-02 (audit): the 2026-06-14 BLOCKED-on-REQ-7 freeze below is STALE — the barrier records the blocker resolved 2026-06-21 and Impl A-E landed. True remainder = the :cljw/wasm-deps deps.edn coordinate arm only. ORIGINAL: PARTIAL (W1 first slice landed 2026-06-14): require-a-component WORKS — cljw.wasm/require-component (src/lang/clj/cljw/wasm.clj, wasm-gated bundled ns) interns one Var per component export into an :as namespace via clojure.core/intern + load-component + component-exports + component-call; export-name cleanup (#[constructor]/#[method] markers, pkg:iface/ prefix, resource type prefix stripped). (greeter/greet \"world\") -> \"Hello, world!\"; resource counter ctor/increment/get -> 6. e2e phase16_wasm_require_component.sh (-Dwasm). REMAINING W1 (:refer form DONE 2026-06-14): full WIT<->EDN marshalling table (record/variant/enum/option/result/flags/tuple — today only string/int/float/bool/char + resource handle via component-call); doc/arglists from WIT. W2: deps.edn {:wasm/component …} coords. === PARTIAL (2026-06-13): one-shot CM-API adoption WORKS, instance-caching BLOCKED on zwasm REQ-7. The zwasm-watch fired — all 6 cw CM-API requests landed (zwasm pin 5795c3d0). The experiment (push-suppressed, git stash@{0} 'wasm-component-experiment'; relative-path build.zig.zon) adopted comp.open/Opened + resolveFuncSig/WitType + REQ-2 labels: `(wasm/component-invoke …)` does greet (string→string), typed_payload (record/list/result roundtrip), resource constructor — hand-rolled TypeCtx/Opened deleted, full ADR-0135 value mapping. NEXT (instance caching → require-a-component) is BLOCKED: storing comp.open's Opened in a host heap box breaks resolveFuncSig (Opened not relocatable) → zwasm REQ-7 relayed (private/20260613_handover_from_zwasm/cw_finding_REQ7_opened_heap_stability.md; openBoxed→*Opened or relocatable Opened). Resume: watch that channel for a REQ-7 response → pop stash, re-land instance-caching (code written, in this session's history + note). Full state: private/notes/p14-wasm-component-experiment.md (§ instance caching + Extended challenge). Was: zwasm-WATCH → UNBLOCKING → open. NOTE 2026-06-14: the full marshalling-table verification is BLOCKED on a typed component FIXTURE — only greet (string) + resource_counter exist; record/variant/result need a new .wasm exercising those WIT types (or descope). doc/arglists need WIT introspection on the handle. Until a fixture lands, W1 self-selects to Track S."
     category: "wasm"
     barrier: |-
       **BLOCKER DISSOLVED (2026-06-21).** zwasm's Component-Model embedding API is now
@@ -6953,6 +6907,61 @@ discharged:
       decompress); varint operands + cross-region constant-pool dedup evaluated in
       the same pass (compaction shrinks with NO decompression copy). est -0.9-1.1MB.
     last_reviewed: "2026-07-16"
+  - id: "D-567"
+    status: |-
+      DISCHARGED 2026-08-04 (zwasm #157 merged + cljw re-pinned to it;
+      `phase16_wasm_component_multiexport.sh` flipped from pinning the gap to
+      asserting the exports + the ADR-0135 marshalling table, 20 rows in both
+      directions, falsified by perturbing one expectation). The typed
+      16-export fixture loads and every row round-trips, so D-404's "BLOCKED on
+      a typed component FIXTURE" is discharged as a side effect. Fixing #157
+      exposed a second bug in the same area — an export could satisfy its own
+      sortidx bound once exports began extending their index spaces — caught by
+      the official corpus (`types_02`), which zwasm CI runs and its local
+      `zig build test` does not. ORIGINAL: NOW (2026-08-04) — cljw's headline feature loads only SINGLE-EXPORT
+      components. `(:require ["x.wasm" :as x])` is sold as "a component becomes
+      a namespace", and a namespace with one function is not a namespace. Every
+      real component exports several.
+      Reproduced: any component with >= 2 exports fails to instantiate. Minimal
+      case `test/e2e/fixtures/wasm/two_export_component.wasm` — two scalar
+      echoes (`bool`, `s32`), nothing else. Confirmed across three independent
+      pairs (bool+s32, f32+f64, s32+u64); a single export loads regardless of
+      type complexity (a lone `string` echo is fine).
+      ENGINE-SIDE, not cljw's: zwasm's own CLI reports the same
+      `InvalidSort` on the same file, while the single-export control reaches
+      `ArgArityMismatch` (i.e. it loaded). Root cause located in
+      `zwasm/src/feature/component/types.zig`: `component_funcs` is appended for
+      imports, canon lifts and aliases but NOT for the index-space entries that
+      component-level `export`s create, so from the second export onward each
+      lift's index reads out of bounds and `validate.zig`'s
+      `.func => if (ex.index >= info.component_funcs.items.len)` fires. Filed as
+      zwasm D-527 with the reproduction.
+      WHY IT WENT UNNOTICED: both component fixtures in the tree
+      (`greet_component`, `resource_counter`) export exactly one function, so
+      the two-export case had never run. This is the blind spot D-404's
+      "BLOCKED on a typed component FIXTURE" was hiding — the fixture's FIRST
+      use found it.
+      LANDED THIS CYCLE: the typed fixture itself
+      (`test/e2e/fixtures/wasm/echo.component.wasm`, 16 lifted functions
+      covering every ADR-0135 row), rebuilt from ClojureWit's hand-written WAT
+      guest (EPL-2.0, same org; note ClojureWit's checked-in `.wasm` is older
+      than its own `.wat` — rebuild, do not copy), plus
+      `phase16_wasm_component_multiexport.sh`, which PINS the gap as a clean
+      catchable error rather than hiding it. When zwasm D-527 lands, that e2e
+      flips to asserting the exports + the marshalling table, which discharges
+      D-404's fixture blocker.
+    category: "wasm"
+    barrier: |-
+      blocked-by: zwasm D-527 (component export index-space accounting). cljw
+      cannot work around it — the rejection is in zwasm's component validator,
+      before any cljw code sees the module.
+    first_raised: "2026-08-04"
+    last_reviewed: "2026-08-04"
+    refs: |-
+      test/e2e/fixtures/wasm/README_echo.md (provenance + rebuild recipe +
+      root-cause note); test/e2e/phase16_wasm_component_multiexport.sh;
+      zwasm D-527; D-404 (the fixture blocker this discharges half of);
+      ADR-0135 (the mapping table the fixture exists to falsify).
 conventions: |-
   - Structure: two top-level lists — `active:` and `discharged:`. Active entries carry id / status / category / barrier (+ optional quality_floor / last_reviewed); discharged entries carry id / discharged_at / resolution. Edit as YAML (no Markdown table to align).
   - New debt: grep `.dev/debt.yaml` for class-overlap before adding (per `.claude/rules/debt_dedup.md`).
