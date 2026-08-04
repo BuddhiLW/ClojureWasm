@@ -17,8 +17,15 @@
   output + wall-clock bounds, `clojure.core.reducers` lands, and `(doc reduce)`
   finally prints something). CHANGELOG is the release-history SSOT.
 - **First task on resume**: the remaining distribution repos —
-  `cw-playground`, `cw-serverless-demo`, `cw-arcade` (the homebrew tap is done
-  as part of the v1.8.0 release).
+  `cw-playground`, `cw-serverless-demo`, `cw-arcade`. The homebrew tap is DONE
+  (cljw 1.8.0 + zwasm 2.4.1, `brew audit` clean after dropping the redundant
+  explicit `version` — Homebrew scans it from the release URL).
+  Release-process note worth keeping: **cutting the GitHub release by hand
+  before the tag workflow runs breaks the artifact upload**. zwasm's workflow
+  did an unconditional `gh release create`, which failed on "already exists"
+  and took the upload down with it, so v2.4.1 had notes and no binaries until
+  the release was deleted and the workflow re-run. Fixed to `view || create`
+  then `upload --clobber` (zwasm #160), matching what cljw's has always done.
   NOTE on history hygiene: commit `673b082b`'s message describes only the
   gate-parity fix, but its diff ALSO carries the zwasm tag re-pin, `wasm/run`'s
   `:timeout-ms` axis and D-570's discharge — they were in the tree when the
