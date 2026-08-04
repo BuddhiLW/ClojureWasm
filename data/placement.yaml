@@ -24,9 +24,9 @@
 schema_version: "2.0"
 summary:
   namespaces_required: 32
-  total: 1352
+  total: 1353
   zig: 394
-  clj: 747
+  clj: 748
   value: 205
   unbound: 6
 vars:
@@ -933,56 +933,56 @@ vars:
   "clojure.math/to-radians": { impl: clj, flags: "-" }
   "clojure.math/ulp": { impl: clj, flags: "-" }
   "clojure.pprint/*print-pprint-dispatch*": { impl: clj, flags: "dynamic" }
-  "clojure.pprint/cl-cap-words": { impl: clj, flags: "-" }
-  "clojure.pprint/cl-cardinal": { impl: clj, flags: "-" }
-  "clojure.pprint/cl-case": { impl: clj, flags: "-" }
-  "clojure.pprint/cl-char-pretty": { impl: clj, flags: "-" }
-  "clojure.pprint/cl-clauses": { impl: clj, flags: "-" }
-  "clojure.pprint/cl-close": { impl: clj, flags: "-" }
-  "clojure.pprint/cl-close-nested": { impl: clj, flags: "-" }
-  "clojure.pprint/cl-col": { impl: clj, flags: "-" }
-  "clojure.pprint/cl-digit?": { impl: clj, flags: "-" }
-  "clojure.pprint/cl-dir": { impl: clj, flags: "-" }
-  "clojure.pprint/cl-efloat": { impl: clj, flags: "-" }
-  "clojure.pprint/cl-expand-exp": { impl: clj, flags: "-" }
-  "clojure.pprint/cl-expand-fixed": { impl: clj, flags: "-" }
-  "clojure.pprint/cl-ffixed": { impl: clj, flags: "-" }
-  "clojure.pprint/cl-float-natural": { impl: clj, flags: "-" }
-  "clojure.pprint/cl-float-parts": { impl: clj, flags: "-" }
-  "clojure.pprint/cl-float-parts-base": { impl: clj, flags: "-" }
+  "clojure.pprint/cl-cap-words": { impl: clj, flags: "private" }
+  "clojure.pprint/cl-cardinal": { impl: clj, flags: "private" }
+  "clojure.pprint/cl-case": { impl: clj, flags: "private" }
+  "clojure.pprint/cl-char-pretty": { impl: clj, flags: "private" }
+  "clojure.pprint/cl-clauses": { impl: clj, flags: "private" }
+  "clojure.pprint/cl-close": { impl: clj, flags: "private" }
+  "clojure.pprint/cl-close-nested": { impl: clj, flags: "private" }
+  "clojure.pprint/cl-col": { impl: clj, flags: "private" }
+  "clojure.pprint/cl-digit?": { impl: clj, flags: "private" }
+  "clojure.pprint/cl-dir": { impl: clj, flags: "private" }
+  "clojure.pprint/cl-efloat": { impl: clj, flags: "private" }
+  "clojure.pprint/cl-expand-exp": { impl: clj, flags: "private" }
+  "clojure.pprint/cl-expand-fixed": { impl: clj, flags: "private" }
+  "clojure.pprint/cl-ffixed": { impl: clj, flags: "private" }
+  "clojure.pprint/cl-float-natural": { impl: clj, flags: "private" }
+  "clojure.pprint/cl-float-parts": { impl: clj, flags: "private" }
+  "clojure.pprint/cl-float-parts-base": { impl: clj, flags: "private" }
   "clojure.pprint/cl-format": { impl: clj, flags: "-" }
-  "clojure.pprint/cl-get-fixed": { impl: clj, flags: "-" }
-  "clojure.pprint/cl-gfloat": { impl: clj, flags: "-" }
-  "clojure.pprint/cl-group": { impl: clj, flags: "-" }
-  "clojure.pprint/cl-inc-s": { impl: clj, flags: "-" }
-  "clojure.pprint/cl-insert-decimal": { impl: clj, flags: "-" }
-  "clojure.pprint/cl-insert-scaled-decimal": { impl: clj, flags: "-" }
-  "clojure.pprint/cl-int": { impl: clj, flags: "-" }
-  "clojure.pprint/cl-iter": { impl: clj, flags: "-" }
-  "clojure.pprint/cl-iter-sub": { impl: clj, flags: "-" }
-  "clojure.pprint/cl-justify": { impl: clj, flags: "-" }
-  "clojure.pprint/cl-ltrim": { impl: clj, flags: "-" }
-  "clojure.pprint/cl-money": { impl: clj, flags: "-" }
-  "clojure.pprint/cl-ones": { impl: value, flags: "-" }
-  "clojure.pprint/cl-ord-ones": { impl: value, flags: "-" }
-  "clojure.pprint/cl-ordinal": { impl: clj, flags: "-" }
-  "clojure.pprint/cl-ordinalize-word": { impl: clj, flags: "-" }
-  "clojure.pprint/cl-pad": { impl: clj, flags: "-" }
-  "clojure.pprint/cl-pad-col": { impl: clj, flags: "-" }
-  "clojure.pprint/cl-parse-int": { impl: clj, flags: "-" }
-  "clojure.pprint/cl-radix": { impl: clj, flags: "-" }
-  "clojure.pprint/cl-resolve-params": { impl: clj, flags: "-" }
-  "clojure.pprint/cl-roman": { impl: clj, flags: "-" }
-  "clojure.pprint/cl-roman-pairs": { impl: value, flags: "-" }
-  "clojure.pprint/cl-round-str": { impl: clj, flags: "-" }
-  "clojure.pprint/cl-rtrim": { impl: clj, flags: "-" }
-  "clojure.pprint/cl-run": { impl: clj, flags: "-" }
-  "clojure.pprint/cl-scales": { impl: value, flags: "-" }
-  "clojure.pprint/cl-seg-escapes?": { impl: clj, flags: "-" }
-  "clojure.pprint/cl-tab": { impl: clj, flags: "-" }
-  "clojure.pprint/cl-tens": { impl: value, flags: "-" }
-  "clojure.pprint/cl-under-100": { impl: clj, flags: "-" }
-  "clojure.pprint/cl-under-1000": { impl: clj, flags: "-" }
+  "clojure.pprint/cl-get-fixed": { impl: clj, flags: "private" }
+  "clojure.pprint/cl-gfloat": { impl: clj, flags: "private" }
+  "clojure.pprint/cl-group": { impl: clj, flags: "private" }
+  "clojure.pprint/cl-inc-s": { impl: clj, flags: "private" }
+  "clojure.pprint/cl-insert-decimal": { impl: clj, flags: "private" }
+  "clojure.pprint/cl-insert-scaled-decimal": { impl: clj, flags: "private" }
+  "clojure.pprint/cl-int": { impl: clj, flags: "private" }
+  "clojure.pprint/cl-iter": { impl: clj, flags: "private" }
+  "clojure.pprint/cl-iter-sub": { impl: clj, flags: "private" }
+  "clojure.pprint/cl-justify": { impl: clj, flags: "private" }
+  "clojure.pprint/cl-ltrim": { impl: clj, flags: "private" }
+  "clojure.pprint/cl-money": { impl: clj, flags: "private" }
+  "clojure.pprint/cl-ones": { impl: value, flags: "private" }
+  "clojure.pprint/cl-ord-ones": { impl: value, flags: "private" }
+  "clojure.pprint/cl-ordinal": { impl: clj, flags: "private" }
+  "clojure.pprint/cl-ordinalize-word": { impl: clj, flags: "private" }
+  "clojure.pprint/cl-pad": { impl: clj, flags: "private" }
+  "clojure.pprint/cl-pad-col": { impl: clj, flags: "private" }
+  "clojure.pprint/cl-parse-int": { impl: clj, flags: "private" }
+  "clojure.pprint/cl-radix": { impl: clj, flags: "private" }
+  "clojure.pprint/cl-resolve-params": { impl: clj, flags: "private" }
+  "clojure.pprint/cl-roman": { impl: clj, flags: "private" }
+  "clojure.pprint/cl-roman-pairs": { impl: value, flags: "private" }
+  "clojure.pprint/cl-round-str": { impl: clj, flags: "private" }
+  "clojure.pprint/cl-rtrim": { impl: clj, flags: "private" }
+  "clojure.pprint/cl-run": { impl: clj, flags: "private" }
+  "clojure.pprint/cl-scales": { impl: value, flags: "private" }
+  "clojure.pprint/cl-seg-escapes?": { impl: clj, flags: "private" }
+  "clojure.pprint/cl-tab": { impl: clj, flags: "private" }
+  "clojure.pprint/cl-tens": { impl: value, flags: "private" }
+  "clojure.pprint/cl-under-100": { impl: clj, flags: "private" }
+  "clojure.pprint/cl-under-1000": { impl: clj, flags: "private" }
   "clojure.pprint/code-dispatch": { impl: clj, flags: "-" }
   "clojure.pprint/pprint": { impl: clj, flags: "-" }
   "clojure.pprint/print-table": { impl: clj, flags: "-" }
@@ -1001,6 +1001,7 @@ vars:
   "clojure.repl/source-fn": { impl: clj, flags: "-" }
   "clojure.set/difference": { impl: clj, flags: "-" }
   "clojure.set/index": { impl: clj, flags: "-" }
+  "clojure.set/intersect2": { impl: clj, flags: "private" }
   "clojure.set/intersection": { impl: clj, flags: "-" }
   "clojure.set/join": { impl: clj, flags: "-" }
   "clojure.set/map-invert": { impl: clj, flags: "-" }
