@@ -52,6 +52,11 @@ pub fn fromWasm(res: ZValue, loc: SourceLocation) ClojureWasmError!Value {
 
 /// Coerce a cljw number to an integer wasm param of width `T` (i32 / i64),
 /// range-checked. A bare `@intCast` here would PANIC in safe builds on any
+/// Shared with the COMPONENT lowering path (`component.zig`), which used a bare
+/// `@intCast` and therefore violated this function's own third rule — in
+/// ReleaseSafe, the shipped config, an out-of-range cast is a process-killing
+/// safety panic, not an error the caller can catch.
+///
 /// out-of-`T`-range value (e.g. a 40-bit int into an i32 param), and a float arg
 /// would silently truncate — both forbidden (SE-10 / F-011: observable behaviour,
 /// no silent loss, no host crash on caller data). Rules:
@@ -59,7 +64,7 @@ pub fn fromWasm(res: ZValue, loc: SourceLocation) ClojureWasmError!Value {
 ///   - float with a fraction → error (1.5 is not an integer arg; 2.0 is allowed);
 ///   - integer value outside [minInt(T), maxInt(T)] → error;
 /// otherwise return the in-range value.
-fn coerceInt(arg: Value, comptime T: type, loc: SourceLocation) ClojureWasmError!T {
+pub fn coerceInt(arg: Value, comptime T: type, loc: SourceLocation) ClojureWasmError!T {
     if (!arg.isNumber()) return badArg(loc);
     const i: i64 = if (arg.isInt()) arg.asInteger() else blk: {
         const f = arg.asFloat();

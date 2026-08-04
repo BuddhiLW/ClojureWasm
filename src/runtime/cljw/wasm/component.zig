@@ -30,6 +30,9 @@ const set_mod = @import("../../collection/set.zig");
 const keyword_mod = @import("../../keyword.zig");
 const file_io = @import("../../file_io.zig");
 const host_instance = @import("../../host_instance.zig");
+const marshal = @import("marshal.zig");
+const promote = @import("../../numeric/promote.zig");
+const big_int = @import("../../numeric/big_int.zig");
 const type_descriptor = @import("../../type_descriptor.zig");
 const mark_sweep = @import("../../gc/mark_sweep.zig");
 const gc_heap_mod = @import("../../gc/gc_heap.zig");
@@ -200,6 +203,16 @@ pub fn componentExportsFn(rt: *Runtime, env: *Env, args: []const Value, loc: Sou
     return out;
 }
 
+/// A `u64` above `maxInt(i64)` exactly, as a BigInt. ADR-0135's table already
+/// promised this ("u64/s64 may promote to BigInt at the f64 edge, F-005"); the
+/// code did a narrowing `@intCast` instead, which panics in ReleaseSafe.
+fn bigFromU64(rt: *Runtime, n: u64) !Value {
+    var m = try std.math.big.int.Managed.init(rt.gc.infra);
+    defer m.deinit();
+    try m.set(n);
+    return try big_int.allocFromManaged(rt, &m, .bigint);
+}
+
 /// Lower a cljw Value into a `ComponentValue` directed by the WIT param type
 /// (the ADR-0135 table, lower direction). Compound nodes allocate on `scratch`
 /// (an arena the invoke owns); strings borrow the GC string. enum/variant are
@@ -213,17 +226,23 @@ fn lower(rt: *Runtime, scratch: std.mem.Allocator, v: Value, ty: WitType, loc: S
                 if (!v.isString()) return error_catalog.raise(.type_arg_not_string, loc, .{ .fn_name = "wasm/component-invoke", .actual = @tagName(v.tag()) });
                 break :blk .{ .string = string_mod.asString(v) };
             },
-            .u8 => .{ .u8 = @intCast(v.asInteger()) },
-            .s8 => .{ .s8 = @intCast(v.asInteger()) },
-            .u16 => .{ .u16 = @intCast(v.asInteger()) },
-            .s16 => .{ .s16 = @intCast(v.asInteger()) },
-            .u32 => .{ .u32 = @intCast(v.asInteger()) },
-            .s32 => .{ .s32 = @intCast(v.asInteger()) },
-            .u64 => .{ .u64 = @intCast(v.asInteger()) },
-            .s64 => .{ .s64 = v.asInteger() },
+            // Range-checked through the SAME helper `wasm/call` uses
+            // (`marshal.coerceInt`). These were bare `@intCast`s, which in
+            // ReleaseSafe — the shipped config — is a process-killing safety
+            // panic on out-of-range caller data, not a catchable error. The
+            // core-module surface next door had always checked; the component
+            // surface never inherited it.
+            .u8 => .{ .u8 = try marshal.coerceInt(v, u8, loc) },
+            .s8 => .{ .s8 = try marshal.coerceInt(v, i8, loc) },
+            .u16 => .{ .u16 = try marshal.coerceInt(v, u16, loc) },
+            .s16 => .{ .s16 = try marshal.coerceInt(v, i16, loc) },
+            .u32 => .{ .u32 = try marshal.coerceInt(v, u32, loc) },
+            .s32 => .{ .s32 = try marshal.coerceInt(v, i32, loc) },
+            .u64 => .{ .u64 = try marshal.coerceInt(v, u64, loc) },
+            .s64 => .{ .s64 = try marshal.coerceInt(v, i64, loc) },
             .f32 => .{ .f32 = @floatCast(v.asFloat()) },
             .f64 => .{ .f64 = v.asFloat() },
-            .char => .{ .char = @intCast(v.asInteger()) },
+            .char => .{ .char = try marshal.coerceInt(v, u21, loc) },
             else => error_catalog.raise(.feature_not_supported, loc, .{ .name = "wasm/component-invoke: this WIT param type" }),
         },
         .record => |fields| {
@@ -307,8 +326,19 @@ fn lift(rt: *Runtime, cv: ComponentValue, loc: SourceLocation, component_handle:
         .u16 => |n| Value.initInteger(n),
         .s32 => |n| Value.initInteger(n),
         .u32 => |n| Value.initInteger(n),
-        .s64 => |n| Value.initInteger(n),
-        .u64 => |n| Value.initInteger(@intCast(n)),
+        // `Value.initInteger` silently demotes an out-of-i48 value to a LOSSY
+        // float (its own doc says so), and i48 is only about +/-1.4e14 — well
+        // inside what a guest can legitimately return. `promote.wrapI64` is the
+        // canonical exact-i64 entry: it stays a fixnum in range and promotes to
+        // a heap Long outside it, matching F-005's numeric tower.
+        .s64 => |n| try promote.wrapI64(rt, n),
+        // A u64 above i64's maximum has no i64 to widen to at all. The old
+        // `@intCast` was a ReleaseSafe panic on GUEST-CONTROLLED data — an
+        // untrusted component could kill the host by returning a large u64.
+        .u64 => |n| if (n <= std.math.maxInt(i64))
+            try promote.wrapI64(rt, @intCast(n))
+        else
+            try bigFromU64(rt, n),
         .f32 => |f| Value.initFloat(f),
         .f64 => |f| Value.initFloat(f),
         .char => |c| Value.initChar(c),
@@ -586,4 +616,78 @@ pub fn componentCallFn(rt: *Runtime, env: *Env, args: []const Value, loc: Source
     // Pass the component handle so an `own` result wraps into a GC-resource that
     // roots THIS component (ADR-0159).
     return invokeOnOpened(rt, &box.opened, string_mod.asString(args[1]), args[2..], loc, args[0]);
+}
+
+const testing = std.testing;
+
+/// The Fixture shape used across `runtime/` unit tests (cf. `numeric/promote.zig`).
+const TestFixture = struct {
+    threaded: std.Io.Threaded,
+    rt: Runtime,
+
+    fn init() TestFixture {
+        var fix: TestFixture = .{
+            .threaded = std.Io.Threaded.init(testing.allocator, .{}),
+            .rt = undefined,
+        };
+        fix.rt = Runtime.init(fix.threaded.io(), testing.allocator);
+        return fix;
+    }
+    fn deinit(self: *TestFixture) void {
+        self.rt.deinit();
+        self.threaded.deinit();
+    }
+};
+
+test "lifting a u64 above i64's max is exact, not a ReleaseSafe panic" {
+    var fix = TestFixture.init();
+    defer fix.deinit();
+
+    // The old code was `Value.initInteger(@intCast(n))`. In ReleaseSafe — the
+    // SHIPPED config — that cast is a process-killing safety panic, and `n`
+    // here is data the GUEST chose: an untrusted component could take the host
+    // down by returning a large u64.
+    const big: u64 = std.math.maxInt(u64);
+    const v = try bigFromU64(&fix.rt, big);
+    try testing.expect(v.tag() == .big_int);
+
+    // Exact, not rounded: 18446744073709551615 must survive as itself.
+    var buf: [64]u8 = undefined;
+    const m = big_int.asManaged(v);
+    const s = try m.toString(testing.allocator, 10, .lower);
+    defer testing.allocator.free(s);
+    _ = &buf;
+    try testing.expectEqualStrings("18446744073709551615", s);
+}
+
+test "lifting an s64 outside i48 stays exact instead of demoting to a lossy float" {
+    var fix = TestFixture.init();
+    defer fix.deinit();
+
+    // `Value.initInteger` silently demotes an out-of-i48 value to a float (its
+    // own doc comment says so), and i48 tops out around 1.4e14 — well inside
+    // what a guest can legitimately return. Route through the canonical
+    // exact-i64 entry instead.
+    const n: i64 = std.math.maxInt(i64);
+    const v = try promote.wrapI64(&fix.rt, n);
+    try testing.expect(v.tag() != .float);
+
+    const m = big_int.asManaged(v);
+    const s = try m.toString(testing.allocator, 10, .lower);
+    defer testing.allocator.free(s);
+    try testing.expectEqualStrings("9223372036854775807", s);
+}
+
+test "lowering an out-of-range integer is a catchable error, not a panic" {
+    // 300 does not fit a WIT `u8`. The component path used a bare `@intCast`
+    // and panicked; it now shares `wasm/call`'s range check, whose own doc
+    // states the invariant the component path was breaking — "no host crash on
+    // caller data".
+    const loc: SourceLocation = .{};
+    try testing.expectError(
+        error.ValueError,
+        marshal.coerceInt(Value.initInteger(300), u8, loc),
+    );
+    // …and an in-range value still passes.
+    try testing.expectEqual(@as(u8, 200), try marshal.coerceInt(Value.initInteger(200), u8, loc));
 }
