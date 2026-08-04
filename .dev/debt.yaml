@@ -24,47 +24,6 @@
 # md-table-align no longer pads it to ~800 KB of whitespace.
 
 active:
-  - id: "D-569"
-    status: |-
-      open (2026-08-04, found while measuring the D-513 docstring gap). Two
-      resolution paths for a bundled namespace disagree about which namespaces
-      exist. `loadOrFindNs` (src/eval/loader.zig:120) tries the bytecode REGION
-      blob first, keyed by `nsNameFromLabel` over `ACTIVE_FILES` — derived, so
-      every FILES row is reachable. It falls back to `embeddedResolver` →
-      `lookupEmbeddedFile` (src/lang/bootstrap.zig), a HAND-WRITTEN
-      name→`FILES[N]` table whose indices must be kept in sync by hand; three
-      comments in the file exist solely to warn future edits not to disturb the
-      indices. The two are already out of step: `clojure.repl` has a FILES row
-      and a region, but NO `lookupEmbeddedFile` row, so in any build without a
-      region blob (unit tests, the cache_gen host tool) `(require 'clojure.repl)`
-      cannot resolve. The shipped binary always has the blob, so nothing fails
-      today — the cost is a silent trap for whoever adds the next bundled
-      namespace, since forgetting the second table produces no error in the
-      configuration they will test in. `clojure.core-meta`'s absence from the
-      table is fine and separate (it is in `EAGER_NS`, loaded at startup).
-      SHAPE: make the lookup derived like the region path — iterate FILES,
-      compare `nsNameFromLabel(f.label)`, gate on `isActiveFile` — and move the
-      two deliberate exclusions onto the FileEntry as a field, so the exception
-      is data on the row a reader is already looking at rather than an absence
-      in a second list. That removes the index-stability constraint the three
-      comments defend, which is the actual prize.
-      NOT done in the finding cycle: the index-keyed design is deliberate and
-      documented, so overturning it is an ADR-level change (depth 3) rather than
-      a drive-by, and the finding surfaced mid-unit.
-    category: "bootstrap"
-    barrier: |-
-      quality-loop floor: derivable-fact-maintained-by-hand. No blocker — needs
-      an ADR + a DA fork per the depth-3 rule, plus the `bootstrap.zig` test at
-      the ACTIVE_FILES/lookupEmbeddedFile coupling extended to assert the
-      POSITIVE direction (every active, name-resolvable file resolves), which is
-      the assertion whose absence let the two lists drift.
-    first_raised: "2026-08-04"
-    last_reviewed: "2026-08-04"
-    refs: |-
-      src/lang/bootstrap.zig (`lookupEmbeddedFile`, `FILES`, `ACTIVE_FILES`,
-      `nsNameFromLabel`, and the coupling test that asserts only the inactive
-      direction); src/eval/loader.zig:120 `loadOrFindNs`; D-513 (the docstring
-      work that would add six more rows to both tables).
   - id: "D-568"
     status: |-
       open (2026-08-04, ADR-0159 amendment 1 § implementer-verification item (a)).
@@ -6982,6 +6941,46 @@ discharged:
       root-cause note); test/e2e/phase16_wasm_component_multiexport.sh;
       zwasm D-527; D-404 (the fixture blocker this discharges half of);
       ADR-0135 (the mapping table the fixture exists to falsify).
+  - id: "D-569"
+    status: |-
+      DISCHARGED 2026-08-04 (ADR-0180) — and the row's own headline claim was
+      FALSE. It said `(require 'clojure.repl)` "cannot resolve in any build
+      without a region blob (unit tests, the cache_gen host tool)". Neither
+      configuration reaches the resolver: `loadCore` calls
+      `markFilesLoaded(rt, ACTIVE_FILES)` (bootstrap.zig:351) and `cache_gen`
+      does the same (builder.zig:230), so every bundled namespace is in
+      `loaded_libs` before anything runs and `loadOrFindNs` returns at
+      loader.zig:121 first. Measured: `(require 'clojure.repl)` and
+      `(require 'clojure.core-meta)` both already succeeded.
+      The truth is a STRONGER argument, which is why the fix went ahead anyway:
+      the hand-written table had ZERO production consumers — its only live
+      callers were its own unit tests — so it was a second source of truth whose
+      correctness nobody could observe. And the one exclusion it claimed to
+      enforce (`clojure.core-meta`) was not enforced either, which settles the
+      question the row raised as its SHAPE: the two lists do not encode
+      "is bundled" vs "is publicly requireable". That distinction never held, so
+      the row's proposal to move the exclusions onto `FileEntry` as a field
+      would have made a field out of something that does not exist.
+      Landed instead: `ns` as a first-class `FileEntry` field (the label is
+      derived from it, not the reverse), `lookupEmbeddedFile` iterating
+      `ACTIVE_FILES`, `nsNameFromLabel` deleted with all five call sites, a
+      comptime uniqueness assertion over `ns` (falsified by inducing a
+      collision), and the coupling test asserting BOTH directions as a tripwire
+      against reintroducing a hand-written table. The row also mis-counted: 30
+      `if`s over 32 rows and 10 index-stability comments, not "three".
+    category: "bootstrap"
+    barrier: |-
+      none — discharged. Recorded here rather than deleted because the row's
+      false claim is worth keeping visible: it was written from reading the two
+      lists, not from running the failure, and a devil's-advocate fork caught it
+      only because the ADR it fed had to state the failure concretely enough to
+      be checked.
+    first_raised: "2026-08-04"
+    last_reviewed: "2026-08-04"
+    refs: |-
+      .dev/decisions/0180_bundled_ns_lookup_is_derived.md (the ADR, with the DA
+      fork's falsification verbatim); src/lang/bootstrap.zig (`FileEntry.ns`,
+      `lookupEmbeddedFile`, the comptime uniqueness block, the coupling test).
 conventions: |-
   - Structure: two top-level lists — `active:` and `discharged:`. Active entries carry id / status / category / barrier (+ optional quality_floor / last_reviewed); discharged entries carry id / discharged_at / resolution. Edit as YAML (no Markdown table to align).
   - New debt: grep `.dev/debt.yaml` for class-overlap before adding (per `.claude/rules/debt_dedup.md`).

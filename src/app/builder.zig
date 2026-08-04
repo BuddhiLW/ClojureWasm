@@ -269,7 +269,7 @@ pub fn buildBootstrapEnvelope(
         // bootstrap `:require`s no Wasm components, so the component table is empty).
         const region_env = try serialize.serializeEnvelope(allocator, chunks.items, null, &.{}, pool_builder, false);
         errdefer allocator.free(region_env);
-        const region_ns = bootstrap.nsNameFromLabel(file.label);
+        const region_ns = file.ns;
         // C5' (ADR-0173 / ADR-0172 L2): lazy regions ship flate-compressed —
         // decompressed into rt.load_arena on first `require`; the eager set
         // stays raw for zero-copy instr views from rodata.
