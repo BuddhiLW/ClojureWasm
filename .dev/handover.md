@@ -56,9 +56,7 @@
 
 ## Current state (details = CHANGELOG + git log)
 
-- **v1.5.1** is the released line; v1.5.0 was the ADR-0174 host-class campaign
-  + Thread lifecycle. The v1.4.0 binary-size campaign (ADR-0172/0173) and the
-  v1.3.x arc are in CHANGELOG.
+- Release history (v1.3.x → v1.7.0) is in CHANGELOG; do not restate it here.
 - Debug tooling: `nrepl_send.py`, `clj_diff_sweep.sh` + corpora,
   `binary_size_report.sh` / `check_capability_claims.sh` (ADR-0177),
   `gen_placement.sh` / `check_placement_status.sh` (ADR-0178),
@@ -85,10 +83,8 @@
   item (1) `clojure.core.reducers` is the only remaining piece (repl + var :doc
   landed); it is IN PROGRESS — its "take up on a real consumer" deferral is the
   pattern the 2026-06-25 drain-order decision forbids.
-- **D-548** — (a) DISCHARGED (ADR-0176); residual = (b) pmap
-  wall-clock on the 3-vCPU runner (timing envelope, still gated).
-- CIDER upstream banner patch draft (user-side PR):
-  `private/notes/cider-clojurewasm-banner-patch.md`.
+- **D-548** — (a) DISCHARGED (ADR-0176); residual = (b) pmap wall-clock on the
+  3-vCPU runner (timing envelope, still gated).
 
 ## North star (ACTIVE, distal)
 
