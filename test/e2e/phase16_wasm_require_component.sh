@@ -6,15 +6,15 @@
 # (#[constructor]/#[method] markers stripped), cached-handle reuse, resource chain.
 #
 # OPT-IN, like phase16_wasm_component.sh: builds `-Dwasm` and is NOT in the default
-# per-commit gate. During the local-accumulation phase the zwasm dep resolves via
-# the RELATIVE-path zon (sibling ../zwasm_from_scratch with REQ-7), so Mac-local.
+# per-commit gate. The zwasm dep resolves from
+# the tag pin in build.zig.zon (fetched on any host).
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 BIN="zig-out/bin/cljw"
 fail() { echo "FAIL $1" >&2; exit 1; }
 
 if [ -z "${CLJW_SKIP_BUILD:-}" ] && ! zig build -Dwasm -Doptimize="${CLJW_OPT:-ReleaseSafe}" >/dev/null 2>&1; then
-  fail "zig build -Dwasm failed (zwasm dep unresolved? need ../zwasm_from_scratch with REQ-7)"
+  fail "zig build -Dwasm failed (zwasm dep unresolved? check the build.zig.zon pin)"
 fi
 "$BIN" --version | grep -q wasm || fail "cljw is not wasm-enabled ($("$BIN" --version)) — zwasm did not resolve"
 

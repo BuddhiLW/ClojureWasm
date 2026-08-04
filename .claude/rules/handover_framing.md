@@ -7,7 +7,7 @@ paths:
 
 Auto-loaded when editing `.dev/handover.md`. Codifies the cw v1
 2026-05-23 retrospective + the matching zwasm v2 rule
-(`~/Documents/MyProducts/zwasm_from_scratch/.claude/rules/handover_framing.md`).
+(`~/Documents/MyProducts/zwasm/.claude/rules/handover_framing.md`).
 
 Two failure modes have repeatedly bloated cw's handover:
 
@@ -293,5 +293,5 @@ This rule is stale if:
   that enforces the forbidden-phrase table + length cap (Wave 16
   W16-3); canonical regex lives at the script's
   `FORBIDDEN_PHRASES_RE`.
-- `~/Documents/MyProducts/zwasm_from_scratch/.claude/rules/handover_framing.md`
+- `~/Documents/MyProducts/zwasm/.claude/rules/handover_framing.md`
   — the v2 source rule cw adapted from.

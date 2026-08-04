@@ -20,8 +20,9 @@ Never edit or commit from them. Code reading only.
   - Use: precedent for JVM-independent Clojure execution; understand what was deliberately omitted
 - `~/Documents/OSS/spec.alpha/` — **clojure.spec.alpha**
   - Use: Phase 6 spec implementation reference
-- `~/Documents/OSS/openjdk24/` — **OpenJDK 24 source**
+- `~/Documents/OSS/openjdk24/` — **OpenJDK 24 source** <!--ref:on-demand-->
   - Use: JVM internals reference for memory model, GC, lock, concurrent primitives. Read when designing cw equivalents.
+  - Not resident (multi-GB). `git clone --depth 1 https://github.com/openjdk/jdk ~/Documents/OSS/openjdk24`
 
 ## Executable oracle — real Clojure (`clj`)
 
@@ -39,10 +40,10 @@ timeout 20 clj -M -e '<expr>' 2>&1 | grep -oE '\(([A-Za-z]+Exception|[A-Za-z]+Er
   result, so probing an **infinite lazy seq** (`(iterate inc 0)`,
   `(range)`, `(repeat 1)`, `(cycle [1])`, `(line-seq …)`) realises it
   **forever** — a JVM pinned at ~160 % CPU. If the parent session dies it
-  re-parents to PID 1 and the `cleanup_orphans.sh` SessionStart hook does
-  **not** reap `java`/`clj` (only zig/cljw/orb/grep), so it survives for
-  hours and drives host load past 40 (2026-05-31 incident: a `(iterate
-  inc 0)` orphan held 1.6 cores for 60 min, garbling the tool channel).
+  re-parents to PID 1, where `scripts/cleanup_orphans.sh` only catches it at
+  the NEXT session start and only after 30 minutes — long enough to drive host
+  load past 40 in the meantime (2026-05-31 incident: a `(iterate inc 0)` orphan
+  held 1.6 cores for 60 min, garbling the tool channel).
   `timeout 20` makes the probe self-terminate. Never run a bare `clj -M
   -e` on a sequence-producing form — bound it (`(take 5 …)`) **and**
   timeout-wrap it. See `.claude/rules/orphan_prevention.md` § The rules (rule 2).
@@ -70,8 +71,12 @@ Read the source for *why*; run `clj` for *what*.
 
 ## Reference WASM stacks
 
-- `~/Documents/OSS/wasmtime/` — **wasmtime (Rust)**
+- `~/Documents/OSS/wasmtime/` — **wasmtime (Rust)** <!--ref:on-demand-->
   - Use: WebAssembly runtime reference (Phase 16+ Pod boundary design)
+  - Not resident (multi-GB). `git clone --depth 1 https://github.com/bytecodealliance/wasmtime ~/Documents/OSS/wasmtime`
+  - For Component Model / Canonical ABI questions the FIRST reference is zwasm
+    itself (`~/Documents/MyProducts/zwasm/`, co-developed and SHA-pinned into
+    `build.zig.zon`) — it is the implementation cljw actually runs on.
 
 ## Quality-elevation corpora (interim-goal re-cut, 2026-05-29)
 
@@ -100,8 +105,15 @@ consumed. See the planning note `private/notes/recut-goal-synthesis.md`
 
 ## Pattern libraries (optional learning)
 
-- `~/Documents/OSS/zig/` — **Zig stdlib source**
+- **Zig stdlib source** — `$(zig env | grep std_dir)`, i.e. the stdlib of the
+  toolchain `flake.nix` pins (`/opt/homebrew/Cellar/zig/0.16.0_1/lib/zig/std`
+  on the maintainer Mac; `zig env` resolves it anywhere).
   - Use: Zig 0.16 idiom confirmation, std.Io abstraction design, std.atomic / std.Thread API verification
+  - Deliberately not a clone. A checkout tracks whatever branch it was cloned
+    at, and the one this file used to name was post-0.16 master — ADR-0090
+    §Context records a survey misled by exactly that skew. The toolchain's own
+    stdlib is version-exact by construction and present on every machine that
+    can build the project.
 - `~/Documents/OSS/malli/` — **Malli (Clojure schema library)**
   - Use: schema validation pattern reference (Phase 11+ comparison)
 - `~/Documents/OSS/mattpocock_skills/` — TypeScript / typing learning material

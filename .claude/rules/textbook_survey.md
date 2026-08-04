@@ -22,7 +22,9 @@ Survey-time mapping:
   semantics; cw v0 (git tag `v0.5.0`, via `git worktree add ../cw-v0 v0.5.0`) for
   prior-art and known pain points.
 - **For JVM-less precedent**: `~/Documents/OSS/babashka/`.
-- **For Zig 0.16 stdlib idiom**: `~/Documents/OSS/zig/`.
+- **For Zig 0.16 stdlib idiom**: the pinned toolchain's own stdlib —
+  `$(zig env | grep std_dir)`. Not a clone: a checkout drifts from the pin
+  (ADR-0090 §Context has a survey misled by a post-0.16 master checkout).
 - **Phase-specific**: spec → `spec.alpha/` + `malli/` (Phase 14+);
   Wasm runtime → `wasmtime/` (Phase 16+); type-system vocab →
   `mattpocock_skills/` (when designing a new module).

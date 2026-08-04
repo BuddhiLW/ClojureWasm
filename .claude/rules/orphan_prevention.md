@@ -50,9 +50,15 @@ too. Prefer one-shot `cljw -e '…'` / heredoc (per
 `bash scripts/run_gate.sh` (preferred over raw `test/run_all.sh`) reaps
 any prior `run_all.sh` tree + PID-1-orphaned `cljw` before launching a
 single gate; `bash scripts/run_gate.sh reap` reaps without launching.
-The SessionStart `~/.claude/hooks/cleanup_orphans.sh` (etime > 30 min)
-is the cross-session backstop and also reaps stray `clojure.main -e`
-oracle JVMs.
+`bash scripts/cleanup_orphans.sh` (etime > 30 min, wired as a SessionStart
+hook in `.claude/settings.json`) is the cross-session backstop: it reaps
+PID-1-orphaned `run_all.sh` / `run_gate.sh` trees, this repo's `cljw`, and
+stray `clojure.main -e` oracle JVMs. `--dry-run` lists without killing.
+
+This lived at `~/.claude/hooks/cleanup_orphans.sh` until 2026-08-04 — outside
+the repo, so no clone ever had it, and it was absent on the maintainer machine
+too. It is in-repo now so the guarantee this rule's disciplines assume is one
+that actually runs (D-565).
 
 ## Counter-examples
 

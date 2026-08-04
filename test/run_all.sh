@@ -393,6 +393,10 @@ run_step "size_claims"          "bash scripts/binary_size_report.sh --check zig-
 run_step "capability_claims"    "bash scripts/check_capability_claims.sh"
 run_step "placement_drift"      "bash scripts/check_placement_status.sh"
 run_step "core_surface"         "bash scripts/check_core_surface.sh"
+# A Step-0 survey points a subagent at the paths .dev/reference_clones.md
+# claims are live; a path that is not there yields a survey that skips its
+# ground truth and reports success anyway. Skips on a fresh clone (D-565).
+run_step "reference_clones"     "bash scripts/check_reference_clones.sh"
 
 # clj-diff corpus regression (cljw-only replay of golden `;;=> …` pairs —
 # no clj/network). Makes a "X/Y landed" discharge claim mechanically

@@ -96,18 +96,36 @@ active:
       + tests + gets full 3-OS CI gating with ZERO host-specific setup (see WORKS
       below); everything that breaks is maintainer-side tooling, and the real
       liability is DOC STALENESS, not broken machinery. Gaps:
-      (1) [staleness, broken even locally] retired co-dev dir name
-          `zwasm_from_scratch` (real dir = `~/Documents/MyProducts/zwasm/`) still
-          in `.claude/CLAUDE.md`, `.claude/rules/handover_framing.md`,
-          `.dev/ubuntunote_setup.md`, D-559-era rows here.
-      (2) [staleness, dead ref] `~/Documents/OSS/zig/` listed as a live textbook
-          reference (`.dev/reference_clones.md`, CLAUDE.md Identity table) but is
-          ABSENT even on the maintainer machine → Zig-stdlib Step-0 survey is dead.
-      (3) [staleness, missing global hook] `~/.claude/hooks/cleanup_orphans.sh`
-          cited as a live SessionStart reaper (`orphan_prevention.md`,
-          `reference_clones.md`) but does not exist → an orphan guarantee not
-          actually wired. Ship it in-repo under scripts/ (+ $CLAUDE_PROJECT_DIR)
-          or delete the claim.
+      (1) DISCHARGED 2026-08-04 — retired co-dev dir name `zwasm_from_scratch`
+          (real dir = `~/Documents/MyProducts/zwasm/`) fixed in `.claude/CLAUDE.md`,
+          `.claude/rules/handover_framing.md`, both wasm-component e2e headers, and
+          `scripts/run_wasm_gate.sh`. That last one was NOT doc rot: its skip guard
+          tested `[ ! -d ../zwasm_from_scratch ]`, so the runner had been exiting 0
+          without running since the rename. The guard is gone entirely — the zon
+          pins zwasm by tag URL, so no sibling checkout is required and the
+          `-Dwasm` build is the real predicate. Verified green after the fix.
+          Historical VERBATIM user quotes in `project_facts.md` and closed ADRs
+          keep the old name (they are a record of what was said).
+      (2) DISCHARGED 2026-08-04 — the sweep found THREE dead reference paths,
+          not one (`zig/`, `wasmtime/`, `openjdk24/`). Zig stdlib now points at
+          the pinned toolchain's own `$(zig env | grep std_dir)`, which is
+          version-exact by construction and present wherever the project builds —
+          strictly better than a clone, since the clone this file named was
+          post-0.16 master and ADR-0090 §Context records a survey misled by that
+          skew. `wasmtime/` + `openjdk24/` are multi-GB and now carry
+          `<!--ref:on-demand-->` plus their clone command. `scripts/check_reference_clones.sh`
+          (gate step `reference_clones`) fails on any claimed-live path that is
+          absent, and on an on-demand row missing its command; it skips entirely
+          when `~/Documents/OSS` does not exist, so a fresh clone is unaffected.
+      (3) DISCHARGED 2026-08-04 — `scripts/cleanup_orphans.sh` shipped in-repo
+          and wired as a `$CLAUDE_PROJECT_DIR` SessionStart hook. Reaps PID-1-orphaned
+          `run_all.sh`/`run_gate.sh` trees, this repo's `cljw`, and `clojure.main -e`
+          oracle JVMs older than 30 min (TERM, so the gate tree clears its stamp
+          files); `--dry-run` lists without killing. Self-tested against a real
+          double-forked orphan: detected, killed, and a 2-second-old orphan spared
+          by the threshold. The two docs that cited the missing global hook also
+          CONTRADICTED each other about whether it reaped JVMs — both now describe
+          the shipped script.
       (4) [staleness, README] version 1.0.0 (README) vs 1.5.1
           (build.zig.zon/handover); size claim 7.8/7.5 MB vs measured 7.07 MB mac.
       (5) [staleness, model guidance] `continue` SKILL names Opus 4.6/4.7 vs the

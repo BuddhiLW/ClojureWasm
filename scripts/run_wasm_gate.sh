@@ -14,10 +14,11 @@
 set -uo pipefail
 cd "$(dirname "$0")/.."
 
-if [ ! -d ../zwasm_from_scratch ]; then
-    echo "SKIP wasm gate: ../zwasm_from_scratch not present"
-    exit 0
-fi
+# No sibling-checkout guard: `build.zig.zon` pins zwasm by tag URL + hash, so
+# `zig build -Dwasm` fetches it on any host. The guard this replaces tested for
+# `../zwasm_from_scratch`, a directory renamed to `../zwasm` long before — so
+# it skipped unconditionally, and the runner had not actually run since. The
+# build below is the real predicate.
 
 echo "==> Building -Dwasm ReleaseSafe binary (once)"
 if ! zig build -Dwasm -Doptimize=ReleaseSafe -Dcpu=baseline >/dev/null 2>&1; then

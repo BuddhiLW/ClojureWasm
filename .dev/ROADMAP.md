@@ -2065,8 +2065,8 @@ publics and had drifted to contradict its own source tree.
 | `~/Documents/OSS/clojure/`                                         | Upstream Clojure JVM. core.clj / LispReader.java / Numbers.java.                                                                    |
 | `~/Documents/OSS/babashka/`                                        | Babashka (SCI-based). Pod / native / compatibility precedent.                                                                       |
 | `~/Documents/OSS/spec.alpha/`                                      | clojure.spec.alpha source.                                                                                                          |
-| `~/Documents/OSS/zig/`                                             | Zig stdlib source.                                                                                                                  |
-| `~/Documents/OSS/wasmtime/`                                        | Wasm runtime reference.                                                                                                             |
+| `$(zig env \| grep std_dir)`                                        | Zig stdlib source — the pinned toolchain's own, not a clone (a clone drifts from the pin; ADR-0090 §Context).                        |
+| `~/Documents/OSS/wasmtime/`                                        | Wasm runtime reference. **Clone on demand** (`git clone --depth 1 https://github.com/bytecodealliance/wasmtime`) — not present by default. |
 | `~/Documents/OSS/malli/`                                           | Spec alternative.                                                                                                                   |
 | `~/Documents/OSS/mattpocock_skills/improve-codebase-architecture/` | Module/Interface/Depth vocabulary and deepening principles.                                                                         |
 
