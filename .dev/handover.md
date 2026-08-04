@@ -17,17 +17,22 @@
   `[:ok v]`/`[:err e]` per ADR-0135 am2, replacing a throw that DISCARDED the
   err payload; `*file*` lands). v1.6.0 earlier the same day carried four
   hang/abort fixes. CHANGELOG is the release-history SSOT.
-- **First task on resume MUST be**: the shared typed `echo` component fixture,
-  driven by BOTH repos. It is the mechanism that stops cljw's and ClojureWit's
-  WIT tables drifting apart again (ADR-0135 am2 aligned them by hand once), and
-  it discharges D-404's blocker ("verification is BLOCKED on a typed component
-  FIXTURE; only greet + resource_counter exist"). ClojureWit's
-  `dev/resources/echo.wat` needs no Rust toolchain, so cljw can drive the same
-  binary. Then D-404's resource phase: `own` lifts as a bare integer on the
-  one-shot `component-invoke` path and is never dropped (the cached
-  `component-call` path wraps correctly).
-  The 2026-08-04 audit-remediation arc is otherwise closed — see git log
-  `77f690a3`..`82adf824` plus ADR-0179.
+- **First task on resume MUST be**: **D-567** — cljw's headline feature
+  (`(:require ["x.wasm" :as x])`) loads only SINGLE-EXPORT components. Any
+  component with 2+ exports fails with `InvalidSort`; reproduced with zwasm's
+  own CLI, so it is engine-side, and root-caused into
+  `zwasm/src/feature/component/types.zig` (the `.@"export"` section arm appends
+  only to `type_space`; a func export also creates a func-index-space entry, so
+  from the second export onward each lift's sortidx reads out of bounds). Filed
+  as zwasm **D-527** with a two-line WIT reproduction. cljw cannot work around
+  it. Either fix zwasm D-527 (small, located) or wait for it. The typed fixture
+  it blocks is already checked in
+  (`test/e2e/fixtures/wasm/echo.component.wasm`, 16 lifted functions, every
+  ADR-0135 row) and `phase16_wasm_component_multiexport.sh` pins the gap as a
+  clean error. When D-527 lands, flip that e2e to assert the exports + the
+  marshalling table — that discharges D-404's fixture blocker.
+  Then: D-404's resource phase (`own` lifts as a bare integer and is never
+  dropped on the one-shot `component-invoke` path).
 - **Unreleased on main**: envelope v9 (op_var_meta — def-meta rides
   the AOT wire), computed def-meta (D-316) — incl. `:tag` uniform-eval
   (`^String`→Class, `^Foo`→name error; the bare-symbol workaround

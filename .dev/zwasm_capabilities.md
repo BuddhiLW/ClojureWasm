@@ -125,6 +125,19 @@ from cljw. The trigger has FIRED (to_cljw_02, 2026-06-21) and adoption is in pro
 D-036 is the master integration row; D-350 the embedding-API shape; D-488 (DISCHARGED)
 was the `.auto`-default flip; this ledger tracks adoption status per capability.
 
+## Known zwasm blockers on cljw features (read before promising a capability)
+
+| zwasm gap                                                                                                                                                                                                                                | Blocks                                                                                                                                    | cljw row                    | Found                                        |
+|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------|-----------------------------|----------------------------------------------|
+| **A component with 2+ exports fails validation (`InvalidSort`)** — `component_funcs` does not count the index-space entries component-level `export`s create (`feature/component/types.zig`, the `.@"export"` arm handles only `.type`) | **`(:require ["x.wasm" :as x])` — the headline feature.** Only single-export components load today; every real component exports several | **D-567** / zwasm **D-527** | 2026-08-04, by the typed fixture's first use |
+
+That row is the reason this section exists. cljw's two component fixtures both
+exported exactly one function, so "component as a namespace" had never been
+tried with a namespace-shaped component. A capability ledger that tracks what
+zwasm *has* and not what it *rejects* will keep missing this class — the pin
+bump to v2.4.0 the day before was reviewed for behaviour-follow and could not
+have surfaced it.
+
 ## Revision log
 
 - **2026-06-20** — ledger created (user-directed convention). Pin = pre-JIT
@@ -211,3 +224,14 @@ was the `.auto`-default flip; this ledger tracks adoption status per capability.
   site — the predictive question is instantiation count (the thunks WERE
   ×64-duplicated, hence the real win). ADR-0172's zwasm budget line re-set
   to 2.5 MB (was 4.0) per the same reply's suggestion.
+
+- **2026-08-04** — pin v2.4.0 (unchanged). Added the **Known zwasm blockers**
+  section above after building the typed component fixture ClojureWit had
+  already written (`echo.wat`, hand-written WAT, no Rust toolchain) and finding
+  on its first run that zwasm rejects any component with two or more exports.
+  Root-caused into zwasm's component index-space accounting and filed as zwasm
+  D-527 with a two-line reproduction; pinned cljw-side as D-567 +
+  `phase16_wasm_component_multiexport.sh`, which asserts the failure is a clean
+  catchable error rather than hiding it. Discharges half of D-404's "BLOCKED on
+  a typed component FIXTURE" — the fixture now exists and is checked in; what
+  remains is the engine accepting it.

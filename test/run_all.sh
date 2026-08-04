@@ -758,6 +758,7 @@ run_step "e2e_phase14_extend_abstract_base"  "bash test/e2e/phase14_extend_abstr
 run_step "e2e_phase14_deftype_imeta"         "bash test/e2e/phase14_deftype_imeta.sh"
 run_step "e2e_phase14_core_surface_protocols" "bash test/e2e/phase14_core_surface_protocols.sh"
 run_step "e2e_phase14_file_var"              "bash test/e2e/phase14_file_var.sh"
+run_step "e2e_phase16_wasm_component_multiexport" "bash test/e2e/phase16_wasm_component_multiexport.sh"
 run_step "e2e_phase14_deftype_iseq"          "bash test/e2e/phase14_deftype_iseq.sh"
 run_step "e2e_phase14_deftype_overload_arity" "bash test/e2e/phase14_deftype_overload_arity.sh"
 run_step "e2e_phase14_deftype_indexed"       "bash test/e2e/phase14_deftype_indexed.sh"
