@@ -546,6 +546,27 @@ active:
     last_reviewed: "2026-06-16"
   - id: "D-450"
     status: |-
+      PROFILED 2026-08-05 (campaign Step 1 DONE; raw numbers in
+      private/notes/2026-08-05-perf-profile-rush-hour.md): sample over the
+      BFS mid-run, ReleaseSafe -Dprofile, attributes top-of-stack as
+      GC collectStopTheWorld ~20% (VERIFIED by ablation: default 17.35s vs
+      13.87s at CLJW_GC_THRESHOLD_MB=512 — so "GC ruled out" below is
+      inaccurate; GC is not the DOMINANT term but is still a fifth of wall,
+      and steerFloor cannot reach the 10% target because the adaptive
+      last_live*2 arm governs once the live set grows) / vm.eval dispatch
+      incl. inlined stepOnce ~18% / tree_walk.bindCallFrame ~11% (per-call
+      @memset+memcpy+arg copy; fs==MAX_LOCALS fallback suspect) /
+      _tlv_get_addr ~7% (D-571 made the budget poll a threadlocal read —
+      per-op dyld TLV call; D-386's "polls are near-free" verdict predates
+      this and is void; more TLV under stepOnce = error-info per-call trace
+      push/pop candidates) / call machinery ~4% / alloc+memset ~7% /
+      equal+hash+seq+collections ~8%. LEVER ORDER from evidence: (1) budget
+      TLV hoist to eval/loop entry (safe: every `current` writer is
+      stack-disciplined around a callFn re-entry), (2) bindCallFrame +
+      per-call TLV trace, (3) GC trigger for live-heavy workloads
+      (ADR-0183 amendment + DA fork; mark_sweep.zig:276-284's measured
+      curve no longer reproduces — 64MB→16.3s today vs 7.6s recorded), then
+      per-op collection fast paths.
       RE-ANCHORED 2026-08-05 (USER-DIRECTED): **the campaign's main axis is
       now the REAL-WORKLOAD interpreter gap, treated at the root — not the
       micro-bench list.** The evidence that forced the re-anchor: cw-arcade
