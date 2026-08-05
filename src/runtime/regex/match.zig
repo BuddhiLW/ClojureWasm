@@ -363,6 +363,13 @@ fn anchorMatches(a: compile.Anchor, pos: u32, input: []const u8) bool {
         // Default `^`/`$` bind to the whole-input boundary.
         .line_start => pos == 0,
         .line_end => pos == input.len,
+        .input_start => pos == 0,
+        .input_end => pos == input.len,
+        // `\Z`: input end, or just before a FINAL terminator (`\n`, `\r`,
+        // `\r\n`) — Java parity.
+        .input_end_final => pos == input.len or
+            (pos + 1 == input.len and (input[pos] == '\n' or input[pos] == '\r')) or
+            (pos + 2 == input.len and input[pos] == '\r' and input[pos + 1] == '\n'),
         // `(?m)` MULTILINE: `^` matches at input start or right after a line
         // terminator; `$` at input end or right before one. A line terminator is
         // `\n`, a lone `\r`, or the `\r\n` pair — the position *between* `\r` and

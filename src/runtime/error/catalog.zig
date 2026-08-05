@@ -57,6 +57,13 @@ pub const Code = enum {
     inst_string_invalid,
     json_string_invalid,
     edn_string_invalid,
+    /// A malformed regex PATTERN (unclosed group/class, dangling quantifier,
+    /// bad escape) — Java throws the catchable PatternSyntaxException
+    /// (⊂ IllegalArgumentException), so this is bad DATA, kind value_error.
+    /// Distinct from a VALID-in-Java pattern using a feature cljw does not
+    /// implement (backreferences), which stays the uncatchable
+    /// `feature_not_supported`.
+    regex_pattern_invalid,
     /// A user-written FORM SHAPE the runtime rejects — a malformed libspec,
     /// destructuring directive, import spec, `.` member form, reader
     /// conditional. Bad DATA (the user's code is the data), so CATCHABLE:
@@ -577,6 +584,11 @@ pub fn entry(comptime code: Code) Entry {
             .kind = .syntax_error,
             .phase = .parse,
             .template = "EDN error ({[reason]s})",
+        },
+        .regex_pattern_invalid => .{
+            .kind = .value_error,
+            .phase = .eval,
+            .template = "invalid regex pattern ({[reason]s})",
         },
         .form_malformed => .{
             .kind = .syntax_error,

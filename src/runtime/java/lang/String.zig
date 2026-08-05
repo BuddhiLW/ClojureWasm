@@ -23,6 +23,7 @@ const SourceLocation = @import("../../error/info.zig").SourceLocation;
 const error_catalog = @import("../../error/catalog.zig");
 const charset = @import("../../charset.zig");
 const string_collection = @import("../../collection/string.zig");
+const regex_value = @import("../../regex/value.zig");
 const regex_compile = @import("../../regex/compile.zig");
 const regex_match = @import("../../regex/match.zig");
 const regex_replace = @import("../../regex/replace.zig");
@@ -446,8 +447,8 @@ fn matches(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) an
     try error_catalog.checkArity(".matches", args, 2, loc);
     if (args[1].tag() != .string)
         return error_catalog.raise(.type_arg_not_string, loc, .{ .fn_name = ".matches", .actual = @tagName(args[1].tag()) });
-    var program = regex_compile.compile(rt.gpa, string_collection.asString(args[1]), .{}) catch
-        return error_catalog.raise(.feature_not_supported, loc, .{ .name = ".matches (invalid regex pattern)" });
+    var program = regex_compile.compile(rt.gpa, string_collection.asString(args[1]), .{}) catch |err|
+        return regex_value.raiseCompileError(err, loc);
     defer program.deinit(rt.gpa);
     const m = regex_match.matchFull(rt.gpa, &program, string_collection.asString(args[0])) catch
         return error_catalog.raise(.feature_not_supported, loc, .{ .name = ".matches" });
@@ -465,8 +466,8 @@ fn replaceRegex(rt: *Runtime, fn_name: []const u8, kind: regex_replace.ReplaceKi
         return error_catalog.raise(.type_arg_not_string, loc, .{ .fn_name = fn_name, .actual = @tagName(args[1].tag()) });
     if (args[2].tag() != .string)
         return error_catalog.raise(.type_arg_not_string, loc, .{ .fn_name = fn_name, .actual = @tagName(args[2].tag()) });
-    var program = regex_compile.compile(rt.gpa, string_collection.asString(args[1]), .{}) catch
-        return error_catalog.raise(.feature_not_supported, loc, .{ .name = "regex-replace (invalid regex pattern)" });
+    var program = regex_compile.compile(rt.gpa, string_collection.asString(args[1]), .{}) catch |err|
+        return regex_value.raiseCompileError(err, loc);
     defer program.deinit(rt.gpa);
     return regex_replace.replaceString(rt, &program, string_collection.asString(args[0]), string_collection.asString(args[2]), kind);
 }
@@ -494,8 +495,8 @@ fn split(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anye
     if (args[1].tag() != .string)
         return error_catalog.raise(.type_arg_not_string, loc, .{ .fn_name = ".split", .actual = @tagName(args[1].tag()) });
     const limit: i64 = if (args.len == 3) try error_catalog.expectInteger(args[2], ".split", loc) else 0;
-    var program = regex_compile.compile(rt.gpa, string_collection.asString(args[1]), .{}) catch
-        return error_catalog.raise(.feature_not_supported, loc, .{ .name = ".split (invalid regex pattern)" });
+    var program = regex_compile.compile(rt.gpa, string_collection.asString(args[1]), .{}) catch |err|
+        return regex_value.raiseCompileError(err, loc);
     defer program.deinit(rt.gpa);
     return regex_replace.splitToVector(rt, &program, string_collection.asString(args[0]), limit);
 }

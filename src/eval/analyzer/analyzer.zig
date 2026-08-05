@@ -563,9 +563,7 @@ pub fn parseRatioLiteral(rt: *Runtime, digits: []const u8, loc: error_mod.Source
 pub fn parseRegexLiteral(rt: *Runtime, body: []const u8, loc: error_mod.SourceLocation) AnalyzeError!Value {
     return regex_value.alloc(rt, body, .{}) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
-        else => return error_catalog.raise(.feature_not_supported, loc, .{
-            .name = "regex literal (unsupported syntax in cycle 1)",
-        }),
+        else => return regex_value.raiseCompileError(err, loc),
     };
 }
 

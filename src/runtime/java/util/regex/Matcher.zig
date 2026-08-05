@@ -159,6 +159,20 @@ fn group(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anye
     const input = inputOf(args[0]);
     if (args.len == 1)
         return string_collection.alloc(rt, input[ms.start..ms.end]);
+    // `(.group m "name")` — a `(?<name>…)` group by name (Java group(String)).
+    if (args[1].tag() == .string) {
+        const want = string_collection.asString(args[1]);
+        for (programOf(args[0]).group_names) |g| {
+            if (std.mem.eql(u8, g.name, want)) {
+                const gs = ms.slots[@intCast(2 * @as(u32, g.index))];
+                const ge = ms.slots[@intCast(2 * @as(u32, g.index) + 1)];
+                if (gs < 0 or ge < 0) return Value.nil_val;
+                return string_collection.alloc(rt, input[@intCast(gs)..@intCast(ge)]);
+            }
+        }
+        // Java: IllegalArgumentException "No group with name <x>" — catchable.
+        return error_catalog.raise(.arg_value_invalid, loc, .{ .fn_name = ".group", .expected = "a declared (?<name>…) group", .actual = "an unknown group name" });
+    }
     if (args[1].tag() != .integer)
         return error_catalog.raise(.type_arg_not_integer, loc, .{ .fn_name = ".group", .actual = @tagName(args[1].tag()) });
     const n = args[1].asInteger();

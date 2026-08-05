@@ -491,7 +491,7 @@ fn coerceRegex(rt: *Runtime, v: Value, loc: SourceLocation, fn_name: []const u8)
     if (v.tag() == .string) {
         const compiled = regex_value.alloc(rt, string_collection.asString(v), .{}) catch |err| switch (err) {
             error.OutOfMemory => return err,
-            else => return error_catalog.raise(.feature_not_supported, loc, .{ .name = "clojure.string/split with invalid regex source" }),
+            else => |e| return regex_value.raiseCompileError(e, loc),
         };
         return regex_value.asRegex(compiled);
     }

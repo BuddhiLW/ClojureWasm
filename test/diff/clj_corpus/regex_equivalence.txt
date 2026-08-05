@@ -140,3 +140,33 @@
 ;;=> ("a" "a" "a")
 (re-matches #"a+?" "aaa")
 ;;=> "aaa"
+(re-find #"(?<year>\d{4})-(?<mo>\d{2})" "on 2024-07-01")
+;;=> ["2024-07" "2024" "07"]
+(re-matches #"(?<a>x+)y" "xxy")
+;;=> ["xxy" "xx"]
+(re-find #"\Aab" "abc")
+;;=> "ab"
+(re-find #"bc\z" "abc")
+;;=> "bc"
+(re-find #"bc\Z" "abc\n")
+;;=> "bc"
+(re-seq #"(?m)c$" "c\nc")
+;;=> ("c" "c")
+(re-find #"[[:alpha:]]+" "ab1")
+;;=> "a"
+(re-find #"[a-z&&[^m-p]]+" "klmnoqr")
+;;=> "kl"
+(re-find #"[a-c[x-z]]+" "bxya!")
+;;=> "bxya"
+(re-find #"[\w&&[^_]]+" "a_b")
+;;=> "a"
+(re-matches #"()" "")
+;;=> ["" ""]
+(re-find #"a|" "b")
+;;=> ""
+(try (re-pattern "(") (catch Throwable t :invalid))
+;;=> :invalid
+(try (re-pattern "[a") (catch Throwable t :invalid))
+;;=> :invalid
+(.group (doto (re-matcher #"(?<n>b)c" "abc") .find) "n")
+;;=> "b"

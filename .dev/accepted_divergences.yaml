@@ -945,3 +945,25 @@ accepted:
       be wrong.
     derives_from: "ADR-0181 (doc coverage is a ledger of decisions) + .claude/rules/clj_attribution.md (the two header variants) + EPL-1.0 §7 redistribution."
     pin: "scripts/check_clj_attribution.sh --gate (the variant-1 file set must equal legal/NOTICE's list, both directions) + test/diff/clj_corpus/set_arity.txt (17 golden pairs incl. every arity and the :doc/:arglists reads)."
+  - id: "AD-060"
+    area: "regex"
+    summary: |-
+      Backreferences (`\1` … `\9`, `\k<name>`) raise the UNCATCHABLE
+      unsupported-feature error at pattern-compile time; Java compiles and
+      matches them. This is the RE2 posture, permanent by design, not a
+      pending gap: cljw's matcher is a Pike-NFA (ADR-0031) whose worst case is
+      linear in the input, which is the property that lets the playground run
+      untrusted patterns without a ReDoS budget. A backreference makes
+      matching NP-hard in general and forces a backtracking engine — RE2
+      rejects backreferences for exactly this reason. The raise is the
+      unsupported-feature signal (not the catchable invalid-pattern error),
+      because the pattern is VALID Java that cljw deliberately declines,
+      distinct from a malformed pattern the user should catch and handle
+      (regex_pattern_invalid, which IS catchable, matching Java's
+      PatternSyntaxException). Every other D-447 gap closed 2026-08-05:
+      lookbehind, named groups `(?<name>…)` (+ `.group m "name"`), `\A \z \Z`,
+      nested class unions `[a[b]]` / `&&` intersection, empty
+      alternatives/groups.
+    example: '(re-pattern "(a)\\1") => cljw UNCATCHABLE "this regex feature … is not supported" / clj #"(a)\1" compiles and (re-matches #"(a)\1" "aa") => ["aa" "a"]'
+    derives_from: "ADR-0031 (Pike-NFA, non-backtracking invariant — linear-time matching is the security property, F-002 finished form)."
+    pin: "test/e2e/regex_parity_gaps.sh — backref compile raises the uncatchable unsupported signal and a (catch Throwable …) does NOT swallow it."
