@@ -57,18 +57,25 @@ grep -qx ':spawned' <<< "$got" || fail "thread_sleep_dies_at_deadline: got '$got
 echo "PASS thread_sleep_dies_at_deadline (${elapsed}s)"
 
 # --- (b) a compute-loop Thread trips the SHARED step ceiling and dies ---
-# The ceiling is high enough that the worker cannot trip before the extent
-# exits — before the fix it then span forever unmetered and the process hung.
+# The worker parks on a promise the top level delivers only AFTER the extent
+# exits, so the trip is guaranteed to happen on a worker that OUTLIVED the
+# extent (the D-571 regression shape) without racing a large ceiling against
+# the extent's own lifetime. Keeping the ceiling small matters: time-to-burn-N
+# -steps scales with backend × hardware speed (30M steps: ~4 s on a mac
+# tree-walk, 58 s on the CI Linux runner — the 2026-08-05 nightly red), which
+# turns any elapsed bound into the ratio-bound flake test_taxonomy.md forbids.
 SECONDS=0
 got=$(run_bounded 60 "$BIN" - <<'EOF' 2>&1
-(println (cljw.eval/with-budget {:max-steps 30000000}
-  (fn [] (.start (Thread. (fn [] (loop [i 0] (recur (inc i)))))) :done)))
+(def unleash (promise))
+(println (cljw.eval/with-budget {:max-steps 300000}
+  (fn [] (.start (Thread. (fn [] @unleash (loop [i 0] (recur (inc i)))))) :done)))
+(deliver unleash :go)
 EOF
 ) || fail "thread_loop_trips_shared_steps: non-zero exit"
 elapsed=$SECONDS
 grep -qx ':done' <<< "$got" || fail "thread_loop_trips_shared_steps: got '$got'"
 grep -q 'step budget' <<< "$got" || fail "thread_loop_trips_shared_steps: worker did not trip the shared ceiling: '$got'"
-[ "$elapsed" -lt 45 ] || fail "thread_loop_trips_shared_steps: process held ${elapsed}s"
+[ "$elapsed" -lt 15 ] || fail "thread_loop_trips_shared_steps: process held ${elapsed}s"
 echo "PASS thread_loop_trips_shared_steps (${elapsed}s)"
 
 # --- (c) a future spawned in the extent dies at the deadline ---

@@ -76,6 +76,16 @@ A performance ratio is a **measurement**, so take it on a quiet machine (Layer 4
 `bench/`, run on demand) and record the numbers in the ADR. The unit test keeps
 the deterministic half.
 
+- **A work-quantity ceiling is a hidden ratio bound.** An elapsed upper bound on
+  "burn N steps / N fuel" scales with per-step cost × host speed, and per-step
+  cost varies ~15x across backends (tree_walk vs vm) before hardware is even
+  considered. 2026-08-05 nightly: `thread_loop_trips_shared_steps` burned 30M
+  budget steps in 4 s on a mac tree-walk and 58 s on the CI Linux runner,
+  failing its 45 s bound only in that one config. If the assertion needs an
+  elapsed bound, make the metered work *small* (gate the burn on an explicit
+  synchronisation point rather than sizing the ceiling against a race window),
+  or bound against a wall-clock deadline the feature itself enforces.
+
 ## Counter-examples
 
 Don't write a Layer 1 unit test that shells out to `cljw` (that

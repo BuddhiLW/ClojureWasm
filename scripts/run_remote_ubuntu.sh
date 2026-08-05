@@ -12,6 +12,7 @@
 # Usage:
 #   bash scripts/run_remote_ubuntu.sh                          # default: full gate on main
 #   bash scripts/run_remote_ubuntu.sh --branch NAME            # gate an arbitrary branch (feature-branch verification)
+#   bash scripts/run_remote_ubuntu.sh --parity                 # gate + non-default-backend sweep (== the CI nightly config)
 #
 # Prerequisites:
 #   - SSH alias `ubuntunote` (see `.dev/ubuntunote_setup.md`).
@@ -36,14 +37,24 @@ cd "$(dirname "$0")/.."
 HOST="${CLJW_UBUNTU_HOST:-ubuntunote}"
 REMOTE_DIR="${CLJW_REMOTE_DIR:-Documents/MyProducts/ClojureWasm}"
 REMOTE_BRANCH="main"
-if [ "${1:-}" = "--branch" ]; then
-    if [ -z "${2:-}" ]; then
-        echo "[run_remote_ubuntu] FAIL: --branch requires a branch name" >&2
-        exit 2
-    fi
-    REMOTE_BRANCH="$2"
-    shift 2
-fi
+PARITY=0
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --branch)
+            if [ -z "${2:-}" ]; then
+                echo "[run_remote_ubuntu] FAIL: --branch requires a branch name" >&2
+                exit 2
+            fi
+            REMOTE_BRANCH="$2"
+            shift 2 ;;
+        --parity)
+            PARITY=1
+            shift ;;
+        *)
+            echo "[run_remote_ubuntu] FAIL: unknown argument '$1'" >&2
+            exit 2 ;;
+    esac
+done
 
 die_step() {
     echo "[run_remote_ubuntu] FAIL: $1" >&2
@@ -96,4 +107,17 @@ ssh "$HOST" bash -lc "'
     cd $REMOTE_DIR && nix develop --command bash test/run_all.sh
 '" || die_step "gate — test/run_all.sh failed on ubuntunote (HEAD=$remote_sha)"
 
-echo "[run_remote_ubuntu] OK (HEAD=$remote_sha)."
+# 4. Optional: the non-default-backend (tree_walk) sweep — the same extra leg
+#    the CI nightly runs (ci_gate.sh CLJW_CI_PARITY=1). Linux × tree_walk is
+#    the slowest backend × host combination, which is exactly where
+#    speed-scaled test bounds break first (the 2026-08-05 nightly red was
+#    reproducible ONLY in this config), so a nightly-red must be reproducible
+#    here without waiting a day for the next schedule run.
+if [ "$PARITY" = "1" ]; then
+    echo "[run_remote_ubuntu] parity sweep: scripts/check_vm_parity.sh ..."
+    ssh "$HOST" bash -lc "'
+        cd $REMOTE_DIR && nix develop --command bash scripts/check_vm_parity.sh
+    '" || die_step "parity — check_vm_parity.sh failed on ubuntunote (HEAD=$remote_sha)"
+fi
+
+echo "[run_remote_ubuntu] OK (HEAD=$remote_sha, parity=$PARITY)."

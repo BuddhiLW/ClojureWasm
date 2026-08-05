@@ -166,6 +166,17 @@ local does not".
 header claim in the same commit.** A parity claim that only a comment makes is
 the thing that failed here.
 
+One tier deliberately runs MORE than the local full gate: the nightly/dispatch
+CI adds the non-default-backend sweep (`CLJW_CI_PARITY=1` →
+`scripts/check_vm_parity.sh`, every e2e on the tree_walk build). A nightly-only
+red is therefore possible without any local-vs-CI drift in the shared tiers.
+Its local reproductions: `bash scripts/check_vm_parity.sh` (this host) and
+`bash scripts/run_remote_ubuntu.sh --parity` (Linux — the slowest
+backend × host combination, where speed-scaled test bounds break first; the
+2026-08-05 nightly red reproduced ONLY there). Run the Linux parity leg
+pre-tag whenever the release touched a metered surface (budget steps, fuel,
+deadlines) or the e2e suite's timing assertions.
+
 ## Related
 
 - [ADR-0107](../../.dev/decisions/0107_pipeline_gate_smoke_authorized.md) —
