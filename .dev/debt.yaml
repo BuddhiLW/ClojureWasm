@@ -546,6 +546,22 @@ active:
     last_reviewed: "2026-06-16"
   - id: "D-450"
     status: |-
+      ROOT-CAUSED 2026-08-06 (the GC 20% attributed): CLJW_GC_STATS=3 phase
+      timing shows gc_ms=3858 of a 16.3s run splits prep=2830 / sweep=972 /
+      drain=41 / scan=0 — and the prep cost is clearPersistentMarks walking
+      **15,502,063 persistent marks (1.98 GB retained)**: EVERY runtime-created
+      closure is rt.gpa.create + trackHeap'd IMMORTAL
+      (tree_walk.allocFunctionWithBytecodes), so a closure-churning program
+      leaks every fn value AND pays an O(all-closures-ever) walk per collect.
+      This is simultaneously the biggest measured perf lever (~17% of wall)
+      and an unbounded-memory bug. Fix design = make Function a first-class
+      GC-managed object (own ADR + DA fork; survey at
+      private/notes/D450-fn-gc-survey.md). Experiment log: O-055 budget-TLV
+      hoist LANDED (-2.3%); TraceRef per-call TLV caching measured NEUTRAL on
+      rush-hour AND fib32 and was REVERTED (do not re-run); threshold
+      multiplier 2x->4x measured NEUTRAL (floor governs — live set is ~1MB,
+      the workload is pure churn, so the "live-heavy" framing below is wrong
+      for THIS workload; steering already ramps the floor to its 64MB cap).
       PROFILED 2026-08-05 (campaign Step 1 DONE; raw numbers in
       private/notes/2026-08-05-perf-profile-rush-hour.md): sample over the
       BFS mid-run, ReleaseSafe -Dprofile, attributes top-of-stack as
