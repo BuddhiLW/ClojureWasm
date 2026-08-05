@@ -18,18 +18,23 @@
   lookbehind / `\A\z\Z` / class algebra, multidim aget/aset, and the GC
   stops taxing long-running programs 2-4x — D-571/573/446/447 discharged).
   CHANGELOG is the release-history SSOT.
-- **First task on resume**: the PERF CAMPAIGN, re-anchored (user-directed
-  2026-08-05) on the real-workload interpreter gap — read D-450's re-anchor
-  block first, it is the brief. Headline number: rush-hour `medium` 17.9 s
-  vs clj 1.07 s (17x) / bb 2.46 s (7x), GC already ruled out (ADR-0183 +
-  D-573). Step 1 is a profile, not a lever: `sample` the BFS
-  (`cd ~/Documents/MyProducts/cw-arcade/apps/rush-hour && cljw -e
-  "(require '[rush-hour.generator :as g]) (g/generate 7 :medium)"`),
-  attribute cycles to dispatch / hash / assoc / seq / alloc, THEN pick from
-  the lever stack (D-386 dispatch, persistent-map fast paths, free-pool).
-  The 9-target fastest-script list is demoted to a regression fence.
-  (Distribution is DONE: v1.9.0 released + brewed; playground /
-  serverless-demo re-pinned, fly deploys verified in production.)
+- **First task on resume**: the PERF CAMPAIGN continues — D-450's status
+  head is the live brief. State 2026-08-06: ADR-0184 LANDED (Functions are
+  collectable GC cells; the 15.5M-immortal-closure leak is dead), rush-hour
+  17.9 s → **12.3 s** (clj gap 17x → 11.5x), GC share ~7% (inside the
+  ADR-0183 target). O-055 budget-TLV hoist also landed; TraceRef +
+  threshold-multiplier experiments REFUTED (recorded in D-450 — do not
+  re-run). Next step is a RE-PROFILE (the 2026-08-05 attribution is stale)
+  via `sample` on the BFS (`cd ~/Documents/MyProducts/cw-arcade/apps/
+  rush-hour && cljw -e "(require '[rush-hour.generator :as g])
+  (g/generate 7 :medium)"`, `-Dprofile` build), then the lever stack:
+  bindCallFrame copies, ADR-0184 Alt 3 template/closure split, Alt 1
+  epoch-mark, D-386 dispatch. Residual rows: D-574 reify-TD churn, D-575
+  worker fetched-fn class. The 9-target fastest-script list stays a
+  regression fence. ALSO fixed en route: nightly CI red (speed-scaled test
+  bound — budget_thread_ownership promise-gated; `run_remote_ubuntu.sh
+  --parity` reproduces the nightly config), re-extend-never-wins clj
+  parity defect, and the misplaced D-450 re-anchor block (was on D-343).
   Release-process note worth keeping: **cutting the GitHub release by hand
   before the tag workflow runs breaks the artifact upload**. zwasm's workflow
   did an unconditional `gh release create`, which failed on "already exists"

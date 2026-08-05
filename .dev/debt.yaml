@@ -24,6 +24,28 @@
 # md-table-align no longer pads it to ~800 KB of whitespace.
 
 active:
+  - id: "D-574"
+    status: "open (2026-08-06, ADR-0184 residual). reify's anonymous TypeDescriptor is trackHeap'd per EVALUATION (lang/primitive/protocol.zig makeReifyDescriptor path) — the same immortality shape ADR-0184 killed for Functions, in miniature: a reify form evaluated in a loop grows persistent_marks + leaks a TD per iteration. The fix shape mirrors ADR-0184: make the anonymous TD (or a TD cell) collectable, instance-mediated trace already exists (traceReifiedInstance); audit method_table readers for a dead-TD window first (freeReifyDescriptor currently only touches names)."
+    category: "gc"
+    barrier: |-
+      Same design questions as ADR-0184 scaled down: who owns the anonymous
+      TD's method_table (gpa slices today), and is every reader
+      instance-mediated once the TD dies with its last instance. Not
+      user-blocking today (loop-reify is rare); take up when the perf
+      campaign's re-profile shows reify churn OR when touching
+      protocol.zig's reify path for another reason.
+    last_reviewed: "2026-08-06"
+  - id: "D-575"
+    status: "open (2026-08-06, ADR-0184 DA gap 3 — the D-556 residual class WIDENED by collectable Functions). A fn Value fetched from a heap object and held ONLY in native locals across an alloc/safepoint on a REGISTERED WORKER thread running the tree_walk backend is unrooted (workers get no conservative stack scan), and immortality no longer masks the sweep. Scope is narrow: vm-backend workers publish via EvalFrames + the executing callee slot; agent/future actions pin their body fns; main-thread tree_walk has the conservative scan. The exposure = tree_walk-BUILD workers' native driver loops (lazy_seq force via a seq intermediate, watch/validator loops, comparator holds)."
+    category: "gc"
+    barrier: |-
+      blocked-by: either (a) extending the conservative scan to registered
+      worker stacks (D-556's own residual — needs per-worker stack bounds
+      registration), or (b) explicit callee/driver-value rooting at the
+      named native driver sites. Re-evaluate if a tree_walk-build worker
+      torture case reproduces a sweep; the vm-default production build is
+      not exposed.
+    last_reviewed: "2026-08-06"
   - id: "D-572"
     status: |-
       open (2026-08-04). The cw-playground demo evaluates untrusted submissions
@@ -546,6 +568,22 @@ active:
     last_reviewed: "2026-06-16"
   - id: "D-450"
     status: |-
+      ADR-0184 LANDED 2026-08-06 (commit 20897498): Functions are collectable
+      variable-length GC cells; the immortal-closure leak is dead. Rush-hour
+      headline 16.5s -> 12.3s (-26%); campaign arc 17.9s -> 12.3s, clj gap
+      17x -> 11.5x. persistent_marks 15.5M -> 110 (1.98 GB -> 5 KB), GC share
+      ~7% = inside ADR-0183's 10% target WITHOUT floor ramping (the D-573
+      floor-curve numbers are obsolete, not wrong — the per-collect prep cost
+      they measured was the immortal-mark walk, now gone). Preconditions
+      landed as their own commits: e4223423 (re-extend replace-in-place clj
+      parity + 3-registry roots), dcd701f8 (EvalFrame callee slot).
+      Residuals: D-574 (reify TD churn), D-575 (worker fetched-fn class).
+      NEXT for the campaign: re-profile the BFS (the old attribution is
+      stale — GC is no longer 20%), then the remaining lever stack:
+      bindCallFrame copies (the biggest named non-GC bucket), the ADR-0184
+      Alt 3 template/closure split (removes the per-closure methods copy),
+      Alt 1 epoch-mark (kills the remaining allocations-list clears),
+      D-386 dispatch.
       ROOT-CAUSED 2026-08-06 (the GC 20% attributed): CLJW_GC_STATS=3 phase
       timing shows gc_ms=3858 of a 16.3s run splits prep=2830 / sweep=972 /
       drain=41 / scan=0 — and the prep cost is clearPersistentMarks walking
@@ -633,7 +671,7 @@ active:
       Experiment aggressively + revert (reverted-experiment commits MAY stay in the log;
       never leave main red; diff oracle + corpus stay green; short benches carry noise →
       ≥10 runs). After the 9 → resume D-386 (dispatch→superinstructions→JIT) + §9.0 gaps.
-    last_reviewed: "2026-08-05"
+    last_reviewed: "2026-08-06"
   - id: "D-449"
     status: "open (2026-06-16, ADR-0147 S3). The Alt-2 forward+reverse lazy DFA (`src/runtime/regex/dfa.zig`) is BUILT + equivalence-locked but UNWIRED — measurement showed wiring it REGRESSES perf vs the S2-prefiltered Pike VM (regex_count 17→23ms, sparse 0.05→0.47s). RESERVED engine, not the default matcher."
     category: "perf"
