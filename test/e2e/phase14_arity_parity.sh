@@ -91,5 +91,19 @@ check "AD-051 (bytes? byte-array)"   '(bytes? (byte-array 3))'    'true'
 check "AD-051 (bytes? int-array)"    '(bytes? (int-array 3))'     'true'
 check "AD-051 (bytes? object-array)" '(bytes? (object-array 0))'  'true'
 
+
+# --- multi-dim aget/aset (D-446 close-out): the variadic forms walk nested
+#     arrays exactly as clj's `(apply aget (aget a i) idxs)` recursion. The
+#     generic aget/aset cases are clj-byte-matched (arity_envelopes corpus). ---
+check "(aget a i j)"        '(let [a (make-array Long 2 3)] (aset a 0 1 42) (aget a 0 1))'    '42'
+check "(aset a i j k v)"    '(let [b (make-array Long 2 2 2)] (aset b 1 0 1 9) (aget b 1 0 1))' '9'
+check "(aget oob catchable)" '(let [a (make-array Long 2 3)] (try (aget a 9 0) (catch Throwable t :oob)))' ':oob'
+# AD-019 pin: the typed aset-* multidim arms store WITHOUT element-type
+# checking (arrays are type-erased; clj throws IllegalArgumentException when
+# the array is boxed, and cljw has no boxed/primitive distinction to key on).
+check "AD-019 (aset-long a i j v)"   '(let [b (make-array Long 2 2 2)] (aset-long b 0 1 1 5) (aget b 0 1 1))' '5'
+check "AD-019 (aset-double a i j v)" '(let [c (make-array Double 2 2)] (aset-double c 1 1 2.5) (aget c 1 1))' '2.5'
+check "AD-019 (aset-int a i j v)"    '(let [c (make-array Long 2 2)] (aset-int c 0 0 3) (aget c 0 0))' '3'
+
 echo "pass=$pass fail=$fail"
 if [[ $fail -gt 0 ]]; then exit 1; fi

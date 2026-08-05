@@ -50,23 +50,38 @@ fn arrayMakeFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation
     return java_array.make(rt, @intCast(n), args[1]);
 }
 
-/// `(aget array idx)` — 2-arg element read. Multi-dim `(aget a i j)` is a
-/// core.clj variadic over this.
+/// `(aget array idx & idxs)` — element read, multi-dim by recursion exactly
+/// as clj's variadic `aget` composes: `(aget a i j)` reads the nested array
+/// at `i`, then `j` within it. Implemented directly in the builtin rather
+/// than as a core.clj variadic (the D-446 barrier sketched that shape) so the
+/// hot 2-arg path stays a single builtin call.
 fn agetFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
     _ = rt;
     _ = env;
-    try error_catalog.checkArity("aget", args, 2, loc);
-    try requireArray(args[0], "aget", loc);
-    return java_array.aget(args[0], try asIndex(args[1], "aget", loc), "aget", loc);
+    try error_catalog.checkArityMin("aget", args, 2, loc);
+    var v = args[0];
+    for (args[1..]) |idx| {
+        try requireArray(v, "aget", loc);
+        v = try java_array.aget(v, try asIndex(idx, "aget", loc), "aget", loc);
+    }
+    return v;
 }
 
 /// `(aset array idx val)` — 3-arg in-place write, returns `val`.
 fn asetFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
     _ = rt;
     _ = env;
-    try error_catalog.checkArity("aset", args, 3, loc);
-    try requireArray(args[0], "aset", loc);
-    return java_array.aset(args[0], try asIndex(args[1], "aset", loc), args[2], "aset", loc);
+    try error_catalog.checkArityMin("aset", args, 3, loc);
+    // `(aset a i j … v)`: every arg but the last two walks into a nested
+    // array; the final pair is the ordinary element store, which returns the
+    // stored value as clj does.
+    var v = args[0];
+    for (args[1 .. args.len - 2]) |idx| {
+        try requireArray(v, "aset", loc);
+        v = try java_array.aget(v, try asIndex(idx, "aset", loc), "aset", loc);
+    }
+    try requireArray(v, "aset", loc);
+    return java_array.aset(v, try asIndex(args[args.len - 2], "aset", loc), args[args.len - 1], "aset", loc);
 }
 
 fn alengthFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {

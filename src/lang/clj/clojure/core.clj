@@ -2573,14 +2573,30 @@
 
 ;; aset-* typed setters. clj coerces the value to the element type; cljw applies
 ;; only the value-changing modular wraps (byte/short/char), the rest are aset.
-(defn aset-int     [a i v] (aset a i v))
-(defn aset-long    [a i v] (aset a i v))
-(defn aset-float   [a i v] (aset a i v))
-(defn aset-double  [a i v] (aset a i v))
-(defn aset-boolean [a i v] (aset a i (boolean v)))
-(defn aset-byte    [a i v] (aset a i (-to-byte v)))
-(defn aset-short   [a i v] (aset a i (-to-short v)))
-(defn aset-char    [a i v] (aset a i (char v)))
+(defn aset-int
+  ([a i v] (aset a i v))
+  ([a i j & more] (apply aset-int (aget a i) j more)))
+(defn aset-long
+  ([a i v] (aset a i v))
+  ([a i j & more] (apply aset-long (aget a i) j more)))
+(defn aset-float
+  ([a i v] (aset a i v))
+  ([a i j & more] (apply aset-float (aget a i) j more)))
+(defn aset-double
+  ([a i v] (aset a i v))
+  ([a i j & more] (apply aset-double (aget a i) j more)))
+(defn aset-boolean
+  ([a i v] (aset a i (boolean v)))
+  ([a i j & more] (apply aset-boolean (aget a i) j more)))
+(defn aset-byte
+  ([a i v] (aset a i (-to-byte v)))
+  ([a i j & more] (apply aset-byte (aget a i) j more)))
+(defn aset-short
+  ([a i v] (aset a i (-to-short v)))
+  ([a i j & more] (apply aset-short (aget a i) j more)))
+(defn aset-char
+  ([a i v] (aset a i (char v)))
+  ([a i j & more] (apply aset-char (aget a i) j more)))
 
 (defmacro amap
   "Like clojure.core/amap: map `expr` over array `a`, binding each index to
