@@ -13,13 +13,16 @@
   `1ecc7a8a` (zwasm main; carries #157 component export index space + #158/#159
   the WASI capture cap — both load-bearing for cljw, unlike the v2.4.0 tag it
   replaced. Tagging zwasm is user-only, its ADR-0156). Latest release:
-  **v1.8.0** (2026-08-04; multi-export components load, `wasm/run` gains
-  output + wall-clock bounds, `clojure.core.reducers` lands, and `(doc reduce)`
-  finally prints something). CHANGELOG is the release-history SSOT.
-- **First task on resume**: the remaining distribution repos —
-  `cw-playground`, `cw-serverless-demo`, `cw-arcade`. The homebrew tap is DONE
-  (cljw 1.8.0 + zwasm 2.4.1, `brew audit` clean after dropping the redundant
-  explicit `version` — Homebrew scans it from the release URL).
+  **v1.9.0** (2026-08-05; the eval budget bounds blocking calls and follows
+  spawned work, data errors are catchable, regex gains named groups /
+  lookbehind / `\A\z\Z` / class algebra, multidim aget/aset, and the GC
+  stops taxing long-running programs 2-4x — D-571/573/446/447 discharged).
+  CHANGELOG is the release-history SSOT.
+- **First task on resume**: re-pin the demo repos (`cw-playground`,
+  `cw-serverless-demo`) to v1.9.0 via their `check_version_pins.sh
+  --set-cljw` and verify the fly deploys — the playground's malformed-JSON
+  400 handler only takes effect with the new pin. Homebrew tap: bump to
+  1.9.0 (same flow as 1.8.0, which is DONE and `brew audit` clean).
   Release-process note worth keeping: **cutting the GitHub release by hand
   before the tag workflow runs breaks the artifact upload**. zwasm's workflow
   did an unconditional `gh release create`, which failed on "already exists"

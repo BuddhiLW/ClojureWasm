@@ -7,6 +7,67 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 
 ## [Unreleased]
 
+## [1.9.0] - 2026-08-05
+
+**Upgrade if you run untrusted code under `cljw.eval/with-budget`, parse
+untrusted JSON/EDN, use long-running programs (the GC got a lot faster on
+them), or want named groups / lookbehind / `\A \z \Z` / class algebra in
+regexes.** MINOR rather than PATCH because behaviour changes: code that
+relied on a blocking call outliving its budget now raises.
+
+### Changed
+
+- **The eval budget's wall-clock deadline now bounds blocking calls — all of
+  them.** `(Thread/sleep 25000)` under a 3 s deadline used to return normally
+  after 25 s; `@(promise)` under a deadline used to park forever. Every
+  blocking primitive (`future`/`promise` deref, timed deref, `Thread/sleep`,
+  `await`) now waits on a latch bounded by `min(caller timeout, budget
+  deadline)`.
+- **The budget follows the work, not the thread.** A `Thread.`, `future` or
+  agent action spawned inside a `with-budget` extent inherits the budget —
+  same absolute deadline, same shared (atomic) step ceiling — and keeps it
+  even if it outlives the extent. A spawned 60 s sleep under a 500 ms
+  deadline used to hold the process for the full 60 s; it now dies at the
+  deadline. A compute loop cannot escape the step ceiling by moving onto a
+  spawned thread.
+- **A rejection caused by bad DATA is now catchable.** Malformed JSON/EDN
+  input, wrong-typed arguments (`clojure.string/replace`, `deliver`, walk
+  callbacks, `*out*` bindings), malformed form shapes under `eval` /
+  `read-string` (libspecs, destructuring, `ns` directives, reader
+  conditionals) and malformed regex patterns all raise catchable errors, as
+  JVM Clojure does — ~60 sites reclassified, each verified against the
+  oracle. Genuinely unsupported features stay deliberately uncatchable.
+  Messages improve with it: "deliver: expected a promise, got integer"
+  instead of "… is not supported in ClojureWasm".
+
+### Added
+
+- **Regex: named groups** `(?<name>e)` (with `(.group m "name")`),
+  **lookbehind** `(?<=)` / `(?<!)`, **`\A` `\z` `\Z` anchors**, **nested
+  character-class unions** `[a[b]]` and **`&&` intersection**
+  (`[a-z&&[^m-p]]`), and empty alternatives/groups (`()`, `a|`).
+  Backreferences are declined by design — the matcher guarantees linear-time
+  matching (the RE2 posture), and a backreference would force backtracking.
+- **Multi-dimensional `aget` / `aset`** and the 8 typed `aset-*` multidim
+  arms: `(aget a i j)`, `(aset a i j v)` on nested arrays, exactly clj's
+  variadic recursion.
+
+### Fixed
+
+- **Long-running programs stopped paying a 2-4x GC tax.** The collection
+  trigger is steered by the measured GC time share (the same control variable
+  SubstrateVM sizes its heap with), and live-set accounting now counts what
+  an object owns (string payloads, array elements, bignum limbs) instead of
+  only its 32-byte record. A breadth-first search went 58.9 s → 17.7 s
+  (1624 → 114 collections); a 200k-string workload went 263 → 55 collections.
+  Short scripts and benchmarks are unchanged.
+- **`@(future (Thread/sleep 2000))` ran 17% long** (2321-2358 ms) with no
+  budget armed at all — the cancel poll sliced every worker sleep. Waits are
+  latch-based now: 2000-2001 ms, and `future-cancel` wakes a sleeping worker
+  in 0 ms instead of up to 20 ms.
+- **`(Thread/sleep <huge long>)` aborted the process** with an integer
+  overflow; it now sleeps, as clj does.
+
 ## [1.8.0] - 2026-08-04
 
 **Upgrade if you use Wasm components, or if you use `doc` / `find-doc`.**

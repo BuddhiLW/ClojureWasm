@@ -26,44 +26,56 @@ BIN="zig-out/bin/cljw"
 [ -n "${CLJW_SKIP_BUILD:-}" ] || zig build -Dwasm -Doptimize="${CLJW_OPT:-ReleaseSafe}" >/dev/null
 
 fail() { echo "FAIL $1" >&2; exit 1; }
-now_ms() { python3 -c 'import time; print(int(time.time()*1000))'; }
+
+# Portable bounded run: GNU `timeout`, else macOS coreutils `gtimeout`, else
+# unbounded (the CI macOS runner ships NEITHER — a bare `timeout` exits 127
+# there and fails the step at 0s, which is exactly how this file broke CI on
+# 2026-08-05; scripts/check_portable_timeout.sh now guards the class). Every
+# case's expressions are deadline-bounded by the feature under test, so the
+# unbounded fallback cannot hang past the budget it asserts.
+run_bounded() {
+    local secs="$1"; shift
+    if command -v timeout >/dev/null 2>&1; then timeout "$secs" "$@"
+    elif command -v gtimeout >/dev/null 2>&1; then gtimeout "$secs" "$@"
+    else "$@"; fi
+}
 
 # --- (a) a sleeping Thread dies at the deadline; the process is not held ---
 # Before: the process hung for the worker's full 60 s sleep (the join-at-exit
 # barrier waited on an unmetered non-daemon thread).
-t0=$(now_ms)
-got=$(timeout 30 "$BIN" - <<'EOF' 2>/dev/null
+SECONDS=0
+got=$(run_bounded 30 "$BIN" - <<'EOF' 2>/dev/null
 (println (cljw.eval/with-budget {:deadline-ms 500}
   (fn [] (.start (Thread. (fn [] (Thread/sleep 60000)))) :spawned)))
 EOF
 ) || fail "thread_sleep_dies_at_deadline: non-zero exit"
-elapsed=$(( $(now_ms) - t0 ))
+elapsed=$SECONDS
 grep -qx ':spawned' <<< "$got" || fail "thread_sleep_dies_at_deadline: got '$got'"
 # Order-of-magnitude bound (test_taxonomy.md): catches "waited out the 60 s
-# sleep", not scheduling noise.
-[ "$elapsed" -lt 15000 ] || fail "thread_sleep_dies_at_deadline: process held ${elapsed}ms (worker not bounded)"
-echo "PASS thread_sleep_dies_at_deadline (${elapsed}ms)"
+# sleep", not scheduling noise. Bash SECONDS — no external clock needed.
+[ "$elapsed" -lt 15 ] || fail "thread_sleep_dies_at_deadline: process held ${elapsed}s (worker not bounded)"
+echo "PASS thread_sleep_dies_at_deadline (${elapsed}s)"
 
 # --- (b) a compute-loop Thread trips the SHARED step ceiling and dies ---
 # The ceiling is high enough that the worker cannot trip before the extent
 # exits — before the fix it then span forever unmetered and the process hung.
-t0=$(now_ms)
-got=$(timeout 60 "$BIN" - <<'EOF' 2>&1
+SECONDS=0
+got=$(run_bounded 60 "$BIN" - <<'EOF' 2>&1
 (println (cljw.eval/with-budget {:max-steps 30000000}
   (fn [] (.start (Thread. (fn [] (loop [i 0] (recur (inc i)))))) :done)))
 EOF
 ) || fail "thread_loop_trips_shared_steps: non-zero exit"
-elapsed=$(( $(now_ms) - t0 ))
+elapsed=$SECONDS
 grep -qx ':done' <<< "$got" || fail "thread_loop_trips_shared_steps: got '$got'"
 grep -q 'step budget' <<< "$got" || fail "thread_loop_trips_shared_steps: worker did not trip the shared ceiling: '$got'"
-[ "$elapsed" -lt 45000 ] || fail "thread_loop_trips_shared_steps: process held ${elapsed}ms"
-echo "PASS thread_loop_trips_shared_steps (${elapsed}ms)"
+[ "$elapsed" -lt 45 ] || fail "thread_loop_trips_shared_steps: process held ${elapsed}s"
+echo "PASS thread_loop_trips_shared_steps (${elapsed}s)"
 
 # --- (c) a future spawned in the extent dies at the deadline ---
 # The process does not wait on future workers at exit, so assert in-process:
 # 1.5 s after a 400 ms deadline the future must be realised (dead), not still
 # sleeping out its 60 s. This is the long-lived-server case (the playground).
-got=$(timeout 30 "$BIN" - <<'EOF' 2>/dev/null
+got=$(run_bounded 30 "$BIN" - <<'EOF' 2>/dev/null
 (def f (atom nil))
 (cljw.eval/with-budget {:deadline-ms 400}
   (fn [] (reset! f (future (Thread/sleep 60000))) :spawned))
@@ -77,7 +89,7 @@ echo "PASS future_dies_at_deadline"
 # --- (d) an agent action sent in the extent dies at the deadline ---
 # The action sleeps 60 s; 1.5 s after the 400 ms deadline the agent must be
 # failed (the budget raise is the action's error), not still parked.
-got=$(timeout 30 "$BIN" - <<'EOF' 2>/dev/null
+got=$(run_bounded 30 "$BIN" - <<'EOF' 2>/dev/null
 (def a (agent 0))
 (cljw.eval/with-budget {:deadline-ms 400}
   (fn [] (send-off a (fn [_] (Thread/sleep 60000) 1)) :sent))
@@ -89,7 +101,7 @@ grep -qx '\[:failed true\]' <<< "$got" || fail "agent_action_dies_at_deadline: g
 echo "PASS agent_action_dies_at_deadline"
 
 # --- (e) no budget => spawned threads stay unmetered (the default is unchanged) ---
-got=$(timeout 30 "$BIN" - <<'EOF' 2>/dev/null
+got=$(run_bounded 30 "$BIN" - <<'EOF' 2>/dev/null
 (def done (promise))
 (.start (Thread. (fn [] (Thread/sleep 200) (deliver done :ok))))
 (prn [:joined @done])
@@ -101,7 +113,7 @@ echo "PASS no_budget_unmetered"
 # --- (f) after the extent exits cleanly, NEW spawns are not metered by it ---
 # The budget follows work spawned INSIDE the extent; work spawned after must
 # not inherit a stale reference.
-got=$(timeout 30 "$BIN" - <<'EOF' 2>/dev/null
+got=$(run_bounded 30 "$BIN" - <<'EOF' 2>/dev/null
 (cljw.eval/with-budget {:deadline-ms 300} (fn [] :done))
 (Thread/sleep 400)
 (def done (promise))

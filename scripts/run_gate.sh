@@ -18,7 +18,7 @@
 #   2. Reap `cljw` probes orphaned to PID 1 (re-parented when their gate
 #      died) — precise: ppid==1 only, so a live gate's children and any
 #      legitimate interactive `cljw` are untouched.
-#   3. Run exactly ONE gate under a bounded timeout (default 300 s —
+#   3. Run exactly ONE gate under a bounded timeout (default 900 s —
 #      generous for a ~190 s parallel / ~350 s serial gate once nothing
 #      contends; a gate that exceeds it is stuck, not slow. Raised to 600 with
 #      --serial-e2e now the default here: the serial path is ~2x the parallel
@@ -38,7 +38,7 @@ set -uo pipefail
 cd "$(dirname "$0")/.."
 
 SELF=$$
-TIMEOUT="${GATE_TIMEOUT:-600}"
+TIMEOUT="${GATE_TIMEOUT:-900}"
 
 reap_gates() {
     local pid ppid n

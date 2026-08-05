@@ -415,6 +415,7 @@ run_step "doc_coverage"         "bash scripts/check_doc_coverage.sh"
 # producer takes SIGPIPE, the script dies before printing its diagnostic, and it
 # only bites on a loaded machine. ab84126b fixed four sites and left 24.
 run_step "epipe_head"           "bash scripts/check_epipe_head.sh"
+run_step "portable_timeout"      "bash scripts/check_portable_timeout.sh"
 # The local full gate and CI's must be the SAME run. ci_gate.sh claimed they
 # were; nothing checked, and they were not (parallel vs serial e2e).
 run_step "gate_parity"          "bash scripts/check_gate_parity.sh"
