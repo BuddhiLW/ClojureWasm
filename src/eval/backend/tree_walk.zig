@@ -1372,7 +1372,7 @@ const RestMode = enum { wrap, bind_direct };
 /// Generic fn call — the entry every backend reaches via `vtable.callFn`.
 /// Always cons-wraps `& rest` (unconditionally correct).
 pub fn callFunction(rt: *Runtime, env: *Env, fn_val: Value, args: []const Value, loc: SourceLocation) !Value {
-    return callMethodImpl(rt, env, fn_val.decodePtr(*Function), args, loc, .wrap);
+    return callMethodImpl(rt, env, fn_val, args, loc, .wrap);
 }
 
 /// ADR-0042 am1: `apply`'s lazy-preserving entry. `args = [leading…,
@@ -1381,7 +1381,7 @@ pub fn callFunction(rt: *Runtime, env: *Env, fn_val: Value, args: []const Value,
 /// from `callFunction` so the generic path stays wrap-only — no flag, no
 /// shared mutable state, the signal is the in-band `RestMode` argument.
 pub fn callFunctionBindingRest(rt: *Runtime, env: *Env, fn_val: Value, args: []const Value, loc: SourceLocation) !Value {
-    return callMethodImpl(rt, env, fn_val.decodePtr(*Function), args, loc, .bind_direct);
+    return callMethodImpl(rt, env, fn_val, args, loc, .bind_direct);
 }
 
 /// Shared call-frame binder — the ONE source of the activation-record
@@ -1445,7 +1445,8 @@ pub fn bindCallFrame(
     return fs;
 }
 
-fn callMethodImpl(rt: *Runtime, env: *Env, f: *Function, args: []const Value, loc: SourceLocation, rest_mode: RestMode) !Value {
+fn callMethodImpl(rt: *Runtime, env: *Env, fn_val: Value, args: []const Value, loc: SourceLocation, rest_mode: RestMode) !Value {
+    const f = fn_val.decodePtr(*Function);
     // Row 7.8 cycle 1 (ADR-0041): linear scan over `methods`, fixed-
     // arity wins on exact match; fall through to `variadic` when
     // `args.len >= variadic.arity`. Single-arity fns produce a
@@ -1454,23 +1455,31 @@ fn callMethodImpl(rt: *Runtime, env: *Env, f: *Function, args: []const Value, lo
         return raiseArityNotMatched(f, args.len, loc);
     };
 
+    // GC-ROOT: A6 — tree_walk fn activation roots its live slot window +
+    // the EXECUTING callee for the call's whole extent (D-555; the sibling
+    // of vm.eval's A1 frame). Without the window, a mid-eval auto-collect
+    // (ADR-0164) sweeps any heap value reachable ONLY through a local slot —
+    // the sym-meta / gc_torture tree_walk-only corruption class. The frame
+    // is installed BEFORE bindCallFrame because the binder's `& rest`
+    // consHeap can itself collect while the callee is otherwise held only as
+    // a raw `*Function` (ADR-0184 A, DA gap 1) — the callee slot must
+    // already be live then; the locals window starts empty and is widened
+    // to the bound slots after the binder returns. [ref: .dev/gc_rooting.md §A]
     var locals: [MAX_LOCALS]Value = undefined;
-    const fs = try bindCallFrame(rt, f, m, args, &locals, rest_mode, loc);
-    // GC-ROOT: A6 — tree_walk fn activation roots its live slot window for
-    // the call's whole extent (D-555; the sibling of vm.eval's A1 frame).
-    // Without this, a mid-eval auto-collect (ADR-0164) sweeps any heap value
-    // reachable ONLY through a local slot — the sym-meta / gc_torture
-    // tree_walk-only corruption class. [ref: .dev/gc_rooting.md §A]
     var gc_stack: [1]Value = .{.nil_val};
     var gc_sp: u16 = 0;
     var gc_frame: root_set.EvalFrame = .{
         .stack = &gc_stack,
         .sp = &gc_sp,
-        .locals = locals[0..fs],
+        .locals = locals[0..0],
+        .callee = fn_val,
         .parent = root_set.eval_frame_head,
     };
     root_set.eval_frame_head = &gc_frame;
     defer root_set.eval_frame_head = gc_frame.parent;
+
+    const fs = try bindCallFrame(rt, f, m, args, &locals, rest_mode, loc);
+    gc_frame.locals = locals[0..fs];
     // VM backend hook: when this method carries compiled bytecode and
     // the vtable has the `evalChunk` slot wired (vm.installVTable), run
     // the chunk instead of walking the Node body. The TreeWalk backend

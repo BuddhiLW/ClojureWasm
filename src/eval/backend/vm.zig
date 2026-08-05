@@ -707,6 +707,14 @@ inline fn stepOnce(
                 }
             }
             // Slow path: pop callee + args, dispatch through the oracle seam.
+            // LOAD-BEARING staleness (ADR-0184 A / DA gap 2): `sp` is a
+            // stepOnce-local; the root the collector walks is `ar.op_top`,
+            // which is written back only in stepOnce's defer — so during the
+            // `vt.callFn` below, `op_top` still holds its pre-pop (HIGH)
+            // value and the callee + args at [result_slot..] STAY inside the
+            // rooted stack prefix. Syncing `op_top` down before this call
+            // (or hoisting the call out of stepOnce) would unroot the
+            // executing callee for a collectable-Function heap.
             sp = result_slot;
             const args = stack[sp + 1 .. sp + 1 + arg_count];
             const vt = rt.vtable orelse

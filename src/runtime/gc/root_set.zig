@@ -115,6 +115,14 @@ pub const EvalFrame = struct {
     /// primitive-pushed frame (e.g. `reduceFn`) that owns no chunk. `var_ref` /
     /// `ns` constants are skipped by `Value.heapHeader()` like everywhere else.
     constants: []const Value = &.{},
+    /// The EXECUTING callable (ADR-0184 A). A collectable Function must stay
+    /// reachable while it runs: the VM drops the callee below `op_top` at
+    /// flatten (vm.zig flattenPush), and tree_walk's callMethodImpl holds it
+    /// only as a raw `*Function` whose `m` points INTO `f.methods` — with no
+    /// Value root, a mid-execution collect would sweep the fn cell out from
+    /// under its own recur loop. `.nil_val` for frames with no callable
+    /// (top-level chunks, primitive-pushed frames).
+    callee: Value = .nil_val,
     parent: ?*EvalFrame,
 };
 
@@ -642,7 +650,7 @@ pub const RootIterator = struct {
         eval_part: EvalPart = .stack,
 
         pub const Phase = enum { binding, eval, self_guard, analysis };
-        pub const EvalPart = enum { stack, locals, constants };
+        pub const EvalPart = enum { stack, locals, constants, callee };
     };
 
     pub const PermanentRootsCursor = struct {
@@ -805,15 +813,19 @@ pub const RootIterator = struct {
                             c.eval_part = .constants;
                             c.slot_idx = 0;
                         }
-                        while (c.slot_idx < ef.constants.len) {
-                            const v = ef.constants[c.slot_idx];
-                            c.slot_idx += 1;
-                            if (v.heapHeader()) |hdr| return hdr;
+                        if (c.eval_part == .constants) {
+                            while (c.slot_idx < ef.constants.len) {
+                                const v = ef.constants[c.slot_idx];
+                                c.slot_idx += 1;
+                                if (v.heapHeader()) |hdr| return hdr;
+                            }
+                            c.eval_part = .callee;
                         }
-                        // This eval frame done → its parent.
+                        // The executing callable (ADR-0184 A), then the parent.
                         c.eval_frame = ef.parent;
                         c.slot_idx = 0;
                         c.eval_part = .stack;
+                        if (ef.callee.heapHeader()) |hdr| return hdr;
                         continue;
                     }
                     // Eval chain exhausted → self-guard phase.
