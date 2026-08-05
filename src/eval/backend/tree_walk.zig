@@ -106,9 +106,9 @@ threadlocal var pending_recur_len: u16 = 0;
 /// let a fn nested inside `let*` / `fn*` snapshot its enclosing locals
 /// at allocation time and replay them on every call. Top-level fns have `slot_base == 0` and `closure_bindings ==
 /// null`. The `body` and `params` slices borrow from the analyser's
-/// per-eval arena, so the Function lives only as long as that arena
-/// does. `closure_bindings` is owned by the Function (separate
-/// gpa allocation) and freed by `freeFunction`.
+/// per-eval arena. Since ADR-0184 the Function is a collectable GC cell:
+/// `methods` + `closure_bindings` live inline in the cell's tail and are
+/// freed with it by sweep.
 /// Row 7.8 cycle 1 (ADR-0041) runtime-side per-arity record. Mirrors
 /// `node_mod.FnMethod` plus an optional bytecode chunk (the VM
 /// compile arm stamps one chunk per method).
@@ -137,14 +137,12 @@ pub const FunctionMethod = struct {
 
 pub const Function = struct {
     // `align(8)` forces `header` into the struct's max-alignment group so
-    // Zig's auto field-ordering keeps it at offset 0. The GC reads every
-    // heap-tagged Value's `HeapHeader` at offset 0 (`value.heapHeader` ->
-    // `decodePtr(*HeapHeader)`), but `Function` is `gpa.create`'d — it
-    // bypasses `gc.alloc`'s `assertHeaderAtOffsetZero`, so without this a
-    // non-extern struct sorts the align-8 slice fields (`methods` /
-    // `closure_bindings`) ahead of an align-4 header and the GC reads
-    // `methods.ptr`'s low byte as a bogus tag (D-251). The `comptime`
-    // assert below makes any future reorder a build failure, not a UAF.
+    // Zig's auto field-ordering keeps it at offset 0 (asserted below AND by
+    // `gc.alloc`'s assertHeaderAtOffsetZero — ADR-0184 moved Functions onto
+    // the GC heap as ONE variable-length cell: struct + methods array +
+    // closure bindings in the trailing bytes, laid out by
+    // `allocFunctionCell`). The slice fields point into the cell's own
+    // tail; sweep frees the whole cell, no finaliser.
     header: HeapHeader align(8),
     /// Number of locals the analyser allocated above this fn — these
     /// are the slots the closure snapshot fills, and the active
@@ -152,14 +150,17 @@ pub const Function = struct {
     slot_base: u16,
     /// Fixed-arity methods, sorted by arity ascending (analyser-time).
     /// Single-arity ships as a 1-element slice. JVM rule 2 (no two
-    /// same-arity fixed) enforced at analyzer-time.
+    /// same-arity fixed) enforced at analyzer-time. Points into this
+    /// cell's own tail (ADR-0184); never resized post-alloc.
     methods: []const FunctionMethod,
     /// Variadic body, separate slot per ADR-0041 — JVM allows ≤ 1
     /// variadic per fn (rule 1).
     variadic: ?FunctionMethod,
     /// Captured outer locals; null when the fn closes over nothing
     /// (top-level fn) so the common case stays a single null check
-    /// rather than an empty-slice round-trip.
+    /// rather than an empty-slice round-trip. Non-null points into this
+    /// cell's own tail (ADR-0184); `patchLetfnClosures` mutates CONTENTS
+    /// only, never the length.
     closure_bindings: ?[]Value,
     /// Qualified name + defining namespace for traces / `pr` / metadata
     /// (ADR-0119). Both borrow the analyzer arena (same lifetime as
@@ -171,8 +172,35 @@ pub const Function = struct {
 
     comptime {
         std.debug.assert(@offsetOf(Function, "header") == 0);
+        // ADR-0184 tail layout: [Function][methods…][bindings…]. Both tail
+        // element types must keep 8-alignment so the arrays start aligned.
+        std.debug.assert(@sizeOf(Function) % 8 == 0);
+        std.debug.assert(@alignOf(FunctionMethod) <= 8);
+        std.debug.assert(@sizeOf(FunctionMethod) % 8 == 0);
+        std.debug.assert(@alignOf(Value) <= 8);
     }
 };
+
+/// ADR-0184: allocate the Function + its methods array + closure-bindings
+/// array as ONE variable-length GC cell. The returned slices alias the
+/// cell's trailing bytes; the caller fills them and stitches the slice
+/// fields. NEWBORN WINDOW: the cell is unrooted until the caller's returned
+/// Value reaches a rooted slot — no alloc path below performs another
+/// `gc.alloc` between this call and its return, so a same-thread collect
+/// cannot fire inside the window (a worker-thread tree_walk newborn joins
+/// the pre-existing D-556 residual class, priced in ADR-0184).
+fn allocFunctionCell(
+    rt: *Runtime,
+    method_count: usize,
+    binding_count: usize,
+) !struct { f: *Function, methods: []FunctionMethod, bindings: []Value } {
+    const tail = method_count * @sizeOf(FunctionMethod) + binding_count * @sizeOf(Value);
+    const f = try rt.gc.allocWithTail(Function, tail);
+    const base: [*]u8 = @ptrCast(f);
+    const methods_ptr: [*]FunctionMethod = @ptrCast(@alignCast(base + @sizeOf(Function)));
+    const bindings_ptr: [*]Value = @ptrCast(@alignCast(base + @sizeOf(Function) + method_count * @sizeOf(FunctionMethod)));
+    return .{ .f = f, .methods = methods_ptr[0..method_count], .bindings = bindings_ptr[0..binding_count] };
+}
 
 /// Per-tag GC trace for `.fn_val` (D-251 rooting-gap class). A `Function`
 /// owns GC Values reachable ONLY through it: the `closure_bindings`
@@ -180,10 +208,11 @@ pub const Function = struct {
 /// bytecode (literal collections / strings the body refers to). Without
 /// this the fn is treated as a leaf and those captures are swept under a
 /// collect (the cause of swept-intermediate failures D-250 torture
-/// surfaced). The Function struct itself is `gpa.create`'d + `trackHeap`'d
-/// (not GC-swept), so this is mark-only; no finaliser is registered.
-/// `header` aliases `*Function` because header is at offset 0 (asserted
-/// above). Nested `fn_val` constants recurse safely via mark's cycle bit.
+/// surfaced). Since ADR-0184 the Function is an ordinary swept GC cell
+/// (methods + bindings inline in its tail) — still no finaliser, because
+/// the cell owns nothing outside itself. `header` aliases `*Function`
+/// because header is at offset 0 (asserted above). Nested `fn_val`
+/// constants recurse safely via mark's cycle bit.
 pub fn traceFunction(gc_ptr: *anyopaque, header: *HeapHeader) void {
     const gc: *gc_heap_mod.GcHeap = @ptrCast(@alignCast(gc_ptr));
     const f: *Function = @ptrCast(@alignCast(header));
@@ -234,11 +263,9 @@ pub fn registerGcHooks() void {
 
 /// Heap-allocate a Function and wrap it in a NaN-boxed Value. The
 /// caller's `locals` array supplies the snapshot for closure capture:
-/// slots `[0, fn_node.slot_base)` are duplicated into a fresh
-/// gpa-owned slice the Function will later replay on every call. Top
-/// -level fns (`slot_base == 0`) skip the allocation entirely. Until
-/// the Phase-5 GC arrives, register the allocation with
-/// `rt.heap_objects` so `Runtime.deinit` frees it.
+/// slots `[0, fn_node.slot_base)` are copied into the cell's tail and
+/// replayed on every call. Top-level fns (`slot_base == 0`) carry no
+/// bindings. The cell is an ordinary collectable GC object (ADR-0184).
 pub fn allocFunction(rt: *Runtime, fn_node: node_mod.FnNode, locals: []const Value) !Value {
     return allocFunctionWithBytecodes(rt, fn_node, locals, null);
 }
@@ -280,24 +307,23 @@ pub fn allocFunctionTemplate(
     variadic_chunk: ?*const BytecodeChunk,
 ) !Value {
     std.debug.assert(method_chunks.len == fn_node.methods.len);
-    const methods = try buildFunctionMethods(rt, fn_node.methods, method_chunks);
-    errdefer rt.gpa.free(methods);
+    const cell = try allocFunctionCell(rt, fn_node.methods.len, 0);
+    for (fn_node.methods, 0..) |m, i| {
+        cell.methods[i] = methodFromNode(m, method_chunks[i]);
+    }
     var variadic: ?FunctionMethod = null;
     if (fn_node.variadic) |v| variadic = methodFromNode(v, variadic_chunk);
 
-    const f = try rt.gpa.create(Function);
-    errdefer rt.gpa.destroy(f);
-    f.* = .{
+    cell.f.* = .{
         .header = HeapHeader.init(.fn_val),
         .slot_base = fn_node.slot_base,
-        .methods = methods,
+        .methods = cell.methods,
         .variadic = variadic,
         .closure_bindings = null,
         .name = fn_node.name,
         .defining_ns = fn_node.defining_ns,
     };
-    try rt.trackHeap(.{ .ptr = @ptrCast(f), .free = freeFunction, .size = @sizeOf(@TypeOf(f.*)) });
-    return Value.encodeHeapPtr(.fn_val, f);
+    return Value.encodeHeapPtr(.fn_val, cell.f);
 }
 
 fn allocFunctionWithBytecodes(
@@ -306,58 +332,26 @@ fn allocFunctionWithBytecodes(
     locals: []const Value,
     bytecodes: ?Bytecodes,
 ) !Value {
-    const closure: ?[]Value = if (fn_node.slot_base == 0)
-        null
-    else blk: {
-        const slice = try rt.gpa.alloc(Value, fn_node.slot_base);
-        @memcpy(slice, locals[0..fn_node.slot_base]);
-        break :blk slice;
-    };
-    errdefer if (closure) |s| rt.gpa.free(s);
-
     const method_chunks: []const ?*const BytecodeChunk = if (bytecodes) |bc| bc.method_chunks else &.{};
     const variadic_chunk: ?*const BytecodeChunk = if (bytecodes) |bc| bc.variadic_chunk else null;
-    const methods = if (bytecodes != null)
-        try buildFunctionMethods(rt, fn_node.methods, method_chunks)
-    else
-        try buildFunctionMethodsNoBytecode(rt, fn_node.methods);
-    errdefer rt.gpa.free(methods);
+    const cell = try allocFunctionCell(rt, fn_node.methods.len, fn_node.slot_base);
+    for (fn_node.methods, 0..) |m, i| {
+        cell.methods[i] = methodFromNode(m, if (bytecodes != null) method_chunks[i] else null);
+    }
     var variadic: ?FunctionMethod = null;
     if (fn_node.variadic) |v| variadic = methodFromNode(v, variadic_chunk);
+    if (fn_node.slot_base > 0) @memcpy(cell.bindings, locals[0..fn_node.slot_base]);
 
-    const f = try rt.gpa.create(Function);
-    errdefer rt.gpa.destroy(f);
-    f.* = .{
+    cell.f.* = .{
         .header = HeapHeader.init(.fn_val),
         .slot_base = fn_node.slot_base,
-        .methods = methods,
+        .methods = cell.methods,
         .variadic = variadic,
-        .closure_bindings = closure,
+        .closure_bindings = if (fn_node.slot_base > 0) cell.bindings else null,
         .name = fn_node.name,
         .defining_ns = fn_node.defining_ns,
     };
-    try rt.trackHeap(.{ .ptr = @ptrCast(f), .free = freeFunction, .size = @sizeOf(@TypeOf(f.*)) });
-    return Value.encodeHeapPtr(.fn_val, f);
-}
-
-fn buildFunctionMethods(
-    rt: *Runtime,
-    src: []const node_mod.FnMethod,
-    bytecodes: []const ?*const BytecodeChunk,
-) ![]FunctionMethod {
-    const out = try rt.gpa.alloc(FunctionMethod, src.len);
-    for (src, 0..) |m, i| {
-        out[i] = methodFromNode(m, bytecodes[i]);
-    }
-    return out;
-}
-
-fn buildFunctionMethodsNoBytecode(rt: *Runtime, src: []const node_mod.FnMethod) ![]FunctionMethod {
-    const out = try rt.gpa.alloc(FunctionMethod, src.len);
-    for (src, 0..) |m, i| {
-        out[i] = methodFromNode(m, null);
-    }
-    return out;
+    return Value.encodeHeapPtr(.fn_val, cell.f);
 }
 
 fn methodFromNode(m: node_mod.FnMethod, bytecode: ?*const BytecodeChunk) FunctionMethod {
@@ -369,13 +363,6 @@ fn methodFromNode(m: node_mod.FnMethod, bytecode: ?*const BytecodeChunk) Functio
         .bytecode = bytecode,
         .frame_slots = m.frame_slots, // ADR-0130 frame-rooting
     };
-}
-
-fn freeFunction(gpa: std.mem.Allocator, ptr: *anyopaque) void {
-    const f: *Function = @ptrCast(@alignCast(ptr));
-    if (f.closure_bindings) |s| gpa.free(s);
-    if (f.methods.len > 0) gpa.free(f.methods);
-    gpa.destroy(f);
 }
 
 /// Sentinel body for deserialized (VM-only) functions (ADR-0034 am2 A2-D3).
@@ -394,8 +381,9 @@ pub const SerializedMethod = struct {
     bytecode: ?*const BytecodeChunk,
 };
 
-/// Reconstruct a Function from deserialized data (ADR-0034 am2 A2-D3). gpa +
-/// trackHeap like a compiled top-level fn (so `freeFunction` is unchanged),
+/// Reconstruct a Function from deserialized data (ADR-0034 am2 A2-D3). A
+/// GC cell like every Function (ADR-0184; kept alive by the analysis-root
+/// bracket around deserialize, like a compiled top-level fn),
 /// `closure_bindings = null` (a constant fn never captures runtime locals),
 /// `params = &.{}` (D-139), `body = &deserialized_fn_body`. The method
 /// `bytecode` chunks are borrowed — owned by `serialize.zig`'s allocator and
@@ -406,10 +394,9 @@ pub fn allocFunctionFromSerialized(
     methods: []const SerializedMethod,
     variadic: ?SerializedMethod,
 ) !Value {
-    const out = try rt.gpa.alloc(FunctionMethod, methods.len);
-    errdefer rt.gpa.free(out);
+    const cell = try allocFunctionCell(rt, methods.len, 0);
     for (methods, 0..) |m, i| {
-        out[i] = .{
+        cell.methods[i] = .{
             .arity = m.arity,
             .has_rest = m.has_rest,
             .params = &.{},
@@ -426,17 +413,14 @@ pub fn allocFunctionFromSerialized(
         .bytecode = vm.bytecode,
     };
 
-    const f = try rt.gpa.create(Function);
-    errdefer rt.gpa.destroy(f);
-    f.* = .{
+    cell.f.* = .{
         .header = HeapHeader.init(.fn_val),
         .slot_base = slot_base,
-        .methods = out,
+        .methods = cell.methods,
         .variadic = variadic_method,
         .closure_bindings = null,
     };
-    try rt.trackHeap(.{ .ptr = @ptrCast(f), .free = freeFunction, .size = @sizeOf(@TypeOf(f.*)) });
-    return Value.encodeHeapPtr(.fn_val, f);
+    return Value.encodeHeapPtr(.fn_val, cell.f);
 }
 
 // --- Top-level eval ---

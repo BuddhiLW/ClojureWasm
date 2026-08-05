@@ -273,6 +273,19 @@ read the draft + survey + source read-only.)
   collect"), DebugAllocator leak gate, and a rush-hour re-measure
   (CLJW_GC_STATS=1: persistent_marks back to O(100), prep ≈ 0).
 
+## Measured outcome (landing commit, 2026-08-06, M4 Pro ReleaseSafe)
+
+Rush-hour `(g/generate 7 :medium)` headline: **16.5 s → 12.3 s (−26%,
+median of 5)**. `CLJW_GC_STATS`: persistent_marks 15,502,063 → **110**
+(retained 1.98 GB → 5 KB — the leak is gone), gc_ms 3858 → 840, prep
+2830 ms → 0 ms. Collects 122 → 2421 at the 4 MB floor because the GC
+share now sits at ~7% — INSIDE ADR-0183's 10% steering target, so the
+floor no longer needs to ramp. Free-pool dispersion non-issue: mallocs
+560k → 45k, reuse 99% (fn cells recycle through the pools). fib 32
+unchanged (459 ms) — no regression on closure-light workloads. The
+cumulative campaign arc: 17.9 s (v1.9.0) → 12.3 s (−31%), clj gap 17x
+→ 11.5x.
+
 ## Residuals (recorded, not in this cycle)
 
 - reify's anonymous TypeDescriptor is trackHeap'd per **evaluation**

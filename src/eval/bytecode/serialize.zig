@@ -667,7 +667,7 @@ fn readValue(ctx: *ReadCtx, r: *ByteReader) DeserializeError!Value {
             // ADR-0034 am2: reconstruct a Function from its serialized
             // contents. Method bytecode sub-chunks are owned by `allocator`
             // (freed by `freeChunk` recursion); the Function itself is
-            // gpa+trackHeap like a compiled top-level fn (params dropped per
+            // a GC cell like a compiled top-level fn (params dropped per
             // D-139, body = sentinel, closure_bindings = null).
             const slot_base = try r.readU16();
             const methods_count = try r.readU32();
@@ -1039,7 +1039,7 @@ fn readChunkBody(ctx: *ReadCtx, r: *ByteReader) DeserializeError!BytecodeChunk {
 /// owns (ADR-0034 am2 A2-D3). Non-`fn_val` constants own nothing here.
 /// Recurses via `freeChunk` so nested `fn_val`s inside a method body are
 /// freed too. Does NOT free the Function struct / methods slice — those
-/// are gpa+trackHeap, freed by `freeFunction` at `rt.deinit`.
+/// are collectable GC cells (ADR-0184) pinned by the analysis-root bracket.
 fn freeValueOwnedChunks(allocator: std.mem.Allocator, v: Value) void {
     if (v.tag() != .fn_val) return;
     const f = v.decodePtr(*const Function);
@@ -1071,7 +1071,7 @@ pub fn freeChunk(allocator: std.mem.Allocator, chunk: BytecodeChunk) void {
     // bytecode sub-chunks via this `allocator`; free them recursively
     // before the constants array. This reads the Function's gpa-owned
     // `methods` slice, so `freeChunk`/`freeEnvelope` MUST run before
-    // `rt.deinit` (which frees that slice via `freeFunction`); the run
+    // `rt.deinit` (the Function cell is GC-owned since ADR-0184); the run
     // sequence + defer-LIFO satisfy this. Compiled (non-deserialized)
     // fns hold arena-owned chunks and never reach this path because their
     // top chunk is arena-freed, not `freeChunk`-freed.

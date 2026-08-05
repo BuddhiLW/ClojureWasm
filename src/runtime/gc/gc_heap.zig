@@ -427,6 +427,21 @@ pub const GcHeap = struct {
     /// below rejects mis-typed `T` at compile time before the live-
     /// list mis-link can land.
     pub fn alloc(self: *GcHeap, comptime T: type) !*T {
+        return self.allocSized(T, @sizeOf(T));
+    }
+
+    /// ADR-0184: allocate `T` plus `tail_bytes` of trailing storage as ONE
+    /// GC cell — the pattern for a heap object whose owned arrays live
+    /// inline after the struct (Function: methods + closure_bindings), so
+    /// sweep frees a single allocation and no finaliser is needed. The
+    /// caller lays out the tail itself; `@sizeOf(T)` must be 8-aligned so
+    /// any Value/pointer-bearing tail array starts aligned.
+    pub fn allocWithTail(self: *GcHeap, comptime T: type, tail_bytes: usize) !*T {
+        comptime std.debug.assert(@sizeOf(T) % 8 == 0);
+        return self.allocSized(T, @sizeOf(T) + tail_bytes);
+    }
+
+    fn allocSized(self: *GcHeap, comptime T: type, size: usize) !*T {
         comptime assertHeaderAtOffsetZero(T);
         // Worker safe point (ADR-0090 Alt B / D-244 #4): if a peer is collecting,
         // park HERE — BEFORE contending on `gc_mutex` — so the collector counts
@@ -487,7 +502,7 @@ pub const GcHeap = struct {
         io_default.lockMutex(&self.gc_mutex);
         defer io_default.unlockMutex(&self.gc_mutex);
         const align_t: std.mem.Alignment = .fromByteUnits(@alignOf(T));
-        const effective_size: usize = @max(@sizeOf(T), min_alloc_bytes);
+        const effective_size: usize = @max(size, min_alloc_bytes);
 
         // D-352: per-eval LIVE-heap ceiling. One predicted-not-taken branch when
         // unmetered (heap_ceiling == null). Checked HERE (the alloc boundary) —

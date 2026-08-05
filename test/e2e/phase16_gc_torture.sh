@@ -295,4 +295,21 @@ assert_eq 'analysis_const_root' "$("$BIN" -e '(defmacro m [x] x) (deftype T [] O
 # collects would make 1M realizations quadratic.
 assert_eq 'deep_chain_mark' "$(env -u CLJW_GC_TORTURE "$BIN" -e '(count (repeat 1000000 1))')" '1000000'
 
+# --- ADR-0184: Functions are collectable GC cells ---
+# (a) loop-created closures DIE; the live one survives + still runs. Before
+# ADR-0184 every closure was trackHeap'd immortal (15.5M / 1.98 GB retained
+# on a real BFS); now the loop's dead closures recycle while the escaping
+# closure (held in `keep`) must stay callable through every collect.
+assert_eq 'closures_die_live_one_survives' "$("$BIN" -e '(let [keep (fn [x] (+ x 1))] (loop [i 0] (when (< i 2000) (let [g (fn [] i)] (g)) (recur (inc i)))) (keep 41))')" '42'
+# (b) a SELF-RECURSIVE closure survives a mid-execution collect: the per-call
+# EvalFrame callee slot pins `f` (and its methods tail) across the recur
+# back-edge while collects fire at every poll.
+assert_eq 'self_recursive_survives' "$("$BIN" -e '(let [a [7]] (letfn [(go [n] (if (zero? n) (first a) (go (dec n))))] (go 50)))')" '7'
+# (c) DA gap 1: a VARIADIC callee whose only reference is the call itself,
+# with the collect forced INSIDE bindCallFrame's rest-pack consHeap
+# (CLJW_GC_TORTURE_ALLOC=1 = collect at every gc.alloc). The callee root must
+# be live BEFORE the binder runs, or the rest-cons alloc sweeps the executing
+# fn out from under its own binding.
+assert_eq 'variadic_callee_rooted_before_bind' "$(env CLJW_GC_TORTURE_ALLOC=1 "$BIN" -e '(reduce + (apply (fn [& xs] xs) [1 2 3 4 5]))')" '15'
+
 echo "ALL phase16_gc_torture PASS"

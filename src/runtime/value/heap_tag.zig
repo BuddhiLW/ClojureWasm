@@ -127,8 +127,9 @@ pub const HeapTag = enum(u8) {
 /// GC-managed membrane SSOT (D-251 / ADR-0095 Alt D). `true` iff a Value with
 /// this tag points at an object the GC mark phase may safely read + dispatch on
 /// — i.e. its pointer targets a valid `HeapHeader` at offset 0 (a `gc.alloc`'d
-/// swept object, or a `trackHeap`'d process-lifetime object like a `Function`
-/// whose closure children we trace). `false` for the heap-TAGGED but NON-GC
+/// swept object — since ADR-0184 that includes `Function` cells — or a
+/// `trackHeap`'d process-lifetime object like a `ProtocolDescriptor`
+/// whose children we trace). `false` for the heap-TAGGED but NON-GC
 /// types whose pointer does NOT target a markable `HeapHeader`:
 ///
 ///   - `var_ref` / `ns` — Env-lifetime `*Var` / `*Namespace` with NO header at
