@@ -510,6 +510,11 @@ pub const Runtime = struct {
     pub const HeapEntry = struct {
         ptr: *anyopaque,
         free: *const fn (gpa: std.mem.Allocator, ptr: *anyopaque) void,
+        /// Bytes this object owns (D-573): its own struct plus any gpa
+        /// side-allocations it frees. Feeds `gc.persistent_bytes`, so the
+        /// GC trigger sees the cost of re-tracing it every cycle. An
+        /// approximation is fine; zero means "uncounted".
+        size: usize = 0,
     };
 
     /// Track a heap-allocated object so `Runtime.deinit` will free it.
@@ -530,7 +535,7 @@ pub const Runtime = struct {
         // second append OOMs, roll the waypoint back so the two lists stay 1:1
         // and `persistent_marks` never holds a header the caller's errdefer is
         // about to free (the dual-list atomicity contract — no swallowed OOM).
-        try self.gc.registerPersistentMark(entry.ptr);
+        try self.gc.registerPersistentMark(entry.ptr, entry.size);
         errdefer self.gc.unregisterLastPersistentMark();
         try self.heap_objects.append(self.gpa, entry);
     }

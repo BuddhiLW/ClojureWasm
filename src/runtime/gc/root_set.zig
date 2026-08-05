@@ -879,7 +879,7 @@ pub fn enumerate(ctx: WalkContext) RootIterator {
 
 // --- tests ---
 
-const Cell = extern struct { header: HeapHeader = HeapHeader.init(.string), payload: u64 = 0 };
+const Cell = extern struct { header: HeapHeader = HeapHeader.init(.symbol), payload: u64 = 0 };
 
 const RuntimeFixture = struct {
     threaded: std.Io.Threaded,
@@ -920,7 +920,7 @@ test "permanent_roots walker yields each pinned heap Value (skipping immediates)
     defer gc.deinit();
 
     const cell_a = try gc.alloc(Cell);
-    cell_a.* = .{ .header = HeapHeader.init(.string) };
+    cell_a.* = .{ .header = HeapHeader.init(.symbol) };
     const cell_b = try gc.alloc(Cell);
     cell_b.* = .{ .header = HeapHeader.init(.vector) };
 
@@ -1003,7 +1003,7 @@ test "ns_vars walker yields Var.root across two Envs sharing a Runtime" {
     // Each Env has the bootstrap namespaces (clojure.core / user / cljw.internal). Define one Var
     // with a heap-Value root in each.
     const cell1 = try gc.alloc(Cell);
-    cell1.* = .{ .header = HeapHeader.init(.string) };
+    cell1.* = .{ .header = HeapHeader.init(.symbol) };
     const cell2 = try gc.alloc(Cell);
     cell2.* = .{ .header = HeapHeader.init(.vector) };
 
@@ -1036,7 +1036,7 @@ test "current_frame walker yields heap Values across nested binding frames" {
     const var_y = try env.intern(ns, "y", Value.nil_val, null);
 
     const cell_x = try gc.alloc(Cell);
-    cell_x.* = .{ .header = HeapHeader.init(.string) };
+    cell_x.* = .{ .header = HeapHeader.init(.symbol) };
     const cell_y = try gc.alloc(Cell);
     cell_y.* = .{ .header = HeapHeader.init(.vector) };
 
@@ -1100,11 +1100,11 @@ test "union walk: a registered worker's frame + macro + operand stack are walked
     const var_w = try env.intern(ns, "w", Value.nil_val, null);
 
     const cell_frame = try gc.alloc(Cell);
-    cell_frame.* = .{ .header = HeapHeader.init(.string) };
+    cell_frame.* = .{ .header = HeapHeader.init(.symbol) };
     const cell_macro = try gc.alloc(Cell);
     cell_macro.* = .{ .header = HeapHeader.init(.vector) };
     const cell_stack = try gc.alloc(Cell);
-    cell_stack.* = .{ .header = HeapHeader.init(.string) };
+    cell_stack.* = .{ .header = HeapHeader.init(.symbol) };
     const cell_local = try gc.alloc(Cell);
     cell_local.* = .{ .header = HeapHeader.init(.vector) };
     const cell_guard = try gc.alloc(Cell);
@@ -1165,7 +1165,7 @@ test "thread_roots walks this thread's operand stack via eval_frame_head (D-244 
     defer gc.deinit();
 
     const cell_stack = try gc.alloc(Cell);
-    cell_stack.* = .{ .header = HeapHeader.init(.string) };
+    cell_stack.* = .{ .header = HeapHeader.init(.symbol) };
     const cell_local = try gc.alloc(Cell);
     cell_local.* = .{ .header = HeapHeader.init(.vector) };
 
@@ -1200,7 +1200,7 @@ test "thread_roots eval sub-walk reads stack[0..sp] only, never the undefined re
     defer gc.deinit();
 
     const cell_live = try gc.alloc(Cell);
-    cell_live.* = .{ .header = HeapHeader.init(.string) };
+    cell_live.* = .{ .header = HeapHeader.init(.symbol) };
     const cell_above_sp = try gc.alloc(Cell);
     cell_above_sp.* = .{ .header = HeapHeader.init(.vector) };
 
@@ -1233,7 +1233,7 @@ test "thread_roots eval sub-walk follows the eval-frame parent chain (D-244 #3b)
     defer gc.deinit();
 
     const cell_outer = try gc.alloc(Cell);
-    cell_outer.* = .{ .header = HeapHeader.init(.string) };
+    cell_outer.* = .{ .header = HeapHeader.init(.symbol) };
     const cell_inner = try gc.alloc(Cell);
     cell_inner.* = .{ .header = HeapHeader.init(.vector) };
 
@@ -1268,7 +1268,7 @@ test "thread_roots walks this thread's in-flight fabrication self-guard via gc_s
     defer gc.deinit();
 
     const cell = try gc.alloc(Cell);
-    cell.* = .{ .header = HeapHeader.init(.string) };
+    cell.* = .{ .header = HeapHeader.init(.symbol) };
 
     // Null gc_self_guard → the self-guard sub-walk yields nothing (inert).
     {

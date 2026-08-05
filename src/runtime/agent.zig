@@ -673,9 +673,16 @@ pub fn finaliseGc(gc_ptr: *anyopaque, header: *HeapHeader) void {
     a.rt.gpa.destroy(a.cell);
 }
 
+/// D-573: the control cell + the queued-action storage capacity.
+fn ownedBytes(header: *HeapHeader) usize {
+    const a: *Agent = @ptrCast(@alignCast(header));
+    return @sizeOf(AgentCell) + a.cell.actions.capacity * @sizeOf(Action);
+}
+
 pub fn registerGcHooks() void {
     tag_ops.registerTrace(.agent, &traceGc);
     tag_ops.registerFinaliser(.agent, &finaliseGc);
+    tag_ops.registerOwnedBytes(.agent, &ownedBytes);
 }
 
 const testing = std.testing;

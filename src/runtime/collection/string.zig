@@ -77,7 +77,14 @@ pub fn finaliseGc(gc_ptr: *anyopaque, header: *HeapHeader) void {
 /// Idempotent at the same fn pointer (`tag_ops.registerFinaliser`);
 /// `Runtime.init` calls this so registration lands before the first
 /// allocation.
+/// D-573: a live String's cost is its byte payload, not its 32-byte wrapper.
+fn ownedBytes(header: *HeapHeader) usize {
+    const str: *String = @ptrCast(@alignCast(header));
+    return str.bytes_len;
+}
+
 pub fn registerGcHooks() void {
+    tag_ops.registerOwnedBytes(.string, &ownedBytes);
     tag_ops.registerFinaliser(.string, &finaliseGc);
 }
 

@@ -122,7 +122,7 @@ pub fn makeProtocol(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLoc
     // DebugAllocator diagnostics at process exit. Test fixtures in
     // `runtime/protocol.zig` keep the prior manual-destroy shape
     // because their fqcn / methods are stack / rodata literals.
-    try rt.trackHeap(.{ .ptr = @ptrCast(@constCast(protocol_mod.asProtocol(v))), .free = protocol_mod.freeOwnedProtocol });
+    try rt.trackHeap(.{ .ptr = @ptrCast(@constCast(protocol_mod.asProtocol(v))), .free = protocol_mod.freeOwnedProtocol, .size = @sizeOf(protocol_mod.ProtocolDescriptor) });
     return v;
 }
 
@@ -155,7 +155,7 @@ pub fn makeProtocolFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceL
     const name_dup = try rt.gc.infra.dupe(u8, string_mod.asString(args[1]));
     errdefer rt.gc.infra.free(name_dup);
     const v = try protocol_mod.makeProtocolFn(rt, proto, name_dup);
-    try rt.trackHeap(.{ .ptr = @ptrCast(@constCast(protocol_mod.asProtocolFn(v))), .free = protocol_mod.freeOwnedProtocolFn });
+    try rt.trackHeap(.{ .ptr = @ptrCast(@constCast(protocol_mod.asProtocolFn(v))), .free = protocol_mod.freeOwnedProtocolFn, .size = @sizeOf(protocol_mod.ProtocolFn) });
     return v;
 }
 
@@ -570,7 +570,7 @@ pub fn reifyPrim(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocati
         .parent = null,
         .meta = Value.nil_val,
     };
-    try rt.trackHeap(.{ .ptr = td, .free = freeReifyDescriptor });
+    try rt.trackHeap(.{ .ptr = td, .free = freeReifyDescriptor, .size = @sizeOf(@TypeOf(td.*)) });
 
     return td_mod.allocReifiedInstance(rt, td);
 }

@@ -129,6 +129,12 @@ pub fn clearMarks(gc: *GcHeap) void {
 ///   - mark bit 0 == 1 (live): clear the bit, sum into
 ///     `last_live_bytes` for the next adaptive-threshold cycle.
 pub fn sweep(gc: *GcHeap) void {
+    // CLJW_GC_STATS=2 — per-tag owned-bytes breakdown of the LIVE set, printed
+    // per sweep. The diagnostic that found the D-573 numbers; kept because the
+    // next accounting question will want it too.
+    const debug_owned = if (@import("../process_env.zig").get("CLJW_GC_STATS")) |v| std.mem.eql(u8, v, "2") else false;
+    var owned_by_tag: [64]usize = @splat(0);
+    var count_by_tag: [64]usize = @splat(0);
     var live_bytes: usize = 0;
     var i: usize = gc.allocations.items.len;
     while (i > 0) {
@@ -152,9 +158,38 @@ pub fn sweep(gc: *GcHeap) void {
         } else {
             rec.header.gc_and_lock.gc_mark &= ~@as(u30, 1);
             live_bytes += rec.size;
+            // D-573: count what the object OWNS, not just its record block —
+            // a String's bytes, a BigInt's limbs, an array's elements. The
+            // trigger steers on this number; an invisible payload made the
+            // adaptive arm read as inert on exactly the heaviest heaps.
+            if (tag_ops.tag_owned_bytes_table[rec.header.tag]) |owned| {
+                const n = owned(rec.header);
+                live_bytes += n;
+                if (debug_owned) {
+                    owned_by_tag[rec.header.tag] += n;
+                    count_by_tag[rec.header.tag] += 1;
+                }
+            }
         }
     }
+    if (debug_owned) {
+        for (owned_by_tag, 0..) |n, tag| {
+            if (n > 0) std.debug.print("[gc-owned] tag={d} count={d} bytes={d}\n", .{ tag, count_by_tag[tag], n });
+        }
+        std.debug.print("[gc-owned] persistent_bytes={d}\n", .{gc.persistent_bytes});
+    }
     gc.stats.sweep_count += 1;
+    // Deliberately EXCLUDES `gc.persistent_bytes`. The trigger has two arms
+    // with separate jobs: this byte arm sizes the threshold against the SWEPT
+    // heap (allocate ~2x what is live before collecting again), and the
+    // time-share arm (ADR-0183 steerFloor) absorbs the cost of everything a
+    // collection actually traces — including the process-lifetime waypoints,
+    // which grow with every closure created and are re-traced every cycle.
+    // Folding them in here was measured to regress gc_alloc_rate ~11%: it
+    // inflates the threshold from bootstrap onward, collections stop
+    // refilling the free pool, and the alloc path degrades to malloc
+    // (ADR-0164's finding). The waypoints' cost is real, and the arm that
+    // measures real cost is the one that owns it.
     gc.stats.last_live_bytes = live_bytes;
 }
 
@@ -400,7 +435,7 @@ test "mark sets gc_mark bit 0 on a leaf header" {
     defer gc.deinit();
 
     const c = try gc.alloc(Cell);
-    c.* = .{ .header = HeapHeader.init(.string) };
+    c.* = .{ .header = HeapHeader.init(.symbol) };
     try testing.expectEqual(@as(u30, 0), c.header.gc_and_lock.gc_mark);
 
     mark(&gc, &c.header);
@@ -426,7 +461,7 @@ test "clearMarks resets bit 0 on every live allocation" {
     defer gc.deinit();
 
     const a = try gc.alloc(Cell);
-    a.* = .{ .header = HeapHeader.init(.string) };
+    a.* = .{ .header = HeapHeader.init(.symbol) };
     const b = try gc.alloc(Cell);
     b.* = .{ .header = HeapHeader.init(.vector) };
 
@@ -448,7 +483,7 @@ test "clearMarks preserves bits 1..29 (only bit 0 is the mark)" {
     defer gc.deinit();
 
     const c = try gc.alloc(Cell);
-    c.* = .{ .header = HeapHeader.init(.string) };
+    c.* = .{ .header = HeapHeader.init(.symbol) };
     c.header.gc_and_lock.gc_mark = 0b101010101; // arbitrary non-bit-0 pattern + bit 0
 
     clearMarks(&gc);
@@ -460,7 +495,7 @@ test "sweep removes unmarked allocations + frees their backing memory" {
     defer gc.deinit();
 
     const a = try gc.alloc(Cell);
-    a.* = .{ .header = HeapHeader.init(.string) };
+    a.* = .{ .header = HeapHeader.init(.symbol) };
     const b = try gc.alloc(Cell);
     b.* = .{ .header = HeapHeader.init(.vector) };
     const c = try gc.alloc(Cell);
@@ -498,7 +533,7 @@ test "collect: pinned roots survive; unpinned allocations get swept" {
     defer gc.deinit();
 
     const cell_kept = try gc.alloc(Cell);
-    cell_kept.* = .{ .header = HeapHeader.init(.string) };
+    cell_kept.* = .{ .header = HeapHeader.init(.symbol) };
     const cell_dropped = try gc.alloc(Cell);
     cell_dropped.* = .{ .header = HeapHeader.init(.vector) };
 
@@ -616,7 +651,7 @@ test "sweep iterating backward keeps swap-remove indices valid" {
     var survivor_addr: *HeapHeader = undefined;
     for (0..5) |idx| {
         const cell = try gc.alloc(Cell);
-        cell.* = .{ .header = HeapHeader.init(.string) };
+        cell.* = .{ .header = HeapHeader.init(.symbol) };
         if (idx == 2) {
             mark(&gc, &cell.header);
             survivor_addr = &cell.header;
@@ -657,4 +692,51 @@ test "mark bounds native stack on a deep cons chain (explicit worklist)" {
     drainGray(&gc);
     // The deep end (first-allocated cell) must have been reached.
     try testing.expectEqual(@as(u30, 1), gc.allocations.items[0].header.gc_and_lock.gc_mark & 1);
+}
+
+test "sweep counts finaliser-owned bytes via the per-tag hook (D-573)" {
+    // Register the real string hook, as Runtime.init does.
+    const string_mod = @import("../collection/string.zig");
+    string_mod.registerGcHooks();
+
+    var gc = GcHeap.init(testing.allocator);
+    defer gc.deinit();
+
+    const payload_len = 1000;
+    const payload = try gc.infra.alloc(u8, payload_len);
+    const s = try gc.alloc(string_mod.String);
+    s.* = .{
+        .header = HeapHeader.init(.string),
+        .bytes_ptr = payload.ptr,
+        .bytes_len = payload_len,
+    };
+
+    mark(&gc, &s.header);
+    sweep(&gc);
+
+    // The record block alone was the OLD number — the 4.6x under-report. The
+    // honest number includes the byte payload the finaliser would free.
+    try testing.expectEqual(@sizeOf(string_mod.String) + payload_len, gc.stats.last_live_bytes);
+}
+
+test "persistent bytes are measured but NOT folded into last_live (D-573)" {
+    var gc = GcHeap.init(testing.allocator);
+    defer gc.deinit();
+
+    var waypoint: extern struct { header: HeapHeader = HeapHeader.init(.symbol), payload: u64 = 0 } = .{};
+    try gc.registerPersistentMark(@ptrCast(&waypoint), 4096);
+    try testing.expectEqual(@as(usize, 4096), gc.persistent_bytes);
+
+    const a = try gc.alloc(Cell);
+    a.* = .{ .header = HeapHeader.init(.symbol) };
+    mark(&gc, &a.header);
+    sweep(&gc);
+
+    // The byte arm sizes against the SWEPT heap only; the waypoints' cost
+    // belongs to the time-share arm (see sweep()'s comment — folding them in
+    // was measured to starve the free pool and regress gc_alloc_rate ~11%).
+    try testing.expectEqual(@sizeOf(Cell), gc.stats.last_live_bytes);
+
+    gc.unregisterLastPersistentMark();
+    try testing.expectEqual(@as(usize, 0), gc.persistent_bytes);
 }

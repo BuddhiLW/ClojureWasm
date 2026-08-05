@@ -140,9 +140,16 @@ pub fn finaliseGc(gc_ptr: *anyopaque, header: *HeapHeader) void {
     gc.infra.destroy(p.cell);
 }
 
+/// D-573: the off-heap cell.
+fn ownedBytes(header: *HeapHeader) usize {
+    _ = header;
+    return @sizeOf(PromiseCell);
+}
+
 pub fn registerGcHooks() void {
     tag_ops.registerTrace(.promise, &traceGc);
     tag_ops.registerFinaliser(.promise, &finaliseGc);
+    tag_ops.registerOwnedBytes(.promise, &ownedBytes);
 }
 
 const testing = std.testing;

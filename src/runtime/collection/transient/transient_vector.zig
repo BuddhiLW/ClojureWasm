@@ -220,7 +220,14 @@ pub fn traceTransientVector(gc_ptr: *anyopaque, header: *HeapHeader) void {
 /// Register both the trace fn and the finaliser into the per-tag
 /// tables. Idempotent at the same fn pointers; `Runtime.init` calls
 /// this once before any allocation lands.
+/// D-573: the items buffer (capacity, not count — that is what is held).
+fn ownedBytes(header: *HeapHeader) usize {
+    const tv: *TransientVector = @ptrCast(@alignCast(header));
+    return if (tv.items_ptr != null) tv.capacity * @sizeOf(Value) else 0;
+}
+
 pub fn registerGcHooks() void {
+    tag_ops.registerOwnedBytes(.transient_vector, &ownedBytes);
     tag_ops.registerTrace(.transient_vector, &traceTransientVector);
     tag_ops.registerFinaliser(.transient_vector, &finaliseGc);
 }

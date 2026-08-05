@@ -129,6 +129,14 @@ fn assertHeaderAtOffsetZero(comptime T: type) void {
     }
 }
 
+/// A process-lifetime mark-waypoint (D-251) + the bytes it owns (D-573):
+/// the size feeds `persistent_bytes`, which sweep folds into
+/// `last_live_bytes` because these objects are re-traced every cycle.
+pub const PersistentMark = struct {
+    obj: *anyopaque,
+    size: usize,
+};
+
 /// Allocation + collection statistics.
 pub const Stats = struct {
     bytes_allocated: usize = 0,
@@ -207,7 +215,10 @@ pub const GcHeap = struct {
     /// per-tag trace never re-runs and any GC child reachable ONLY through them
     /// (a `Function`'s `closure_bindings`) is swept. `collect()` clears these
     /// bits at mark-phase start so the waypoint is re-traced every cycle.
-    persistent_marks: std.ArrayList(*anyopaque) = .empty,
+    persistent_marks: std.ArrayList(PersistentMark) = .empty,
+    /// Total bytes registered with the persistent marks (D-573): part of every
+    /// collection's marking cost, so part of `last_live_bytes`.
+    persistent_bytes: usize = 0,
     /// Per-(size, alignment) free pool heads. Sweep pushes freed blocks
     /// here (intrusive FreeNode at offset 8); `alloc` pops them as its
     /// fast path before falling back to `infra`.
@@ -320,10 +331,11 @@ pub const GcHeap = struct {
     /// children). Best-effort: a registration OOM is swallowed — the worst case
     /// is the pre-fix behaviour for that one object, not a crash.
     // GC-ROOT: D4 — process-lifetime trackHeap'd mark-waypoints (off gc.allocations); highest-risk moving-GC site [ref: .dev/gc_rooting.md §D]
-    pub fn registerPersistentMark(self: *GcHeap, obj: *anyopaque) !void {
+    pub fn registerPersistentMark(self: *GcHeap, obj: *anyopaque, size: usize) !void {
         io_default.lockMutex(&self.gc_mutex);
         defer io_default.unlockMutex(&self.gc_mutex);
-        try self.persistent_marks.append(self.infra, obj);
+        try self.persistent_marks.append(self.infra, .{ .obj = obj, .size = size });
+        self.persistent_bytes += size;
     }
 
     /// Roll back the most recent `registerPersistentMark` (for `trackHeap`'s
@@ -332,7 +344,7 @@ pub const GcHeap = struct {
     pub fn unregisterLastPersistentMark(self: *GcHeap) void {
         io_default.lockMutex(&self.gc_mutex);
         defer io_default.unlockMutex(&self.gc_mutex);
-        _ = self.persistent_marks.pop();
+        if (self.persistent_marks.pop()) |m| self.persistent_bytes -= m.size;
     }
 
     /// Clear the mark bit on every registered process-lifetime waypoint.
@@ -341,8 +353,8 @@ pub const GcHeap = struct {
     /// precondition) happens here, not at registration, so a registration
     /// never alignment-checks a non-Value pointer (e.g. a unit-test box).
     pub fn clearPersistentMarks(self: *GcHeap) void {
-        for (self.persistent_marks.items) |obj| {
-            const hdr: *HeapHeader = @ptrCast(@alignCast(obj));
+        for (self.persistent_marks.items) |m| {
+            const hdr: *HeapHeader = @ptrCast(@alignCast(m.obj));
             hdr.gc_and_lock.gc_mark &= ~@as(u30, 1);
         }
     }
@@ -639,7 +651,7 @@ test "GcHeap.alloc tracks bytes + count + bytes_since_last_gc" {
     defer gc.deinit();
 
     const c1 = try gc.alloc(Cell);
-    c1.* = .{ .header = HeapHeader.init(.string) };
+    c1.* = .{ .header = HeapHeader.init(.symbol) };
     try testing.expectEqual(@as(usize, 1), gc.allocations.items.len);
     try testing.expectEqual(@as(usize, @sizeOf(Cell)), gc.stats.bytes_allocated);
     try testing.expectEqual(@as(u64, 1), gc.stats.alloc_count);
@@ -675,7 +687,7 @@ test "concurrent alloc through the global heap lock is race-free (ADR-0090 §2)"
             var i: usize = 0;
             while (i < per_thread) : (i += 1) {
                 const c = g.alloc(Cell) catch return;
-                c.* = .{ .header = HeapHeader.init(.string) };
+                c.* = .{ .header = HeapHeader.init(.symbol) };
             }
         }
     };

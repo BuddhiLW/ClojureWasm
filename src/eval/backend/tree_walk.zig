@@ -296,7 +296,7 @@ pub fn allocFunctionTemplate(
         .name = fn_node.name,
         .defining_ns = fn_node.defining_ns,
     };
-    try rt.trackHeap(.{ .ptr = @ptrCast(f), .free = freeFunction });
+    try rt.trackHeap(.{ .ptr = @ptrCast(f), .free = freeFunction, .size = @sizeOf(@TypeOf(f.*)) });
     return Value.encodeHeapPtr(.fn_val, f);
 }
 
@@ -336,7 +336,7 @@ fn allocFunctionWithBytecodes(
         .name = fn_node.name,
         .defining_ns = fn_node.defining_ns,
     };
-    try rt.trackHeap(.{ .ptr = @ptrCast(f), .free = freeFunction });
+    try rt.trackHeap(.{ .ptr = @ptrCast(f), .free = freeFunction, .size = @sizeOf(@TypeOf(f.*)) });
     return Value.encodeHeapPtr(.fn_val, f);
 }
 
@@ -435,7 +435,7 @@ pub fn allocFunctionFromSerialized(
         .variadic = variadic_method,
         .closure_bindings = null,
     };
-    try rt.trackHeap(.{ .ptr = @ptrCast(f), .free = freeFunction });
+    try rt.trackHeap(.{ .ptr = @ptrCast(f), .free = freeFunction, .size = @sizeOf(@TypeOf(f.*)) });
     return Value.encodeHeapPtr(.fn_val, f);
 }
 

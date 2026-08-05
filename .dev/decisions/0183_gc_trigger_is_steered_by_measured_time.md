@@ -139,3 +139,13 @@ the live accounting; (3) replace the ramp with a GC-time-fraction target;
 ## Revision history
 
 - 2026-08-04: Proposed → Accepted.
+- 2026-08-05: the Consequences bullet "the deeper defect is NOT fixed" is now
+  half-resolved: `last_live_bytes` counts finaliser-owned side buffers via a
+  per-tag `ownedBytes` hook table (D-573 narrowed). The `persistent_marks`
+  half turned out to be a GROWING set (every closure allocation adds a
+  re-traced waypoint) and is measured but deliberately EXCLUDED from the byte
+  arm — folding it in regressed gc_alloc_rate ~11% by starving the free pool.
+  The division of labour stands: the byte arm sizes against the swept heap,
+  this ADR's time-share arm owns total traced cost (which is why the BFS still
+  needs it: its 13.6 ms/collect was waypoint tracing, invisible to any byte
+  count of the swept heap). CLJW_GC_STATS=2 prints the per-tag breakdown.

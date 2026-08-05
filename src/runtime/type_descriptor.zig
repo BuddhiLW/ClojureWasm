@@ -551,7 +551,7 @@ pub fn makeTypeDescriptorRef(rt: *Runtime, td: *const TypeDescriptor) !Value {
         .header = HeapHeader.init(.type_descriptor),
         .td_ptr = td,
     };
-    try rt.trackHeap(.{ .ptr = ref, .free = freeTypeDescriptorRef });
+    try rt.trackHeap(.{ .ptr = ref, .free = freeTypeDescriptorRef, .size = @sizeOf(TypeDescriptorRef) });
     const val = Value.encodeHeapPtr(.type_descriptor, ref);
     // Logical-const memoization (mirrors extendType's @constCast); the
     // descriptor is per-Runtime + process-lifetime so this is safe.
@@ -887,8 +887,15 @@ pub fn finaliseTypedInstance(gc_ptr: *anyopaque, header: *HeapHeader) void {
     gc.infra.free(inst.field_values_ptr[0..inst.field_count]);
 }
 
+/// D-573: the field-values slice finaliseTypedInstance frees.
+fn typedInstanceOwnedBytes(header: *HeapHeader) usize {
+    const inst: *TypedInstance = @ptrCast(@alignCast(header));
+    return inst.field_count * @sizeOf(Value);
+}
+
 pub fn registerGcHooks() void {
     tag_ops.registerTrace(.typed_instance, &traceTypedInstance);
+    tag_ops.registerOwnedBytes(.typed_instance, &typedInstanceOwnedBytes);
     tag_ops.registerTrace(.type_descriptor, &traceTypeDescriptorRef);
     tag_ops.registerFinaliser(.typed_instance, &finaliseTypedInstance);
     tag_ops.registerTrace(.reified_instance, &traceReifiedInstance);

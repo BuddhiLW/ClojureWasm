@@ -133,9 +133,16 @@ fn finaliseJavaArray(gc_ptr: *anyopaque, header: *HeapHeader) void {
     gc.infra.free(arr.items_ptr[0..arr.len]);
 }
 
+/// D-573: the element storage finaliseJavaArray frees.
+fn ownedBytes(header: *HeapHeader) usize {
+    const arr: *JavaArray = @ptrCast(@alignCast(header));
+    return arr.len * @sizeOf(@TypeOf(arr.items_ptr[0]));
+}
+
 pub fn registerGcHooks() void {
     tag_ops.registerTrace(.array, &traceJavaArray);
     tag_ops.registerFinaliser(.array, &finaliseJavaArray);
+    tag_ops.registerOwnedBytes(.array, &ownedBytes);
 }
 
 // --- tests ---

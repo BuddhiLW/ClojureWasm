@@ -54,41 +54,45 @@ active:
       D-571 (the runtime half); D-117(a) (serial accept).
   - id: "D-573"
     status: |-
-      PARTIALLY DISCHARGED 2026-08-04 (ADR-0183): the GC trigger is now steered
-      by the MEASURED GC time share instead of a byte constant. Measured on a
-      Rush Hour BFS (cw-arcade), same 3.17 GB allocated either way: 755
-      collections / 17.9 s -> 69 collections / 7.5 s, with no benchmark
-      regression.
-      RESIDUAL, and it is the deeper defect: **`last_live_bytes` under-reports
-      what marking costs.** `sweep()` counts only the GC record block, omitting
-      finaliser-owned side buffers (String bytes, BigInt limbs) and everything
-      in `persistent_marks` (traced on every collection, never swept, never
-      counted). Measured 78 MB reported against 359 MB RSS — 4.6x. So
-      `last_live * 2` is not a proportional-to-cost heap target, and the
-      adaptive arm can read as INERT while the collector is in fact tracing a
-      large graph. The BFS is that false negative: it reports 747 KB live while
-      a collection measurably costs 13.6 ms (marginal, via
-      `CLJW_GC_TORTURE_ALLOC` at three periods on the real workload).
-      With honest accounting the adaptive arm may govern on its own. Go's
-      answer to this exact problem (1.18) was to COMPLETE the marginal cost
-      model rather than add a heuristic on top of an incomplete one.
-      Also open: `conservativeStackScan` rebuilds a hash table over every live
-      allocation per collection — a real O(heap) fixed cost with a known
-      cheaper idiom (Boehm's page table). Not what the BFS paid, but it bites
-      the tree_walk backend as soon as its trigger is wired.
-    category: "perf"
+      NARROWED 2026-08-05 — the accounting half is FIXED; what remains is
+      `conservativeStackScan` (below).
+      LANDED: `last_live_bytes` now counts what a live object OWNS, not just
+      its GC record block — a per-tag `ownedBytes` hook table in `tag_ops`
+      (registered beside each finaliser: string bytes, BigInt limbs, array /
+      transient-vector / typed-instance element storage, ex_info message+trace,
+      regex source+program shell, the future/promise/delay/agent cells).
+      Measured: a 200k-string workload that v1.8.0 collected 263 times now
+      collects 55 (last_live 28.5 MB where the wrapper-only count was ~6 MB);
+      the BFS runs 58.9 s / 1624 collects on v1.8.0 vs 17.7 s / 114 with
+      ADR-0183 steering + this accounting. No bench moves (gc_alloc_rate
+      9-run medians 69 vs 70 ms; identical collects/pool counters).
+      FOUND + MEASURED on the way: `persistent_marks` is not a small static
+      set — every closure allocation trackHeap's a process-lifetime Function,
+      so the re-traced waypoint set GROWS with execution (measured 3.4 -> 55 MB
+      across three sweeps of one string workload; THIS is the real reason the
+      BFS paid 13.6 ms/collect while reporting 747 KB live). Waypoint bytes
+      are now measured (`gc.persistent_bytes`, sized trackHeap entries) and
+      DELIBERATELY excluded from the byte arm: folding them in inflated the
+      threshold from bootstrap onward and cost gc_alloc_rate ~11% (collections
+      stopped refilling the free pool — ADR-0164's finding). Division of
+      labour, recorded in sweep(): the byte arm sizes against the SWEPT heap;
+      the time-share arm (ADR-0183) owns the cost of everything a collection
+      actually traces, waypoints included. Diagnostic kept: CLJW_GC_STATS=2
+      prints a per-tag owned-bytes + persistent_bytes breakdown per sweep.
+      REMAINING (this row's live scope): `conservativeStackScan` rebuilds a
+      hash table over every live allocation per collection — a real O(heap)
+      fixed cost with a known cheaper idiom (Boehm's page table). Not what the
+      BFS paid, but it bites the tree_walk backend as soon as its trigger is
+      wired. Also distal: closure trackHeap accumulation is a leak-by-design
+      for long-lived processes (Functions are never swept) — surface when an
+      nREPL/server workload shows it.
+    category: perf
     barrier: |-
-      quality-loop floor: GC cost model. No blocker — the fix is to count what
-      is traced (ideally objects, since mark cost is per-object) rather than
-      what is swept. The time-share steering does NOT depend on it, which is
-      why it could land first.
-    first_raised: "2026-08-04"
-    last_reviewed: "2026-08-04"
-    refs: |-
-      .dev/decisions/0183_gc_trigger_is_steered_by_measured_time.md;
-      private/notes/2026-08-04-gc-heap-sizing-survey.md (the cross-runtime
-      survey + every measurement); src/runtime/gc/mark_sweep.zig (`sweep`,
-      `steerFloor`, `conservativeStackScan`).
+      quality-loop floor: GC cost model. Drain when touching the tree_walk
+      collect trigger or when a long-lived-process profile shows the stack-scan
+      / waypoint-growth cost.
+    last_reviewed: "2026-08-05"
+
   - id: "D-568"
     status: |-
       open (2026-08-04, ADR-0159 amendment 1 § implementer-verification item (a)).

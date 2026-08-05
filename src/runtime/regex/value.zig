@@ -120,7 +120,16 @@ pub fn traceRegex(gc_ptr: *anyopaque, header: *HeapHeader) void {
     if (r.meta.heapHeader()) |h| mark_sweep.mark(gc, h);
 }
 
+/// D-573: the source copy + the compiled program shell. The program's
+/// internal instruction lists are owned too; the shell + source is the
+/// stable, cheap approximation.
+fn ownedBytes(header: *HeapHeader) usize {
+    const r: *Regex = @ptrCast(@alignCast(header));
+    return r.source_len + @sizeOf(@TypeOf(r.program.*));
+}
+
 pub fn registerGcHooks() void {
+    tag_ops.registerOwnedBytes(.regex, &ownedBytes);
     tag_ops.registerTrace(.regex, &traceRegex);
     tag_ops.registerFinaliser(.regex, &finaliseGc);
 }

@@ -150,8 +150,16 @@ pub fn finaliseGc(gc_ptr: *anyopaque, header: *HeapHeader) void {
 /// BigInt has no Value fields → no trace fn needed (the GC walks
 /// the live list, sees BigInt's tag, and skips the per-tag trace
 /// table lookup when no entry is registered).
+/// D-573: the Managed header + its limb storage, which is what finaliseGc
+/// frees. `limbs.len` is the allocated capacity (std.math.big Managed).
+fn ownedBytes(header: *HeapHeader) usize {
+    const bi: *BigInt = @ptrCast(@alignCast(header));
+    return @sizeOf(std.math.big.int.Managed) + bi.m.limbs.len * @sizeOf(std.math.big.Limb);
+}
+
 pub fn registerGcHooks() void {
     tag_ops.registerFinaliser(.big_int, &finaliseGc);
+    tag_ops.registerOwnedBytes(.big_int, &ownedBytes);
 }
 
 /// Decode a BigInt Value into its *Managed for read-only access.
