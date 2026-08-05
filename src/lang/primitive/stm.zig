@@ -124,8 +124,8 @@ pub fn derefFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation
         // except that the eval budget's deadline bounds the block: `@(promise)`
         // under a metered evaluation raises rather than parking forever.
         .promise => blk: {
-            if (promise_mod.deref(v, eval_budget.deadlineOf(rt))) |val| break :blk val;
-            try eval_budget.checkDeadlineNow(rt);
+            if (promise_mod.deref(v, eval_budget.deadlineOf())) |val| break :blk val;
+            try eval_budget.checkDeadlineNow(rt.io);
             // No budget armed → an undelivered promise is a user deadlock, as in
             // clj; the bounded wait only returns null when a deadline passed.
             break :blk promise_mod.deref(v, null).?;
@@ -135,12 +135,12 @@ pub fn derefFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation
         // The `future_thunk_failed` fallback only fires if the marshal yielded
         // nil (no error info — shouldn't happen at a real thunk failure).
         .future => blk: {
-            if (future_mod.deref(v, eval_budget.deadlineOf(rt))) |val| break :blk val;
+            if (future_mod.deref(v, eval_budget.deadlineOf())) |val| break :blk val;
             // The budget's wall clock bounds this block: a deref that outlasts
             // the deadline raises the (uncatchable) budget error rather than
             // parking forever. Checked BEFORE the cancelled/failed cases so a
             // still-pending future reports the reason it actually stopped.
-            if (!future_mod.isRealised(v)) try eval_budget.checkDeadlineNow(rt);
+            if (!future_mod.isRealised(v)) try eval_budget.checkDeadlineNow(rt.io);
             // D-442 / ADR-0153: a cancelled future's deref throws a
             // CancellationException (distinct from a thunk failure).
             if (future_mod.isCancelled(v)) break :blk error_catalog.raise(.future_cancelled, loc, .{});

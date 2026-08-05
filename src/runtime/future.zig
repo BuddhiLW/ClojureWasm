@@ -34,6 +34,7 @@ const Env = @import("env.zig").Env;
 const root_set = @import("gc/root_set.zig");
 const io_default = @import("concurrency/io_default.zig");
 const Latch = @import("concurrency/latch.zig").Latch;
+const eval_budget = @import("concurrency/eval_budget.zig");
 const clock = @import("clock.zig");
 const lock_tx = @import("concurrency/lock_tx.zig");
 const tag_ops = @import("gc/tag_ops.zig");
@@ -83,6 +84,9 @@ pub const Future = extern struct {
     rt: *Runtime,
     env: *Env,
     cell: *FutureCell,
+    /// The eval budget inherited from the spawner (D-571), or null. The worker
+    /// adopts it for its whole run; the reference is dropped on worker exit.
+    budget: ?*eval_budget.EvalBudget,
 
     comptime {
         std.debug.assert(@alignOf(Future) >= 8);
@@ -97,10 +101,6 @@ pub const Future = extern struct {
 /// promptly. Threadlocal: each worker sees only its own future.
 pub threadlocal var current_future: ?*Future = null;
 
-/// True iff the current worker's future was `future-cancel`led — a blocking
-/// primitive polls this to abort promptly (ADR-0153 sub-step 2a). false on the
-/// main thread (no `current_future`) or an un-cancelled worker. Reads the state
-/// under the cell mutex (the same serialisation `cancel` writes under).
 /// The latch a blocking primitive on THIS worker waits on so a `future-cancel`
 /// wakes it immediately, or null on the main thread / a non-worker thread.
 ///
@@ -114,6 +114,10 @@ pub fn currentCancelLatch() ?*Latch {
     return &f.cell.settled;
 }
 
+/// True iff the current worker's future was `future-cancel`led — a blocking
+/// primitive polls this to abort promptly (ADR-0153 sub-step 2a). false on the
+/// main thread (no `current_future`) or an un-cancelled worker. Reads the state
+/// under the cell mutex (the same serialisation `cancel` writes under).
 pub fn cancelRequested() bool {
     const f = current_future orelse return false;
     io_default.lockMutex(&f.cell.mutex);
@@ -142,6 +146,8 @@ pub fn alloc(rt: *Runtime, env: *Env, thunk: Value, loc: SourceLocation) !Value 
         .rt = rt,
         .env = env,
         .cell = cell,
+        // Capture on the SPAWNER's thread: the budget follows the work.
+        .budget = eval_budget.inherit(),
     };
     const fut_val = Value.encodeHeapPtr(.future, f);
     // Pin so the worker's write target survives even when no deref'er holds it.
@@ -151,6 +157,8 @@ pub fn alloc(rt: *Runtime, env: *Env, thunk: Value, loc: SourceLocation) !Value 
     root_set.noteWorkerSpawned();
     var t = std.Thread.spawn(.{}, worker, .{f}) catch |e| {
         root_set.noteWorkerExited();
+        if (f.budget) |b| b.unref();
+        f.budget = null;
         _ = rt.gc.unpin(fut_val);
         return e;
     };
@@ -176,6 +184,14 @@ fn worker(f: *Future) void {
     // `cancelRequested` and abort cooperatively (ADR-0153 sub-step 2a).
     current_future = f;
     defer current_future = null;
+
+    // Adopt the spawner's budget (D-571): the thunk's back-edges tick the
+    // SHARED counter and its blocking calls are cut at the SHARED deadline, so
+    // outliving the with-budget extent does not shed the meter. Read once —
+    // `f` may be swept after the final unpin, but this frame's copy is ours.
+    const inherited_budget = f.budget;
+    eval_budget.adopt(inherited_budget);
+    defer eval_budget.release(inherited_budget);
 
     var result_state: FutureState = .realised_error;
     var result_value: Value = .nil_val;

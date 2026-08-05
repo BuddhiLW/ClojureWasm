@@ -24,6 +24,7 @@ const Reader = @import("reader.zig").Reader;
 const analyzer = @import("analyzer/analyzer.zig");
 const macro_dispatch = @import("macro_dispatch.zig");
 const Runtime = @import("../runtime/runtime.zig").Runtime;
+const eval_budget_mod = @import("../runtime/concurrency/eval_budget.zig");
 const env_mod = @import("../runtime/env.zig");
 const Env = env_mod.Env;
 const Value = @import("../runtime/value/value.zig").Value;
@@ -210,9 +211,10 @@ test "ADR-0125: a step budget kills an infinite loop under BOTH backends" {
     try Fixture.init(&f, testing.allocator);
     defer f.deinit();
     inline for (.{ BackendChoice.tree_walk, BackendChoice.vm }) |backend| {
-        f.rt.eval_budget = .{ .step_ceiling = 50_000 };
+        const b = try eval_budget_mod.EvalBudget.create(testing.allocator, .{ .step_ceiling = 50_000 });
+        eval_budget_mod.current = b;
+        defer eval_budget_mod.release(b);
         const r = runOnce(&f.rt, &f.env, &f.table, f.arena.allocator(), "(loop* [] (recur))", backend);
         try testing.expectError(error.ResourceExhausted, r);
     }
-    f.rt.eval_budget = null;
 }

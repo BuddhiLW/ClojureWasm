@@ -33,6 +33,7 @@ const Runtime = @import("runtime.zig").Runtime;
 const Env = @import("env.zig").Env;
 const root_set = @import("gc/root_set.zig");
 const io_default = @import("concurrency/io_default.zig");
+const eval_budget = @import("concurrency/eval_budget.zig");
 const lock_tx = @import("concurrency/lock_tx.zig");
 const host_instance = @import("host_instance.zig");
 const worker_error = @import("concurrency/worker_error.zig");
@@ -66,6 +67,9 @@ pub const ThreadState = struct {
     /// Back-pointer for the worker (unpin + rt access).
     rt: *Runtime,
     env: *Env,
+    /// The eval budget inherited from the spawner at `.start` (D-571), or
+    /// null. The worker adopts it; the reference drops on worker exit.
+    budget: ?*eval_budget.EvalBudget = null,
 };
 
 /// The Thread object the CURRENT OS thread is running as: set by `worker`
@@ -136,6 +140,8 @@ pub fn start(rt: *Runtime, thread_val: Value, loc: SourceLocation) !Value {
     }
     st.run_state = .running;
     io_default.unlockMutex(&st.cell.mutex);
+    // Capture on the SPAWNER's thread (D-571): the budget follows the work.
+    st.budget = eval_budget.inherit();
 
     // Pin: the worker writes to the Thread value after main may have
     // dropped every reference (fire-and-forget start) — future.zig's rule.
@@ -149,6 +155,8 @@ pub fn start(rt: *Runtime, thread_val: Value, loc: SourceLocation) !Value {
     root_set.noteWorkerSpawned();
     var t = std.Thread.spawn(.{}, worker, .{thread_val}) catch |e| {
         root_set.noteWorkerExited();
+        if (st.budget) |b| b.unref();
+        st.budget = null;
         io_default.lockMutex(&st.cell.mutex);
         st.run_state = .done;
         io_default.unlockMutex(&st.cell.mutex);
@@ -172,6 +180,15 @@ fn worker(thread_val: Value) void {
 
     current_thread_val = thread_val;
     defer current_thread_val = .nil_val;
+
+    // Adopt the spawner's budget (D-571): back-edges tick the shared counter,
+    // blocking calls are cut at the shared deadline. A budget breach escapes
+    // the thunk as an uncaught error (the JVM-style stderr report below), so
+    // a sleeping thread dies AT the deadline instead of holding the
+    // join-at-exit barrier for its full sleep.
+    const inherited_budget = st.budget;
+    eval_budget.adopt(inherited_budget);
+    defer eval_budget.release(inherited_budget);
 
     // ADR-0175: NEVER run the thunk unregistered (registry cap hit) — an
     // unregistered mutator is invisible to the STW rendezvous + root walk.

@@ -56,6 +56,7 @@ const dispatch = @import("dispatch.zig");
 const error_mod = @import("error/info.zig");
 const lock_tx = @import("concurrency/lock_tx.zig");
 const worker_error = @import("concurrency/worker_error.zig");
+const eval_budget = @import("concurrency/eval_budget.zig");
 const promise_mod = @import("promise.zig");
 const ex_info = @import("collection/ex_info.zig");
 const gc_torture = @import("gc/gc_torture.zig");
@@ -70,6 +71,13 @@ const gc_torture = @import("gc/gc_torture.zig");
 const Action = struct {
     body: Value,
     completion: Value = .nil_val,
+    /// The eval budget inherited from the SENDER at enqueue (D-571), or null.
+    /// The drainer adopts it around this action's run, so an action sent from
+    /// inside a `with-budget` extent is metered by that budget wherever (and
+    /// whenever) it runs. One reference per queued action; dropped after the
+    /// run, on a cleared queue (`restart-agent :clear-actions`), and by the
+    /// finaliser for actions still queued when the agent is swept.
+    budget: ?*eval_budget.EvalBudget = null,
 };
 
 /// Off-heap control block: the queue mutex, the single-drainer flag, and the
@@ -190,7 +198,12 @@ pub fn current(v: Value) Value {
 /// the agent. Enqueues under `cell.mutex` and, if no drainer is live, spawns one.
 /// The mutex is held only across the gpa push (leaf-lock invariant).
 pub fn send(rt: *Runtime, agent_val: Value, action: Value) !void {
-    try enqueueAction(rt, agent_val, .{ .body = action });
+    const act: Action = .{ .body = action, .budget = eval_budget.inherit() };
+    enqueueAction(rt, agent_val, act) catch |e| {
+        // Never entered a queue — the captured reference is ours to drop.
+        if (act.budget) |b| b.unref();
+        return e;
+    };
 }
 
 /// `(await a)`'s engine half: enqueue a pure barrier (no state change) whose
@@ -199,7 +212,11 @@ pub fn send(rt: *Runtime, agent_val: Value, action: Value) !void {
 /// own watch fire (`[s s]`, clj-faithful) has run — closing the race where the
 /// awaiter woke before the fire (the in-body `(deliver p s)` did, D-368).
 pub fn sendAwait(rt: *Runtime, agent_val: Value, completion: Value) !void {
-    try enqueueAction(rt, agent_val, .{ .body = .nil_val, .completion = completion });
+    const act: Action = .{ .body = .nil_val, .completion = completion, .budget = eval_budget.inherit() };
+    enqueueAction(rt, agent_val, act) catch |e| {
+        if (act.budget) |b| b.unref();
+        return e;
+    };
 }
 
 /// A nested send held during an action's run: its target agent + the action.
@@ -251,7 +268,10 @@ fn releasePendingSends(rt: *Runtime) void {
     var list = nested_pending orelse return;
     nested_pending = null;
     for (list.items) |ps| {
-        enqueueDirect(rt, ps.agent, ps.action) catch {};
+        enqueueDirect(rt, ps.agent, ps.action) catch {
+            // The dropped send's budget reference goes with it.
+            if (ps.action.budget) |b| b.unref();
+        };
         unpinAction(rt, ps.action);
         _ = rt.gc.unpin(ps.agent);
     }
@@ -268,7 +288,10 @@ pub fn releasePending(rt: *Runtime) usize {
     var list = nested_pending orelse return 0;
     const n = list.items.len;
     for (list.items) |ps| {
-        enqueueDirect(rt, ps.agent, ps.action) catch {};
+        enqueueDirect(rt, ps.agent, ps.action) catch {
+            // The dropped send's budget reference goes with it.
+            if (ps.action.budget) |b| b.unref();
+        };
         unpinAction(rt, ps.action);
         _ = rt.gc.unpin(ps.agent);
     }
@@ -413,7 +436,11 @@ fn drainer(a: *Agent) void {
         dispatch.last_thrown_context = null;
         error_mod.clearLastError();
 
-        // Run the action OUTSIDE the lock: (apply f state args...).
+        // Run the action OUTSIDE the lock: (apply f state args...), metered by
+        // the SENDER's budget (D-571) — adopt/release wraps exactly this run,
+        // so each queued action carries its own sender's bound.
+        eval_budget.adopt(action.budget);
+        defer eval_budget.release(action.budget);
         runAction(a, action) catch {
             const thrown = captureThrown(a);
             // clj: the error handler (if set) runs on an action error in BOTH
@@ -572,6 +599,9 @@ pub fn restart(rt: *Runtime, agent_val: Value, new_state: Value, clear_actions: 
     a.error_val = .nil_val;
     @atomicStore(Value, &a.state, new_state, .release);
     if (clear_actions) {
+        for (a.cell.actions.items[a.cell.head..]) |act| {
+            if (act.budget) |b| b.unref();
+        }
         a.cell.actions.clearRetainingCapacity();
         a.cell.head = 0;
     }
@@ -634,6 +664,11 @@ pub fn traceGc(gc_ptr: *anyopaque, header: *HeapHeader) void {
 pub fn finaliseGc(gc_ptr: *anyopaque, header: *HeapHeader) void {
     _ = gc_ptr;
     const a: *Agent = @ptrCast(@alignCast(header));
+    // Actions still queued (a failed agent swept before restart) hold budget
+    // references that no drainer will ever drop.
+    for (a.cell.actions.items[a.cell.head..]) |act| {
+        if (act.budget) |b| b.unref();
+    }
     a.cell.actions.deinit(a.rt.gpa);
     a.rt.gpa.destroy(a.cell);
 }

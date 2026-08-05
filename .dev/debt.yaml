@@ -24,36 +24,6 @@
 # md-table-align no longer pads it to ~800 KB of whitespace.
 
 active:
-  - id: "D-571"
-    status: |-
-      NARROWED 2026-08-05 (ADR-0182 accepted as Alternative B). The blocking
-      FAMILY is now bounded — `@(promise)`, `@(future …)`, timed deref,
-      `Thread/sleep` and `(await agent)` all wait on a latch bounded by
-      `min(caller timeout, budget deadline)` via `std.Io.Event.waitTimeout`
-      (`concurrency/latch.zig`). The claim this row originally carried — that
-      Zig 0.16 has no timed wait, so the family needed a primitive of its own —
-      was FALSE and was falsified by a devil's-advocate fork before it could
-      calcify. Two further things closed with it: `(Thread/sleep <huge long>)`
-      no longer aborts the process, and `@(future (Thread/sleep 2000))` with NO
-      budget armed went 2321-2358 ms -> 2000-2001 ms (the 20 ms cancel poll was
-      slicing every sleep; `future-cancel` latency went 20 ms -> 0 ms).
-      WHAT REMAINS, and it is a different problem from the one this row opened
-      with — `rt.eval_budget` has no THREAD-OWNERSHIP story:
-      (a) A `Thread.` started INSIDE a `with-budget` extent outlives it
-          UNMETERED (the slot is restored by value on extent exit, so the
-          worker's re-deref finds null), and cljw's join-at-exit barrier then
-          keeps the process alive with it. One expression, one public endpoint.
-      (b) A worker's back-edges charge the MAIN thread's step counter: a compute
-          loop on a spawned `Thread.` plus a short sleep on main reports
-          `:exhausted :steps` for a main thunk that executed almost nothing.
-      Both are the same root: one non-atomic `?EvalBudget` slot read and written
-      by every thread. The fix is a per-evaluation budget the spawner passes
-      down, not a Runtime field — which is also the precondition for ADR-0182's
-      Alternative C (run the metered thunk under `io.async` and cancel it at the
-      deadline, so no callee knows the budget exists).
-      Barrier: quality-loop floor: concurrency correctness.
-      Last reviewed: 2026-08-05.
-
   - id: "D-572"
     status: |-
       open (2026-08-04). The cw-playground demo evaluates untrusted submissions
@@ -2728,6 +2698,34 @@ standing:
     barrier: "open after the D-440 arc completes (R4 + R5 must first rewrite the bulk of 'Phase N' citations to gap-area terms). Premature adoption = ~70 dangling citations with no 1:1 redirect. Trigger: D-440 R4/R5 done + a user nod to re-architect the planning axis (it is depth-4, the project's organizing metaphor)."
     last_reviewed: "2026-06-15"
 discharged:
+  - id: "D-571"
+    status: |-
+      DISCHARGED 2026-08-05 — the budget follows the work (thread-ownership
+      landed). `EvalBudget` is a refcounted heap object; the evaluating thread
+      holds it in the threadlocal `eval_budget.current`, and every spawner
+      captures a reference at spawn: `Thread.` (`thread.zig` start/worker),
+      `future` (`future.zig` alloc/worker), and each agent ACTION at enqueue
+      (`agent.zig` — per action, not per drainer, so one drainer serving many
+      senders meters each action by its own sender's budget). A worker that
+      outlives the `with-budget` extent keeps its reference: (a) a sleeping
+      `Thread.` dies AT the deadline instead of holding the join-at-exit
+      barrier for its full sleep (e2e measured 945 ms for a 60 s sleep under a
+      500 ms deadline — was a 60 s process hang); (b) the step counter is a
+      shared ATOMIC total across the evaluation's threads — a spawned compute
+      loop cannot escape the ceiling by moving off-thread, every thread trips
+      the same latch, and the count is exact (unit-tested 4-thread exact-trip),
+      where the Runtime-slot predecessor was a data race that read null after
+      extent exit. e2e: test/e2e/budget_thread_ownership.sh (6 cases, incl.
+      future/agent death-at-deadline and the no-stale-inheritance negative).
+      The earlier NARROWED text (2026-08-05, ADR-0182 Alternative B: the
+      blocking family bounded on `Latch`/`std.Io.Event.waitTimeout`) is the
+      first half of the same arc; this completes it. ADR-0182 Alternative C
+      (io.async cancellation) remains a possible future shape — its
+      precondition (a per-evaluation budget object) now exists.
+    category: concurrency
+    barrier: none — discharged
+    last_reviewed: "2026-08-05"
+
   - id: "D-383"
     status: "DISCHARGED 2026-07-17 — the barrier had already dissolved: a regex literal in a bundled `.clj` now builds through cache_gen AND works at runtime (probe: `(re-find #\"[a-f0-9]+\" s)` appended to clojure/uuid.clj → clean build + correct result; the bootstrap path uses the unified reader). Reality-alignment landed: clojure/instant.clj guard restored to the natural `(re-find #\"[\\\"\\\\]\" s)` form (semantically identical to the char-set workaround; now also the living lock — every read-instant-date call exercises a bundled-ns regex literal, e2e quote_chars_rejected pins it); stale \"regex unsupported in bundled ns\" comments removed from pprint.clj (char walk kept — legitimate single-pass impl, no longer forced) + tools/cli.clj header. D-058 (renderer file-context mis-attribution) remains its own row."
     category: "reader"

@@ -23,7 +23,6 @@
 
 const std = @import("std");
 const io_default = @import("concurrency/io_default.zig");
-const eval_budget_mod = @import("concurrency/eval_budget.zig");
 const KeywordInterner = @import("keyword.zig").KeywordInterner;
 const SymbolInterner = @import("symbol.zig").SymbolInterner;
 const dispatch = @import("dispatch.zig");
@@ -123,8 +122,6 @@ pub const Runtime = struct {
     /// throttled, check the wall-clock deadline) and raise an UNCATCHABLE
     /// `resource_exhausted` error on expiry. `null` (default) = unmetered. Set
     /// by `runSource` from `CLJW_EVAL_MAX_STEPS` / `CLJW_EVAL_DEADLINE_MS`.
-    eval_budget: ?eval_budget_mod.EvalBudget = null,
-
     /// Keyword interner. Tied to this Runtime, not a global, so
     /// independent Runtimes (parallel tests / future multi-tenant
     /// nREPL) coexist without sharing a table.

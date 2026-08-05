@@ -59,7 +59,7 @@ fn sleep(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anye
     // next blocking primitive inherits the bound instead of re-opening the hole.
     // Both are instants, so it is ONE wait: with neither armed, one
     // uninterrupted sleep; with a cancel armed, a wait the cancel itself wakes.
-    try eval_budget.budgetedSleep(rt, total_ns, future.currentCancelLatch());
+    try eval_budget.budgetedSleep(rt.io, total_ns, future.currentCancelLatch());
     if (future.cancelRequested()) return error_catalog.raise(.future_cancel_abort, .{}, .{});
     return Value.nil_val;
 }

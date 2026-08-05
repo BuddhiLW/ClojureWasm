@@ -261,3 +261,10 @@ none of B is wasted if C later lands.
   (`std.Io.Event.waitTimeout` exists and was verified by execution), so the
   deferral of the blocking family to D-571 was a mistake, not a scope decision.
   Decision and Consequences rewritten against the landed diff and re-measured.
+- 2026-08-05 (b): the "still NOT closed" Consequences bullet is now closed —
+  D-571 discharged. The budget is a refcounted per-evaluation object
+  (threadlocal `current`, spawner-captured references for `Thread.` / `future`
+  / each agent action), the step counter is a shared atomic total, and a worker
+  that outlives the extent trips on the same budget. This also lands the
+  precondition Alternative C names (a budget object owned by the evaluation,
+  not the Runtime).

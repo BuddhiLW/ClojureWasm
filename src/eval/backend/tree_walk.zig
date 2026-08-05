@@ -35,6 +35,7 @@ const root_set = @import("../../runtime/gc/root_set.zig");
 const Value = @import("../../runtime/value/value.zig").Value;
 const HeapHeader = @import("../../runtime/value/value.zig").HeapHeader;
 const Runtime = @import("../../runtime/runtime.zig").Runtime;
+const eval_budget_mod = @import("../../runtime/concurrency/eval_budget.zig");
 const env_mod = @import("../../runtime/env.zig");
 const Env = env_mod.Env;
 const Var = env_mod.Var;
@@ -1007,7 +1008,7 @@ fn evalLoop(rt: *Runtime, env: *Env, locals: []Value, n: node_mod.LoopNode) anye
     while (true) {
         // ADR-0125: in-process eval budget — TreeWalk loop back-edge (parity
         // with the VM back-edge poll). Unmetered = one optional unwrap.
-        if (rt.eval_budget) |*budget| try budget.tick(rt.io);
+        if (eval_budget_mod.current) |budget| try budget.tick(rt.io);
         if (eval(rt, env, locals, n.body)) |result| {
             return result;
         } else |err| switch (err) {
@@ -1493,7 +1494,7 @@ fn callMethodImpl(rt: *Runtime, env: *Env, f: *Function, args: []const Value, lo
     while (true) {
         // ADR-0125: in-process eval budget — TreeWalk fn-tail-recur back-edge
         // (parity with the VM + loop* polls). Unmetered = one optional unwrap.
-        if (rt.eval_budget) |*budget| try budget.tick(rt.io);
+        if (eval_budget_mod.current) |budget| try budget.tick(rt.io);
         if (eval(rt, env, locals[0..fs], m.body)) |result| {
             return result;
         } else |err| switch (err) {

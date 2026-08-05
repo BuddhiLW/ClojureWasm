@@ -120,7 +120,8 @@ pub fn runSource(
     // ADR-0125: install the env-armed eval budget now that bootstrap is
     // complete, so the wall-clock deadline starts at user-eval time (bootstrap
     // is not charged). No-op when no CLJW_EVAL_* env was set.
-    eval_budget.installFromEnv(&rt.eval_budget, io);
+    const env_budget = try eval_budget.installFromEnv(rt.gpa, io);
+    defer if (env_budget) |b| eval_budget.release(b);
     // D-352: the live-heap ceiling lives on the GcHeap (where byte accounting
     // is); install it + the catalog-raising hook here.
     if (eval_budget.pendingHeapCeiling()) |cap| {
@@ -169,7 +170,7 @@ pub fn runSource(
             // cljw.eval/with-budget's restore-before-build. renderAndExit exits, so
             // no restore is needed. (Mac happened to fit under the cap; Linux did
             // not — this makes the render allocation-safe on both.)
-            rt.eval_budget = null;
+            eval_budget.current = null;
             rt.gc.heap_ceiling = null;
             rt.gc.heap_exceeded_hook = null;
             error_render.renderAndExit(stderr, ctx, err);

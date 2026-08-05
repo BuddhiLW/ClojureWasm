@@ -496,6 +496,7 @@ run_step "e2e_phase8_exit_smoke"             "bash test/e2e/phase8_exit_smoke.sh
 run_step "e2e_phase9_edn_read_string"        "bash test/e2e/phase9_edn_read_string.sh"
 run_step "e2e_phase9_json"                   "bash test/e2e/phase9_json.sh"
 run_step "e2e_data_errors_catchable"         "bash test/e2e/data_errors_catchable.sh"
+run_step "e2e_budget_thread_ownership"       "bash test/e2e/budget_thread_ownership.sh"
 run_step "e2e_phase14_json_options"          "bash test/e2e/phase14_json_options.sh"
 run_step "e2e_phase14_require_idempotent"    "bash test/e2e/phase14_require_idempotent.sh"
 run_step "e2e_phase9_csv"                    "bash test/e2e/phase9_csv.sh"
