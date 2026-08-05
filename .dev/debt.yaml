@@ -92,7 +92,6 @@ active:
       collect trigger or when a long-lived-process profile shows the stack-scan
       / waypoint-growth cost.
     last_reviewed: "2026-08-05"
-
   - id: "D-568"
     status: |-
       open (2026-08-04, ADR-0159 amendment 1 § implementer-verification item (a)).
@@ -546,9 +545,41 @@ active:
       into an op_load_class. Not campaign-blocking.
     last_reviewed: "2026-06-16"
   - id: "D-450"
-    status: "open (RE-MEASURED 2026-06-24, Mac M4 Pro; supersedes the stale 2026-06-16 list). Still 19/30 fastest-script. ratio_sum CLOSED (was #1 @3.15x -> now 0.84x; O-046 small-tier + O-050 Knuth big-tier add). LIVE GAPS (cljw/fastest-script): sieve 1.59x(bb) . gc_alloc_rate 1.43x(bb) . string_ops 1.40x(bb) . destructure 1.20x(bb) . json_parse 1.12x(py) . map_filter_reduce 1.11x(py) . bigint_factorial 1.08x(py) . gc_large_heap 1.07x(bb) . nested_update 1.05x(py). CAVEAT: this session machine under load (~+7-8ms all benches; cljw cold-floor proxy fib_loop 13.7ms vs 2026-06-16 5.1ms, peers rose similarly -> mostly load not a cljw regression) -> relative gaps are the signal; re-measure on a quiet Mac before treating bigint_factorial/destructure/gc_alloc_rate (prev O-047/O-048/O-040-closed) as genuine regressions vs load-compression. RECONSTRUCTED LEVER ORDER (private/notes/9.2.S-plan-reconstruction-20260624.md): (1) STARTUP FLOOR D-140 = highest cross-cutting (sieve top-gap floor-sensitive; profile runner.zig setupCoreAot restore) (2) GC-arch pair (own ADR+DA) (3) string_ops (4) map_filter_reduce NEW gap (check O-045 fused-reduce gate). README table regenerated from the fresh yaml."
+    status: |-
+      RE-ANCHORED 2026-08-05 (USER-DIRECTED): **the campaign's main axis is
+      now the REAL-WORKLOAD interpreter gap, treated at the root — not the
+      micro-bench list.** The evidence that forced the re-anchor: cw-arcade
+      rush-hour `medium` generation (seed 7, M4 Pro, cljw v1.9.0) runs
+      **17.9 s vs clj 1.07 s (17x) and babashka 2.46 s (7x)**, AFTER the GC
+      arc removed the collection tax (58.9 -> 17.7 s; ADR-0183 + D-573 — the
+      remaining time is measured to NOT be GC). The workload shape is
+      allocate-a-persistent-map-per-move + a growing visited set — hash /
+      assoc / seq churn on persistent collections under a tree-walk/bytecode
+      interpreter. The 7x-vs-babashka number is the sharpest signal: bb is
+      ALSO a JIT-less interpreter (SCI on native-image), so the gap is NOT
+      "JIT vs no JIT" — it is cljw's per-op dispatch + collection-op cost vs
+      the JVM's optimised Clojure collection implementations. That means real
+      headroom before any JIT.
+      METHOD for the re-anchored campaign (root-cause, big-bang per lever —
+      not micro-bench whack-a-mole): (1) PROFILE FIRST on the real workload —
+      `sample` on `cljw -e "(require '[rush-hour.generator :as g]) (g/generate 7 :medium)"`
+      (run from cw-arcade/apps/rush-hour) now that collectStopTheWorld is out
+      of the profile; attribute cycles to dispatch / hash / assoc / seq /
+      alloc before choosing a lever. (2) The standing lever stack, in
+      evidence order: D-386 per-op dispatch (stepOnce prologue + 3 per-op
+      polls; superinstructions/fusion = gap area III, ROADMAP §9.19),
+      persistent-map hash+assoc fast paths (the BFS's dominant ops), free-pool
+      alloc path (pool_hits vs mallocs under the new trigger). (3) The
+      rush-hour BFS becomes the campaign's HEADLINE benchmark (real program,
+      oracle-checked output); the 9-target fastest-script list below is
+      DEMOTED to a regression fence — keep it green, stop optimising for it.
+      (4) Same experiment discipline as before: measure >= 10 runs, revert
+      freely, diff oracle + corpus stay green, per-lever ADR when a design
+      changes (GC-arch class levers need their own ADR + DA fork).
+      PRIOR STATUS (2026-06-24 micro-bench framing, kept as the fence):
+      open (RE-MEASURED 2026-06-24, Mac M4 Pro; supersedes the stale 2026-06-16 list). Still 19/30 fastest-script. ratio_sum CLOSED (was #1 @3.15x -> now 0.84x; O-046 small-tier + O-050 Knuth big-tier add). LIVE GAPS (cljw/fastest-script): sieve 1.59x(bb) . gc_alloc_rate 1.43x(bb) . string_ops 1.40x(bb) . destructure 1.20x(bb) . json_parse 1.12x(py) . map_filter_reduce 1.11x(py) . bigint_factorial 1.08x(py) . gc_large_heap 1.07x(bb) . nested_update 1.05x(py). CAVEAT: this session machine under load (~+7-8ms all benches; cljw cold-floor proxy fib_loop 13.7ms vs 2026-06-16 5.1ms, peers rose similarly -> mostly load not a cljw regression) -> relative gaps are the signal; re-measure on a quiet Mac before treating bigint_factorial/destructure/gc_alloc_rate (prev O-047/O-048/O-040-closed) as genuine regressions vs load-compression. RECONSTRUCTED LEVER ORDER (private/notes/9.2.S-plan-reconstruction-20260624.md): (1) STARTUP FLOOR D-140 = highest cross-cutting (sieve top-gap floor-sensitive; profile runner.zig setupCoreAot restore) (2) GC-arch pair (own ADR+DA) (3) string_ops (4) map_filter_reduce NEW gap (check O-045 fused-reduce gate). README table regenerated from the fresh yaml.
     category: "perf"
-    quality_floor: "fastest-script campaign: 9 targets ratio_sum/gc_alloc_rate/gc_large_heap/destructure/json_parse/bigint_factorial/nested_update/string_ops/sieve"
+    quality_floor: "real-workload interpreter-gap campaign (rush-hour BFS headline); the 9-target fastest-script list = regression fence"
     barrier: |-
       Targets (cljw ÷ fastest-script, bench/cross-lang-latest.yaml 2026-06-16),
       highest-ROI first — see ADR-0148 for per-target opt directions + the theme groups:
@@ -565,7 +596,7 @@ active:
       Experiment aggressively + revert (reverted-experiment commits MAY stay in the log;
       never leave main red; diff oracle + corpus stay green; short benches carry noise →
       ≥10 runs). After the 9 → resume D-386 (dispatch→superinstructions→JIT) + §9.0 gaps.
-    last_reviewed: "2026-06-24"
+    last_reviewed: "2026-08-05"
   - id: "D-449"
     status: "open (2026-06-16, ADR-0147 S3). The Alt-2 forward+reverse lazy DFA (`src/runtime/regex/dfa.zig`) is BUILT + equivalence-locked but UNWIRED — measurement showed wiring it REGRESSES perf vs the S2-prefiltered Pike VM (regex_count 17→23ms, sparse 0.05→0.47s). RESERVED engine, not the default matcher."
     category: "perf"
@@ -709,37 +740,6 @@ active:
     last_reviewed: "2026-08-04"
   - id: "D-343"
     status: |-
-      RE-ANCHORED 2026-08-05 (USER-DIRECTED): **the campaign's main axis is
-      now the REAL-WORKLOAD interpreter gap, treated at the root — not the
-      micro-bench list.** The evidence that forced the re-anchor: cw-arcade
-      rush-hour `medium` generation (seed 7, M4 Pro, cljw v1.9.0) runs
-      **17.9 s vs clj 1.07 s (17x) and babashka 2.46 s (7x)**, AFTER the GC
-      arc removed the collection tax (58.9 -> 17.7 s; ADR-0183 + D-573 — the
-      remaining time is measured to NOT be GC). The workload shape is
-      allocate-a-persistent-map-per-move + a growing visited set — hash /
-      assoc / seq churn on persistent collections under a tree-walk/bytecode
-      interpreter. The 7x-vs-babashka number is the sharpest signal: bb is
-      ALSO a JIT-less interpreter (SCI on native-image), so the gap is NOT
-      "JIT vs no JIT" — it is cljw's per-op dispatch + collection-op cost vs
-      the JVM's optimised Clojure collection implementations. That means real
-      headroom before any JIT.
-      METHOD for the re-anchored campaign (root-cause, big-bang per lever —
-      not micro-bench whack-a-mole): (1) PROFILE FIRST on the real workload —
-      `sample` on `cljw -e "(require '[rush-hour.generator :as g]) (g/generate 7 :medium)"`
-      (run from cw-arcade/apps/rush-hour) now that collectStopTheWorld is out
-      of the profile; attribute cycles to dispatch / hash / assoc / seq /
-      alloc before choosing a lever. (2) The standing lever stack, in
-      evidence order: D-386 per-op dispatch (stepOnce prologue + 3 per-op
-      polls; superinstructions/fusion = gap area III, ROADMAP §9.19),
-      persistent-map hash+assoc fast paths (the BFS's dominant ops), free-pool
-      alloc path (pool_hits vs mallocs under the new trigger). (3) The
-      rush-hour BFS becomes the campaign's HEADLINE benchmark (real program,
-      oracle-checked output); the 9-target fastest-script list below is
-      DEMOTED to a regression fence — keep it green, stop optimising for it.
-      (4) Same experiment discipline as before: measure >= 10 runs, revert
-      freely, diff oracle + corpus stay green, per-lever ADR when a design
-      changes (GC-arch class levers need their own ADR + DA fork).
-      PRIOR STATUS (2026-06-24 micro-bench framing, kept as the fence):
       NARROWED + residual DISCHARGED 2026-08-04. The row's headline fear —
       "munged-ns traversal (mungeNsToPath only does .→/ and -→_, no `..` strip)"
       — was investigated by reproduction and is NOT reachable. The munge maps
@@ -2748,7 +2748,6 @@ discharged:
     category: clj-parity
     barrier: none — discharged
     last_reviewed: "2026-08-05"
-
   - id: "D-446"
     status: "PARTIAL (2026-06-18 — MID/UNDER/over-arity sweep COMPLETE; only multidim residual open). An empirical both-sides arity probe (193 common clojure.core fns × arities 0-7, BOTH runtimes catch clojure.lang.ArityException; harness + data in private/arity_sweep/) found 22 over-strict fns (cljw REJECTS an arity clj accepts; ZERO over-lenient — the 0-arg class from the 2026-06-16 pass below stays clean). 14 fixed bug→fix (F-011): n-ary map/mapv/mapcat/list* (declare-d top-level -map-n-step + -spread, D-147 no-named-local-fn), bit-and-not variadic fold, resolve 2-arg env form (a local named in env → nil) [commit 982890aa]; the 8 typed array ctors gained the 2-arg (X-array size init-or-seq) form (uniform -array-from2 — value init fills, sequential init copies; the byte/short/char NUMBER-init divergence vs clj IS recorded as AD-036 deriving from AD-019, Devil-advocate-forked) [array commit]. Mechanised: test/diff/clj_corpus/arity_envelopes.txt (22 cases, all clj-byte-matched) + e2e phase14_arity_parity.sh (35/0). REMAINING OPEN SCOPE OF THIS ROW = multidim array indexing: (aget a i j …) and (aset a i j … v) + the typed aset-* multidim forms diverge at arity 3+/4+ (8 aset-* fns; aget is a builtin the ns-publics fn? sweep did not enumerate) — see barrier. EARLIER 0-ARG PASS (2026-06-16, kept for history): a fresh-context subagent probed the 0-ARG boundary (the not= precedent) + 22 over-arity + 20 extra-0-arg; found 10 divergences all aligned to clj — cljw-LENIENT = < > <= >= distinct? every-pred some-fn now throw; cljw-STRICT into + conj! now return clj values. ORIGINAL (2026-06-15, user-directed): arity-divergence audit — enumerate cljw fn arities, diff vs clj, classify each bug→fix or accepted→AD-NNN; big-bang-then-closed (clj_diff_sweep Discipline 2)."
     category: "clj-parity"
@@ -2782,7 +2781,6 @@ discharged:
     category: concurrency
     barrier: none — discharged
     last_reviewed: "2026-08-05"
-
   - id: "D-383"
     status: "DISCHARGED 2026-07-17 — the barrier had already dissolved: a regex literal in a bundled `.clj` now builds through cache_gen AND works at runtime (probe: `(re-find #\"[a-f0-9]+\" s)` appended to clojure/uuid.clj → clean build + correct result; the bootstrap path uses the unified reader). Reality-alignment landed: clojure/instant.clj guard restored to the natural `(re-find #\"[\\\"\\\\]\" s)` form (semantically identical to the char-set workaround; now also the living lock — every read-instant-date call exercises a bundled-ns regex literal, e2e quote_chars_rejected pins it); stale \"regex unsupported in bundled ns\" comments removed from pprint.clj (char walk kept — legitimate single-pass impl, no longer forced) + tools/cli.clj header. D-058 (renderer file-context mis-attribution) remains its own row."
     category: "reader"
