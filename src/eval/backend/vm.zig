@@ -296,6 +296,16 @@ pub fn eval(
     // naive form (recompute `cur` + pass `&cur.ip` per op) is the contract.
     var cur = &ar.frames[ar.frame_top - 1];
     var ip: usize = cur.ip;
+    // PERF: read the budget threadlocal ONCE per eval invocation, not per op —
+    // on macOS every `threadlocal` access is a dyld `_tlv_get_addr` call, and
+    // this loop's per-op poll made it ~7% of a real workload's wall time
+    // [refs: O-055, D-450]. Safe to hoist: every writer of
+    // `eval_budget_mod.current` is stack-disciplined around a host call that
+    // re-enters eval (`with-budget` installs, invokes via callFn = a NEW eval
+    // invocation that re-reads at ITS entry, then restores before control
+    // returns to this loop), so the value cannot change while this invocation
+    // is between ops.
+    const budget = eval_budget_mod.current;
     while (true) {
         // Liveness-only back-edge safe point: a worker spinning in a
         // non-allocating loop never hits the alloc-prologue
@@ -309,7 +319,7 @@ pub fn eval(
         // optional unwrap when unmetered (no current budget) — same cost
         // shape as the GC poll above; charges a step + (throttled) checks the
         // wall-clock deadline, raising an uncatchable error on expiry.
-        if (eval_budget_mod.current) |budget| try budget.tick(rt.io);
+        if (budget) |b| try b.tick(rt.io);
         // GC torture: when armed via CLJW_GC_TORTURE, force a real
         // stop-the-world collect at this clean safe point every Nth poll, so a
         // missing root surfaces as a deterministic UAF on the next collect. The

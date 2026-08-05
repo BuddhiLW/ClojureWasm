@@ -1005,10 +1005,15 @@ fn evalLoop(rt: *Runtime, env: *Env, locals: []Value, n: node_mod.LoopNode) anye
             return error_catalog.raise(.slot_out_of_range, n.loc, .{ .form = "loop*", .index = b.index, .max = locals.len });
         locals[b.index] = try eval(rt, env, locals, b.value_expr);
     }
+    // PERF: budget threadlocal hoisted out of the back-edge loop (a dyld TLV
+    // call per iteration otherwise); writers are stack-disciplined around
+    // callFn re-entries, so it cannot change between iterations — same
+    // invariant as the vm.eval hoist [refs: O-055, D-450].
+    const budget = eval_budget_mod.current;
     while (true) {
         // ADR-0125: in-process eval budget — TreeWalk loop back-edge (parity
         // with the VM back-edge poll). Unmetered = one optional unwrap.
-        if (eval_budget_mod.current) |budget| try budget.tick(rt.io);
+        if (budget) |b| try b.tick(rt.io);
         if (eval(rt, env, locals, n.body)) |result| {
             return result;
         } else |err| switch (err) {
@@ -1491,10 +1496,13 @@ fn callMethodImpl(rt: *Runtime, env: *Env, f: *Function, args: []const Value, lo
     // enclosing `loop*` unwinds to that `evalLoop` first (inner frame), so
     // only fn-tail recurs reach this catch.
     const recur_arity: u16 = m.arity + @intFromBool(m.has_rest);
+    // PERF: budget threadlocal hoisted out of the back-edge loop — same
+    // invariant as the evalLoop hoist above [refs: O-055, D-450].
+    const budget = eval_budget_mod.current;
     while (true) {
         // ADR-0125: in-process eval budget — TreeWalk fn-tail-recur back-edge
         // (parity with the VM + loop* polls). Unmetered = one optional unwrap.
-        if (eval_budget_mod.current) |budget| try budget.tick(rt.io);
+        if (budget) |b| try b.tick(rt.io);
         if (eval(rt, env, locals[0..fs], m.body)) |result| {
             return result;
         } else |err| switch (err) {
