@@ -58,6 +58,18 @@ fn markWorkerTx(ctx: *anyopaque, tx_opaque: ?*anyopaque) void {
 const GcHeap = gc_heap_mod.GcHeap;
 const HeapHeader = heap_header.HeapHeader;
 
+// CLJW_GC_STATS=3 — cumulative per-phase collect time, printed per collect.
+// The diagnostic that attributed D-450's ~24ms-per-collect fixed cost to the
+// prep phase (clearPersistentMarks over 15.5M immortal closures); kept, like
+// the =2 owned-bytes breakdown, because the next attribution will want it.
+// Accumulation is unconditional: ~5 clock reads per collect, noise next to a
+// single collect's work.
+var phase_prep_ns: u64 = 0;
+var phase_roots_ns: u64 = 0;
+var phase_scan_ns: u64 = 0;
+var phase_drain_ns: u64 = 0;
+var phase_sweep_ns: u64 = 0;
+
 /// Shade a heap object gray: set `header.gc_and_lock.gc_mark` bit 0 and
 /// push the header onto `gc.mark_worklist` for `drainGray` to blacken.
 /// Recursive per-child descent was retired by ADR-0028 amendment 3 — a
@@ -218,6 +230,7 @@ pub fn collect(gc: *GcHeap, ctx: root_set_mod.WalkContext) void {
     // `gc_mutex` re-take); the gray worklist's capacity is reserved here on
     // `gc.infra`, before any mark bit is set, so the mark phase itself
     // performs no allocation at all.
+    const t_entry = clock.nanoTime(io_default.get());
     io_default.lockMutex(&gc.gc_mutex);
     defer io_default.unlockMutex(&gc.gc_mutex);
     // Bit-set-at-push ⇒ each object enters the gray worklist at most once,
@@ -236,6 +249,8 @@ pub fn collect(gc: *GcHeap, ctx: root_set_mod.WalkContext) void {
     // bit short-circuits `mark()` and strands their GC children (a closure's
     // `closure_bindings`) from the 2nd collect onward.
     gc.clearPersistentMarks();
+    const t_prep = clock.nanoTime(io_default.get());
+    phase_prep_ns +|= @intCast(@max(0, t_prep - t_entry));
     var it = root_set_mod.enumerate(ctx);
     while (it.next()) |root_header| {
         mark(gc, root_header);
@@ -259,10 +274,22 @@ pub fn collect(gc: *GcHeap, ctx: root_set_mod.WalkContext) void {
     // exposed; its Values are published (eval frames / bindings / operand
     // stack). Residual: tree_walk eval RUNNING ON A WORKER holds C-stack Value
     // intermediates this main-only scan does not cover (the D-556 residual).
+    const t_scan0 = clock.nanoTime(io_default.get());
+    phase_roots_ns +|= @intCast(@max(0, t_scan0 - t_prep));
     conservativeStackScan(gc);
+    const t_scan1 = clock.nanoTime(io_default.get());
     // All roots are shaded gray; blacken transitively (ADR-0028 amendment 3).
     drainGray(gc);
+    const t_drain = clock.nanoTime(io_default.get());
     sweep(gc);
+    const t_sweep = clock.nanoTime(io_default.get());
+    phase_scan_ns +|= @intCast(@max(0, t_scan1 - t_scan0));
+    phase_drain_ns +|= @intCast(@max(0, t_drain - t_scan1));
+    phase_sweep_ns +|= @intCast(@max(0, t_sweep - t_drain));
+    if (@import("../process_env.zig").get("CLJW_GC_STATS")) |v| {
+        if (std.mem.eql(u8, v, "3"))
+            std.debug.print("[gc-phases] prep_ms={d} roots_ms={d} scan_ms={d} drain_ms={d} sweep_ms={d} (cum)\n", .{ phase_prep_ns / 1_000_000, phase_roots_ns / 1_000_000, phase_scan_ns / 1_000_000, phase_drain_ns / 1_000_000, phase_sweep_ns / 1_000_000 });
+    }
     // D-573: ramp the FLOOR when a collection turns out to have been mostly
     // garbage.
     //

@@ -295,11 +295,13 @@ pub const GcHeap = struct {
         // under host load. Off by default = one null-check.
         if (@import("../process_env.zig").get("CLJW_GC_STATS") != null) {
             const s = self.stats;
-            std.debug.print("[gc-stats] allocs={d} pool_hits={d} mallocs={d} reuse={d}% collects={d} sweeps={d} bytes_alloc={d} last_live={d} floor_mb={d}\n", .{
+            std.debug.print("[gc-stats] allocs={d} pool_hits={d} mallocs={d} reuse={d}% collects={d} sweeps={d} bytes_alloc={d} last_live={d} floor_mb={d} gc_ms={d}\n", .{
                 s.alloc_count,                                                   s.pool_hits,       s.alloc_count - s.pool_hits,
                 if (s.alloc_count > 0) s.pool_hits * 100 / s.alloc_count else 0, s.collect_count,   s.sweep_count,
                 s.bytes_allocated,                                               s.last_live_bytes, self.threshold_floor_bytes / (1024 * 1024),
+                s.gc_ns_total / std.time.ns_per_ms,
             });
+            std.debug.print("[gc-stats] persistent_marks={d} persistent_bytes={d}\n", .{ self.persistent_marks.items.len, self.persistent_bytes });
         }
         // Drain every live allocation back to infra. Calls the per-tag
         // finaliser before rawFree so types that own non-GC resources
