@@ -709,6 +709,37 @@ active:
     last_reviewed: "2026-08-04"
   - id: "D-343"
     status: |-
+      RE-ANCHORED 2026-08-05 (USER-DIRECTED): **the campaign's main axis is
+      now the REAL-WORKLOAD interpreter gap, treated at the root — not the
+      micro-bench list.** The evidence that forced the re-anchor: cw-arcade
+      rush-hour `medium` generation (seed 7, M4 Pro, cljw v1.9.0) runs
+      **17.9 s vs clj 1.07 s (17x) and babashka 2.46 s (7x)**, AFTER the GC
+      arc removed the collection tax (58.9 -> 17.7 s; ADR-0183 + D-573 — the
+      remaining time is measured to NOT be GC). The workload shape is
+      allocate-a-persistent-map-per-move + a growing visited set — hash /
+      assoc / seq churn on persistent collections under a tree-walk/bytecode
+      interpreter. The 7x-vs-babashka number is the sharpest signal: bb is
+      ALSO a JIT-less interpreter (SCI on native-image), so the gap is NOT
+      "JIT vs no JIT" — it is cljw's per-op dispatch + collection-op cost vs
+      the JVM's optimised Clojure collection implementations. That means real
+      headroom before any JIT.
+      METHOD for the re-anchored campaign (root-cause, big-bang per lever —
+      not micro-bench whack-a-mole): (1) PROFILE FIRST on the real workload —
+      `sample` on `cljw -e "(require '[rush-hour.generator :as g]) (g/generate 7 :medium)"`
+      (run from cw-arcade/apps/rush-hour) now that collectStopTheWorld is out
+      of the profile; attribute cycles to dispatch / hash / assoc / seq /
+      alloc before choosing a lever. (2) The standing lever stack, in
+      evidence order: D-386 per-op dispatch (stepOnce prologue + 3 per-op
+      polls; superinstructions/fusion = gap area III, ROADMAP §9.19),
+      persistent-map hash+assoc fast paths (the BFS's dominant ops), free-pool
+      alloc path (pool_hits vs mallocs under the new trigger). (3) The
+      rush-hour BFS becomes the campaign's HEADLINE benchmark (real program,
+      oracle-checked output); the 9-target fastest-script list below is
+      DEMOTED to a regression fence — keep it green, stop optimising for it.
+      (4) Same experiment discipline as before: measure >= 10 runs, revert
+      freely, diff oracle + corpus stay green, per-lever ADR when a design
+      changes (GC-arch class levers need their own ADR + DA fork).
+      PRIOR STATUS (2026-06-24 micro-bench framing, kept as the fence):
       NARROWED + residual DISCHARGED 2026-08-04. The row's headline fear —
       "munged-ns traversal (mungeNsToPath only does .→/ and -→_, no `..` strip)"
       — was investigated by reproduction and is NOT reachable. The munge maps

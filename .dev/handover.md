@@ -18,11 +18,18 @@
   lookbehind / `\A\z\Z` / class algebra, multidim aget/aset, and the GC
   stops taxing long-running programs 2-4x — D-571/573/446/447 discharged).
   CHANGELOG is the release-history SSOT.
-- **First task on resume**: re-pin the demo repos (`cw-playground`,
-  `cw-serverless-demo`) to v1.9.0 via their `check_version_pins.sh
-  --set-cljw` and verify the fly deploys — the playground's malformed-JSON
-  400 handler only takes effect with the new pin. Homebrew tap: bump to
-  1.9.0 (same flow as 1.8.0, which is DONE and `brew audit` clean).
+- **First task on resume**: the PERF CAMPAIGN, re-anchored (user-directed
+  2026-08-05) on the real-workload interpreter gap — read D-450's re-anchor
+  block first, it is the brief. Headline number: rush-hour `medium` 17.9 s
+  vs clj 1.07 s (17x) / bb 2.46 s (7x), GC already ruled out (ADR-0183 +
+  D-573). Step 1 is a profile, not a lever: `sample` the BFS
+  (`cd ~/Documents/MyProducts/cw-arcade/apps/rush-hour && cljw -e
+  "(require '[rush-hour.generator :as g]) (g/generate 7 :medium)"`),
+  attribute cycles to dispatch / hash / assoc / seq / alloc, THEN pick from
+  the lever stack (D-386 dispatch, persistent-map fast paths, free-pool).
+  The 9-target fastest-script list is demoted to a regression fence.
+  (Distribution is DONE: v1.9.0 released + brewed; playground /
+  serverless-demo re-pinned, fly deploys verified in production.)
   Release-process note worth keeping: **cutting the GitHub release by hand
   before the tag workflow runs breaks the artifact upload**. zwasm's workflow
   did an unconditional `gh release create`, which failed on "already exists"
