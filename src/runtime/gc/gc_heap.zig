@@ -248,6 +248,12 @@ pub const GcHeap = struct {
     /// Bytes allocated since the last `collect()` invocation. Trips
     /// collection when it exceeds `threshold_bytes`.
     bytes_since_last_gc: usize = 0,
+    /// True iff this heap is the `gc` field embedded in a `Runtime` — set by
+    /// `Runtime.init`. `collect()` then reaches the Runtime via
+    /// `@fieldParentPtr` to walk the descriptor registries (rt.types /
+    /// native_descriptors / class_descriptors) as roots (ADR-0184 B).
+    /// Bare `GcHeap.init` test heaps leave it false and skip that walk.
+    runtime_embedded: bool = false,
     /// ADR-0125 / D-352 (isolation dim (b)): per-eval LIVE-heap ceiling in bytes.
     /// When non-null, `alloc` REFUSES (never merely triggers a collect) any
     /// allocation that would push live bytes (`bytes_allocated - bytes_freed`)

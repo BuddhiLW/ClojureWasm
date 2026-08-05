@@ -229,15 +229,48 @@ pub fn satisfies(proto: *const ProtocolDescriptor, td: *const TypeDescriptor) bo
 /// Per survey §5.2 + ADR-0008 amendment 1 Alt 1 ("generation deferred
 /// to 7.3 / extend-type"). cycle 2 wires CallSite.cached_generation
 /// + the lookupWithCache predicate that consumes the bump.
+/// Index of the row matching (protocol_name, method_name), or null.
+fn findImplSlot(
+    table: []const TypeDescriptor.MethodEntry,
+    protocol_name: []const u8,
+    method_name: []const u8,
+) ?usize {
+    for (table, 0..) |entry, i| {
+        if (std.mem.eql(u8, entry.method_name, method_name) and
+            std.mem.eql(u8, entry.protocol_name, protocol_name)) return i;
+    }
+    return null;
+}
+
 pub fn extendTypeWithImpls(
     rt: *Runtime,
     td: *TypeDescriptor,
     new_impls: []const TypeDescriptor.MethodEntry,
 ) !void {
     const old = td.method_table;
-    const combined = try rt.gc.infra.alloc(TypeDescriptor.MethodEntry, old.len + new_impls.len);
+    // A re-extend REPLACES the existing (protocol, method) row instead of
+    // appending — clj parity (the later `extend` wins; the front-first
+    // `lookupMethod` scan otherwise never sees a re-extend), and a
+    // precondition for walking method tables as GC roots (ADR-0184 B: an
+    // appended-but-shadowed impl would be rooted forever). Only genuinely
+    // new (protocol, method) pairs grow the table.
+    var fresh: usize = 0;
+    for (new_impls) |ni| {
+        if (findImplSlot(old, ni.protocol_name, ni.method_name) == null) fresh += 1;
+    }
+    const combined = try rt.gc.infra.alloc(TypeDescriptor.MethodEntry, old.len + fresh);
     @memcpy(combined[0..old.len], old);
-    @memcpy(combined[old.len..], new_impls);
+    var next: usize = old.len;
+    for (new_impls) |ni| {
+        // Scan [0..next) so a duplicate WITHIN one extend also replaces
+        // (last one wins) rather than appending twice.
+        if (findImplSlot(combined[0..next], ni.protocol_name, ni.method_name)) |i| {
+            combined[i] = ni;
+        } else {
+            combined[next] = ni;
+            next += 1;
+        }
+    }
     td.method_table = combined;
     // Row 7.7 cycle 5: free the prior heap-allocated method_table
     // slice now that `combined` has copied its entries by value.
@@ -389,15 +422,57 @@ test "extendTypeWithImpls bumps protocol_generation and grows method_table" {
         .{ .protocol_name = "user/IFoo", .method_name = "bar", .method_val = Value.nil_val },
     };
     try extendTypeWithImpls(&rt, td, &new_impls);
-    // Per the "re-alloc + swap, never free old" policy, the heap-
-    // allocated slice replacing the empty static one must be freed
-    // explicitly when the test exits. Production code accepts the
-    // leak because live CallSite caches may still reference the
-    // stale pointer until the generation check invalidates them.
+    // The heap-allocated slice replacing the empty static one must be freed
+    // explicitly when the test exits (production frees the OLD slice on each
+    // re-extend — stale CallSite pointers are made safe by the generation
+    // check, not by leaking the slice).
     defer rt.gc.infra.free(td.method_table);
 
     try testing.expectEqual(@as(u32, 1), rt.protocol_generation);
     try testing.expectEqual(@as(usize, 1), td.method_table.len);
     try testing.expectEqualStrings("bar", td.method_table[0].method_name);
     try testing.expectEqualStrings("user/IFoo", td.method_table[0].protocol_name);
+}
+
+test "extendTypeWithImpls: a re-extend REPLACES the (protocol, method) row — later extend wins (clj parity, ADR-0184)" {
+    var th = std.Io.Threaded.init(testing.allocator, .{});
+    defer th.deinit();
+    var rt = Runtime.init(th.io(), testing.allocator);
+    defer rt.deinit();
+
+    const td = try rt.gc.infra.create(TypeDescriptor);
+    defer rt.gc.infra.destroy(td);
+    td.* = .{
+        .fqcn = "user/Foo",
+        .kind = .deftype,
+        .field_layout = null,
+        .protocol_impls = &[_][]const u8{},
+        .method_table = &[_]TypeDescriptor.MethodEntry{},
+        .parent = null,
+        .meta = @import("value/value.zig").Value.nil_val,
+    };
+
+    const first = [_]TypeDescriptor.MethodEntry{
+        .{ .protocol_name = "user/IFoo", .method_name = "bar", .method_val = Value.initInteger(1) },
+        .{ .protocol_name = "user/IFoo", .method_name = "baz", .method_val = Value.initInteger(2) },
+    };
+    try extendTypeWithImpls(&rt, td, &first);
+    // Re-extend `bar` only: the table must not grow, the row must hold the
+    // NEW value, and lookupMethod (front-first scan) must see it.
+    const second = [_]TypeDescriptor.MethodEntry{
+        .{ .protocol_name = "user/IFoo", .method_name = "bar", .method_val = Value.initInteger(3) },
+    };
+    try extendTypeWithImpls(&rt, td, &second);
+    defer rt.gc.infra.free(td.method_table);
+
+    try testing.expectEqual(@as(usize, 2), td.method_table.len);
+    const hit = td.lookupMethod("user/IFoo", "bar").?;
+    try testing.expectEqual(Value.initInteger(3), hit.method_val);
+    // A different protocol's same-named method is NOT replaced — it appends.
+    const other = [_]TypeDescriptor.MethodEntry{
+        .{ .protocol_name = "user/IOther", .method_name = "bar", .method_val = Value.initInteger(4) },
+    };
+    try extendTypeWithImpls(&rt, td, &other);
+    try testing.expectEqual(@as(usize, 3), td.method_table.len);
+    try testing.expectEqual(@as(u32, 3), rt.protocol_generation);
 }

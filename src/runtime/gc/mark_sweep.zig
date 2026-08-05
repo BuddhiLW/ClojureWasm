@@ -264,6 +264,13 @@ pub fn collect(gc: *GcHeap, ctx: root_set_mod.WalkContext) void {
     // ...and every registered WORKER thread's transaction (parked at a safepoint
     // during STW, so its tx is quiescent). Empty registry in single-thread → no-op.
     root_set_mod.markRegisteredTxs(@ptrCast(gc), &markWorkerTx);
+    // ADR-0184 B: descriptor-registry roots (rt.types / native_descriptors /
+    // class_descriptors method tables + meta). Only when this heap is the one
+    // embedded in a Runtime — bare test heaps have no registries.
+    if (gc.runtime_embedded) {
+        const rt: *@import("../runtime.zig").Runtime = @alignCast(@fieldParentPtr("gc", gc));
+        @import("../type_descriptor.zig").markRegistryRoots(rt, gc);
+    }
     // D-556: conservative native-stack scan (tree_walk backend only — the vm's
     // operand stack is the A1 root). Pins every stack word that decodes to a
     // live heap Value, covering evaluation intermediates the explicit brackets

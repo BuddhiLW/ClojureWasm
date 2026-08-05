@@ -652,7 +652,9 @@ pub fn reifiedInstWithMeta(rt: *Runtime, v: Value, meta: Value) !Value {
 /// reference was the descriptor was swept once the heap crossed the collect
 /// threshold — its chunk constants then dangled (instaparse AutoFlattenSeq's
 /// `cached-seq` field-name string read as garbage; the gc_rooting §C C8
-/// KNOWN-OPEN class).
+/// class). Since ADR-0184 B the registries themselves are walked as roots
+/// each collect (`markRegistryRoots`), so this is no longer instance-gated
+/// for registered descriptors.
 fn markDescriptorValues(gc: *gc_heap_mod.GcHeap, td_start: *const TypeDescriptor) void {
     var td: ?*const TypeDescriptor = td_start;
     while (td) |d| : (td = d.parent) {
@@ -661,6 +663,27 @@ fn markDescriptorValues(gc: *gc_heap_mod.GcHeap, td_start: *const TypeDescriptor
         }
         if (d.meta.heapHeader()) |hdr| mark_sweep.mark(gc, hdr);
     }
+}
+
+/// ADR-0184 Precondition B: walk EVERY registered descriptor's method-table
+/// + meta Values as GC ROOTS. The registries (`rt.types`,
+/// `rt.native_descriptors` — where `(extend-type Long/nil …)` impls land —
+/// and `rt.class_descriptors`) are gpa-side tables the mark phase cannot
+/// otherwise see; before this walk an impl fn was reachable only through a
+/// live instance/ref Value (the C8 strand class — dispatch still found it
+/// via the table after its captures were swept). Called from `collect()`
+/// via the `runtime_embedded` @fieldParentPtr bridge. Reify's anonymous
+/// descriptors are deliberately NOT here — they stay instance-mediated
+/// (`traceReifiedInstance`), so a reify whose instances all died is
+/// collectable as a unit.
+pub fn markRegistryRoots(rt: *Runtime, gc: *gc_heap_mod.GcHeap) void {
+    var it = rt.types.valueIterator();
+    while (it.next()) |tdp| markDescriptorValues(gc, tdp.*);
+    for (rt.native_descriptors) |maybe_td| {
+        if (maybe_td) |td| markDescriptorValues(gc, td);
+    }
+    var cit = rt.class_descriptors.valueIterator();
+    while (cit.next()) |tdp| markDescriptorValues(gc, tdp.*);
 }
 
 /// Trace fn for `.type_descriptor` (the boxed ref `makeTypeDescriptorRef`
@@ -923,6 +946,36 @@ const TdFixture = struct {
         self.threaded.deinit();
     }
 };
+
+test "ADR-0184 B: a registered descriptor's method impl survives a collect with no live instance (registry roots)" {
+    var fix = TdFixture.init();
+    defer fix.deinit();
+    const rt = &fix.rt;
+
+    // A descriptor in rt.types whose method impl Value has NO other
+    // reference — before the registry root walk, the collect swept it
+    // (the C8 strand class) even though `(SomeType/m …)` could still
+    // dispatch to it.
+    const td = try registerType(rt, "user.RootedT", null, &.{}, &.{}, .deftype);
+    const impl = try @import("collection/string.zig").alloc(rt, "impl-body-stand-in");
+    // `method_name` must be a gpa dup — Runtime.deinit frees it per entry
+    // (matching the production `__extend-type!` ownership).
+    const entries = [_]TypeDescriptor.MethodEntry{
+        .{ .protocol_name = "user/IP", .method_name = try rt.gpa.dupe(u8, "m"), .method_val = impl },
+    };
+    try @import("protocol.zig").extendTypeWithImpls(rt, @constCast(td), &entries);
+
+    const impl_hdr = impl.heapHeader().?;
+    mark_sweep.collectStopTheWorld(&rt.gc, .{ .envs = &.{}, .gc = &rt.gc }, false);
+    var found = false;
+    for (rt.gc.allocations.items) |rec| {
+        if (rec.header == impl_hdr) {
+            found = true;
+            break;
+        }
+    }
+    try testing.expect(found);
+}
 
 test "TypeDescriptor struct layout: fqcn is optional, kind is required" {
     const td: TypeDescriptor = .{

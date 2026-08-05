@@ -625,7 +625,13 @@ pub const Runtime = struct {
             .gpa = gpa,
             .keywords = KeywordInterner.init(gpa),
             .symbols = SymbolInterner.init(gpa),
-            .gc = GcHeap.init(gpa),
+            .gc = blk: {
+                var g = GcHeap.init(gpa);
+                // ADR-0184 B: collect() walks this Runtime's descriptor
+                // registries as roots via @fieldParentPtr("gc", …).
+                g.runtime_embedded = true;
+                break :blk g;
+            },
             .types = std.StringHashMap(*const TypeDescriptor).init(gpa),
             .load_arena = std.heap.ArenaAllocator.init(gpa),
         };
