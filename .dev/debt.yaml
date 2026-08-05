@@ -578,12 +578,18 @@ active:
       landed as their own commits: e4223423 (re-extend replace-in-place clj
       parity + 3-registry roots), dcd701f8 (EvalFrame callee slot).
       Residuals: D-574 (reify TD churn), D-575 (worker fetched-fn class).
-      NEXT for the campaign: re-profile the BFS (the old attribution is
-      stale — GC is no longer 20%), then the remaining lever stack:
-      bindCallFrame copies (the biggest named non-GC bucket), the ADR-0184
-      Alt 3 template/closure split (removes the per-closure methods copy),
-      Alt 1 epoch-mark (kills the remaining allocations-list clears),
-      D-386 dispatch.
+      RE-PROFILED post-landing (2026-08-06, 13.1s run): vm.eval dispatch
+      ~23% / bindCallFrame ~16% / TLV ~8% / GC 3.8% (fix confirmed) /
+      call machinery ~6.5% / free_pool hashmap ~2.2%. bindCallFrame
+      selective-nil-init experiment (memset only non-overwritten slots)
+      measured NEUTRAL (-0.6%, noise) and was REVERTED — hot fns have
+      small frames; the 16% is the call machinery's fixed cost, not the
+      copies. CONSTANT-FACTOR LEVERS HAVE PLATEAUED at ~12.2s; the next
+      steps are STRUCTURAL: (1) ADR-0184 Alt 3 template/closure split
+      (named finished form; kills the per-closure methods copy + shrinks
+      cells), (2) the vm.eval dispatch arc — superinstructions/fusion
+      (gap III, ROADMAP §9.19, D-386), (3) minor: free_pool size-class
+      inline cache (~2%), Alt 1 epoch-mark.
       ROOT-CAUSED 2026-08-06 (the GC 20% attributed): CLJW_GC_STATS=3 phase
       timing shows gc_ms=3858 of a 16.3s run splits prep=2830 / sweep=972 /
       drain=41 / scan=0 — and the prep cost is clearPersistentMarks walking
