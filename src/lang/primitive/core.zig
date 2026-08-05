@@ -838,9 +838,11 @@ fn writeToWriterValue(rt: *Runtime, env: *Env, wv: Value, bytes: []const u8) any
         else => null,
     };
     const td = maybe_td orelse
-        return error_catalog.raise(.feature_not_supported, .{}, .{ .name = "*out* bound to a non-writer value" });
+        // clj throws a catchable ClassCastException at the first write through
+        // a mis-bound *out* — the binding is the user's data.
+        return error_catalog.raise(.type_arg_invalid, .{}, .{ .fn_name = "*out*", .expected = "a writer", .actual = "a non-writer value" });
     const me = td.lookupMethod(null, "write") orelse
-        return error_catalog.raise(.feature_not_supported, .{}, .{ .name = "*out* bound to a value with no .write method" });
+        return error_catalog.raise(.type_arg_invalid, .{}, .{ .fn_name = "*out*", .expected = "a writer with a .write method", .actual = "a value without one" });
     const vt = rt.vtable orelse return error.NoVTable;
     _ = try vt.callFn(rt, env, me.method_val, &.{ wv, s_val }, .{});
 }
@@ -1471,7 +1473,9 @@ pub fn subsFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation)
     // against the count (it does NOT clamp — `(subs "hello" 2 10)` throws
     // StringIndexOutOfBounds, not "llo"). D-164-adjacent string-parity fix.
     const len = charset_mod.codepointCount(s) catch
-        return error_catalog.raise(.feature_not_supported, loc, .{ .name = "subs on invalid UTF-8" });
+        // Bad string DATA (cljw strings are byte slices; clj cannot produce
+        // this, but a catch that works there must work here).
+        return error_catalog.raise(.arg_value_invalid, loc, .{ .fn_name = "subs", .expected = "valid UTF-8", .actual = "invalid UTF-8" });
     const start_i = args[1].asInteger();
     if (start_i < 0 or @as(u64, @intCast(@max(start_i, 0))) > len)
         return error_catalog.raise(.index_out_of_range, loc, .{ .fn_name = "subs" });
@@ -1487,7 +1491,7 @@ pub fn subsFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation)
         end = @intCast(end_i);
     }
     const slice = charset_mod.substring(s, start, end) catch {
-        return error_catalog.raise(.feature_not_supported, loc, .{ .name = "subs on invalid UTF-8 boundary" });
+        return error_catalog.raise(.arg_value_invalid, loc, .{ .fn_name = "subs", .expected = "a codepoint boundary", .actual = "an invalid UTF-8 boundary" });
     };
     return string_mod.alloc(rt, slice);
 }

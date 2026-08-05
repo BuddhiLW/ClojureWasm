@@ -113,9 +113,9 @@ pub fn readStringFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLoc
         // own catalog Info; re-raise it so the message survives rather than being
         // flattened to the generic EDN-reader-error wrapper.
         if (e == error.SyntaxError) return e;
-        return error_catalog.raise(.feature_not_supported, loc, .{
-            .name = "EDN reader error in clojure.edn/read-string",
-        });
+        // Malformed EDN is bad DATA — clj throws a catchable RuntimeException,
+        // and parsing untrusted EDN is exactly when the caller needs the catch.
+        return error_catalog.raise(.edn_string_invalid, loc, .{ .reason = @errorName(e) });
     };
     const form = form_opt orelse {
         if (eof_provided) return eof_val;

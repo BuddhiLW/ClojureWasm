@@ -77,7 +77,7 @@ fn length(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) any
     _ = env;
     try error_catalog.checkArity(".length", args, 1, loc);
     const n = charset.codepointCount(string_collection.asString(args[0])) catch
-        return error_catalog.raise(.feature_not_supported, loc, .{ .name = ".length on invalid UTF-8" });
+        return error_catalog.raise(.arg_value_invalid, loc, .{ .fn_name = ".length", .expected = "valid UTF-8", .actual = "invalid UTF-8" });
     return Value.initInteger(@intCast(n));
 }
 
@@ -95,7 +95,7 @@ fn substring(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) 
     // StringIndexOutOfBounds rather than clamping — `(.substring "hello" 1 10)`
     // is an error, not "ello"). Mirrors clojure.core/subs (D-164-adjacent).
     const len = charset.codepointCount(s) catch
-        return error_catalog.raise(.feature_not_supported, loc, .{ .name = ".substring on invalid UTF-8" });
+        return error_catalog.raise(.arg_value_invalid, loc, .{ .fn_name = ".substring", .expected = "valid UTF-8", .actual = "invalid UTF-8" });
     const start_i = args[1].asInteger();
     if (start_i < 0 or @as(u64, @intCast(@max(start_i, 0))) > len)
         return error_catalog.raise(.index_out_of_range, loc, .{ .fn_name = ".substring" });
@@ -110,7 +110,8 @@ fn substring(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) 
         end = @intCast(end_i);
     }
     const slice = charset.substring(s, start, end) catch
-        return error_catalog.raise(.feature_not_supported, loc, .{ .name = ".substring index out of range" });
+        // clj: StringIndexOutOfBoundsException — catchable.
+        return error_catalog.raise(.arg_value_invalid, loc, .{ .fn_name = ".substring", .expected = "indices within the string", .actual = "an out-of-range index" });
     return string_collection.alloc(rt, slice);
 }
 

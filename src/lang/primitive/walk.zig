@@ -184,7 +184,9 @@ fn rebuildArrayMap(
         const transformed = try transform_child(rt, env, ctx, entry, loc);
         // Expect transformed back to a 2-vector.
         if (transformed.tag() != .vector or vector_collection.count(transformed) != 2)
-            return error_catalog.raise(.feature_not_supported, loc, .{ .name = "clojure.walk map child returned non-2-vector" });
+            // The walk fn returned an unusable map entry — the caller's data;
+            // clj throws a catchable ClassCastException.
+            return error_catalog.raise(.type_arg_invalid, loc, .{ .fn_name = "clojure.walk", .expected = "a [k v] entry from the walk fn", .actual = "another shape" });
         result = try map_collection.assoc(rt, result, vector_collection.nth(transformed, 0), vector_collection.nth(transformed, 1));
     }
     return result;
@@ -234,7 +236,9 @@ fn rebuildHashMap(
         gc_roots[2] = entry;
         const transformed = try transform_child(rt, env, ctx, entry, loc);
         if (transformed.tag() != .vector or vector_collection.count(transformed) != 2)
-            return error_catalog.raise(.feature_not_supported, loc, .{ .name = "clojure.walk map child returned non-2-vector" });
+            // The walk fn returned an unusable map entry — the caller's data;
+            // clj throws a catchable ClassCastException.
+            return error_catalog.raise(.type_arg_invalid, loc, .{ .fn_name = "clojure.walk", .expected = "a [k v] entry from the walk fn", .actual = "another shape" });
         result = try map_collection.assoc(rt, result, vector_collection.nth(transformed, 0), vector_collection.nth(transformed, 1));
     }
     return result;

@@ -56,6 +56,20 @@ catchable deliver_non_promise   '(deliver 42 1)'
 catchable escape_non_map_non_fn '(clojure.string/escape "a" 5)'
 catchable walk_non_fn_callback  '(clojure.walk/postwalk 5 {:a 1})'
 
+# 2026-08-05 sweep: the whole remaining population was classified (grep the
+# recipe above). Malformed FORM SHAPES — libspecs, destructuring directives,
+# import specs, reader conditionals — became the catchable `form_malformed`
+# (clj: CompilerException, catchable); wrong-typed runtime args became
+# type/value errors; EDN parse errors mirror the JSON fix. Representative
+# cases, each verified :CAUGHT on the clj oracle:
+catchable edn_read_malformed    '(clojure.edn/read-string "#bad")'
+catchable require_non_libspec   '(require 123)'
+catchable out_bound_non_writer  '(binding [*out* 5] (println :x))'
+catchable eval_malformed_ns     "(eval '(ns))"
+catchable eval_bad_destructure  "(eval '(let [{:bad 1} {}] 1))"
+catchable read_string_bad_cond  '(read-string "#?[")'
+catchable substring_oob         '(.substring "abc" 1 99)'
+
 # The counter-example: a genuinely unsupported feature stays UNCATCHABLE, so
 # `(catch Throwable …)` must NOT swallow it. Asserted by the inverse: the
 # process exits non-zero and the catch does not produce a value.
@@ -71,4 +85,4 @@ grep -qx ':caught' <<< "$got" \
     && fail "unsupported_stays_uncatchable: a catch swallowed an unsupported feature"
 echo "PASS unsupported_stays_uncatchable"
 
-echo "data_errors_catchable: 7/7 cases pass"
+echo "data_errors_catchable: 14/14 cases pass"

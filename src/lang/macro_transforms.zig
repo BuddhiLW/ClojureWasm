@@ -192,16 +192,16 @@ fn expandImport(
             },
             .list => |inner| {
                 if (inner.len < 2 or inner[0].data != .symbol)
-                    return error_catalog.raise(.feature_not_supported, spec.location, .{ .name = "import prefix form must be (package Class …)" });
+                    return error_catalog.raise(.form_malformed, spec.location, .{ .name = "import prefix form must be (package Class …)" });
                 const pkg = inner[0].data.symbol.name;
                 for (inner[1..]) |ce| {
                     if (ce.data != .symbol)
-                        return error_catalog.raise(.feature_not_supported, ce.location, .{ .name = "import class entry must be a symbol" });
+                        return error_catalog.raise(.form_malformed, ce.location, .{ .name = "import class entry must be a symbol" });
                     const fqcn = try std.fmt.allocPrint(arena, "{s}.{s}", .{ pkg, ce.data.symbol.name });
                     try items.append(arena, try importStarCall(arena, fqcn, loc));
                 }
             },
-            else => return error_catalog.raise(.feature_not_supported, spec.location, .{ .name = "import spec must be a symbol or (package Class …) list" }),
+            else => return error_catalog.raise(.form_malformed, spec.location, .{ .name = "import spec must be a symbol or (package Class …) list" }),
         }
     }
     return list(arena, items.items, loc);
@@ -222,7 +222,7 @@ fn expandDefonce(
 ) macro_dispatch.ExpandError!Form {
     _ = rt;
     if (args.len != 2 or args[0].data != .symbol)
-        return error_catalog.raise(.feature_not_supported, loc, .{ .name = "defonce needs a symbol name and an init expr" });
+        return error_catalog.raise(.form_malformed, loc, .{ .name = "defonce needs a symbol name and an init expr" });
     const name = args[0];
     var declform = try arena.alloc(Form, 2); // (def name)  — no-init, ensures existence
     declform[0] = sym("def", loc);
@@ -388,7 +388,7 @@ fn sequentialDestructure(
         const e = elems[i];
         if (e.data == .symbol and e.data.symbol.ns == null and std.mem.eql(u8, e.data.symbol.name, "&")) {
             if (i + 1 >= elems.len)
-                return error_catalog.raise(.feature_not_supported, loc, .{ .name = "destructuring `&` with no rest binding" });
+                return error_catalog.raise(.form_malformed, loc, .{ .name = "destructuring `&` with no rest binding" });
             // Rest binds to the current seq tail (clj binds `rest` to gseq).
             try destructureInto(out, arena, rt, elems[i + 1], cur_seq, loc);
             i += 1;
@@ -396,7 +396,7 @@ fn sequentialDestructure(
         }
         if (e.data == .keyword and e.data.keyword.ns == null and std.mem.eql(u8, e.data.keyword.name, "as")) {
             if (i + 1 >= elems.len or elems[i + 1].data != .symbol)
-                return error_catalog.raise(.feature_not_supported, loc, .{ .name = "destructuring `:as` without a symbol binding" });
+                return error_catalog.raise(.form_malformed, loc, .{ .name = "destructuring `:as` without a symbol binding" });
             try out.append(arena, elems[i + 1]);
             try out.append(arena, g);
             i += 1;
@@ -469,7 +469,7 @@ fn associativeDestructure(
         const k = pairs[i];
         if (k.data == .keyword and k.data.keyword.ns == null and std.mem.eql(u8, k.data.keyword.name, "or")) {
             if (pairs[i + 1].data != .map)
-                return error_catalog.raise(.feature_not_supported, loc, .{ .name = "destructuring `:or` value must be a map" });
+                return error_catalog.raise(.form_malformed, loc, .{ .name = "destructuring `:or` value must be a map" });
             or_pairs = pairs[i + 1].data.map;
         }
     }
@@ -488,10 +488,10 @@ fn associativeDestructure(
             const dir_ns = k.data.keyword.ns.?;
             const is_keys = std.mem.eql(u8, k.data.keyword.name, "keys");
             if (v.data != .vector)
-                return error_catalog.raise(.feature_not_supported, loc, .{ .name = "destructuring `:ns/keys`/`:ns/syms` needs a symbol vector" });
+                return error_catalog.raise(.form_malformed, loc, .{ .name = "destructuring `:ns/keys`/`:ns/syms` needs a symbol vector" });
             for (v.data.vector) |s| {
                 if (s.data != .symbol)
-                    return error_catalog.raise(.feature_not_supported, loc, .{ .name = "destructuring `:ns/keys`/`:ns/syms` entries must be symbols" });
+                    return error_catalog.raise(.form_malformed, loc, .{ .name = "destructuring `:ns/keys`/`:ns/syms` entries must be symbols" });
                 const nm = s.data.symbol.name;
                 const local: Form = .{ .data = .{ .symbol = .{ .ns = null, .name = nm } }, .location = loc };
                 const key_form: Form = if (is_keys)
@@ -508,14 +508,14 @@ fn associativeDestructure(
             if (std.mem.eql(u8, kn, "or")) continue;
             if (std.mem.eql(u8, kn, "as")) {
                 if (v.data != .symbol)
-                    return error_catalog.raise(.feature_not_supported, loc, .{ .name = "destructuring `:as` without a symbol binding" });
+                    return error_catalog.raise(.form_malformed, loc, .{ .name = "destructuring `:as` without a symbol binding" });
                 try out.append(arena, v);
                 try out.append(arena, g);
                 continue;
             }
             if (std.mem.eql(u8, kn, "keys") or std.mem.eql(u8, kn, "strs") or std.mem.eql(u8, kn, "syms")) {
                 if (v.data != .vector)
-                    return error_catalog.raise(.feature_not_supported, loc, .{ .name = "destructuring `:keys`/`:strs`/`:syms` needs a symbol vector" });
+                    return error_catalog.raise(.form_malformed, loc, .{ .name = "destructuring `:keys`/`:strs`/`:syms` needs a symbol vector" });
                 for (v.data.vector) |s| {
                     // An entry is a symbol OR (for :keys) a keyword — clj allows
                     // `{:keys [:a :b]}` / `{:keys [:a/b]}` (keyword entries) as
@@ -528,7 +528,7 @@ fn associativeDestructure(
                     const sym_ns: ?[]const u8, const nm: []const u8, const auto_res: bool = switch (s.data) {
                         .symbol => |sy| .{ sy.ns, sy.name, false },
                         .keyword => |kw| .{ kw.ns, kw.name, kw.auto_resolve },
-                        else => return error_catalog.raise(.feature_not_supported, loc, .{ .name = "destructuring `:keys`/`:strs`/`:syms` entries must be symbols or keywords" }),
+                        else => return error_catalog.raise(.form_malformed, loc, .{ .name = "destructuring `:keys`/`:strs`/`:syms` entries must be symbols or keywords" }),
                     };
                     // A namespaced entry `a/b` binds the LOCAL `b` (the name
                     // part) to the namespaced KEY (`:a/b` for :keys, `"a/b"`
@@ -546,7 +546,7 @@ fn associativeDestructure(
                 }
                 continue;
             }
-            return error_catalog.raise(.feature_not_supported, loc, .{ .name = "unsupported map-destructuring directive keyword" });
+            return error_catalog.raise(.form_malformed, loc, .{ .name = "unsupported map-destructuring directive keyword" });
         }
         // Bare `{local kexpr}`: bind `local` (recursable) to `(get g kexpr <default>)`.
         const default_form: ?Form = if (k.data == .symbol) findOrDefault(or_pairs, k.data.symbol.name) else null;
@@ -3446,7 +3446,7 @@ fn expandThunkWrapper(
     loc: SourceLocation,
 ) macro_dispatch.ExpandError!Form {
     if (args.len == 0)
-        return error_catalog.raise(.feature_not_supported, loc, .{ .name = "delay/future requires at least one body form" });
+        return error_catalog.raise(.form_malformed, loc, .{ .name = "delay/future requires at least one body form" });
     const empty_params = try arena.dupe(Form, &.{});
     const params_form: Form = .{ .data = .{ .vector = empty_params }, .location = loc };
     var fn_items = try arena.alloc(Form, 2 + args.len);

@@ -862,7 +862,7 @@ pub const Reader = struct {
             return error_catalog.raise(.reader_cond_not_allowed, loc, .{});
         const list_tok = self.nextToken();
         if (list_tok.kind != .lparen)
-            return error_catalog.raise(.feature_not_supported, loc, .{ .name = "#? must be followed by a (…) list of feature/form pairs" });
+            return error_catalog.raise(.form_malformed, loc, .{ .name = "#? must be followed by a (…) list of feature/form pairs" });
         const list_form = try self.readForm(list_tok);
         const items = list_form.data.list;
         var i: usize = 0;
@@ -894,7 +894,7 @@ pub const Reader = struct {
             return error_catalog.raise(.reader_cond_not_allowed, loc, .{});
         const list_tok = self.nextToken();
         if (list_tok.kind != .lparen)
-            return error_catalog.raise(.feature_not_supported, loc, .{ .name = "#?@ must be followed by a (…) list of feature/form pairs" });
+            return error_catalog.raise(.form_malformed, loc, .{ .name = "#?@ must be followed by a (…) list of feature/form pairs" });
         const list_form = try self.readForm(list_tok);
         const items = list_form.data.list;
         var i: usize = 0;

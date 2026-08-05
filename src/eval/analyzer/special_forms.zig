@@ -186,7 +186,7 @@ pub fn analyzeDot(
     macro_table: *const macro_dispatch.Table,
 ) AnalyzeError!*const Node {
     if (items.len < 3)
-        return error_catalog.raise(.feature_not_supported, form.location, .{ .name = ". form needs a receiver and a member" });
+        return error_catalog.raise(.form_malformed, form.location, .{ .name = ". form needs a receiver and a member" });
     const recv = items[1];
     const member_form = items[2];
     // Normalise the member name + args from either shape.
@@ -195,17 +195,17 @@ pub fn analyzeDot(
     switch (member_form.data) {
         .symbol => |m| {
             if (m.ns != null)
-                return error_catalog.raise(.feature_not_supported, member_form.location, .{ .name = ". member must be an unqualified symbol" });
+                return error_catalog.raise(.form_malformed, member_form.location, .{ .name = ". member must be an unqualified symbol" });
             member_name = m.name;
             arg_forms = items[3..];
         },
         .list => |inner| {
             if (items.len != 3 or inner.len == 0 or inner[0].data != .symbol or inner[0].data.symbol.ns != null)
-                return error_catalog.raise(.feature_not_supported, member_form.location, .{ .name = ". (member args) form must be (member …) with an unqualified head" });
+                return error_catalog.raise(.form_malformed, member_form.location, .{ .name = ". (member args) form must be (member …) with an unqualified head" });
             member_name = inner[0].data.symbol.name;
             arg_forms = inner[1..];
         },
-        else => return error_catalog.raise(.feature_not_supported, member_form.location, .{ .name = ". member must be a symbol or (member …) list" }),
+        else => return error_catalog.raise(.form_malformed, member_form.location, .{ .name = ". member must be a symbol or (member …) list" }),
     }
     // A `.-field` style leading-dash member reads a field only.
     const field_only = member_name.len >= 1 and member_name[0] == '-';
@@ -285,7 +285,7 @@ pub fn analyzeNew(
     macro_table: *const macro_dispatch.Table,
 ) AnalyzeError!*const Node {
     if (items.len < 2 or items[1].data != .symbol)
-        return error_catalog.raise(.feature_not_supported, form.location, .{ .name = "new (requires a class symbol: (new Classname args…))" });
+        return error_catalog.raise(.form_malformed, form.location, .{ .name = "new (requires a class symbol: (new Classname args…))" });
     const cls = items[1].data.symbol;
     const type_name: []const u8 = if (cls.ns) |prefix|
         try std.fmt.allocPrint(arena, "{s}/{s}", .{ prefix, cls.name })
@@ -915,13 +915,13 @@ fn prependPrefix(arena: std.mem.Allocator, prefix: []const u8, sub: Form) Analyz
         },
         .vector => |vec| {
             if (vec.len == 0 or vec[0].data != .symbol)
-                return error_catalog.raise(.feature_not_supported, sub.location, .{ .name = "prefix-list sub-libspec must begin with a symbol" });
+                return error_catalog.raise(.form_malformed, sub.location, .{ .name = "prefix-list sub-libspec must begin with a symbol" });
             const full = try std.fmt.allocPrint(arena, "{s}.{s}", .{ prefix, vec[0].data.symbol.name });
             const out = try arena.dupe(Form, vec);
             out[0] = .{ .data = .{ .symbol = .{ .ns = null, .name = full } }, .location = vec[0].location };
             return .{ .data = .{ .vector = out }, .location = sub.location };
         },
-        else => return error_catalog.raise(.feature_not_supported, sub.location, .{ .name = "prefix-list sub-libspec must be a symbol or vector" }),
+        else => return error_catalog.raise(.form_malformed, sub.location, .{ .name = "prefix-list sub-libspec must be a symbol or vector" }),
     }
 }
 
@@ -968,7 +968,7 @@ fn appendLibspecs(
             else => unreachable, // isPrefixList only returns true for list/vector
         };
         if (vec.len == 0 or vec[0].data != .symbol)
-            return error_catalog.raise(.feature_not_supported, libspec_form.location, .{ .name = "prefix-list must begin with a prefix symbol" });
+            return error_catalog.raise(.form_malformed, libspec_form.location, .{ .name = "prefix-list must begin with a prefix symbol" });
         const prefix = vec[0].data.symbol.name;
         for (vec[1..]) |sub| {
             const expanded = try prependPrefix(arena, prefix, sub);
@@ -1038,14 +1038,14 @@ fn parseComponentLibspec(rt: ?*Runtime, arena: std.mem.Allocator, f: Form) Analy
     var i: usize = 1;
     while (i < elems.len) {
         if (elems[i].data != .keyword)
-            return error_catalog.raise(.feature_not_supported, elems[i].location, .{ .name = "wasm component libspec options must be keyword/value pairs" });
+            return error_catalog.raise(.form_malformed, elems[i].location, .{ .name = "wasm component libspec options must be keyword/value pairs" });
         const kw = elems[i].data.keyword;
         if (i + 1 >= elems.len)
-            return error_catalog.raise(.feature_not_supported, elems[i].location, .{ .name = "wasm component libspec keyword without value" });
+            return error_catalog.raise(.form_malformed, elems[i].location, .{ .name = "wasm component libspec keyword without value" });
         const val = elems[i + 1];
         if (std.mem.eql(u8, kw.name, "as")) {
             if (val.data != .symbol or val.data.symbol.ns != null)
-                return error_catalog.raise(.feature_not_supported, val.location, .{ .name = "wasm component :as value must be an unqualified symbol" });
+                return error_catalog.raise(.form_malformed, val.location, .{ .name = "wasm component :as value must be an unqualified symbol" });
             alias = try arena.dupe(u8, val.data.symbol.name);
         } else if (std.mem.eql(u8, kw.name, "refer")) {
             refers = try parseSymbolNameSeq(arena, val, "wasm component :refer value must be a vector of symbols");
@@ -1097,21 +1097,21 @@ fn parseLibspecForm(
         .symbol => |s| ns_sym = s,
         .vector => |vec| {
             if (vec.len == 0 or vec[0].data != .symbol)
-                return error_catalog.raise(.feature_not_supported, inner_form.location, .{ .name = "require libspec must begin with a symbol" });
+                return error_catalog.raise(.form_malformed, inner_form.location, .{ .name = "require libspec must begin with a symbol" });
             ns_sym = vec[0].data.symbol;
             var i: usize = 1;
             while (i < vec.len) {
                 if (vec[i].data != .keyword)
-                    return error_catalog.raise(.feature_not_supported, vec[i].location, .{ .name = "require libspec options must be keyword/value pairs" });
+                    return error_catalog.raise(.form_malformed, vec[i].location, .{ .name = "require libspec options must be keyword/value pairs" });
                 const kw = vec[i].data.keyword;
                 if (kw.ns != null)
-                    return error_catalog.raise(.feature_not_supported, vec[i].location, .{ .name = "require libspec keyword must be unqualified" });
+                    return error_catalog.raise(.form_malformed, vec[i].location, .{ .name = "require libspec keyword must be unqualified" });
                 if (i + 1 >= vec.len)
-                    return error_catalog.raise(.feature_not_supported, vec[i].location, .{ .name = "require libspec keyword without value" });
+                    return error_catalog.raise(.form_malformed, vec[i].location, .{ .name = "require libspec keyword without value" });
                 const val = vec[i + 1];
                 if (std.mem.eql(u8, kw.name, "as")) {
                     if (val.data != .symbol or val.data.symbol.ns != null)
-                        return error_catalog.raise(.feature_not_supported, val.location, .{ .name = "require :as value must be an unqualified symbol" });
+                        return error_catalog.raise(.form_malformed, val.location, .{ .name = "require :as value must be an unqualified symbol" });
                     alias_name = try arena.dupe(u8, val.data.symbol.name);
                 } else if (std.mem.eql(u8, kw.name, "refer")) {
                     // `:refer :all` refers every public var (env.referAll).
@@ -1146,7 +1146,7 @@ fn parseLibspecForm(
                 i += 2;
             }
         },
-        else => return error_catalog.raise(.feature_not_supported, inner_form.location, .{ .name = "require libspec must be symbol or vector" }),
+        else => return error_catalog.raise(.form_malformed, inner_form.location, .{ .name = "require libspec must be symbol or vector" }),
     }
 
     const ns_name: []const u8 = if (ns_sym.ns) |prefix|
@@ -1175,12 +1175,12 @@ fn parseSymbolNameSeq(
     const items: []const Form = switch (val.data) {
         .vector => |v| v,
         .list => |l| l,
-        else => return error_catalog.raise(.feature_not_supported, val.location, .{ .name = err_name }),
+        else => return error_catalog.raise(.form_malformed, val.location, .{ .name = err_name }),
     };
     const buf = try arena.alloc([]const u8, items.len);
     for (items, 0..) |entry, k| {
         if (entry.data != .symbol or entry.data.symbol.ns != null)
-            return error_catalog.raise(.feature_not_supported, entry.location, .{ .name = err_name });
+            return error_catalog.raise(.form_malformed, entry.location, .{ .name = err_name });
         buf[k] = try arena.dupe(u8, entry.data.symbol.name);
     }
     return buf;
@@ -1204,11 +1204,11 @@ pub fn analyzeNs(
     macro_table: *const macro_dispatch.Table,
 ) AnalyzeError!*const Node {
     if (items.len < 2)
-        return error_catalog.raise(.feature_not_supported, form.location, .{ .name = "ns requires a name" });
+        return error_catalog.raise(.form_malformed, form.location, .{ .name = "ns requires a name" });
 
     const name_form = items[1];
     if (name_form.data != .symbol)
-        return error_catalog.raise(.feature_not_supported, name_form.location, .{ .name = "ns name must be a bare symbol" });
+        return error_catalog.raise(.form_malformed, name_form.location, .{ .name = "ns name must be a bare symbol" });
     const sym = name_form.data.symbol;
     const ns_name: []const u8 = if (sym.ns) |prefix|
         try std.fmt.allocPrint(arena, "{s}/{s}", .{ prefix, sym.name })
@@ -1260,13 +1260,13 @@ pub fn analyzeNs(
         const inner: []const Form = switch (directive.data) {
             .list => |l| l,
             .vector => |v| v,
-            else => return error_catalog.raise(.feature_not_supported, directive.location, .{ .name = "ns directive must be a list or vector" }),
+            else => return error_catalog.raise(.form_malformed, directive.location, .{ .name = "ns directive must be a list or vector" }),
         };
         if (inner.len == 0 or inner[0].data != .keyword)
-            return error_catalog.raise(.feature_not_supported, directive.location, .{ .name = "ns directive must begin with a keyword" });
+            return error_catalog.raise(.form_malformed, directive.location, .{ .name = "ns directive must begin with a keyword" });
         const kw = inner[0].data.keyword;
         if (kw.ns != null)
-            return error_catalog.raise(.feature_not_supported, directive.location, .{ .name = "ns directive keyword must be unqualified" });
+            return error_catalog.raise(.form_malformed, directive.location, .{ .name = "ns directive keyword must be unqualified" });
         if (std.mem.eql(u8, kw.name, "refer-clojure")) {
             refer_clojure = true;
             try parseReferClojureFilters(arena, inner[1..], &refer_clojure_exclude, &refer_clojure_only, directive.location);
@@ -1368,17 +1368,17 @@ fn parseImportForms(
             .list, .vector => {
                 const elems = if (entry.data == .list) entry.data.list else entry.data.vector;
                 if (elems.len < 2 or elems[0].data != .symbol)
-                    return error_catalog.raise(.feature_not_supported, entry.location, .{ .name = ":import prefix form must be (package Class …)" });
+                    return error_catalog.raise(.form_malformed, entry.location, .{ .name = ":import prefix form must be (package Class …)" });
                 const pkg = try symFullText(arena, elems[0].data.symbol);
                 for (elems[1..]) |ce| {
                     if (ce.data != .symbol or ce.data.symbol.ns != null)
-                        return error_catalog.raise(.feature_not_supported, ce.location, .{ .name = ":import class entry must be a simple symbol" });
+                        return error_catalog.raise(.form_malformed, ce.location, .{ .name = ":import class entry must be a simple symbol" });
                     const cname = ce.data.symbol.name;
                     const fqcn = try std.fmt.allocPrint(arena, "{s}.{s}", .{ pkg, cname });
                     try out.append(arena, .{ .simple = try arena.dupe(u8, cname), .fqcn = fqcn });
                 }
             },
-            else => return error_catalog.raise(.feature_not_supported, entry.location, .{ .name = ":import entry must be a symbol or (package Class …) list" }),
+            else => return error_catalog.raise(.form_malformed, entry.location, .{ .name = ":import entry must be a symbol or (package Class …) list" }),
         }
     }
 }
@@ -1404,12 +1404,12 @@ fn parseReferClojureFilters(
     var i: usize = 0;
     while (i < args.len) {
         if (args[i].data != .keyword)
-            return error_catalog.raise(.feature_not_supported, args[i].location, .{ .name = ":refer-clojure args must be keyword/value pairs" });
+            return error_catalog.raise(.form_malformed, args[i].location, .{ .name = ":refer-clojure args must be keyword/value pairs" });
         const kw = args[i].data.keyword;
         if (kw.ns != null)
-            return error_catalog.raise(.feature_not_supported, args[i].location, .{ .name = ":refer-clojure keyword must be unqualified" });
+            return error_catalog.raise(.form_malformed, args[i].location, .{ .name = ":refer-clojure keyword must be unqualified" });
         if (i + 1 >= args.len)
-            return error_catalog.raise(.feature_not_supported, args[i].location, .{ .name = ":refer-clojure keyword without value" });
+            return error_catalog.raise(.form_malformed, args[i].location, .{ .name = ":refer-clojure keyword without value" });
         const val = args[i + 1];
         if (std.mem.eql(u8, kw.name, "exclude")) {
             // D-299: clj accepts a list OR vector arg (`:exclude (vec)` / `[vec]`).
@@ -1442,7 +1442,7 @@ pub fn analyzeSetBang(
     if (items.len != 3)
         return error_catalog.raise(.set_arity_invalid, form.location, .{ .got = items.len - 1 });
     if (items[1].data != .symbol)
-        return error_catalog.raise(.feature_not_supported, items[1].location, .{ .name = "set! on a non-symbol target (field assignment)" });
+        return error_catalog.raise(.form_malformed, items[1].location, .{ .name = "set! on a non-symbol target (field assignment)" });
     const name_sym = items[1].data.symbol;
     // ADR-0104: a bare deftype mutable field (in a method's field context, not
     // shadowed by a local) → in-place field write. Checked before Var

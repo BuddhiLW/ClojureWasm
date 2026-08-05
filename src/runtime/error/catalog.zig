@@ -56,6 +56,15 @@ pub const Code = enum {
     uuid_string_invalid,
     inst_string_invalid,
     json_string_invalid,
+    edn_string_invalid,
+    /// A user-written FORM SHAPE the runtime rejects — a malformed libspec,
+    /// destructuring directive, import spec, `.` member form, reader
+    /// conditional. Bad DATA (the user's code is the data), so CATCHABLE:
+    /// clj rejects these with a catchable CompilerException / RuntimeException,
+    /// and an `(eval …)` / `read-string` caller must be able to handle the
+    /// rejection. Distinct from `feature_not_supported` (uncatchable), which is
+    /// for well-FORMED code using something cljw does not implement.
+    form_malformed,
     integer_literal_invalid,
     float_literal_invalid,
     string_unterminated,
@@ -564,6 +573,16 @@ pub fn entry(comptime code: Code) Entry {
         // uncatchable so an unsupported feature cannot be swallowed), which made
         // every JSON-consuming program unable to reject bad input. Same
         // miscategorisation the STM ops carried; same fix.
+        .edn_string_invalid => .{
+            .kind = .syntax_error,
+            .phase = .parse,
+            .template = "EDN error ({[reason]s})",
+        },
+        .form_malformed => .{
+            .kind = .syntax_error,
+            .phase = .analysis,
+            .template = "malformed form: {[name]s}",
+        },
         .json_string_invalid => .{
             .kind = .syntax_error,
             .phase = .parse,

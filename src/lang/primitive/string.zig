@@ -237,9 +237,11 @@ fn replaceImpl(rt: *Runtime, fn_name: []const u8, kind: ReplaceKind, args: []con
     // char-char + regex); this `replaceImpl`/`replace`/`replaceFirst`
     // path is legacy and no longer registered.
     if (args[1].tag() != .string)
-        return error_catalog.raise(.feature_not_supported, loc, .{ .name = "clojure.string/replace with non-string match" });
+        // clj throws a catchable ClassCastException / IllegalArgumentException
+        // for a wrong-typed match — bad data, not a missing feature.
+        return error_catalog.raise(.type_arg_invalid, loc, .{ .fn_name = "clojure.string/replace", .expected = "a string, char or regex match", .actual = @tagName(args[1].tag()) });
     if (args[2].tag() != .string)
-        return error_catalog.raise(.feature_not_supported, loc, .{ .name = "clojure.string/replace with non-string replacement" });
+        return error_catalog.raise(.type_arg_invalid, loc, .{ .fn_name = "clojure.string/replace", .expected = "a string, char or fn replacement", .actual = @tagName(args[2].tag()) });
     const haystack = string_collection.asString(args[0]);
     const needle = string_collection.asString(args[1]);
     const replacement = string_collection.asString(args[2]);
@@ -446,7 +448,8 @@ pub fn escape(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation)
         } else if (replacement.tag() == .string) {
             try out.appendSlice(rt.gc.infra, string_collection.asString(replacement));
         } else {
-            return error_catalog.raise(.feature_not_supported, loc, .{ .name = "clojure.string/escape cmap returned non-nil non-string" });
+            // The cmap fn returned an unusable value — the caller's data.
+            return error_catalog.raise(.type_arg_invalid, loc, .{ .fn_name = "clojure.string/escape", .expected = "a string or nil from the cmap fn", .actual = "another value" });
         }
     }
 
@@ -568,7 +571,7 @@ pub fn join(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) a
     const coll = if (args.len == 2) args[1] else args[0];
 
     if (coll.tag() != .vector)
-        return error_catalog.raise(.feature_not_supported, loc, .{ .name = "clojure.string/join with non-vector coll" });
+        return error_catalog.raise(.type_arg_invalid, loc, .{ .fn_name = "clojure.string/join", .expected = "a seqable collection", .actual = @tagName(args[args.len - 1].tag()) });
 
     const n = vector_collection.count(coll);
     var out: std.ArrayList(u8) = .empty;
@@ -578,7 +581,7 @@ pub fn join(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) a
     while (i < n) : (i += 1) {
         const elt = vector_collection.nth(coll, i);
         if (elt.tag() != .string)
-            return error_catalog.raise(.feature_not_supported, loc, .{ .name = "clojure.string/join with non-string element" });
+            return error_catalog.raise(.type_arg_invalid, loc, .{ .fn_name = "clojure.string/join", .expected = "a printable element", .actual = "an unprintable element" });
         if (i > 0 and sep.len > 0) try out.appendSlice(rt.gc.infra, sep);
         try out.appendSlice(rt.gc.infra, string_collection.asString(elt));
     }

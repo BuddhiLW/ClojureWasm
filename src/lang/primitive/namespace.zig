@@ -358,7 +358,7 @@ fn parseReferOpts(rt: *Runtime, kvs: []const Value, loc: SourceLocation) anyerro
 /// share the env primitive with).
 pub fn referFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
     if (args.len < 1 or args[0].tag() != .symbol)
-        return error_catalog.raise(.feature_not_supported, loc, .{ .name = "refer requires a namespace symbol" });
+        return error_catalog.raise(.form_malformed, loc, .{ .name = "refer requires a namespace symbol" });
     const target = env.findNs(symbol_mod.asSymbol(args[0]).name) orelse
         return error_catalog.raise(.lib_not_found, loc, .{ .ns = symbol_mod.asSymbol(args[0]).name });
     const here = env.current_ns orelse
@@ -385,7 +385,7 @@ pub fn useFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) 
             .vector => {
                 const cnt = vector_collection.count(libspec);
                 if (cnt < 1 or vector_collection.nth(libspec, 0).tag() != .symbol)
-                    return error_catalog.raise(.feature_not_supported, loc, .{ .name = "use libspec vector must start with a namespace symbol" });
+                    return error_catalog.raise(.form_malformed, loc, .{ .name = "use libspec vector must start with a namespace symbol" });
                 const target = try loader.loadOrFindNs(rt, env, symbol_mod.asSymbol(vector_collection.nth(libspec, 0)).name, loc);
                 // Gather the opts (elements after the ns symbol) into a slice.
                 var kv_buf: [16]Value = undefined;
@@ -396,7 +396,7 @@ pub fn useFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) 
                 defer opts.deinit(rt);
                 try env.referAllWithFilter(target, here, opts.exclude, opts.only);
             },
-            else => return error_catalog.raise(.feature_not_supported, loc, .{ .name = "use libspec must be a symbol or vector" }),
+            else => return error_catalog.raise(.form_malformed, loc, .{ .name = "use libspec must be a symbol or vector" }),
         }
     }
     return Value.nil_val;
@@ -421,7 +421,7 @@ pub fn requireFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocati
             .vector => {
                 const cnt = vector_collection.count(libspec);
                 if (cnt < 1 or vector_collection.nth(libspec, 0).tag() != .symbol)
-                    return error_catalog.raise(.feature_not_supported, loc, .{ .name = "require libspec vector must start with a namespace symbol" });
+                    return error_catalog.raise(.form_malformed, loc, .{ .name = "require libspec vector must start with a namespace symbol" });
                 const target = try loader.loadOrFindNs(rt, env, symbol_mod.asSymbol(vector_collection.nth(libspec, 0)).name, loc);
                 var i: u32 = 1;
                 while (i + 1 <= cnt - 1) : (i += 2) {
@@ -431,7 +431,7 @@ pub fn requireFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocati
                     const on = keyword_mod.asKeyword(opt).name;
                     if (std.mem.eql(u8, on, "as")) {
                         if (val.tag() != .symbol)
-                            return error_catalog.raise(.feature_not_supported, loc, .{ .name = "require :as needs a symbol alias" });
+                            return error_catalog.raise(.form_malformed, loc, .{ .name = "require :as needs a symbol alias" });
                         try env.setAlias(here, symbol_mod.asSymbol(val).name, target);
                     } else if (std.mem.eql(u8, on, "refer")) {
                         if (val.tag() == .keyword and std.mem.eql(u8, keyword_mod.asKeyword(val).name, "all")) {
@@ -446,7 +446,7 @@ pub fn requireFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocati
                     }
                 }
             },
-            else => return error_catalog.raise(.feature_not_supported, loc, .{ .name = "require libspec must be a symbol or vector" }),
+            else => return error_catalog.raise(.form_malformed, loc, .{ .name = "require libspec must be a symbol or vector" }),
         }
     }
     return Value.nil_val;
@@ -460,7 +460,7 @@ pub fn importStarFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLoc
     _ = rt;
     try error_catalog.checkArity("import*", args, 1, loc);
     if (args[0].tag() != .string)
-        return error_catalog.raise(.feature_not_supported, loc, .{ .name = "import* requires a class-name string" });
+        return error_catalog.raise(.form_malformed, loc, .{ .name = "import* requires a class-name string" });
     const fqcn = string_collection.asString(args[0]);
     const here = env.current_ns orelse
         return error_catalog.raise(.current_namespace_missing, loc, .{ .sym = "import*" });
