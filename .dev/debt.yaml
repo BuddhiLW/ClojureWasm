@@ -568,6 +568,16 @@ active:
     last_reviewed: "2026-06-16"
   - id: "D-450"
     status: |-
+      RESEARCH REPORT 2026-08-06 (user-directed, code-change-free):
+      docs/research/fastest-scripting-runtime/README.md — the campaign's
+      forward plan is now its §7 three-tier lever ladder (Tier 1
+      call/frame + dispatch structure -> Tier 2 PEP-659-style adaptive
+      specialization + basic call-site IC -> Tier 3 baseline JIT via the
+      zwasm-doctrine A2 route), each lever with evidence, attack surface,
+      cost, and refutation conditions; §8 records the cljw x ClojureWit x
+      zwasm complementarity thesis. Two adversarial verify passes ran
+      (~190 claims); the Tier-0 refuted-experiment table there supersedes
+      re-derivation from this row.
       ADR-0184 LANDED 2026-08-06 (commit 20897498): Functions are collectable
       variable-length GC cells; the immortal-closure leak is dead. Rush-hour
       headline 16.5s -> 12.3s (-26%); campaign arc 17.9s -> 12.3s, clj gap
