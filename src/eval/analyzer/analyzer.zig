@@ -1632,23 +1632,37 @@ fn valueMapToForm(arena: std.mem.Allocator, rt: *Runtime, env: *Env, map_val: Va
     return .{ .data = .{ .map = entries }, .location = call_loc };
 }
 
+/// `set.forEachElem` accumulator: each element is re-formed via valueToForm.
+const SetToFormCtx = struct {
+    arena: std.mem.Allocator,
+    rt: *Runtime,
+    env: *Env,
+    items: []Form,
+    i: usize,
+    loc: SourceLocation,
+    fn cb(ctx: *SetToFormCtx, e: Value) anyerror!void {
+        ctx.items[ctx.i] = try valueToForm(ctx.arena, ctx.rt, ctx.env, e, ctx.loc);
+        ctx.i += 1;
+    }
+};
+
 fn valueSetToForm(arena: std.mem.Allocator, rt: *Runtime, env: *Env, set_val: Value, call_loc: SourceLocation) anyerror!Form {
-    // PersistentHashSet wraps an ArrayMap-backed Value at its `map`
-    // field; iterate the map's keys, ignore the sentinel values.
-    // GC-ROOT: D-253 — root `set_val` (the raw `am` aliases its backing map)
-    // across the recursive valueToForm re-entries [ref: .dev/gc_rooting.md §C].
+    // Iterate via the generic `forEachElem` so a set whose backing map has
+    // promoted past the ArrayMap ceiling is handled too — decoding the backing
+    // map as an ArrayMap unconditionally read a HashMap's fields as `count` /
+    // `entries` and indexed off the end. Same fix, and the same reason, as
+    // `valueMapToForm` above.
+    // GC-ROOT: D-253 — root `set_val` across the recursive valueToForm
+    // re-entries [ref: .dev/gc_rooting.md §C].
     var sroots: [1]Value = .{set_val};
     var ssp: u16 = 1;
     var sframe: root_set.EvalFrame = .{ .stack = &sroots, .sp = &ssp, .locals = &.{}, .parent = root_set.eval_frame_head };
     root_set.eval_frame_head = &sframe;
     defer root_set.eval_frame_head = sframe.parent;
-    const ps = set_val.decodePtr(*const set_collection.PersistentHashSet);
-    const am = ps.map.decodePtr(*const map_collection.ArrayMap);
-    var items = try arena.alloc(Form, am.count);
-    var i: u32 = 0;
-    while (i < am.count) : (i += 1) {
-        items[i] = try valueToForm(arena, rt, env, am.entries[2 * i], call_loc);
-    }
+    const n = set_collection.count(set_val);
+    const items = try arena.alloc(Form, n);
+    var ctx = SetToFormCtx{ .arena = arena, .rt = rt, .env = env, .items = items, .i = 0, .loc = call_loc };
+    try set_collection.forEachElem(set_val, &ctx, SetToFormCtx.cb);
     return .{ .data = .{ .set = items }, .location = call_loc };
 }
 
