@@ -137,9 +137,14 @@ pub fn dispatch(init: std.process.Init) !void {
             return;
         }
         if (std.mem.eql(u8, first, "nrepl")) {
-            // nREPL server (ADR-0048). Optional `--port N`
-            // (default 7888 per JVM nREPL convention).
+            // nREPL server (ADR-0048). Optional `--port N` (default 7888 per
+            // JVM nREPL convention), plus the same `[-cp <dirs>] [-A:alias…]`
+            // classpath surface every other entry point carries (D-322): an
+            // editor session is the one place the user is CERTAIN to be on a
+            // project, so `(require '[my.lib])` must resolve off disk there.
             var port: u16 = 7888;
+            var nrepl_cp: ?[]const u8 = null;
+            var nrepl_aliases: std.ArrayList([]const u8) = .empty;
             while (args.next()) |a| {
                 if (std.mem.eql(u8, a, "--port")) {
                     const p_str = args.next() orelse {
@@ -152,13 +157,25 @@ pub fn dispatch(init: std.process.Init) !void {
                         try stderr.flush();
                         std.process.exit(1);
                     };
+                } else if (std.mem.eql(u8, a, "-cp") or std.mem.eql(u8, a, "--classpath")) {
+                    nrepl_cp = args.next() orelse {
+                        try stderr.print("nrepl: -cp requires an argument\n", .{});
+                        try stderr.flush();
+                        std.process.exit(1);
+                    };
+                } else if (std.mem.startsWith(u8, a, "-A")) {
+                    var it = std.mem.splitScalar(u8, a[2..], ':');
+                    while (it.next()) |name| {
+                        if (name.len > 0) try nrepl_aliases.append(arena, name);
+                    }
                 } else {
                     try stderr.print("nrepl: unknown argument '{s}'\n", .{a});
                     try stderr.flush();
                     std.process.exit(1);
                 }
             }
-            return nrepl.run(io, gpa, arena, stdout, stderr, port);
+            const load_paths = try resolveClasspath(io, arena, stderr, nrepl_cp, cljw_path, nrepl_aliases.items, git_cache_base);
+            return nrepl.run(io, gpa, arena, stdout, stderr, port, load_paths, fs_jail_root);
         }
         if (std.mem.eql(u8, first, "build")) {
             // D-100(b) + ADR-0034 am3/am4: `cljw build <in.clj> -o <out>` (script
@@ -339,8 +356,10 @@ fn dispatchArgsRest(
                 \\
                 \\Subcommands:
                 \\  repl               Start a terminal REPL.
-                \\  nrepl [--port N]   Start an nREPL server (default port 7888) for
-                \\                     CIDER and other editors.
+                \\  nrepl [--port N] [-cp <dirs>] [-A:alias…]
+                \\                     Start an nREPL server (default port 7888) for
+                \\                     CIDER and other editors. Classpath resolves as
+                \\                     for a run: `-cp` wins, else $CLJW_PATH, else ".".
                 \\  build <in.clj> -o <out> [-cp <dirs>] [-A:alias…]
                 \\                     Compile a script (with the runtime) into one
                 \\                     self-contained native binary. Main-mode variant:
@@ -495,15 +514,28 @@ fn loadDepsEdn(io: std.Io, arena: std.mem.Allocator, stderr: *std.Io.Writer, bas
     return .{ .load_paths = try merged.toOwnedSlice(arena), .cfg = cfg };
 }
 
-/// The default classpath for a no-`-cp` REPL entry (the `repl` subcommand + the
-/// bare no-args fallback): `$CLJW_PATH` (else cwd ".") split into roots, with a
-/// `./deps.edn` `:paths`/source-deps prepended. Mirrors `dispatchArgsRest`'s
-/// resolution minus the `-cp` flag + `-A` aliases, so the classpath-resolution
-/// behaviour lives in one place rather than duplicated per REPL entry (F-011).
-fn resolveDefaultClasspath(io: std.Io, arena: std.mem.Allocator, stderr: *std.Io.Writer, cljw_path_env: ?[]const u8, git_cache_base: ?[]const u8) ![]const []const u8 {
-    const base_paths = try splitClasspath(arena, cljw_path_env orelse ".");
-    const deps = try loadDepsEdn(io, arena, stderr, base_paths, &.{}, git_cache_base);
+/// The classpath for a REPL-shaped entry (`repl`, `nrepl`, the bare no-args
+/// fallback), resolved by the ADR-0084 rule: `-cp` wins, else `$CLJW_PATH`,
+/// else cwd ".", split into roots with a `./deps.edn` `:paths`/source-deps
+/// prepended. Mirrors `dispatchArgsRest`'s resolution so the rule lives in one
+/// place rather than duplicated per entry point (F-011).
+fn resolveClasspath(
+    io: std.Io,
+    arena: std.mem.Allocator,
+    stderr: *std.Io.Writer,
+    classpath_arg: ?[]const u8,
+    cljw_path_env: ?[]const u8,
+    alias_names: []const []const u8,
+    git_cache_base: ?[]const u8,
+) ![]const []const u8 {
+    const base_paths = try splitClasspath(arena, classpath_arg orelse cljw_path_env orelse ".");
+    const deps = try loadDepsEdn(io, arena, stderr, base_paths, alias_names, git_cache_base);
     return deps.load_paths;
+}
+
+/// `resolveClasspath` for an entry that takes neither `-cp` nor `-A`.
+fn resolveDefaultClasspath(io: std.Io, arena: std.mem.Allocator, stderr: *std.Io.Writer, cljw_path_env: ?[]const u8, git_cache_base: ?[]const u8) ![]const []const u8 {
+    return resolveClasspath(io, arena, stderr, null, cljw_path_env, &.{}, git_cache_base);
 }
 
 /// Split a colon-separated classpath string into its directory roots, allocated
