@@ -55,7 +55,7 @@ SMOKE_E2E=""
 # unregistered on 2026-08-05 (the full gate caught it, one push too late) —
 # a green smoke should not be able to say "the tests pass" about a test that
 # is not wired in.
-SMOKE_CORE="zig_fmt_check,zig_build_test_vm,zig_build_test_tree_walk,zlinter,build_cljw,lazy_ns_replay,corpus_regression,test_reach,e2e_reach"
+SMOKE_CORE="zig_fmt_check,zig_build_test_vm,zig_build_test_tree_walk,zlinter,build_cljw,lazy_ns_replay,corpus_regression,test_reach,e2e_reach,entrypoint_surface"
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -329,6 +329,7 @@ resume_done() { (( RESUME )) && grep -qxF "$GATE_FP $1" "$GATE_LEDGER" 2>/dev/nu
 run_step "zig_build_test_vm"        "zig build test -Dwasm -Doptimize=ReleaseSafe"
 run_step "zig_build_test_tree_walk" "zig build test -Dwasm -Dbackend=tree_walk -Doptimize=ReleaseSafe"
 run_step "zone_check"           "bash scripts/zone_check.sh --gate"
+run_step "entrypoint_surface"   "bash scripts/check_entrypoint_surface.sh"
 run_step "surface_marker"       "bash scripts/check_surface_marker.sh --gate"
 run_step "feature_keyword"      "bash scripts/check_feature_keyword.sh --gate"
 run_step "host_interface"       "bash scripts/check_host_interface.sh --gate"

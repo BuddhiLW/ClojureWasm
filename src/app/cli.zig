@@ -122,13 +122,24 @@ pub fn dispatch(init: std.process.Init) !void {
     const git_cache_base: ?[]const u8 = init.environ_map.get("CLJW_HOME") orelse
         if (init.environ_map.get("HOME")) |h| try std.fmt.allocPrint(arena, "{s}/.cljw", .{h}) else null;
 
-    // `cljw repl` subcommand (ADR-0048) — peek the first positional
-    // and route to the REPL when it matches. The REPL takes no further
-    // argv; trailing args are not allowed today (a future `--init` /
-    // `--port` would relax this).
+    // Subcommand routing (ADR-0048) — peek the first positional and
+    // route when it matches.
     if (args.next()) |first| {
         if (std.mem.eql(u8, first, "repl")) {
-            const load_paths = try resolveDefaultClasspath(io, arena, stderr, cljw_path, git_cache_base);
+            // Same `[-cp <dirs>] [-A:alias…]` surface as every other eval
+            // entry point (the D-322 residual): trailing args used to be
+            // silently ignored, so `cljw repl -cp src` dropped the -cp
+            // without a diagnostic. Unknown arguments are rejected.
+            var repl_cp: ?[]const u8 = null;
+            var repl_aliases: std.ArrayList([]const u8) = .empty;
+            while (args.next()) |a| {
+                if (!(try consumeCpAliasArg(arena, stderr, "repl", a, &args, &repl_cp, &repl_aliases))) {
+                    try stderr.print("repl: unknown argument '{s}'\n", .{a});
+                    try stderr.flush();
+                    std.process.exit(1);
+                }
+            }
+            const load_paths = try resolveClasspath(io, arena, stderr, repl_cp, cljw_path, repl_aliases.items, git_cache_base);
             return repl.run(io, gpa, arena, stdout, stderr, load_paths, fs_jail_root);
         }
         if (std.mem.eql(u8, first, "render-error")) {
@@ -157,17 +168,8 @@ pub fn dispatch(init: std.process.Init) !void {
                         try stderr.flush();
                         std.process.exit(1);
                     };
-                } else if (std.mem.eql(u8, a, "-cp") or std.mem.eql(u8, a, "--classpath")) {
-                    nrepl_cp = args.next() orelse {
-                        try stderr.print("nrepl: -cp requires an argument\n", .{});
-                        try stderr.flush();
-                        std.process.exit(1);
-                    };
-                } else if (std.mem.startsWith(u8, a, "-A")) {
-                    var it = std.mem.splitScalar(u8, a[2..], ':');
-                    while (it.next()) |name| {
-                        if (name.len > 0) try nrepl_aliases.append(arena, name);
-                    }
+                } else if (try consumeCpAliasArg(arena, stderr, "nrepl", a, &args, &nrepl_cp, &nrepl_aliases)) {
+                    // consumed by the shared classpath-surface arm
                 } else {
                     try stderr.print("nrepl: unknown argument '{s}'\n", .{a});
                     try stderr.flush();
@@ -202,17 +204,8 @@ pub fn dispatch(init: std.process.Init) !void {
                         try stderr.flush();
                         std.process.exit(1);
                     };
-                } else if (std.mem.eql(u8, a, "-cp") or std.mem.eql(u8, a, "--classpath")) {
-                    build_cp = args.next() orelse {
-                        try stderr.writeAll("build: -cp requires an argument\n");
-                        try stderr.flush();
-                        std.process.exit(1);
-                    };
-                } else if (std.mem.startsWith(u8, a, "-A")) {
-                    var it = std.mem.splitScalar(u8, a[2..], ':');
-                    while (it.next()) |name| {
-                        if (name.len > 0) try build_aliases.append(arena, name);
-                    }
+                } else if (try consumeCpAliasArg(arena, stderr, "build", a, &args, &build_cp, &build_aliases)) {
+                    // consumed by the shared classpath-surface arm
                 } else if (std.mem.startsWith(u8, a, "-") and a.len > 1) {
                     try stderr.print("build: unknown option '{s}'\n", .{a});
                     try stderr.flush();
@@ -355,7 +348,9 @@ fn dispatchArgsRest(
                 \\  -h, --help         Show this help.
                 \\
                 \\Subcommands:
-                \\  repl               Start a terminal REPL.
+                \\  repl [-cp <dirs>] [-A:alias…]
+                \\                     Start a terminal REPL. Classpath resolves as
+                \\                     for a run: `-cp` wins, else $CLJW_PATH, else ".".
                 \\  nrepl [--port N] [-cp <dirs>] [-A:alias…]
                 \\                     Start an nREPL server (default port 7888) for
                 \\                     CIDER and other editors. Classpath resolves as
@@ -512,6 +507,38 @@ fn loadDepsEdn(io: std.Io, arena: std.mem.Allocator, stderr: *std.Io.Writer, bas
     try merged.appendSlice(arena, dep_paths);
     try merged.appendSlice(arena, base);
     return .{ .load_paths = try merged.toOwnedSlice(arena), .cfg = cfg };
+}
+
+/// Shared `-cp <dirs>` / `-A:alias…` arm for the subcommand arg loops
+/// (`repl` / `nrepl` / `build`): the classpath surface is one contract
+/// (ADR-0084 / D-322), so its spelling lives once. Returns true when `a`
+/// was consumed; the caller keeps its own flags and its unknown-arg
+/// diagnostic.
+fn consumeCpAliasArg(
+    arena: std.mem.Allocator,
+    stderr: *std.Io.Writer,
+    subcmd: []const u8,
+    a: []const u8,
+    args: anytype,
+    cp: *?[]const u8,
+    aliases: *std.ArrayList([]const u8),
+) !bool {
+    if (std.mem.eql(u8, a, "-cp") or std.mem.eql(u8, a, "--classpath")) {
+        cp.* = args.next() orelse {
+            try stderr.print("{s}: -cp requires an argument\n", .{subcmd});
+            try stderr.flush();
+            std.process.exit(1);
+        };
+        return true;
+    }
+    if (std.mem.startsWith(u8, a, "-A")) {
+        var it = std.mem.splitScalar(u8, a[2..], ':');
+        while (it.next()) |name| {
+            if (name.len > 0) try aliases.append(arena, name);
+        }
+        return true;
+    }
+    return false;
 }
 
 /// The classpath for a REPL-shaped entry (`repl`, `nrepl`, the bare no-args
