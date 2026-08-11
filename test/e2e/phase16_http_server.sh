@@ -57,6 +57,13 @@ body=$(curl -s "http://127.0.0.1:$PORT/html" 2>&1)
 [[ "$body" == "<h1>hi</h1>" ]] || fail "GET /html body: got '$body'"
 echo "PASS http-html-body -> $body"
 
+# NINE response headers — a >8-entry :headers map promotes to hash_map
+# (Discussion #12 bug class) and used to be dropped wholesale.
+hdrs=$(curl -s -D - -o /dev/null "http://127.0.0.1:$PORT/many-headers" 2>&1)
+echo "$hdrs" | grep -qi "^x-m1: 1" || fail "9-resp-headers x-m1: got '$hdrs'"
+echo "$hdrs" | grep -qi "^x-m9: 9" || fail "9-resp-headers x-m9: got '$hdrs'"
+echo "PASS http-9-resp-headers -> x-m1..x-m9"
+
 # FIX-2 (SE-4): an out-of-range :status (200000 > 1023) must fall back to 500,
 # NOT panic the whole server process. Assert 500 AND that the server survives (a
 # follow-up request still routes).

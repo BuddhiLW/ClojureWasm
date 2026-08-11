@@ -188,23 +188,34 @@ pub fn runServer(
             const b = map_mod.get(resp, kw_body) catch Value.nil_val;
             if (b.tag() == .string) body = string_mod.asString(b);
             const h = map_mod.get(resp, kw_headers) catch Value.nil_val;
-            if (h.tag() == .array_map) {
-                const am = h.decodePtr(*const map_mod.ArrayMap);
-                var i: u32 = 0;
-                while (i < am.count and n_headers < header_buf.len) : (i += 1) {
-                    const hk = am.entries[2 * i];
-                    const hv = am.entries[2 * i + 1];
-                    if (hk.tag() == .string and hv.tag() == .string) {
+            if (h.tag() == .array_map or h.tag() == .hash_map) {
+                // Iterate via the generic `forEachEntry`: a 9+-entry :headers
+                // map promotes to hash_map and the old array_map-only decode
+                // dropped ALL custom headers past that boundary (Discussion
+                // #12 bug class). The 16-header cap + SE-5 CRLF check are
+                // preserved inside the callback.
+                const HdrEmit = struct {
+                    header_buf: *[16]std.http.Header,
+                    n_headers: *usize,
+                    headers_clean: *bool,
+                    fn put(c: *@This(), hk: Value, hv: Value) anyerror!void {
+                        if (!c.headers_clean.* or c.n_headers.* >= c.header_buf.len) return;
+                        if (hk.tag() != .string or hv.tag() != .string) return;
                         const nm = string_mod.asString(hk);
                         const vl = string_mod.asString(hv);
                         if (!headerFieldClean(nm) or !headerFieldClean(vl)) {
-                            headers_clean = false;
-                            break;
+                            c.headers_clean.* = false;
+                            return;
                         }
-                        header_buf[n_headers] = .{ .name = nm, .value = vl };
-                        n_headers += 1;
+                        c.header_buf[c.n_headers.*] = .{ .name = nm, .value = vl };
+                        c.n_headers.* += 1;
                     }
-                }
+                };
+                var hctx: HdrEmit = .{ .header_buf = &header_buf, .n_headers = &n_headers, .headers_clean = &headers_clean };
+                // The callback never errors and the tag is guarded above, so a
+                // failure here is unreachable; swallow to keep the serve loop
+                // crash-free on handler data (the surrounding contract).
+                map_mod.forEachEntry(h, &hctx, HdrEmit.put) catch {};
             }
         }
         // SE-5: a control byte in any response header would split the response (or

@@ -226,20 +226,23 @@ fn formatErrorEdn(info: error_mod.Info, ctx: error_print.SourceContext, w: *Writ
         }
     }
     // Merge the snapshotted `cljw.error/*error-context*` entries as
-    // top-level event fields (ADR-0055 D3). array_map only — context
-    // maps are small (the >8-entry hash_map path mirrors printMap's
-    // limitation; a large context is rare and never silently truncated
-    // because count ≤ 8 stays array_map).
+    // top-level event fields (ADR-0055 D3). Iterate via the generic
+    // `forEachEntry` so a >8-entry context (promoted to hash_map) lands in
+    // the event whole — the old array_map-only decode skipped it entirely
+    // (Discussion #12 bug class).
     if (info.context) |ctx_map| {
-        if (ctx_map.tag() == .array_map) {
-            const am = ctx_map.decodePtr(*const map_collection.ArrayMap);
-            var i: u32 = 0;
-            while (i < am.count) : (i += 1) {
-                try w.writeByte(' ');
-                try print_value(w, am.entries[2 * i]);
-                try w.writeByte(' ');
-                try print_value(w, am.entries[2 * i + 1]);
-            }
+        if (ctx_map.tag() == .array_map or ctx_map.tag() == .hash_map) {
+            const CtxEmit = struct {
+                w: *Writer,
+                fn put(c: *@This(), k: Value, v: Value) anyerror!void {
+                    try c.w.writeByte(' ');
+                    try print_value(c.w, k);
+                    try c.w.writeByte(' ');
+                    try print_value(c.w, v);
+                }
+            };
+            var cctx: CtxEmit = .{ .w = w };
+            try map_collection.forEachEntry(ctx_map, &cctx, CtxEmit.put);
         }
     }
     try w.writeAll("}\n");

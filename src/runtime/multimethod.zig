@@ -287,32 +287,40 @@ pub fn getMethod(
     // Cycle 2-3 hierarchy resolution: collect isa? candidates;
     // if ≥ 2 use `dominates` (prefer-method ∪ isa?) to pick the
     // best; if no dominator survives the walk → raise ambiguity.
-    var best_key: ?Value = null;
-    var best_method: ?Value = null;
-    var ambiguous = false;
-    if (mf.method_table.tag() == .array_map) {
-        const am = mf.method_table.decodePtr(*const map_mod.ArrayMap);
-        var i: u32 = 0;
-        while (i < am.count) : (i += 1) {
-            const key = am.entries[2 * i];
-            if (@intFromEnum(key) == @intFromEnum(dispatch_val)) continue;
-            if (!(try isaCheck(ancestors, dispatch_val, key))) continue;
+    // Iterate via the generic `forEachEntry` so a method_table that has
+    // promoted past the ArrayMap ceiling (9+ defmethods) is walked too —
+    // the old array_map-only decode silently skipped the whole isa? walk
+    // past that boundary, so hierarchy dispatch vanished at the 9th method
+    // while exact-match kept working (Discussion #12 bug class).
+    const IsaWalk = struct {
+        prefer_table: Value,
+        ancestors: Value,
+        dispatch_val: Value,
+        best_key: ?Value = null,
+        best_method: ?Value = null,
+        ambiguous: bool = false,
+        fn visit(c: *@This(), key: Value, method: Value) anyerror!void {
+            if (@intFromEnum(key) == @intFromEnum(c.dispatch_val)) return;
+            if (!(try isaCheck(c.ancestors, c.dispatch_val, key))) return;
 
-            if (best_key) |bk| {
-                if (try dominates(mf.prefer_table, ancestors, key, bk)) {
-                    best_key = key;
-                    best_method = am.entries[2 * i + 1];
-                    ambiguous = false;
-                } else if (!(try dominates(mf.prefer_table, ancestors, bk, key))) {
-                    ambiguous = true;
+            if (c.best_key) |bk| {
+                if (try dominates(c.prefer_table, c.ancestors, key, bk)) {
+                    c.best_key = key;
+                    c.best_method = method;
+                    c.ambiguous = false;
+                } else if (!(try dominates(c.prefer_table, c.ancestors, bk, key))) {
+                    c.ambiguous = true;
                 }
             } else {
-                best_key = key;
-                best_method = am.entries[2 * i + 1];
+                c.best_key = key;
+                c.best_method = method;
             }
         }
-    }
-    if (ambiguous) {
+    };
+    var walk: IsaWalk = .{ .prefer_table = mf.prefer_table, .ancestors = ancestors, .dispatch_val = dispatch_val };
+    try map_mod.forEachEntry(mf.method_table, &walk, IsaWalk.visit);
+    const best_method = walk.best_method;
+    if (walk.ambiguous) {
         const name_sym = symbol.asSymbol(mf.name);
         return error_catalog.raise(.multimethod_ambiguous_dispatch, loc, .{
             .name = name_sym.name,

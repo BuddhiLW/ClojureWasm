@@ -290,5 +290,24 @@ case "$trace" in
         fail "error_thrown_trace_inthread: expected a Trace: naming user/boom, got '$out'" ;;
 esac
 
+# --- Case 21: a >8-entry *error-context* map lands in the EDN event whole.
+#     Nine entries promote the map past the array_map ceiling (Discussion #12
+#     bug class); the EDN renderer used to skip the hash_map-backed context
+#     entirely — its own comment claimed "never silently truncated". ---
+ctx_log=$(mktemp -t cljw_ctxlog.XXXXXX)
+trap 'rm -f "$log_file" "$ctx_log"' EXIT
+CLJW_ERROR_LOG="$ctx_log" "$BIN" - 2>/dev/null <<'EOF' || true
+(require (quote cljw.error))
+(cljw.error/with-context {:k1 1 :k2 2 :k3 3 :k4 4 :k5 5 :k6 6 :k7 7 :k8 8 :k9 9}
+  (throw (ex-info "boom" {})))
+EOF
+contents=$(cat "$ctx_log")
+case "$contents" in
+    *":k9 9"*)
+        echo "PASS error_log_hashmap_context -> 9-entry context map present" ;;
+    *)
+        fail "error_log_hashmap_context: :k9 missing from '$contents'" ;;
+esac
+
 echo
 echo "Phase 14 row 14.13 (D-066 partial) error format e2e: all green."

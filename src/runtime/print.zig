@@ -858,7 +858,7 @@ fn lengthTruncated(w: *Writer, i: i64, sep: []const u8) Writer.Error!bool {
 /// skipped. Used to decide the compact `#:ns{…}` print form.
 fn mapCommonNs(v: Value) ?[]const u8 {
     if (v.tag() != .array_map) return null;
-    const am = v.decodePtr(*const map_collection.ArrayMap);
+    const am = v.decodePtr(*const map_collection.ArrayMap); // repr-decode-ok: ns-prefix scan is tag-guarded to the array_map arm; hash_map maps just skip the prefix sugar
     if (am.count == 0) return null;
     var common: ?[]const u8 = null;
     var i: u32 = 0;
@@ -1495,7 +1495,7 @@ fn printHamtEntries(w: *Writer, node: *const map_collection.HamtMapNode, first: 
     var j: u32 = 0;
     while (j < child_count) : (j += 1) {
         if (stop.*) return;
-        try printHamtEntries(w, node.slots[63 - j].decodePtr(*const map_collection.HamtMapNode), first, count, stop, kv);
+        try printHamtEntries(w, node.slots[63 - j].decodePtr(*const map_collection.HamtMapNode), first, count, stop, kv); // repr-decode-ok: printHamtEntries IS the HAMT walker (printer-side early-stop for *print-length*)
     }
 }
 
@@ -1510,7 +1510,7 @@ pub fn printMap(w: *Writer, v: Value) anyerror!void {
     const strip = compact_ns != null;
     try w.writeByte('{');
     if (v.tag() == .array_map) {
-        const am = v.decodePtr(*const map_collection.ArrayMap);
+        const am = v.decodePtr(*const map_collection.ArrayMap); // repr-decode-ok: printer dual-path, array_map arm (hash_map arm below)
         var i: u32 = 0;
         while (i < am.count) : (i += 1) {
             if (try lengthTruncated(w, @intCast(i), ", ")) break;
@@ -1520,7 +1520,7 @@ pub fn printMap(w: *Writer, v: Value) anyerror!void {
             try printValue(w, am.entries[2 * i + 1]);
         }
     } else {
-        const phm = v.decodePtr(*const map_collection.PersistentHashMap);
+        const phm = v.decodePtr(*const map_collection.PersistentHashMap); // repr-decode-ok: printer dual-path, hash_map arm
         if (phm.root) |root| {
             var first = true;
             var count: i64 = 0;
@@ -1537,9 +1537,9 @@ pub fn printMap(w: *Writer, v: Value) anyerror!void {
 /// `hash_map`-backed set.
 pub fn printSet(w: *Writer, v: Value) anyerror!void {
     try w.writeAll("#{");
-    const s = v.decodePtr(*const set_collection.PersistentHashSet);
+    const s = v.decodePtr(*const set_collection.PersistentHashSet); // repr-decode-ok: set printer reads the backing map value only to dual-path on its tag
     if (s.map.tag() == .array_map) {
-        const am = s.map.decodePtr(*const map_collection.ArrayMap);
+        const am = s.map.decodePtr(*const map_collection.ArrayMap); // repr-decode-ok: printer dual-path, array_map arm (hash_map arm below)
         var i: u32 = 0;
         while (i < am.count) : (i += 1) {
             if (try lengthTruncated(w, @intCast(i), " ")) break;
@@ -1549,7 +1549,7 @@ pub fn printSet(w: *Writer, v: Value) anyerror!void {
     } else {
         // hash_map-backed set (> 8 elements): walk the backing map's HAMT
         // keys directly (the set stores each element as a map key).
-        const phm = s.map.decodePtr(*const map_collection.PersistentHashMap);
+        const phm = s.map.decodePtr(*const map_collection.PersistentHashMap); // repr-decode-ok: printer dual-path, hash_map arm
         if (phm.root) |root| {
             var first = true;
             var count: i64 = 0;
@@ -1565,7 +1565,7 @@ pub fn printSet(w: *Writer, v: Value) anyerror!void {
 fn printSortedEntries(w: *Writer, root: Value, first: *bool, count: *i64, stop: *bool, comptime kv: bool) anyerror!void {
     if (root.tag() != .rb_node) return;
     if (stop.*) return;
-    const n = root.decodePtr(*const sorted_collection.RbNode);
+    const n = root.decodePtr(*const sorted_collection.RbNode); // repr-decode-ok: sorted printer in-order walk; sorted_map/set have a single RB-tree backing
     try printSortedEntries(w, n.left, first, count, stop, kv);
     if (stop.*) return;
     // *print-length*: in ascending order, stop emitting once the
@@ -1589,7 +1589,7 @@ fn printSortedEntries(w: *Writer, root: Value, first: *bool, count: *i64, stop: 
 
 pub fn printSortedMap(w: *Writer, v: Value) anyerror!void {
     try w.writeByte('{');
-    const m = v.decodePtr(*const sorted_collection.SortedMap);
+    const m = v.decodePtr(*const sorted_collection.SortedMap); // repr-decode-ok: single-backing tag (sorted_map)
     var first = true;
     var count: i64 = 0;
     var stop = false;
@@ -1599,8 +1599,8 @@ pub fn printSortedMap(w: *Writer, v: Value) anyerror!void {
 
 pub fn printSortedSet(w: *Writer, v: Value) anyerror!void {
     try w.writeAll("#{");
-    const s = v.decodePtr(*const sorted_collection.SortedSet);
-    const m = s.map.decodePtr(*const sorted_collection.SortedMap);
+    const s = v.decodePtr(*const sorted_collection.SortedSet); // repr-decode-ok: single-backing tag (sorted_set)
+    const m = s.map.decodePtr(*const sorted_collection.SortedMap); // repr-decode-ok: single-backing tag (sorted_set -> its SortedMap)
     var first = true;
     var count: i64 = 0;
     var stop = false;

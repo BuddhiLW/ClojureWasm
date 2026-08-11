@@ -385,7 +385,7 @@ fn writeValueRaw(ctx: *WriteCtx, w: *std.Io.Writer, v: Value) SerializeError!voi
         },
         .array_map => {
             try writeU8(w, @intFromEnum(ValueTag.array_map));
-            const am = v.decodePtr(*const map_mod.ArrayMap);
+            const am = v.decodePtr(*const map_mod.ArrayMap); // repr-decode-ok: serialized format is representation-dependent by design; a hash_map raises HashMapNotSerializable
             try writeU32(w, am.count);
             var i: u32 = 0;
             while (i < am.count) : (i += 1) {
@@ -402,9 +402,9 @@ fn writeValueRaw(ctx: *WriteCtx, w: *std.Io.Writer, v: Value) SerializeError!voi
         },
         .hash_set => {
             try writeU8(w, @intFromEnum(ValueTag.hash_set));
-            const s = v.decodePtr(*const set_mod.PersistentHashSet);
+            const s = v.decodePtr(*const set_mod.PersistentHashSet); // repr-decode-ok: set backing read for the serializable (array_map) check below
             if (s.map.tag() != .array_map) return SerializeError.HashMapNotSerializable;
-            const am = s.map.decodePtr(*const map_mod.ArrayMap);
+            const am = s.map.decodePtr(*const map_mod.ArrayMap); // repr-decode-ok: serialized format is representation-dependent by design; guarded by the check above
             try writeU32(w, am.count);
             var i: u32 = 0;
             while (i < am.count) : (i += 1) try writeValue(ctx, w, am.entries[2 * i]);

@@ -42,6 +42,8 @@ echo "$out" | grep -q "PASS http-client-query"     || fail "client query-string:
 $out"
 echo "$out" | grep -q "PASS http-client-post-body" || fail "client POST body:
 $out"
+echo "$out" | grep -q "PASS http-client-9-headers" || fail "client 9-entry :headers map:
+$out"
 echo "$out" | grep -q "NOT-CAUGHT" && fail "a client error escaped (catch …):
 $out"
 echo "$out" | grep -q "^DONE$"     || fail "client probe did not complete:

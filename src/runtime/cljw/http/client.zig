@@ -58,18 +58,24 @@ fn doRequest(rt: *Runtime, method: std.http.Method, args: []const Value, loc: So
 
         const hdr_v = map_mod.get(m, try keyword_mod.intern(rt, null, "headers")) catch Value.nil_val;
         if (!hdr_v.isNil()) {
-            if (hdr_v.tag() != .array_map)
+            if (hdr_v.tag() != .array_map and hdr_v.tag() != .hash_map)
                 return error_catalog.raise(.http_opts_invalid, loc, .{ .detail = "the :headers option must be a map of string→string" });
-            const am = hdr_v.decodePtr(*const map_mod.ArrayMap);
+            // Iterate via the generic `forEachEntry`: a 9+-entry :headers map
+            // promotes to hash_map and the old array_map-only decode rejected
+            // it as "not a map" (Discussion #12 bug class).
             var list: std.ArrayList(std.http.Header) = .empty;
-            var i: u32 = 0;
-            while (i < am.count) : (i += 1) {
-                const k = am.entries[2 * i];
-                const v = am.entries[2 * i + 1];
-                if (!k.isString() or !v.isString())
-                    return error_catalog.raise(.http_opts_invalid, loc, .{ .detail = "each :headers entry must be string→string" });
-                try list.append(scratch, .{ .name = string_mod.asString(k), .value = string_mod.asString(v) });
-            }
+            const HdrCollect = struct {
+                scratch: std.mem.Allocator,
+                list: *std.ArrayList(std.http.Header),
+                loc: SourceLocation,
+                fn put(c: *@This(), k: Value, v: Value) anyerror!void {
+                    if (!k.isString() or !v.isString())
+                        return error_catalog.raise(.http_opts_invalid, c.loc, .{ .detail = "each :headers entry must be string→string" });
+                    try c.list.append(c.scratch, .{ .name = string_mod.asString(k), .value = string_mod.asString(v) });
+                }
+            };
+            var hctx: HdrCollect = .{ .scratch = scratch, .list = &list, .loc = loc };
+            try map_mod.forEachEntry(hdr_v, &hctx, HdrCollect.put);
             extra_headers = list.items;
         }
     }

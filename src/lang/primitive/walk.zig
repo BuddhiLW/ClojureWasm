@@ -165,7 +165,7 @@ fn rebuildArrayMap(
     ctx: anytype,
 ) anyerror!Value {
     var result = map_collection.empty();
-    const am = form.decodePtr(*const map_collection.ArrayMap);
+    const am = form.decodePtr(*const map_collection.ArrayMap); // repr-decode-ok: dispatch-guaranteed .array_map; the .hash_map arm routes to rebuildHashMap
     // GC-ROOT: C6 — root the source map + accumulator + the in-flight [k v] entry
     // across transform_child (D-252) [ref: .dev/gc_rooting.md §C].
     var gc_roots: [3]Value = .{ form, result, .nil_val };

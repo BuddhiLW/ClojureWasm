@@ -215,8 +215,8 @@ pub fn tryClojureLangMethod(
     // `(comparator [_] (.comparator backing-sorted-map))` chains through here.
     if (std.mem.eql(u8, name, "comparator") and args.len == 0) {
         const comp = switch (receiver.tag()) {
-            .sorted_map => receiver.decodePtr(*const sorted.SortedMap).comparator,
-            .sorted_set => receiver.decodePtr(*const sorted.SortedSet).map.decodePtr(*const sorted.SortedMap).comparator,
+            .sorted_map => receiver.decodePtr(*const sorted.SortedMap).comparator, // repr-decode-ok: comparator field read; sorted_map has a single backing
+            .sorted_set => receiver.decodePtr(*const sorted.SortedSet).map.decodePtr(*const sorted.SortedMap).comparator, // repr-decode-ok: comparator field read; sorted_set has a single backing
             else => return null,
         };
         if (!comp.isNil()) return comp;
