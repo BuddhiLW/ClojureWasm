@@ -46,6 +46,33 @@ active:
       torture case reproduces a sweep; the vm-default production build is
       not exposed.
     last_reviewed: "2026-08-06"
+  - id: "D-576"
+    status: |-
+      open (2026-08-11, Discussion #12 arc). Representation-encapsulation
+      ENDGAME: collection modules still EXPORT their backing-representation
+      structs (ArrayMap / PersistentHashMap / HamtMapNode / PersistentHashSet /
+      SortedMap / RbNode / …), so the compiler cannot enforce what
+      scripts/check_repr_decode.sh (BASELINE=0 + inline `repr-decode-ok:`
+      waivers, in the smoke core) approximates by grep. The five live misreads
+      of the class are FIXED and fenced (analyzer valueSetToForm = the
+      Discussion #12 set-literal segfault; multimethod isa?-walk silently dead
+      at the 9th defmethod; http client 9-entry :headers rejection; http server
+      >8-response-header wholesale drop; error_render >8-entry *error-context*
+      skip — all via map.forEachEntry now, e2e/corpus-locked). 19 sites carry
+      per-line waivers (printers, sorted-comparator field reads, serializer,
+      walk.zig's dispatch-guaranteed arm). Full audit:
+      private/notes/2026-08-11-repr-assumption-audit.md (informational).
+    category: "runtime"
+    barrier: |-
+      Stop exporting the repr structs and the waiver list dies with the
+      export (compiler-enforced encapsulation). Needs (a) owner-side bounded
+      iteration in map.zig/set.zig (forEachEntryBounded or a cb halt signal)
+      so print.zig's *print-length* early-stop + HAMT walk move into the
+      owner, and (b) a serializer decision (owner-side serializeEntries hook
+      vs a sanctioned permanent waiver). Take up when next touching
+      print.zig's map/set printers or the serializer; the grep gate holds
+      the line meanwhile.
+    last_reviewed: "2026-08-11"
   - id: "D-572"
     status: |-
       open (2026-08-04). The cw-playground demo evaluates untrusted submissions

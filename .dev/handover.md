@@ -60,13 +60,14 @@
 - **Issues and PRs are OPEN**; CONTRIBUTING exempts outside contributors from
   the loop's own conventions. Debug tooling: `scripts/check_*.sh` headers are
   each their own SSOT — read the script, not a list here.
-
-## Stopped — user requested (2026-08-04, end of the audit-drain day)
-
-The loop ran to a clean boundary and stopped on an explicit instruction: full
-gate green, nothing half-landed, cron removed. Per-task note with the
-alt-hypothesis / next-experiment / blocker triad:
-`private/notes/2026-08-04-audit-drain.md`.
+- 2026-08-11: Discussions #12/#13 (BuddhiLW) answered in code — both fix
+  branches cherry-picked with authorship preserved; the repr-misread class
+  audited and 3 more live bugs fixed (multimethod isa? at 9 defmethods, http
+  client/server 9-entry headers, error_render context); `cljw repl` gained the
+  shared `[-cp][-A]` surface (D-322 residual closed). Two new smoke-core
+  gates fence both classes: `check_repr_decode.sh` + `check_entrypoint_surface.sh`.
+  Endgame row = D-576. Reply drafts (posting is user-gated):
+  `private/notes/2026-08-11-discussion-replies.md`.
 
 ## Standing units (tracked in .dev/debt.yaml)
 

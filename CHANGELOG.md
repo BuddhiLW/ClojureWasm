@@ -7,6 +7,39 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 
 ## [Unreleased]
 
+### Fixed
+
+- **A set literal of 9+ elements no longer crashes macroexpansion**
+  (segfault / index-out-of-bounds / bogus "cannot be re-analysed" —
+  three faces of one misread). The analyzer decoded the set's backing
+  map as if it were always array-backed; past the 8-element promotion
+  boundary it read hash-map fields as array fields. Reported with a
+  model bisection and fixed by @BuddhiLW (Discussion #12; commit
+  cherry-picked with authorship preserved).
+- **The same representation misread was audited tree-wide and three more
+  live instances fixed**, all at the same 8→9 boundary: multimethod
+  hierarchy (`derive`/`isa?`) dispatch silently vanished at the 9th
+  `defmethod`; `cljw.http.client` rejected a 9-entry `:headers` map;
+  `cljw.http.server` dropped all custom response headers past 8 entries.
+  A structured-error-log context map of 9+ entries was also silently
+  omitted from the EDN event. A new per-commit gate
+  (`scripts/check_repr_decode.sh`) forbids the whole class: collection
+  backing representations are now private to `src/runtime/collection/`.
+- **`cljw nrepl` resolves the filesystem classpath** — it previously
+  rejected `-cp`, ignored `$CLJW_PATH`, and never installed the
+  filesystem require chain, so an editor session could not `require` a
+  single namespace from the project it was started in. It now takes
+  `[-cp <dirs>] [-A:alias…]` alongside `--port`, exactly like every
+  other entry point. Diagnosed and fixed by @BuddhiLW (Discussion #13;
+  commit cherry-picked with authorship preserved).
+- **`cljw repl` no longer silently ignores trailing arguments** — it
+  takes the same `[-cp <dirs>] [-A:alias…]` surface and rejects unknown
+  args (`cljw repl -cp src` used to drop the `-cp` without a
+  diagnostic). A new per-commit gate
+  (`scripts/check_entrypoint_surface.sh`) requires every CLI entry point
+  to be classified and reach the shared classpath resolution, so a
+  future subcommand cannot repeat the nREPL omission.
+
 ## [1.9.0] - 2026-08-05
 
 **Upgrade if you run untrusted code under `cljw.eval/with-budget`, parse
