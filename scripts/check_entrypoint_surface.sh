@@ -81,6 +81,20 @@ for sc in "${EVAL_SUBCOMMANDS[@]}"; do
     fi
 done
 
+# --- 3b: each eval subcommand's --help line advertises -cp. The help text is
+# externally consumed: at least one editor integration probes `cljw --help`
+# for `-cp` on the nrepl line to detect a classpath-capable build (Discussion
+# #13, 2026-08-11 confirmation reply). A help line that stops advertising -cp
+# silently breaks that capability detection even if the flag still works.
+for sc in "${EVAL_SUBCOMMANDS[@]}"; do
+    help_line=$(grep -F "\\  $sc " "$CLI" | head -1 || true)
+    if [ -z "$help_line" ] || ! printf '%s' "$help_line" | grep -q -- '-cp'; then
+        echo "check_entrypoint_surface: --help line for '$sc' is missing or does not advertise -cp."
+        echo "  External integrations probe \`cljw --help\` for -cp capability detection."
+        fail=1
+    fi
+done
+
 # --- 4: the default (file / -e / bare) path resolves the classpath too ---
 if ! awk '/fn dispatchArgsRest\(/,0' "$CLI" | grep -qE 'resolveClasspath|resolveDefaultClasspath|splitClasspath'; then
     echo "check_entrypoint_surface: dispatchArgsRest no longer reaches the shared classpath resolution."
