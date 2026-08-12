@@ -1,14 +1,15 @@
 <!--
-  Pull Requests are currently PAUSED for ClojureWasm.
+  ClojureWasm is no longer maintained, and Pull Requests are disabled here.
+  This is not a backlog or a pause — nothing will be reviewed or merged.
 
-  ClojureWasm is a small, resource-limited project and cannot review external
-  PRs right now. Please close this PR and instead start a thread in Discussions:
+  Fork it instead. EPL-2.0 asks no permission and the project asks no credit;
+  see CONTRIBUTING.md for how to build it and run the gate.
 
-      https://github.com/clojurewasm/ClojureWasm/discussions
+  Discussions stay open and may go unanswered:
+  https://github.com/clojurewasm/ClojureWasm/discussions
 
-  and mention @chaploud. Thanks for understanding — we do want to hear about
-  behaviour that differs from JVM Clojure, just through Discussions while PRs
-  are closed.
+  There are no security fixes either — SECURITY.md is explicit about that.
 
-  For security issues, see SECURITY.md (do not post exploit details publicly).
+  (This template is kept for forks, which get it the moment they enable PRs.
+  Replace this text with your own.)
 -->

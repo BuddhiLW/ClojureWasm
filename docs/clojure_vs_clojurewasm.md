@@ -169,10 +169,15 @@ Note that Java *arrays* are implemented (type-erased — see AD-019), as is
 
 A divergence listed in **Part 1** is *designed*: it derives from a project
 invariant and is pinned by a regression test, so it reads as a deliberate
-choice rather than a defect. A gap listed in **Part 2** is *scheduled*: it
-is on the roadmap (or, for the JVM-only corners, intentionally excluded).
-Anything not on this page that still differs from Clojure is a bug —
-please report it.
+choice rather than a defect. A gap listed in **Part 2** was *planned but never
+built* — it sat on the roadmap when the project stopped, or, for the JVM-only
+corners, was intentionally excluded. Anything not on this page that differs
+from Clojure is a bug that was never found.
+
+Since the project is no longer maintained, treat both parts as a map for a fork
+rather than as a list of things about to change. Part 1 marks behaviour not to
+"correct" without first understanding the invariant behind it; Part 2 marks
+what is genuinely missing, with what was intended.
 
 For the authoritative, machine-readable form of Part 1, see
 [`.dev/accepted_divergences.yaml`](../.dev/accepted_divergences.yaml); each
