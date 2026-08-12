@@ -87,7 +87,9 @@ done
 # #13, 2026-08-11 confirmation reply). A help line that stops advertising -cp
 # silently breaks that capability detection even if the flag still works.
 for sc in "${EVAL_SUBCOMMANDS[@]}"; do
-    help_line=$(grep -F "\\  $sc " "$CLI" | head -1 || true)
+    # `sed -n 1p` rather than `head -1`: head closes the pipe on its Nth line,
+    # and grep takes SIGPIPE (check_epipe_head.sh gates this).
+    help_line=$(grep -F "\\  $sc " "$CLI" | sed -n 1p || true)
     if [ -z "$help_line" ] || ! printf '%s' "$help_line" | grep -q -- '-cp'; then
         echo "check_entrypoint_surface: --help line for '$sc' is missing or does not advertise -cp."
         echo "  External integrations probe \`cljw --help\` for -cp capability detection."

@@ -40,6 +40,16 @@ BIN="$ROOT/zig-out/bin/cljw"
 
 fail() { echo "FAIL $1" >&2; exit 1; }
 
+# Portable bounded run: GNU `timeout`, else coreutils `gtimeout`, else
+# unbounded (hosted mac runners ship neither) — the same helper the http e2e
+# steps use; check_portable_timeout.sh gates the bare-`timeout` form.
+run_bounded() {
+    local secs="$1"; shift
+    if command -v timeout >/dev/null 2>&1; then timeout "$secs" "$@"
+    elif command -v gtimeout >/dev/null 2>&1; then gtimeout "$secs" "$@"
+    else "$@"; fi
+}
+
 WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
 
@@ -71,38 +81,38 @@ PROGRAMS=(
 # part of what is under test.
 
 run_e_flag() {
-    (cd "$WORK" && CLJW_PATH=src timeout 30 "$BIN" -e "$1" 2>&1)
+    (cd "$WORK" && CLJW_PATH=src run_bounded 30 "$BIN" -e "$1" 2>&1)
 }
 
 run_file() {
     printf '%s\n' "$1" > "$WORK/prog.clj"
-    (cd "$WORK" && CLJW_PATH=src timeout 30 "$BIN" prog.clj 2>&1)
+    (cd "$WORK" && CLJW_PATH=src run_bounded 30 "$BIN" prog.clj 2>&1)
 }
 
 run_stdin() {
-    (cd "$WORK" && printf '%s\n' "$1" | CLJW_PATH=src timeout 30 "$BIN" - 2>&1)
+    (cd "$WORK" && printf '%s\n' "$1" | CLJW_PATH=src run_bounded 30 "$BIN" - 2>&1)
 }
 
 run_repl() {
     # The REPL echoes a banner and `user=>` prompts around the output; strip
     # them so the comparison is on the program's own output.
-    (cd "$WORK" && printf '%s\n' "$1" | timeout 30 "$BIN" repl -cp src 2>&1) \
+    (cd "$WORK" && printf '%s\n' "$1" | run_bounded 30 "$BIN" repl -cp src 2>&1) \
         | sed -e 's/^user=> //' -e '/^Wasm REPL/d' -e '/^user=>$/d' \
         | grep -v '^$' || true
 }
 
 run_build() {
     printf '%s\n' "$1" > "$WORK/prog.clj"
-    (cd "$WORK" && timeout 180 "$BIN" build prog.clj -o prog_bin -cp src >/dev/null 2>&1) || {
+    (cd "$WORK" && run_bounded 180 "$BIN" build prog.clj -o prog_bin -cp src >/dev/null 2>&1) || {
         echo "BUILD-FAILED"; return 0
     }
-    (cd "$WORK" && timeout 30 ./prog_bin 2>&1)
+    (cd "$WORK" && run_bounded 30 ./prog_bin 2>&1)
 }
 
 run_nrepl() {
     local port=$(( 19000 + (RANDOM % 900) ))
     rm -f "$WORK/.nrepl-port"
-    ( cd "$WORK" && timeout 60 "$BIN" nrepl --port "$port" -cp src >/dev/null 2>&1 ) &
+    ( cd "$WORK" && run_bounded 60 "$BIN" nrepl --port "$port" -cp src >/dev/null 2>&1 ) &
     local pid=$!
     local deadline=$((SECONDS + 15))
     while [[ ! -f "$WORK/.nrepl-port" ]] && [[ $SECONDS -lt $deadline ]]; do sleep 0.1; done

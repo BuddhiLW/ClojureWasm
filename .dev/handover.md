@@ -18,36 +18,18 @@
   lookbehind / `\A\z\Z` / class algebra, multidim aget/aset, and the GC
   stops taxing long-running programs 2-4x — D-571/573/446/447 discharged).
   CHANGELOG is the release-history SSOT.
-- **First task on resume**: the PERF CAMPAIGN continues — D-450's status
-  head is the live brief. State 2026-08-06: ADR-0184 LANDED (Functions are
-  collectable GC cells; the 15.5M-immortal-closure leak is dead), rush-hour
-  17.9 s → **12.3 s** (clj gap 17x → 11.5x), GC share ~7% (inside the
-  ADR-0183 target). O-055 budget-TLV hoist also landed; TraceRef +
-  threshold-multiplier experiments REFUTED (recorded in D-450 — do not
-  re-run). Next step is a RE-PROFILE (the 2026-08-05 attribution is stale)
-  via `sample` on the BFS (`cd ~/Documents/MyProducts/cw-arcade/apps/
-  rush-hour && cljw -e "(require '[rush-hour.generator :as g])
-  (g/generate 7 :medium)"`, `-Dprofile` build), then the lever stack:
-  bindCallFrame copies, ADR-0184 Alt 3 template/closure split, Alt 1
-  epoch-mark, D-386 dispatch. Residual rows: D-574 reify-TD churn, D-575
-  worker fetched-fn class. The 9-target fastest-script list stays a
-  regression fence. ALSO fixed en route: nightly CI red (speed-scaled test
-  bound — budget_thread_ownership promise-gated; `run_remote_ubuntu.sh
-  --parity` reproduces the nightly config), re-extend-never-wins clj
-  parity defect, and the misplaced D-450 re-anchor block (was on D-343).
-  Release-process note worth keeping: **cutting the GitHub release by hand
-  before the tag workflow runs breaks the artifact upload**. zwasm's workflow
-  did an unconditional `gh release create`, which failed on "already exists"
-  and took the upload down with it, so v2.4.1 had notes and no binaries until
-  the release was deleted and the workflow re-run. Fixed to `view || create`
-  then `upload --clobber` (zwasm #160), matching what cljw's has always done.
-  NOTE on history hygiene: commit `673b082b`'s message describes only the
-  gate-parity fix, but its diff ALSO carries the zwasm tag re-pin, `wasm/run`'s
-  `:timeout-ms` axis and D-570's discharge — they were in the tree when the
-  gate went green and rode along. Not amended (already pushed); the v1.8.0
-  CHANGELOG was written from the diff rather than that message.
-- **Unreleased on main**: nothing. v1.8.0 (2026-08-04) carried the whole
-  audit-drain day; CHANGELOG is the SSOT for what it contained.
+- **First task on resume**: the wind-down sequence, NOT a feature unit. In
+  order: zwasm 2.5.0 (user-tagged) → bump the `.zwasm` pin + full gate →
+  cut the final cljw release tag → point cw-arcade / cw-playground /
+  cw-serverless-demo at that tag instead of a PATH `cljw` → post the
+  Discussions announcement (Announcements, pinned; the README already
+  carries the notice). The PERF CAMPAIGN (D-450, rush-hour 12.3 s, next
+  step was a re-profile) is **stopped, not paused** — its findings stay in
+  the row as a record. Release-process note that still applies: cutting a
+  GitHub release BY HAND before the tag workflow runs breaks the artifact
+  upload (zwasm #160 — use `view || create` then `upload --clobber`).
+- **Unreleased on main**: the Discussion #12/#13/#14 fixes + the two new
+  gates. CHANGELOG `[Unreleased]` is the SSOT for what they were.
 - **Forbidden**: bare `zig build test` without `-Dwasm`; bare `zig build` for a
   probe (use ReleaseSafe). The FULL gate runs `--serial-e2e`, ALONE; never a
   concurrent build during a gate. `.claude/**` edits + cross-repo publishes may
@@ -57,17 +39,28 @@
 
 ## Current state (details = CHANGELOG + git log)
 
-- **Issues and PRs are OPEN**; CONTRIBUTING exempts outside contributors from
-  the loop's own conventions. Debug tooling: `scripts/check_*.sh` headers are
-  each their own SSOT — read the script, not a list here.
-- 2026-08-11: Discussions #12/#13 (BuddhiLW) answered in code — both fix
-  branches cherry-picked with authorship preserved; the repr-misread class
-  audited and 3 more live bugs fixed (multimethod isa? at 9 defmethods, http
-  client/server 9-entry headers, error_render context); `cljw repl` gained the
-  shared `[-cp][-A]` surface (D-322 residual closed). Two new smoke-core
-  gates fence both classes: `check_repr_decode.sh` + `check_entrypoint_surface.sh`.
-  Endgame row = D-576. Reply drafts (posting is user-gated):
-  `private/notes/2026-08-11-discussion-replies.md`.
+- **Issues and PRs are DISABLED and always were** (deliberate — the
+  maintainer cannot service them); **Discussions is the one channel**, and
+  outside contributors send branches to cherry-pick. CONTRIBUTING exempts
+  them from the loop's own conventions, so a contributed commit is taken
+  as-is with authorship preserved and any missing `Smell-audited:` line
+  amended in. Debug tooling: `scripts/check_*.sh` headers are each their
+  own SSOT — read the script, not a list here.
+- **2026-08-12: the README declares ClojureWasm no longer maintained**
+  (`1c8a9cbf`); the Sponsors badge, README footer line, and `.github/FUNDING.yml`
+  are gone with it. Issues/PRs were always disabled — Discussions is the one
+  channel. Wind-down context + the surveyed wording/transfer research:
+  memory `clojurewasm-wind-down-plan`, `private/notes/2026-08-11-{sunset-wording,
+  transfer-risk}-survey.md`.
+- 2026-08-11/12: Discussions #12/#13/#14 (BuddhiLW) answered in code — three
+  fix branches cherry-picked with authorship preserved, each one's CLASS then
+  swept and fenced. #12 repr-misread → 3 more live bugs (multimethod isa? at 9
+  defmethods, http client/server 9-entry headers, error_render context) +
+  `check_repr_decode.sh`; #13/#14 entry-point divergence → `cljw repl`'s
+  `[-cp][-A]` surface, `cljw build`'s missing top-level-`do` unroll,
+  `check_entrypoint_surface.sh` + `test/e2e/entrypoint_eval_parity.sh` (a
+  6-entry-point differential oracle). D-374's discharge was a listed-not-probed
+  claim; corrected in place. Endgame row = D-576.
 
 ## Standing units (tracked in .dev/debt.yaml)
 

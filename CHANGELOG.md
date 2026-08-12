@@ -9,6 +9,21 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 
 ### Fixed
 
+- **A top-level `(do …)` that requires before it uses now works in every
+  entry point.** `(do (require '[clojure.string :as s]) (s/upper-case
+  "ok"))` returned `"OK"` from `cljw -e` but raised `No namespace: 's'`
+  over nREPL and in `cljw repl`, and failed to compile under `cljw build`:
+  the top-level-`do` unroll, which analyses and evaluates each child in
+  sequence so an earlier `require` or `defmacro` is visible to a later
+  child, had only ever been wired into the script path. Reported,
+  diagnosed and fixed for the REPL engine by @BuddhiLW (Discussion #14;
+  commit cherry-picked with authorship preserved); the `cljw build` half
+  was found by auditing the other callers. A new differential oracle
+  (`test/e2e/entrypoint_eval_parity.sh`) now runs each program through
+  `-e`, a script file, stdin, `repl`, `nrepl`, and `build`+run and
+  requires all six to agree, so this class of entry-point divergence
+  fails the gate instead of reaching users.
+
 - **A set literal of 9+ elements no longer crashes macroexpansion**
   (segfault / index-out-of-bounds / bogus "cannot be re-analysed" —
   three faces of one misread). The analyzer decoded the set's backing
