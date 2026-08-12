@@ -177,6 +177,11 @@ pub fn isKnownException(class_name: []const u8) bool {
 /// collection classes cljw has no values of. A surface class that IS one of their
 /// subtypes still matches through its `host_supertypes` (java.util.ArrayList
 /// declares java.util.AbstractList), so membership stays JVM-faithful.
+///
+/// `LineNumberingPushbackReader` is a JVM reader type; cljw's readers are not
+/// instances of it, so `instance?` is uniformly false and an `extend` on it
+/// registers a branch nothing dispatches to. Listed under the bare name too,
+/// since clj auto-imports `clojure.lang.*` into every namespace.
 const OPAQUE_CLASSES = std.StaticStringMap(void).initComptime(.{
     .{"java.math.BigInteger"},
     .{"Integer"},
@@ -189,6 +194,8 @@ const OPAQUE_CLASSES = std.StaticStringMap(void).initComptime(.{
     .{"java.lang.Float"},
     .{"java.util.AbstractList"},
     .{"java.util.Vector"},
+    .{"LineNumberingPushbackReader"},
+    .{"clojure.lang.LineNumberingPushbackReader"},
 });
 
 /// True iff `class_name` is a recognised OPAQUE host class (ADR-0109). Such a

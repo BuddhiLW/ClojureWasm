@@ -5,6 +5,22 @@ All notable changes to ClojureWasm are documented here. The format follows
 [SemVer](https://semver.org/). SemVer compatibility guarantees start at the
 first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 
+## [Unreleased]
+
+Found by driving [hive-contracts](https://gitea.hive-mcp.com) through the probe
+loop — the next rung after malli. Both are general capabilities reached through
+`clojure.tools.reader`, which `taoensso.encore` (and so `timbre`) requires.
+
+### Added
+
+- **`clojure.lang.PersistentList/create`** — a list of a collection's elements,
+  in order. `clojure.tools.reader.edn` calls it to build every list it reads.
+- **`clojure.lang.LineNumberingPushbackReader`** resolves as an opaque class
+  (ADR-0109), under its bare name as well as its FQCN since clj auto-imports
+  `clojure.lang.*`. cljw readers are not instances of it, so `instance?` is
+  uniformly false and `extend`ing it registers a branch nothing dispatches to —
+  which is what `tools.reader` does with it.
+
 ## [1.10.2] - 2026-08-12
 
 The fork's first runtime changes. All of them were found by driving

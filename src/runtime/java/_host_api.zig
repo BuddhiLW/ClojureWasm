@@ -145,6 +145,7 @@ const clojure_surfaces = [_]type{
     @import("../clojure/lang/Murmur3.zig"),
     @import("../clojure/lang/LazilyPersistentVector.zig"),
     @import("../clojure/lang/PersistentArrayMap.zig"),
+    @import("../clojure/lang/PersistentList.zig"),
 };
 
 /// Walk every enumerated surface's `___HOST_EXTENSION` declaration,
