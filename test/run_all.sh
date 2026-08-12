@@ -435,6 +435,13 @@ run_step "corpus_regression"   "bash scripts/check_corpus_regression.sh"
 # pre-build zig-out binary lacks __dump-host-classes (the ubuntunote miss).
 run_step "compat_members" "bash scripts/check_compat_members.sh"
 
+# Layer 6 — golden snapshots (ADR-0186). Whole-program stdout+stderr+exit for a
+# corpus of programs, so a change to anything a user SEES fails here even when
+# no assertion was written for it. Runs after build_cljw (it needs the fresh
+# binary) and before the e2e suite (it is cheaper and its failures are more
+# legible than a substring assert's).
+run_step "golden" "bash test/golden/run.sh"
+
 run_step "e2e_phase2_exit"     "bash test/e2e/phase2_exit.sh"
 run_step "e2e_phase3_cli"      "bash test/e2e/phase3_cli.sh"
 run_step "e2e_phase3_exit"     "bash test/e2e/phase3_exit.sh"
