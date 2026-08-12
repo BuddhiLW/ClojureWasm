@@ -137,15 +137,23 @@ JVM Clojure calls Java and ClojureScript calls JavaScript; here the host is a
 language-neutral `.wasm`, so a function from Rust, Go, or C is indistinguishable
 from a Clojure one.
 
-## Try it live
+## The demos (source only — the hosted instances are gone)
 
-- **Playground** — <https://cw-playground.fly.dev> — run Clojure in your browser,
-  evaluated in-process by `cljw`; call sandboxed Rust / Go WebAssembly modules
-  over the FFI. ([source](https://github.com/clojurewasm/cw-playground))
-- **Bookshelf demo** — <https://cw-serverless-demo.fly.dev> — a small multi-user
-  bookshelf served end-to-end by `cljw`'s own HTTP server, with SQLite and
-  book-cover colours running in-process through the WebAssembly FFI, no JVM.
-  ([source](https://github.com/clojurewasm/cw-serverless-demo))
+Two demos ran on Fly until August 2026. They are shut down with the project and
+their repositories are archived, but the source is the most complete example of
+what `cljw` did end to end, and each builds `cljw` from source in its
+`Dockerfile` — so they double as a working deployment recipe.
+
+- **Playground** ([source](https://github.com/clojurewasm/cw-playground)) — a
+  browser Clojure playground. Submissions were evaluated **in-process** on the
+  server's `cljw` under a per-submission budget (`cljw.eval/with-budget` —
+  steps / deadline / heap), and could call sandboxed Rust and Go WebAssembly
+  modules over the FFI.
+- **Bookshelf** ([source](https://github.com/clojurewasm/cw-serverless-demo)) —
+  a small multi-user bookshelf served end-to-end by `cljw`'s own HTTP server,
+  no JVM: sessions, CRUD and persistence, with SQLite running as `sqlite3.wasm`
+  and book-cover colours coming from a Rust module — both through the
+  WebAssembly FFI.
 
 ## Documentation
 

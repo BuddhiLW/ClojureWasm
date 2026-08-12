@@ -7,6 +7,50 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 
 ## [Unreleased]
 
+## [1.10.1] - 2026-08-12
+
+**The last release.** v1.10.0 was meant to be it; this one exists because two
+things about the project's surroundings changed in the days after, and leaving
+them only on `main` would mean the final *tag* documented a world that no longer
+exists. No runtime behaviour changes — `cljw` itself is byte-for-byte the same
+program.
+
+### Changed
+
+- **The embedded Wasm engine is fetched from `zwasm/zwasm`.** zwasm moved out of
+  the `clojurewasm` org into its own, where it continues under separate
+  maintainership. `build.zig.zon` now names that location directly instead of
+  relying on GitHub's transfer redirect, which is only an alias until something
+  else claims the vacated name. The pin itself is unchanged — same tag (v2.5.0),
+  same commit, same content hash, verified by fetching both URLs.
+- **The two hosted demos are shut down and their repositories archived.**
+  `cw-playground` and `cw-serverless-demo` ran on Fly until August 2026. The
+  README and `docs/works/demos.md` now describe them in the past tense and point
+  at the source rather than at URLs that no longer answer. The source still
+  builds and remains the most complete worked example of an end-to-end `cljw`
+  deployment.
+- **CI runs one configuration everywhere.** Pull requests, pushes and manual
+  dispatches previously ran three different suites, all called "the gate", so
+  "green" meant three different things depending on where it was said. They now
+  all run the same `test/run_all.sh --serial-e2e` that a local
+  `scripts/run_gate.sh` runs, and `check_gate_parity.sh` fails if a tier comes
+  back. The nightly schedule is retired with it (ADR-0185).
+
+### Fixed
+
+- **The nREPL end-to-end tests leaked a server process each.** `( cd DIR && cmd ) &`
+  cannot be exec-optimised by bash, so `$!` was the subshell rather than the
+  runtime, and `kill $!` reaped the shell while orphaning its `cljw` child. Each
+  survivor held its memory for the rest of the run, and the accumulated pressure
+  was enough for macOS to SIGKILL an unrelated, freshly-built binary — a leak
+  wearing the costume of a runtime crash. All four nREPL suites now reap by a
+  port-scoped pattern and end with zero surviving processes.
+- **The entry-point parity test aborted instead of reporting.** Its whole job is
+  to notice when one entry point behaves differently from the others, but under
+  `set -e` a killed child's exit status propagated through command substitution
+  and took the step down with no diagnosis. It now captures status and output per
+  entry point, so a dying entry point is reported as a named divergence.
+
 ## [1.10.0] - 2026-08-12
 
 **The final release.** ClojureWasm is no longer maintained — a from-scratch
