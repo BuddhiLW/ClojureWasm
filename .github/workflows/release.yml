@@ -2,9 +2,18 @@
 # target on its NATIVE runner and attach it to the GitHub Release. Native builds
 # (not cross-compile) keep the embedded zwasm JIT's arch-specific codegen honest.
 #
-# TRIGGER: a maintainer pushing a `v*` tag (a deliberate human act — the
-# autonomous loop never tags or releases; build.zig.zon .version is the SSOT),
-# or manual dispatch. PREPARED-not-fired: this workflow only runs on such a tag.
+# TRIGGER: build.zig.zon's `.version` is the SSOT. Every push to main runs
+# `preflight`, which releases that version only when no release for it exists
+# yet; pushing a `v*` tag releases that tag; manual dispatch releases whatever
+# version main names (`force: true` re-releases an existing one). So a push
+# that does not bump `.version` costs one short job and does nothing.
+#
+# The skip lives in `preflight` rather than in an `on.push.paths` filter
+# because a `paths` filter also applies to tag pushes, which would drop the
+# tag trigger whenever the tagged commit did not touch build.zig.zon.
+#
+# The deliberate human act is the version bump itself — the autonomous loop
+# does not edit `.version`.
 #
 # NOTE (first-tag validation): the artifact build uses
 # `-Dwasm -Doptimize=ReleaseSafe -Dcpu=baseline` (baseline CPU avoids SIGILL on
@@ -16,7 +25,13 @@ name: release
 on:
   push:
     tags: ['v*']
+    branches: [main]
   workflow_dispatch:
+    inputs:
+      force:
+        description: 'Release even if one already exists for this version'
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -26,8 +41,53 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Resolve the tag to release and decide whether there is anything to do.
+  # `version` comes from build.zig.zon on a branch push / dispatch, and from the
+  # ref itself on a tag push.
+  preflight:
+    name: preflight
+    runs-on: ubuntu-22.04
+    timeout-minutes: 5
+    outputs:
+      tag: ${{ steps.resolve.outputs.tag }}
+      proceed: ${{ steps.resolve.outputs.proceed }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Resolve the tag and check for an existing release
+        id: resolve
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FORCE: ${{ inputs.force }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            tag="${GITHUB_REF#refs/tags/}"
+          else
+            # Keep this reader in step with .github/versions.lock's own rule:
+            # split on the first '=' and strip quotes, no inline comments.
+            version=$(sed -n 's/^[[:space:]]*\.version[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' build.zig.zon)
+            if [[ -z "$version" ]]; then
+              echo "could not read .version from build.zig.zon" >&2
+              exit 1
+            fi
+            tag="v$version"
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          if [[ "$FORCE" != "true" ]] && gh release view "$tag" >/dev/null 2>&1; then
+            echo "release $tag already exists — nothing to do"
+            echo "proceed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "releasing $tag"
+            echo "proceed=true" >> "$GITHUB_OUTPUT"
+          fi
+
   build:
     name: build (${{ matrix.name }})
+    needs: preflight
+    if: needs.preflight.outputs.proceed == 'true'
     runs-on: ${{ matrix.runs-on }}
     timeout-minutes: 60
     strategy:
@@ -71,13 +131,15 @@ jobs:
           ( cd dist && shasum -a 256 "${{ matrix.artifact }}.tar.gz" > "${{ matrix.artifact }}.tar.gz.sha256" )
 
       - name: Attach to GitHub Release
-        if: startsWith(github.ref, 'refs/tags/')
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG_NAME: ${{ github.ref_name }}
+          TAG_NAME: ${{ needs.preflight.outputs.tag }}
         shell: bash
         run: |
           set -euo pipefail
+          # `--target` makes the tag when the run came from a branch push; on a
+          # tag push the tag already exists and the flag is inert.
+          #
           # Create the release once; later matrix legs just upload.
           #
           # view-then-create is a TOCTOU race across the matrix: both legs can
@@ -88,7 +150,7 @@ jobs:
           # afterwards; a create that failed for any other reason still fails
           # the step, because the trailing view then finds nothing.
           gh release view "$TAG_NAME" >/dev/null 2>&1 \
-            || gh release create "$TAG_NAME" --title "$TAG_NAME" --generate-notes \
+            || gh release create "$TAG_NAME" --target "$GITHUB_SHA" --title "$TAG_NAME" --generate-notes \
             || gh release view "$TAG_NAME" >/dev/null 2>&1
           gh release upload "$TAG_NAME" dist/* --clobber
 
@@ -101,15 +163,14 @@ jobs:
   # PAT: write access reaches that one repository and nothing else in the account.
   tap:
     name: bump homebrew tap
-    needs: build
-    if: startsWith(github.ref, 'refs/tags/')
+    needs: [preflight, build]
     runs-on: ubuntu-22.04
     timeout-minutes: 10
     steps:
       - name: Read the release checksums
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG_NAME: ${{ github.ref_name }}
+          TAG_NAME: ${{ needs.preflight.outputs.tag }}
           GH_REPO: ${{ github.repository }}
         shell: bash
         run: |
@@ -134,7 +195,7 @@ jobs:
 
       - name: Write and push the formula
         env:
-          TAG_NAME: ${{ github.ref_name }}
+          TAG_NAME: ${{ needs.preflight.outputs.tag }}
         shell: bash
         working-directory: tap
         run: |
