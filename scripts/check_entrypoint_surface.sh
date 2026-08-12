@@ -95,6 +95,32 @@ for sc in "${EVAL_SUBCOMMANDS[@]}"; do
     fi
 done
 
+# --- 3c: every path that evaluates a stream of top-level user forms must go
+# through the shared top-level driver, not analyze+eval each form itself.
+# Discussion #14: `eval_session.evalSource` (backing `repl` AND `nrepl`) and
+# `builder.zig` (backing `cljw build`) each analysed a whole top-level `(do …)`
+# before running any of it, so a `require` beside its first use failed —
+# D-374's unroll had only ever reached `runner.runSource`. Sites are listed
+# rather than discovered because "evaluates a form STREAM" is not greppable;
+# adding a new one means adding it here.
+EVAL_STREAM_SITES=(
+    "src/app/eval_session.zig"   # repl + nrepl
+    "src/app/runner.zig"         # script file / -e / stdin
+    "src/app/builder.zig"        # cljw build (enumerates leaves: needs a chunk each)
+    "src/lang/bootstrap.zig"     # bundled .clj loading
+)
+for site in "${EVAL_STREAM_SITES[@]}"; do
+    if [ ! -f "$site" ]; then
+        echo "check_entrypoint_surface: eval-stream site '$site' no longer exists — re-teach the list."
+        fail=1
+    elif ! grep -qE 'driver\.(evalTopLevelForm|topLevelLeaves)\(' "$site"; then
+        echo "check_entrypoint_surface: '$site' evaluates top-level forms without the shared"
+        echo "  top-level driver (driver.evalTopLevelForm / driver.topLevelLeaves)."
+        echo "  This is the Discussion-#14 bug shape (a top-level \`do\` not unrolled)."
+        fail=1
+    fi
+done
+
 # --- 4: the default (file / -e / bare) path resolves the classpath too ---
 if ! awk '/fn dispatchArgsRest\(/,0' "$CLI" | grep -qE 'resolveClasspath|resolveDefaultClasspath|splitClasspath'; then
     echo "check_entrypoint_surface: dispatchArgsRest no longer reaches the shared classpath resolution."

@@ -153,17 +153,23 @@ pub fn buildEnvelope(
     reader.file_name = source_label;
     while (true) {
         const form = (try reader.read()) orelse break;
-        // D-430/D-558: per-form analysis bracket. PERSIST (not drop): the
-        // compiled chunk's constants are serialized AFTER this loop ends, so
-        // a drop bracket left them unrooted and a build-time collect baked
-        // swept bytes into the blob (the D-558 corruption).
-        var af: root_set.AnalysisFrame = undefined;
-        root_set.beginAnalysis(&af, rt.gc.infra);
-        defer root_set.endAnalysisPersist(&af, &rt.gc);
-        const node = try analyzeForm(arena, rt, env, null, form, macro_table);
-        const chunk = try vm_compiler.compile(rt, arena, node);
-        try entry_chunks.append(allocator, chunk);
-        _ = try driver.evalForm(rt, env, &locals, arena, node);
+        // D-374: a top-level `(do …)` unrolls into its children so an earlier
+        // child's effect is visible to a LATER child's analysis — the rule every
+        // form-loading path shares. Enumerated here rather than delegated to
+        // `evalTopLevelForm` because each leaf also needs its own chunk.
+        for (try driver.topLevelLeaves(arena, form)) |leaf| {
+            // D-430/D-558: per-form analysis bracket. PERSIST (not drop): the
+            // compiled chunk's constants are serialized AFTER this loop ends, so
+            // a drop bracket left them unrooted and a build-time collect baked
+            // swept bytes into the blob (the D-558 corruption).
+            var af: root_set.AnalysisFrame = undefined;
+            root_set.beginAnalysis(&af, rt.gc.infra);
+            defer root_set.endAnalysisPersist(&af, &rt.gc);
+            const node = try analyzeForm(arena, rt, env, null, leaf, macro_table);
+            const chunk = try vm_compiler.compile(rt, arena, node);
+            try entry_chunks.append(allocator, chunk);
+            _ = try driver.evalForm(rt, env, &locals, arena, node);
+        }
     }
 
     // A3-D5: payload = [closure chunks, post-order] ++ [entry chunks]. At run
@@ -242,28 +248,34 @@ pub fn buildBootstrapEnvelope(
         while (true) {
             const form = (try reader.read()) orelse break;
             form_idx += 1;
-            // Build-time AOT eval has no renderer; a bare `error.ValueError` from
-            // a bundled lib gives no location. Report file label + form index +
-            // phase on the error path so a bootstrap trap is locatable (the
-            // stdlib/contrib sweep campaign relies on this).
-            // D-430/D-558: per-form analysis bracket. PERSIST (not drop): the
-            // chunks serialize after the loop — see buildEnvelope's note.
-            var af: root_set.AnalysisFrame = undefined;
-            root_set.beginAnalysis(&af, rt.gc.infra);
-            defer root_set.endAnalysisPersist(&af, &rt.gc);
-            const node = analyzeForm(arena, rt, env, null, form, macro_table) catch |err| {
-                const msg = if (error_info.peekLastError()) |info| info.message else "";
-                std.debug.print("\n[AOT-FAIL] analyze: {s} form #{d}: {s}: {s}\n", .{ file.label, form_idx, @errorName(err), msg });
-                return err;
-            };
-            const chunk = try vm_compiler.compile(rt, arena, node);
-            try chunks.append(allocator, chunk);
-            // Eval so later forms / files see earlier defs/macros/in-ns/requires
-            // (A1-D2 Clojure-AOT — identical state evolution to loadCoreFiles).
-            _ = driver.evalForm(rt, env, &locals, arena, node) catch |err| {
-                std.debug.print("\n[AOT-FAIL] eval: {s} form #{d}: {s}\n", .{ file.label, form_idx, @errorName(err) });
-                return err;
-            };
+            // D-374: unroll a top-level `(do …)` into its children, so this path's
+            // state evolution stays identical to loadCoreFiles' (which evaluates
+            // every bundled form through `evalTopLevelForm`). Enumerated rather
+            // than delegated because each leaf also needs its own chunk.
+            for (try driver.topLevelLeaves(arena, form)) |leaf| {
+                // Build-time AOT eval has no renderer; a bare `error.ValueError` from
+                // a bundled lib gives no location. Report file label + form index +
+                // phase on the error path so a bootstrap trap is locatable (the
+                // stdlib/contrib sweep campaign relies on this).
+                // D-430/D-558: per-form analysis bracket. PERSIST (not drop): the
+                // chunks serialize after the loop — see buildEnvelope's note.
+                var af: root_set.AnalysisFrame = undefined;
+                root_set.beginAnalysis(&af, rt.gc.infra);
+                defer root_set.endAnalysisPersist(&af, &rt.gc);
+                const node = analyzeForm(arena, rt, env, null, leaf, macro_table) catch |err| {
+                    const msg = if (error_info.peekLastError()) |info| info.message else "";
+                    std.debug.print("\n[AOT-FAIL] analyze: {s} form #{d}: {s}: {s}\n", .{ file.label, form_idx, @errorName(err), msg });
+                    return err;
+                };
+                const chunk = try vm_compiler.compile(rt, arena, node);
+                try chunks.append(allocator, chunk);
+                // Eval so later forms / files see earlier defs/macros/in-ns/requires
+                // (A1-D2 Clojure-AOT — identical state evolution to loadCoreFiles).
+                _ = driver.evalForm(rt, env, &locals, arena, node) catch |err| {
+                    std.debug.print("\n[AOT-FAIL] eval: {s} form #{d}: {s}\n", .{ file.label, form_idx, @errorName(err) });
+                    return err;
+                };
+            }
         }
         // Serialize this file's chunks as its own region envelope (the bundled
         // bootstrap `:require`s no Wasm components, so the component table is empty).
