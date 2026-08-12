@@ -339,7 +339,7 @@ tiers:
         phase: 14
         files:
           surface: runtime/java/util/HashMap.zig
-        methods: [clear, containsKey, containsValue, get, getOrDefault, isEmpty, keySet, put, putIfAbsent, remove, size, values]
+        methods: [clear, containsKey, containsValue, get, getOrDefault, isEmpty, keySet, put, putAll, putIfAbsent, remove, size, values]
         clojure_peer_vars: []
       # java.util.HashSet — mutable set (D-431, host_instance backing a cljw
       # persistent-set HAMT; one set Value GC-traced via host_trace, reuses cljw
