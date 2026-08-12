@@ -156,6 +156,9 @@ from a Clojure one.
   runtime is put together.
 - [`docs/clojure_vs_clojurewasm.md`](./docs/clojure_vs_clojurewasm.md) — what
   matches JVM Clojure, the intentional divergences, and what is not yet there.
+- [`docs/testing.md`](./docs/testing.md) — how to run the suite, what each of
+  the eight test layers is for, and where a new test belongs. **Read this
+  before sending a patch.**
 - [`bench/README.md`](./bench/README.md) — the benchmark catalogue and
   cross-language cold-start numbers.
 

@@ -31,6 +31,10 @@ zig build -Dwasm -Doptimize=ReleaseSafe   # build the Wasm-enabled `cljw` binary
 bash test/run_all.sh --serial-e2e         # the full gate; must be green before a change lands
 ```
 
+[`docs/testing.md`](../docs/testing.md) is the full guide — every layer, how to
+run it, how to read its failures, and where a new test belongs. The short
+version of the parts you are most likely to need:
+
 Two of the newer layers have their own entry points (ADR-0186):
 
 ```sh

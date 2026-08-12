@@ -1,6 +1,10 @@
 # cw v1 test layout
 
-> 5 layers per ADR-0021. `test/run_all.sh` is the single entry point.
+> 8 layers (ADR-0021 + ADR-0186). `test/run_all.sh` is the single entry point.
+>
+> **Contributors: read [`docs/testing.md`](../docs/testing.md) first** — this
+> file is the in-tree map, that one is the guide (how to run each layer, how to
+> read its failures, where a new test belongs).
 
 ## Layers
 
