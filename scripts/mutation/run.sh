@@ -1,9 +1,16 @@
 #!/usr/bin/env bash
 # scripts/mutation/run.sh — Layer 8 (Mutation) sweep. ADR-0186.
 #
-# Changes one line of one source file, rebuilds, runs the unit suite, and records
+# Changes one line of one source file, rebuilds, runs a suite, and records
 # whether anything failed. A mutant the suite still passes is a SURVIVOR: that
-# line's behaviour is unconstrained by any test.
+# line's behaviour is unconstrained by that suite.
+#
+# WHICH suite is `--oracle`, and the score means nothing without it:
+#   unit         (default) inline Zig tests + Layer 7 properties.
+#   unit+golden  also renders the Layer 6 cases. Required for any file whose
+#                behaviour is what the program PRINTS — under `unit` a golden
+#                case cannot kill a mutant, so a printing path scores as
+#                unconstrained no matter how many snapshots pin it.
 #
 # On demand only, never in a gate. One rebuild per mutant, so `--budget` is the
 # number of rebuilds bought.
@@ -16,6 +23,7 @@
 #   bash scripts/mutation/run.sh --targets a.zig,b.zig --budget 20 --seed 7
 #   bash scripts/mutation/run.sh --targets-from .dev/mutation_targets.txt --rev v1.10.1
 #   bash scripts/mutation/run.sh --targets v.zig --ids 1a2b3c,4d5e6f   # re-run named mutants
+#   bash scripts/mutation/run.sh --targets src/runtime/print.zig --oracle unit+golden
 #
 # Output: a JSONL log plus a markdown summary under .dev/mutation/ (gitignored).
 set -euo pipefail
@@ -33,6 +41,10 @@ EQUIV_FILE="$REPO_ROOT/.dev/mutation_equivalent.jsonl"
 BUILD_ARGS="-Dwasm -Doptimize=Debug"
 # A timeout counts as KILLED.
 PER_MUTANT_TIMEOUT=900
+# Which suite decides "killed". `unit` is the inline Zig tests + properties;
+# `unit+golden` also renders the Layer 6 cases, so a mutation in a printing
+# path is reachable. See `run_oracle`.
+ORACLE="unit"
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -46,6 +58,7 @@ while [ $# -gt 0 ]; do
         --equivalent) EQUIV_FILE="$2"; shift ;;
         --build-args) BUILD_ARGS="$2"; shift ;;
         --timeout) PER_MUTANT_TIMEOUT="$2"; shift ;;
+        --oracle) ORACLE="$2"; shift ;;
         *) echo "unknown flag: $1" >&2; exit 2 ;;
     esac
     shift
@@ -56,12 +69,40 @@ if [ -n "$TARGETS_FILE" ]; then
 fi
 [ -n "$TARGETS" ] || { echo "nothing to mutate: pass --targets or --targets-from" >&2; exit 2; }
 
+# Validated here, not in run_oracle: there the message would land in the
+# redirected baseline log and a typo would read as a red baseline.
+case "$ORACLE" in
+    unit|unit+golden) ;;
+    *) echo "unknown --oracle: $ORACLE (unit | unit+golden)" >&2; exit 2 ;;
+esac
+
 # Portable bounded run (check_portable_timeout.sh: no bare `timeout`).
 run_bounded() {
     local secs="$1"; shift
     if command -v timeout >/dev/null 2>&1; then timeout "$secs" "$@"
     elif command -v gtimeout >/dev/null 2>&1; then gtimeout "$secs" "$@"
     else "$@"; fi
+}
+
+# The kill oracle. ONE definition, used for both the baseline and every mutant —
+# a baseline measured by a different suite than the mutants would report every
+# mutant as killed.
+run_oracle() {
+    local wt="$1"
+    case "$ORACLE" in
+        unit)
+            ( cd "$wt" && run_bounded "$PER_MUTANT_TIMEOUT" zig build test $BUILD_ARGS )
+            ;;
+        unit+golden)
+            ( cd "$wt" \
+                && run_bounded "$PER_MUTANT_TIMEOUT" zig build test $BUILD_ARGS \
+                && run_bounded "$PER_MUTANT_TIMEOUT" zig build $BUILD_ARGS \
+                && CLJW_SKIP_BUILD=1 CLJW_BIN="$wt/zig-out/bin/cljw" \
+                   run_bounded "$PER_MUTANT_TIMEOUT" bash test/golden/run.sh )
+            ;;
+        *)
+            echo "unknown --oracle: $ORACLE (unit | unit+golden)" >&2; exit 2 ;;
+    esac
 }
 
 WORKTREE=$(mktemp -d "${TMPDIR:-/tmp}/cljw-mutation-XXXXXX")
@@ -81,13 +122,17 @@ git worktree add --detach "$WORKTREE" "$REV" >/dev/null
 
 mkdir -p "$OUT_DIR"
 STAMP=$(git rev-parse --short "$REV")
-LOG="$OUT_DIR/mutants-$STAMP-seed$SEED.jsonl"
-REPORT="$OUT_DIR/report-$STAMP-seed$SEED.md"
+# The oracle is part of the identity of a run: a score from `unit` and a score
+# from `unit+golden` are answers to different questions and must not share a name.
+SLUG="$STAMP-seed$SEED"
+[ "$ORACLE" = unit ] || SLUG="$SLUG-$(printf '%s' "$ORACLE" | tr '+' '-')"
+LOG="$OUT_DIR/mutants-$SLUG.jsonl"
+REPORT="$OUT_DIR/report-$SLUG.md"
 : > "$LOG"
 
 # --- baseline -------------------------------------------------------------
-echo "mutation: baseline build + test (this must pass) …"
-if ! ( cd "$WORKTREE" && run_bounded "$PER_MUTANT_TIMEOUT" zig build test $BUILD_ARGS ) >"$OUT_DIR/baseline.log" 2>&1; then
+echo "mutation: baseline build + test via oracle '$ORACLE' (this must pass) …"
+if ! run_oracle "$WORKTREE" >"$OUT_DIR/baseline.log" 2>&1; then
     echo "mutation: BASELINE FAILED at $REV — fix the suite before measuring it." >&2
     tail -20 "$OUT_DIR/baseline.log" >&2
     exit 1
@@ -141,8 +186,7 @@ while IFS= read -r row; do
     ( cd "$WORKTREE" && python3 "$REPO_ROOT/scripts/mutation/mutate.py" apply "$file" "$id" >/dev/null )
 
     set +e
-    ( cd "$WORKTREE" && run_bounded "$PER_MUTANT_TIMEOUT" zig build test $BUILD_ARGS ) \
-        >"$OUT_DIR/mutant-$id.log" 2>&1
+    run_oracle "$WORKTREE" >"$OUT_DIR/mutant-$id.log" 2>&1
     rc=$?
     set -e
 
@@ -179,5 +223,5 @@ python3 "$REPO_ROOT/scripts/mutation/report.py" \
 report_rc=$?
 set -e
 
-echo "mutation: raw verdicts killed=$killed survived=$survived unviable=$unviable (log: $LOG)"
+echo "mutation: oracle=$ORACLE raw verdicts killed=$killed survived=$survived unviable=$unviable (log: $LOG)"
 exit $report_rc
