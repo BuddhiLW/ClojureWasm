@@ -4,21 +4,56 @@ Everything you need to run the suite, read a failure, and put a new test in the
 right place. If you are here to send a patch, the short version is:
 
 ```sh
-zig build -Dwasm -Doptimize=ReleaseSafe   # build the binary the tests use
-bash test/run_all.sh --serial-e2e         # the full gate; must be green before a change lands
+bash test/cljw-test              # the gate; must be green before a change lands
 ```
 
 That takes roughly 20 minutes. While iterating, use the smoke tier instead
-(tens of seconds) and run the full gate once before you open the PR:
+(tens of seconds) and run the gate once before you open the PR:
 
 ```sh
-bash test/run_all.sh --smoke <e2e-step>   # unit + diff oracle + lint + build + one e2e step
-bash test/run_all.sh --list               # every step name
-bash test/run_all.sh --only golden        # just one
+bash test/cljw-test --only smoke          # unit + diff oracle + lint + build
+bash test/cljw-test --list                # every runnable unit, with its layer
+bash test/cljw-test --layer 6             # everything in one layer
+bash test/cljw-test --only golden,tier_a  # named units
+bash test/cljw-test --step e2e_phase4_cli # one inner gate step
+bash test/cljw-test --dry-run             # print the selection, run nothing
 ```
 
-`test/run_all.sh` is the single entry point. If a check is not reachable from
-it, it is not part of "the suite is green".
+Anything after `--` is appended to the selected unit's command, so a unit takes
+its own options without the CLI growing a flag for each:
+
+```sh
+bash test/cljw-test --only mutation -- --targets src/runtime/collection/vector.zig --budget 8
+bash test/cljw-test --layer 7 -- -Dprop-seed=0xdecafbad -Dprop-iters=5000
+```
+
+## One entry point, and how that is enforced
+
+`test/cljw-test` is the entry point. `test/units.list` is the inventory behind
+it — one row per runnable unit, `id|layer|gated|tags|command` — and
+`scripts/check_runner_reach.sh` fails when a runnable script has no row.
+
+That check is the whole point. This document used to claim single-entry status
+for `test/run_all.sh`; at the time of writing 15 of 38 check scripts were not
+reachable from it, and nothing could tell you so. A claim about coverage that
+no check can falsify decays into decoration.
+
+A script that should not run in the suite gets a row with `gated=no` and a tag
+saying why — `timing` for benches, `measurement` for mutation, `network` for
+the verified-projects loop, `authoring` for checks that inspect a commit being
+written. An exclusion is declared, never an absence. Rows tagged `todo` are
+exclusions nobody has resolved yet; that count is meant to reach zero.
+
+The composites (`gate`, `smoke`, `ci`) delegate to `test/run_all.sh` and
+`scripts/run_gate.sh`, which still own step dispatch, the resume ledger and the
+parallel e2e pool. Those remain callable directly; the CLI is the front door,
+not a replacement.
+
+**The build lock is not a guarantee.** Every unit run through `cljw-test` takes
+`.dev/.build.lock`, so two builds cannot overlap *through the CLI*. A `zig
+build` you run by hand ignores it. Two concurrent builds are enough to make a
+machine unusable, so if you are working alongside someone else in the same
+checkout, go through the CLI or coordinate by hand.
 
 ## The eight layers
 
@@ -27,14 +62,20 @@ decision — not an afterthought. Layers 1-5 are ADR-0021; 6-8 are ADR-0186.
 
 | # | Layer | Lives in | Run with | In the gate? |
 |---|---|---|---|---|
-| 1 | Unit | `src/**/*.zig`, inline `test "..."` blocks | `zig build test -Dwasm` | every commit |
-| 2 | E2E (CLI) | `test/e2e/*.sh` | `bash test/e2e/<name>.sh` | every commit |
-| 3 | Differential | `test/diff/` | `zig build test` (both backends) | every commit |
-| 4 | Bench | `bench/` | `bash bench/compare_langs.sh` | no — on demand |
-| 5 | Conformance | `test/clj/` | `bash test/clj/run_tier_a.sh` | every commit |
-| 6 | Golden | `test/golden/cases/*.clj` + `.expected` | `bash test/golden/run.sh` | every commit |
-| 7 | Property | `src/testing/prop_*.zig` | `zig build test -Dwasm` | every commit |
-| 8 | Mutation | `scripts/mutation/` | `bash scripts/mutation/run.sh` | **no** — a measurement |
+| 1 | Unit | `src/**/*.zig`, inline `test "..."` blocks | `cljw-test --only unit_vm` | every commit |
+| 2 | E2E (CLI) | `test/e2e/*.sh` | `cljw-test --step <name>` | every commit |
+| 3 | Differential | `test/diff/` | `cljw-test --layer 3` (both backends) | every commit |
+| 4 | Bench | `bench/` | `cljw-test --tag timing` | no — on demand |
+| 5 | Conformance | `test/clj/` | `cljw-test --only tier_a` | every commit |
+| 6 | Golden | `test/golden/cases/*.clj` + `.expected` | `cljw-test --layer 6` | every commit |
+| 7 | Property | `src/testing/prop_*.zig` | `cljw-test --layer 7` | every commit |
+| 8 | Mutation | `scripts/mutation/` | `cljw-test --only mutation` | **no** — a measurement |
+
+Conformance against real libraries (`scripts/verify_projects.sh`, 21 libraries
+including malli) is `cljw-test --only verify_projects`. It is outside the gate:
+it clones over the network, and it stops at the FIRST blocking site with a
+`file:line` so each fix reveals exactly one more. That one-answer-per-run
+property is why it is tagged `failfast` rather than aggregated with the rest.
 
 ### Which layer does my test go in?
 
