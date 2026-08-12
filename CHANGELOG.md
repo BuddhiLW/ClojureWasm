@@ -7,6 +7,15 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 
 ## [Unreleased]
 
+## [1.10.1] - 2026-08-12
+
+**The first release of the maintained fork.** It carries no runtime change —
+the binary is v1.10.0's, rebuilt — and exists to prove the fork's own release
+path end to end: tag on `BuddhiLW/ClojureWasm`, artifacts built by this
+repository's `release.yml`, and a `buddhilw/tap` formula pointing at them. A
+release cut against a distribution path nobody has exercised is a guess; this
+one makes the guess cheap to check.
+
 ### Changed
 
 - **Maintenance moved to a fork.** Upstream
