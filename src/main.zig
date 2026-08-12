@@ -67,6 +67,7 @@ test {
     // the unit tests rather than behind a flag someone has to remember.
     _ = @import("testing/prop.zig");
     _ = @import("testing/prop_collections.zig");
+    _ = @import("testing/prop_print.zig");
 
     _ = @import("app/cli.zig");
     _ = @import("app/repl/line_editor.zig");
