@@ -22,14 +22,11 @@ pub const Config = struct {
     iters: usize = 100,
     max_shrink: usize = 300,
     /// Suppress the failure report. Set ONLY by the engine's own tests, which
-    /// falsify a property on purpose: a green gate that prints a "property
-    /// FAILED" block every run teaches everyone to scroll past the real one.
+    /// falsify a property on purpose.
     quiet: bool = false,
 };
 
-/// Run `prop` over generated values. `ctx` is passed through untouched, so a
-/// property that needs a fixture (an allocator, a runtime factory) can carry it
-/// without a closure.
+/// Run `prop` over generated values. `ctx` is passed through untouched.
 pub fn forAll(
     comptime T: type,
     alloc: std.mem.Allocator,
@@ -43,9 +40,6 @@ pub fn forAll(
 
     var i: usize = 0;
     while (i < cfg.iters) : (i += 1) {
-        // `size` grows with the iteration so early cases stay small and late
-        // ones reach the interesting boundaries (a map crossing its ArrayMap
-        // ceiling, a vector spilling out of its tail).
         const size = 1 + (i * 32) / cfg.iters;
         const value = try gen.generate(rand, alloc, size);
 
@@ -114,11 +108,9 @@ fn shrinkFailing(
     return current;
 }
 
-/// A slice of integers — the workhorse generator. Map keys, set elements,
-/// vector contents and index sequences are all expressible as one.
+/// A slice of integers — the workhorse generator.
 pub const IntSlice = struct {
-    /// Values are drawn from `0..distinct`, so a small bound forces duplicate
-    /// keys (which is where assoc / conj semantics actually differ).
+    /// Values are drawn from `0..distinct`; a small bound forces duplicates.
     distinct: i64 = 8,
     max_len: usize = 64,
 
@@ -130,8 +122,7 @@ pub const IntSlice = struct {
     }
 
     /// Two moves, cheapest first: drop a chunk, then reduce one element toward
-    /// zero. Dropping first converges fastest — length is usually the part of a
-    /// counterexample that carries no information.
+    /// zero.
     pub fn shrink(self: IntSlice, alloc: std.mem.Allocator, v: []i64, out: *std.ArrayList([]i64)) !void {
         _ = self;
         if (v.len > 0) {
@@ -147,7 +138,7 @@ pub const IntSlice = struct {
             const smaller = try alloc.dupe(i64, v);
             smaller[i] = @divTrunc(x, 2);
             try out.append(alloc, smaller);
-            break; // one element per round keeps the candidate set small
+            break; // one element per round
         }
     }
 
@@ -189,10 +180,6 @@ test "forAll passes a law that holds for every generated value" {
 }
 
 test "forAll reports the shrunk counterexample, not the first one found" {
-    // The law "no element is >= 4" fails on any slice containing 4..7. The
-    // shrinker must reduce both length and magnitude, so what survives is a
-    // short slice — proving shrinking ran rather than the raw generated value
-    // being returned.
     const gen = IntSlice{ .distinct = 8, .max_len = 64 };
     const Ctx = struct {};
     const prop = struct {
@@ -207,7 +194,6 @@ test "forAll reports the shrunk counterexample, not the first one found" {
 }
 
 test "the same seed produces the same values, a different seed does not" {
-    // Reproducibility is the whole reason the failure message prints a seed.
     const gen = IntSlice{ .distinct = 1000, .max_len = 32 };
     var a = std.Random.DefaultPrng.init(42);
     var b = std.Random.DefaultPrng.init(42);

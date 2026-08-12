@@ -14,13 +14,10 @@ Two subcommands:
     mutate.py apply <file.zig> <mutant-id>
         Rewrite the file in place with that mutant applied. Prints the diff line.
 
-Scope discipline: the enumerator refuses to touch comments, doc comments, string
-and character literals, `@import` lines, and `test "..."` blocks. Mutating a test
-proves nothing about the suite — a mutated assertion that still passes says the
-assertion was weak, which is a different question from the one this layer asks.
-
-The applier NEVER writes outside the file it is given, and `run.sh` only ever
-gives it paths inside a throwaway git worktree.
+The enumerator never touches comments, doc comments, string and character
+literals, `@import` lines, or `test "..."` blocks. The applier NEVER writes
+outside the file it is given, and `run.sh` only ever gives it paths inside a
+throwaway git worktree.
 """
 
 import argparse
@@ -31,13 +28,8 @@ import re
 import sys
 
 # (name, pattern, replacement) — each is a behaviour change, not a refactor.
-#
 # Every binary-operator rule matches only the SPACED form (`a * b`, never
-# `*const T` or `ptr.*`). `zig fmt` runs in the gate, so the spaced form is the
-# only way a binary operator can appear, and requiring it is what keeps the
-# enumerator from proposing mutants that cannot compile. An unviable mutant is
-# not free: it costs a full rebuild to discover, and this layer's budget is
-# measured in rebuilds.
+# `*const T` or `ptr.*`).
 OPERATORS = [
     ("cmp_lt_to_le", r"(?<=[\w\)\]]) < (?=[\w\(@])", " <= "),
     ("cmp_gt_to_ge", r"(?<=[\w\)\]]) > (?=[\w\(@])", " >= "),
@@ -50,13 +42,9 @@ OPERATORS = [
     ("arith_mul_to_div", r"(?<=[\w\)\]]) \* (?=[\w\(@])", " / "),
     ("bool_and_to_or", r"(?<=[\w\)\]]) and (?=[\w\(@!])", " or "),
     ("bool_or_to_and", r"(?<=[\w\)\]]) or (?=[\w\(@!])", " and "),
-    # Constants only where they are being COMPARED or COMBINED — a literal in a
-    # struct-field default or an array length is usually layout, and mutating
-    # layout produces a build failure rather than a question about the suite.
+    # Constants only where they are being COMPARED or COMBINED.
     ("const_bump_after_cmp", r"(?<=[<>!=]= )([0-9]+)(?![\w.])", None),
     ("const_bump_in_arith", r"(?<=[+\-*/] )([0-9]+)(?![\w.])", None),
-    # A branch that no test distinguishes is the most valuable survivor of all:
-    # it means the condition itself is unconstrained.
     ("branch_force_true", r"\bif \(([^()]{1,60})\)", "if (true)"),
 ]
 
@@ -199,8 +187,6 @@ def main() -> int:
     if args.cmd == "list":
         mutants = enumerate_mutants(args.file)
         if args.limit and len(mutants) > args.limit:
-            # Sample rather than truncate: the first K mutants of a file are all
-            # in its first few lines, which is not a sample of the file.
             random.Random(args.seed).shuffle(mutants)
             mutants = mutants[: args.limit]
             mutants.sort(key=lambda m: (m["line"], m["col"]))

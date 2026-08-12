@@ -2,21 +2,11 @@
 # test/golden/run.sh — Layer 6 (Golden snapshot), opened per ADR-0186.
 #
 # A golden case is a WHOLE PROGRAM plus everything the process produced for it:
-# stdout, stderr and exit code, in one file. That is the difference from Layer 2
-# (e2e), which asserts a chosen substring of a chosen stream: an e2e case can
-# only fail for the thing its author thought to assert, while a snapshot fails
-# for any change in what the user sees — a reworded error, a dropped newline, a
-# value that starts printing its metadata, a warning that appears on stderr.
+# stdout, stderr and exit code, in one file.
 #
-# That sensitivity is the point and also the cost: a snapshot suite that is
-# tedious to update gets updated carelessly. So `--update` regenerates, and the
-# diff it produces is the review surface. A reviewer reads the diff, not the
-# file.
-#
-# Determinism is enforced by NORMALISATION, not by hoping: the repo path, hex
-# addresses, pids, durations and the version string are rewritten to fixed
-# tokens before comparison (see normalise()). A case that still varies run to
-# run does not belong in this layer.
+# Determinism comes from normalise(): the repo path, hex addresses, pids,
+# durations and the version string are rewritten to fixed tokens before
+# comparison. A case that still varies run to run does not belong in this layer.
 #
 # Usage:
 #   bash test/golden/run.sh                 # verify every case
@@ -25,14 +15,11 @@
 #   CLJW_SKIP_BUILD=1 bash test/golden/run.sh
 #
 # Adding a case: drop `cases/<name>.clj` in, run with --update, READ the
-# generated `.expected`, commit both. A snapshot committed without being read
-# is a record of a bug as readily as of a behaviour.
+# generated `.expected`, commit both.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 ROOT=$(pwd)
-# CLJW_BIN lets a caller point the suite at a binary built elsewhere — a clean
-# git worktree, a downloaded release artifact, a mutant build. Without it the
-# suite tests this checkout, which is what the gate wants.
+# CLJW_BIN points the suite at a binary built elsewhere; default is this checkout's.
 BIN="${CLJW_BIN:-$ROOT/zig-out/bin/cljw}"
 CASE_DIR="$ROOT/test/golden/cases"
 
@@ -51,8 +38,7 @@ done
 [ -x "$BIN" ] || { echo "golden: no binary at $BIN" >&2; exit 1; }
 
 # Rewrite everything that legitimately differs between two runs of the same
-# build, and between two machines. Anything not rewritten here is a promise
-# that it is stable.
+# build, and between two machines.
 normalise() {
     sed -e "s|$ROOT|<ROOT>|g" \
         -e 's|0x[0-9a-f]\{4,\}|0xADDR|g' \
@@ -62,8 +48,7 @@ normalise() {
         -e 's|/tmp/[A-Za-z0-9_.-]\{6,\}|<TMP>|g'
 }
 
-# One case = one file. The envelope is part of the snapshot so a stream moving
-# (a message migrating from stdout to stderr) is itself a diff.
+# One case = one file; the stream envelope is part of the snapshot.
 capture() {
     local clj="$1" out err rc
     out=$("$BIN" "$clj" 2>/tmp/golden_err.$$ ) && rc=0 || rc=$?

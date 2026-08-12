@@ -1,19 +1,12 @@
-//! Layer 7 (Property) — laws the persistent collections must obey for ANY
-//! sequence of operations, not for the sequences someone thought to write down.
-//! ADR-0186.
+//! Layer 7 (Property) — laws the persistent collections must obey for any
+//! sequence of operations. ADR-0186.
 //!
-//! The oracle in every case is a naive model: a plain Zig array/list doing the
-//! obviously-correct thing. The persistent structure and the model are fed the
-//! same operations and must agree. That is what makes these tests able to fail
-//! for a reason nobody predicted — the model has no shared implementation with
-//! the thing it checks.
+//! Each property drives the persistent structure and a naive model (a plain
+//! Zig array) with the same operations and requires them to agree.
 //!
-//! The representation boundaries are deliberately crossed. `map` promotes
-//! ArrayMap -> PersistentHashMap past 16 entries and `vector` spills its tail
-//! into a HAMT; a bug that lives only on one side of a boundary is invisible to
-//! a test whose fixtures all sit on the same side. Discussion #12 was exactly
-//! that bug: a set's backing map was decoded as an ArrayMap unconditionally, so
-//! it worked for 8 elements and segfaulted at 9.
+//! Representation boundaries the generator sizes straddle: ArrayMap ->
+//! PersistentHashMap at 16 entries, set at 8, vector tail at 32, trie level
+//! at 1057.
 
 const std = @import("std");
 const prop = @import("prop.zig");
@@ -33,8 +26,7 @@ fn config() prop.Config {
     return .{ .seed = build_options.prop_seed, .iters = build_options.prop_iters };
 }
 
-/// A runtime per property evaluation. Fresh state per case is what makes a
-/// failing case reproducible on its own rather than only in sequence.
+/// A fresh runtime per property evaluation.
 const Fixture = struct {
     fn run(comptime body: fn (*Runtime, []i64) anyerror!void, xs: []i64) anyerror!void {
         var th = std.Io.Threaded.init(testing.allocator, .{});
@@ -79,8 +71,6 @@ test "property: a map agrees with a last-write-wins model on every key" {
             defer model.deinit(testing.allocator);
 
             var m = map_collection.empty();
-            // Element i is the key; its value is i, so a repeated key really
-            // does change value and last-write-wins is observable.
             for (xs, 0..) |k, i| {
                 const v: i64 = @intCast(i);
                 m = try map_collection.assoc(rt, m, Value.initInteger(k), Value.initInteger(v));
@@ -104,8 +94,6 @@ test "property: a map agrees with a last-write-wins model on every key" {
 }
 
 test "property: a map's contents do not depend on the order the keys arrived" {
-    // Same distinct keys, opposite insertion order, values keyed off the key
-    // itself so last-write-wins cannot mask a difference.
     const gen = prop.IntSlice{ .distinct = 40, .max_len = 48 };
     const Ctx = struct {};
     const body = struct {
@@ -141,8 +129,6 @@ test "property: dissoc undoes assoc, one key at a time, in any order" {
             var m = map_collection.empty();
             for (xs) |k| m = try map_collection.assoc(rt, m, Value.initInteger(k), Value.initInteger(k));
 
-            // Remove in the reverse of the order they went in; each removal must
-            // drop exactly the one key, never a neighbour.
             var seen: std.ArrayList(i64) = .empty;
             defer seen.deinit(testing.allocator);
             var i = xs.len;
@@ -173,9 +159,6 @@ test "property: dissoc undoes assoc, one key at a time, in any order" {
 }
 
 test "property: every entry survives the ArrayMap -> PersistentHashMap promotion" {
-    // The Discussion #12 boundary, stated as a law instead of as one example.
-    // Keys are distinct by construction so the entry count is the insert count,
-    // which is what puts the map deterministically on both sides of the ceiling.
     const gen = prop.IntSlice{ .distinct = 64, .max_len = 40 };
     const Ctx = struct {};
     const body = struct {
@@ -189,10 +172,6 @@ test "property: every entry survives the ArrayMap -> PersistentHashMap promotion
                 m = try map_collection.assoc(rt, m, Value.initInteger(k), Value.initInteger(k * 7));
                 try inserted.append(testing.allocator, k);
 
-                // Whatever representation it is in right now, every key put in
-                // so far must still be there. Checking on EVERY insert is what
-                // catches a promotion that loses an entry, rather than only
-                // checking the final state.
                 try testing.expectEqual(@as(u32, @intCast(inserted.items.len)), map_collection.count(m));
                 for (inserted.items) |key| {
                     const got = try map_collection.get(m, Value.initInteger(key));
@@ -200,9 +179,8 @@ test "property: every entry survives the ArrayMap -> PersistentHashMap promotion
                 }
             }
 
+            // The ArrayMap -> PersistentHashMap ceiling is 16 entries.
             if (inserted.items.len > 16) {
-                // The promotion is supposed to have happened; if the ceiling
-                // moves, this line is the one that says so.
                 try testing.expect(m.tag() == .hash_map);
             }
         }
@@ -300,8 +278,6 @@ test "property: pop undoes conj all the way back to empty" {
             var i = xs.len;
             while (i > 0) {
                 i -= 1;
-                // The last element is still readable right up to the moment it
-                // is popped — this is where a tail/HAMT boundary error shows.
                 try testing.expectEqual(xs[i], @as(i64, vector_collection.nth(v, @intCast(i)).asInteger()));
                 v = try vector_collection.pop(rt, v);
                 try testing.expectEqual(@as(u32, @intCast(i)), vector_collection.count(v));
@@ -318,18 +294,8 @@ test "property: pop undoes conj all the way back to empty" {
 }
 
 test "property: pop collapses a DEEP trie correctly, level by level" {
-    // The first mutation sweep (ADR-0186) killed the shallow cases and left
-    // three survivors, all of them inside `popTail`'s recursive descent:
-    // `arrayFor(old, old.count - 2)`, the `sub_index` shift, and the
-    // `new_child == null and sub_index == 0` collapse test. None of them could
-    // be reached, because the property above generates at most 96 elements and
-    // `popTail` only recurses once a vector is deep enough to have a trie of
-    // more than one level — tail (32) + one full level (32*32) = 1057 elements.
-    //
-    // So this property is here because a mutant said the other one was blind,
-    // which is the entire reason Layer 8 exists. The sizes below straddle the
-    // boundary rather than sitting past it: a bug in the collapse is a bug
-    // about what happens AT the transition.
+    // popTail recurses only past one trie level: tail (32) + a full level
+    // (32*32) = 1057 elements. These sizes straddle that transition.
     const deep_sizes = [_]u32{ 1024, 1056, 1057, 1088, 2048, 2080 };
     var th = std.Io.Threaded.init(testing.allocator, .{});
     defer th.deinit();
@@ -342,10 +308,6 @@ test "property: pop collapses a DEEP trie correctly, level by level" {
         while (i < n) : (i += 1) v = try vector_collection.conj(&rt, v, Value.initInteger(@intCast(i)));
         try testing.expectEqual(n, vector_collection.count(v));
 
-        // Pop all the way back to empty. Every element still readable at every
-        // depth, and the count exact after each step — a collapse that drops
-        // the wrong subtree shows up as a wrong element long before it shows
-        // up as a wrong count.
         var remaining = n;
         while (remaining > 0) {
             remaining -= 1;
@@ -355,8 +317,6 @@ test "property: pop collapses a DEEP trie correctly, level by level" {
             );
             v = try vector_collection.pop(&rt, v);
             try testing.expectEqual(remaining, vector_collection.count(v));
-            // Spot-check the far end too: a collapse bug in a deep subtree
-            // leaves index 0 intact while corrupting the middle.
             if (remaining > 0) {
                 try testing.expectEqual(@as(i64, 0), @as(i64, vector_collection.nth(v, 0).asInteger()));
                 const mid = remaining / 2;

@@ -3,18 +3,13 @@
 #
 # Changes one line of one source file, rebuilds, runs the unit suite, and records
 # whether anything failed. A mutant the suite still passes is a SURVIVOR: that
-# line's behaviour is unconstrained by any test, and the survivor names it
-# exactly — file, line, and the change nobody noticed.
+# line's behaviour is unconstrained by any test.
 #
-# This is a measurement, not a gate. It runs on demand and on a schedule; a
-# survivor is a work-list entry, not a commit to block. Cost is one rebuild per
-# mutant, so `--budget` is the parameter that matters.
+# On demand only, never in a gate. One rebuild per mutant, so `--budget` is the
+# number of rebuilds bought.
 #
-# ISOLATION (the rule that makes this safe to run): the sweep NEVER touches your
-# checkout. It creates a detached git worktree at a chosen revision, mutates
-# files there, and removes it at the end. Mutating the working tree would put
-# uncommitted work one `git checkout --` away from deletion, and an interrupted
-# run would leave a mutant behind that reads exactly like a deliberate edit.
+# ISOLATION: the sweep NEVER touches your checkout. It creates a detached git
+# worktree at a chosen revision, mutates files there, and removes it at the end.
 #
 # Usage:
 #   bash scripts/mutation/run.sh --targets src/runtime/collection/set.zig
@@ -22,12 +17,7 @@
 #   bash scripts/mutation/run.sh --targets-from .dev/mutation_targets.txt --rev v1.10.1
 #   bash scripts/mutation/run.sh --targets v.zig --ids 1a2b3c,4d5e6f   # re-run named mutants
 #
-# `--ids` is the loop that makes a survivor actionable: a survivor names a line,
-# you write the test that should have constrained it, then you re-run THAT
-# mutant to see it die. Without it you are re-sampling and hoping.
-#
-# Output: a JSONL log plus a markdown summary under .dev/mutation/ (gitignored
-# by default — the REPORT is the artifact worth committing, not the log).
+# Output: a JSONL log plus a markdown summary under .dev/mutation/ (gitignored).
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 REPO_ROOT=$(pwd)
@@ -41,9 +31,7 @@ REV="HEAD"
 OUT_DIR="$REPO_ROOT/.dev/mutation"
 EQUIV_FILE="$REPO_ROOT/.dev/mutation_equivalent.jsonl"
 BUILD_ARGS="-Dwasm -Doptimize=Debug"
-# A mutant can hang (a loop bound flipped). Time out generously enough that a
-# slow machine is not mistaken for a hang, and treat a timeout as KILLED: a
-# change that makes the suite never finish is a change the suite detected.
+# A timeout counts as KILLED.
 PER_MUTANT_TIMEOUT=900
 
 while [ $# -gt 0 ]; do
@@ -98,8 +86,6 @@ REPORT="$OUT_DIR/report-$STAMP-seed$SEED.md"
 : > "$LOG"
 
 # --- baseline -------------------------------------------------------------
-# Without this, a tree that is already red reports every mutant as killed and
-# the sweep produces a perfect score for a broken suite.
 echo "mutation: baseline build + test (this must pass) …"
 if ! ( cd "$WORKTREE" && run_bounded "$PER_MUTANT_TIMEOUT" zig build test $BUILD_ARGS ) >"$OUT_DIR/baseline.log" 2>&1; then
     echo "mutation: BASELINE FAILED at $REV — fix the suite before measuring it." >&2
@@ -128,14 +114,10 @@ if ids:
     by_id = {r["id"]: r for r in rows}
     missing = [i for i in ids if i not in by_id]
     if missing:
-        # A named mutant that no longer exists means the line moved or changed.
-        # Silently running the rest would report a kill that never happened.
         raise SystemExit("mutants no longer present (did the file change?): " + ", ".join(missing))
     rows = [by_id[i] for i in ids]
     budget = 0
 if budget and len(rows) > budget:
-    # Sample across the whole candidate set, not the head of it — a truncated
-    # list only ever measures the top of each file.
     rows = random.Random(seed).sample(rows, budget)
 rows.sort(key=lambda r: (r["file"], r["line"], r["col"]))
 with open(dst, "w") as fh:
@@ -189,9 +171,7 @@ done < "$SAMPLE"
 ( cd "$WORKTREE" && git checkout -- . )
 
 # --- report ---------------------------------------------------------------
-# Survivors are reclassified against the equivalence register: a mutant listed
-# there has a written proof that no input can observe it, so it is excluded
-# from the score rather than counted as a missing test.
+# Survivors are reclassified against the equivalence register.
 set +e
 python3 "$REPO_ROOT/scripts/mutation/report.py" \
     --log "$LOG" --report "$REPORT" --stamp "$STAMP" --seed "$SEED" \
