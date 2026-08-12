@@ -724,7 +724,7 @@ pub fn resolveClassValue(rt: *Runtime, env: *Env, sym_ns: ?[]const u8, sym_name:
 /// or the Var is absent, or the Var holds a non-protocol.
 fn protocolByInterfaceName(env: *Env, ns_name: []const u8, pname: []const u8) ?Value {
     if (protocolVarIn(env, ns_name, pname)) |v| return v;
-    if (std.mem.indexOfScalar(u8, ns_name, '_') == null) return null;
+    if (std.mem.findScalar(u8, ns_name, '_') == null) return null;
     var buf: [256]u8 = undefined;
     if (ns_name.len > buf.len) return null;
     @memcpy(buf[0..ns_name.len], ns_name);

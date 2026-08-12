@@ -126,7 +126,7 @@ fn readableShape(_: void, xs: []f64) anyerror!void {
         if (!saw_digit) return error.NoDigitsInFloat;
         // A float must not render as an integer literal, or reading it back
         // yields a Long.
-        if (std.mem.indexOfAny(u8, s, ".E") == null) return error.FloatRendersAsInteger;
+        if (std.mem.findAny(u8, s, ".E") == null) return error.FloatRendersAsInteger;
     }
 }
 
