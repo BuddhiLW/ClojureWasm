@@ -30,16 +30,11 @@
   what changed (pin it in the web UI — the API has no pinDiscussion). The PERF
   CAMPAIGN (D-450) is **stopped, not paused** — findings stay in the row as
   a record.
-- **Docs ahead of reality (2026-08-12)**: README, `docs/works/demos.md` and the
-  v1.10.1 announcement all say the two hosted demos are shut down and the three
-  demo repos archived. **As of the v1.10.1 tag, neither had happened** — both
-  Fly apps still answered 200. The user stated the intent (archive
-  cw-playground / cw-serverless-demo / cw-arcade, stop Fly billing) and that the
-  demos may stop working; the actions themselves were not authorised to the
-  loop, since repo-archive is outward-facing and `fly apps destroy` is
-  irreversible. **The docs become true the moment those are done — until then
-  they are a claim the project has not honoured.** Do not "fix" the docs back;
-  finish the shutdown.
+- **Docs ahead of reality — HALF CLOSED (2026-08-12)**: docs + announcement say
+  the demos are shut down and their repos archived. Archiving is **DONE**;
+  **stopping the two Fly apps is NOT** — `flyctl` has no valid token on this
+  machine (browser login required), so both still served 200 at the v1.10.1
+  tag. Do not walk the docs back; finish the shutdown.
 - **Unreleased on main**: nothing. CHANGELOG `[1.10.1]` is the SSOT.
 - **Release-process hazard** (`.github/workflows/release.yml`): cutting the
   GitHub release BY HAND before the tag workflow runs breaks the artifact
@@ -62,13 +57,18 @@
 
 ## Current state (details = CHANGELOG + git log)
 
-- **Issues and PRs are DISABLED and always were** (deliberate — the
-  maintainer cannot service them); **Discussions is the one channel**, and
-  outside contributors send branches to cherry-pick. CONTRIBUTING exempts
-  them from the loop's own conventions, so a contributed commit is taken
-  as-is with authorship preserved and any missing `Smell-audited:` line
-  amended in. Debug tooling: `scripts/check_*.sh` headers are each their
-  own SSOT — read the script, not a list here.
+- **Issues are DISABLED and always were** (deliberate — the maintainer cannot
+  service them). **PRs are NOT disabled and cannot be**: GitHub has no such
+  setting for an unarchived repo, so anyone can open one; none ever has, and
+  none will be reviewed. Say it that way — "PRs are disabled" was the wording
+  used until 2026-08-12 and it was false. **Discussions is the one channel**,
+  and outside contributors send branches to cherry-pick; such a commit is taken
+  as-is with authorship preserved. Debug tooling: `scripts/check_*.sh` headers
+  are each their own SSOT — read the script, not a list here.
+- **The repo stays PUBLIC and UNARCHIVED** (user, 2026-08-12: support ends
+  gradually, the repo stays open, Issues/PRs stay unaccepted). Do not archive
+  ClojureWasm. The three demo repos (cw-playground / cw-serverless-demo /
+  cw-arcade) ARE archived as of 2026-08-12, and stay public.
 - **2026-08-12: the README declares ClojureWasm no longer maintained**
   (`1c8a9cbf`); the Sponsors badge, README footer line, and `.github/FUNDING.yml`
   are gone with it. Wind-down context + the surveyed wording/transfer research:

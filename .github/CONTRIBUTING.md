@@ -2,12 +2,17 @@
 
 > [!IMPORTANT]
 > **ClojureWasm is no longer maintained, so there is nothing to contribute
-> *to*.** Issues and Pull Requests are disabled and always were — deliberately,
-> because they could not be serviced. Nothing will be merged here.
+> *to*.** Issues are disabled and always were — deliberately, because they could
+> not be serviced. GitHub offers no way to turn off Pull Requests, so you *can*
+> open one; it will not be reviewed or merged. Discussions stay open and may go
+> unanswered.
 >
-> **Fork it.** The licence (EPL-2.0) asks no permission and the project asks no
-> credit. This document is kept because everything below still works and is what
-> you would otherwise have to reverse-engineer: how to build it, how to run the
+> The repository stays public and unarchived, so it remains readable, clonable
+> and forkable — that is the point. **Fork it.** The licence (EPL-2.0) asks no
+> permission and the project asks no credit.
+>
+> This document is kept because everything below still works and is what you
+> would otherwise have to reverse-engineer: how to build it, how to run the
 > gate, and where the design is written down.
 
 ## Building and testing
