@@ -1,49 +1,38 @@
 # zwasm capability ledger — cljw's view of the embedded Wasm runtime (F-001)
 
-> **SSOT for "what does the zwasm we embed offer, and what has cljw adopted".**
+> **The record of what the zwasm we embed offers, and what cljw adopted.**
 > cljw embeds **zwasm v2** (F-001, unavoidable). The dep is a **tag pin** —
-> **v2.5.0** (see § Pin), pinned 2026-08-12, and this is cljw's **final** pin:
-> the runtime is no longer maintained (README), so this ledger stops tracking
-> zwasm's growth here. Prior pins: v2.4.1 (2026-08-04) the two cljw-found
+> **v2.5.0** (see § Pin), pinned 2026-08-12, and this is cljw's **final** pin.
+> Prior pins: v2.4.1 (2026-08-04) the two cljw-found
 > component/output fixes, v2.4.0 (2026-08-03) the external-consumer release,
 > v2.3.0 (2026-07-17) the WASI-0.3.0-official inventory sweep, v2.2.1
 > (2026-07-16) the binary-size campaign, v2.2.0 (`cf5d20d7`, 2026-07-09)
-> the AOT-full-fidelity release (ADR-0203). zwasm continues under active
-> co-development (`~/Documents/MyProducts/zwasm`) and its embedding API keeps
-> *growing* — notably a **JIT-backed
-> engine** (the cljw north star, ROADMAP §9.0 gap area II × III). cljw has **adopted
-> the JIT as its default** (`.auto`, D-488 discharged); the remaining north-star step
-> is components-through-the-JIT (zwasm-side, D-500). This file is the durable record
-> so the loop never re-derives "is zwasm's JIT ready yet?" from scratch.
+> the AOT-full-fidelity release (ADR-0203). cljw **adopted the JIT as its
+> default** (`.auto`, D-488 discharged); the north-star step it never reached is
+> components-through-the-JIT (zwasm-side, D-500).
 
-## The read-at-boundaries convention (why this file exists)
+## Status of this file: FROZEN (2026-08-12)
 
-The cljw loop **cannot infer zwasm's status from its own tree** — the pin is frozen
-at one commit while zwasm moves on. So, at every **gap-area-unit start** (CLAUDE.md
-Step 1a) **and every Phase boundary**, the loop MUST:
+This ledger existed to answer "what does zwasm have now, and has cljw adopted
+it?" for a **moving** dependency. Both halves of that question are closed:
 
-1. Read THIS file (cljw's recorded view + adoption status).
-2. Refresh it against zwasm's **live** status sources (below). If zwasm shipped a
-   capability cljw's north star needs, update the table here + decide adoption.
-3. Treat a capability as **adoptable only when zwasm marks it ready AND cljw bumps
-   the pin** (`build.zig.zon`) — never adopt against an unpinned/moving API.
+- **cljw is no longer maintained** (README), and v2.5.0 is its final pin.
+- **zwasm left the `clojurewasm` org** on 2026-08-12 for its own org,
+  <https://github.com/zwasm/zwasm>, where it continues under **separate,
+  joint maintainership**. It is no longer a project this repo co-develops.
 
-This is the cljw-side, git-tracked face of the **dogfooding handover protocol**
-(simplified, no-loop, 2-state — `dogfooding_handover/PROTOCOL.md` below). **Also at
-each unit boundary (after a commit, before the next Step 0), check the INBOX**
-(`to_cljw_*.md` with `Status: SENT`); handle it, then flip to `CONSUMED`. When cljw
-needs a not-yet-ready zwasm capability, the request goes out as a `from_cljw_NN.md`
-(finished-form, request-don't-workaround; mark the dependent cljw task PENDING), never
-a cljw-side shim.
+So everything below is a **record of what cljw's final pin embeds**, not a
+watch list. The obligations this file used to carry are retired: there is no
+per-unit refresh duty, no `dogfooding_handover` mailbox (the `from_cljw_NN` /
+`to_cljw_NN` channel was between two repos under one owner and ended with the
+transfer), and no adoption decisions pending. Capability rows are accurate as
+of the dates they carry and are **not** kept current against zwasm's ongoing
+development — read zwasm's own repo for that.
 
-## zwasm live status sources (read these to refresh the table)
-
-| Source                                                      | What it tells you                                              |
-|-------------------------------------------------------------|----------------------------------------------------------------|
-| `~/Documents/MyProducts/zwasm/private/dogfooding_handover/` | **the mailbox** — `PROTOCOL.md` + `from_cljw_NN`/`to_cljw_NN` |
-| `~/Documents/MyProducts/zwasm/.dev/ROADMAP.md`              | zwasm phase plan (p17 = JIT)                                   |
-| `~/Documents/MyProducts/zwasm/.dev/decisions/0200_*.md`     | ADR-0200 — JIT-DEFAULT engine + research-driven API           |
-| `git -C ~/Documents/MyProducts/zwasm log --oneline -15`     | recent JIT work (zwasm#477 multi-arg invoke arm64/x86_64)      |
+A forker who wants to move to a newer zwasm should treat this as background,
+bump `build.zig.zon` themselves, and re-verify against the five `phase16_wasm_*`
+e2e — the embedding surface cljw actually depends on is narrow (Engine / Module /
+Instance / `runWasmCapturedFull` / `wasi.host.Host`).
 
 ## Pin
 
@@ -95,10 +84,11 @@ a cljw-side shim.
 - `lazy` dependency: resolved only under `-Dwasm`. So a churning dep never
   breaks the day-to-day gate when the flag is off — it
   only gates what `cljw.wasm/*` can do.
-- Pin-bump (to a newer tag/SHA): zwasm `docs/consuming_prerelease_zwasm.md`. Re-pin is
-  **user-gated** (a moving north-star API; the loop proposes, the user confirms).
+- Pin-bump (to a newer tag/SHA): `zig fetch "git+https://github.com/zwasm/zwasm.git?ref=<tag>#<SHA>"`
+  prints the content hash; hand-edit `.url` + `.hash` + keep `.lazy` (`--save` mangles the
+  entry). No further bump is planned — v2.5.0 is final for this repo.
 
-## Capability table (refresh at each boundary)
+## Capability table (frozen; rows accurate as of the dates they carry)
 
 | Capability                            | zwasm status (as of 2026-06-22)                                                                                                                            | in cljw's tree? | cljw adoption                                                                                                                   | ref          |
 |---------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------|-----------------|---------------------------------------------------------------------------------------------------------------------------------|--------------|
@@ -117,10 +107,11 @@ a cljw-side shim.
 | guard-page bounds-check elision (JIT) | NEW in v2.2.0 (D-507/ADR-0202) — reservation-backed linear memory + fault→trap PC-redirect; bounds checks elided by default, diff-fuzz-gated (D-510)     | YES (pin)       | transparent — cljw's `.auto` guests get the faster JIT bodies; no embedding-API change                                         | zwasm D-507  |
 | .cwasm AOT + on-disk compile cache    | NEW in v2.2.0 (ADR-0203) — full-fidelity `.cwasm` v0.5 serialize/load (aot-diff 62/62) + transparent `--cache` (D-508); JIT helpers de-baked (D-516)      | YES (pin)       | NOT adopted — zwasm-CLI-side surface today; candidate for cljw cold-start (evaluate when an embedding API for the cache lands) | zwasm D-508  |
 
-## Forward plan — the JIT adoption unit (gap area II × III) — ACTIVE
+## The JIT adoption unit (gap area II × III) — CLOSED, partially reached
 
-The north-star capability is **running Wasm components through zwasm's JIT engine**
-from cljw. The trigger has FIRED (to_cljw_02, 2026-06-21) and adoption is in progress:
+The north-star capability was **running Wasm components through zwasm's JIT
+engine** from cljw. Scalar/SIMD function invocation got there; components did
+not (they stayed interp-pinned on the zwasm side, D-500). The record:
 
 1. **Trigger (DONE)**: zwasm shipped the embedder-stable JIT engine (`to_cljw_02`);
    cljw switched the dep to relative-path (user-directed experiment, no-push).
@@ -259,3 +250,13 @@ have surfaced it.
   behaviour follow (five phase16 wasm e2e + the full gate green on it). This
   ledger's watch duty ends here: cljw is no longer maintained, while zwasm
   continues under separate maintainership.
+
+- **2026-08-12 (same day)** — **zwasm transferred out of the `clojurewasm` org**
+  to its own org, <https://github.com/zwasm/zwasm>, to be maintained jointly by
+  its author and an outside contributor. cljw's dep URL now names that org
+  directly rather than riding GitHub's transfer redirect (a redirect is only an
+  alias until something else claims the old name — the RepoJacking shape). The
+  `.hash` is content-addressed and did not change, verified by `zig fetch`
+  against both URLs. This file is FROZEN as of this entry; the co-development
+  protocol it used to carry (per-unit refresh, `dogfooding_handover` mailbox)
+  is retired with the transfer, since the two repos no longer share an owner.

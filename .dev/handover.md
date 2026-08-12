@@ -13,8 +13,12 @@
   tier comes back. Commit **and** push (atomic
   Step 6). `build.zig.zon` `.zwasm` = tag pin **v2.5.0**
   (`278587f6`, 2026-08-12, FINAL — full WASI 0.3 + the `libzwasm.a` C-API
-  export fix; neither reaches cljw's Zig embedding surface. Tagging zwasm is
-  user-only, its ADR-0156). Latest release:
+  export fix; neither reaches cljw's Zig embedding surface). **zwasm now lives
+  at `github.com/zwasm/zwasm`** — its own org since 2026-08-12, separate
+  maintainership; the dep URL names it directly rather than riding the transfer
+  redirect, and the content `.hash` was unchanged by the move. Co-development
+  (the `dogfooding_handover` mailbox, `.dev/zwasm_capabilities.md`'s per-unit
+  refresh duty) is RETIRED — see F-001's 2026-08-12 entry. Latest release:
   **v1.10.0** (2026-08-12) — **the FINAL release**. CHANGELOG is the
   release-history SSOT.
 - **First task on resume**: nothing is pending. The wind-down is DONE:
@@ -33,6 +37,11 @@
   release create` is TOCTOU across the two matrix legs — if they reach it
   within the same instant, the loser fails on "already exists" under
   `set -e`. v1.10.0 missed it by 47 s. Never hit, never fixed.
+- **The v1.10.0 TAG still names `clojurewasm/zwasm`** (fixed after it; it is the
+  final release), and both demos' Dockerfiles build cljw from that tag — so
+  their future rebuilds ride GitHub's transfer redirect. Verified working
+  2026-08-12. It holds only while nothing claims the vacated name: **never
+  create a repo called `zwasm` under the `clojurewasm` org.**
 - **Forbidden**: bare `zig build test` without `-Dwasm`; bare `zig build` for a
   probe (use ReleaseSafe). The FULL gate runs `--serial-e2e`, ALONE; never a
   concurrent build during a gate. `.claude/**` edits + cross-repo publishes may
@@ -51,8 +60,7 @@
   own SSOT — read the script, not a list here.
 - **2026-08-12: the README declares ClojureWasm no longer maintained**
   (`1c8a9cbf`); the Sponsors badge, README footer line, and `.github/FUNDING.yml`
-  are gone with it. Issues/PRs were always disabled — Discussions is the one
-  channel. Wind-down context + the surveyed wording/transfer research:
+  are gone with it. Wind-down context + the surveyed wording/transfer research:
   memory `clojurewasm-wind-down-plan`, `private/notes/2026-08-11-{sunset-wording,
   transfer-risk}-survey.md`.
 - 2026-08-11/12: Discussions #12/#13/#14 (BuddhiLW) answered in code — three
@@ -68,10 +76,8 @@
 ## Standing units (tracked in .dev/debt.yaml)
 
 - **D-565** — external-contributor reproducibility sweep (Discussion #11).
-  Items (1)-(6) DISCHARGED 2026-08-04; the ledger row carries what each was.
   Residual: (7) survey-workflow setup notes, (8) handover pointing at
-  gitignored `private/notes/` recipes. Companion: zwasm D-526.
-
+  gitignored `private/notes/` recipes. The row carries the rest.
 - **Perf campaign (§9.2.S) — PAUSED** (D-520 / D-386 / D-005/006). **D-513**
   item (1) `clojure.core.reducers` is the only remaining piece (repl + var :doc
   landed); it is IN PROGRESS — its "take up on a real consumer" deferral is the
@@ -83,7 +89,8 @@
 
 cljw's differentiator = **Wasm interop (gap II) × VM-perf fusion→JIT (gap
 III)**. zwasm JIT (ADR-0200) is the cljw default; remaining =
-components-through-the-JIT (zwasm-side, D-500). Distal — needs a user nod.
+components-through-the-JIT — now wholly upstream's call (D-500, and zwasm is a
+separate project since 2026-08-12). Distal — needs a user nod.
 NOTE ADR-0177: "edge execution" is an AIM owned by D-552, not a capability.
 
 ## Reading order (resume)

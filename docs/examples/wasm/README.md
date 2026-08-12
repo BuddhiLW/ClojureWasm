@@ -1,6 +1,6 @@
 # WebAssembly as an FFI — polyglot demo
 
-ClojureWasm can embed a WebAssembly engine ([zwasm](https://github.com/clojurewasm)
+ClojureWasm can embed a WebAssembly engine ([zwasm](https://github.com/zwasm/zwasm)
 v2) and call modules compiled from **other languages** as if they were Clojure
 namespaces. This is the "WebAssembly as an FFI" idea: a Clojure REPL loads a
 sandboxed `.wasm` and invokes its exports.

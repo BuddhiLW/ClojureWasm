@@ -75,8 +75,10 @@ Read the source for *why*; run `clj` for *what*.
   - Use: WebAssembly runtime reference (Phase 16+ Pod boundary design)
   - Not resident (multi-GB). `git clone --depth 1 https://github.com/bytecodealliance/wasmtime ~/Documents/OSS/wasmtime`
   - For Component Model / Canonical ABI questions the FIRST reference is zwasm
-    itself (`~/Documents/MyProducts/zwasm/`, co-developed and SHA-pinned into
-    `build.zig.zon`) — it is the implementation cljw actually runs on.
+    itself, tag-pinned into `build.zig.zon` — it is the implementation cljw
+    actually runs on. Upstream is <https://github.com/zwasm/zwasm> (its own org
+    since 2026-08-12, separate maintainership); a local clone of it, if present,
+    is read-only reference like everything else in this file.
 
 ## Quality-elevation corpora (interim-goal re-cut, 2026-05-29)
 

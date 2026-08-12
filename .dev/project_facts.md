@@ -226,6 +226,27 @@ the ADR); debt D-036 (Phase 16 inline-vs-Pod decision); ROADMAP
   build differentiation: **ADR-0133**. Mac full gate verified green; ubuntunote
   verification is the remaining step. `-Dwasm` everywhere (not mixed) per the
   user's "冒頭から -Dwasm" — a mixed wasm/non-wasm build sequence is what breaks.
+- **2026-08-12 (user chat — zwasm transferred out of the org; LOCATION amendment,
+  the invariant itself is unchanged).** zwasm moved from `clojurewasm/zwasm` to
+  its own org, **<https://github.com/zwasm/zwasm>**, where it is maintained
+  jointly by its author and an outside contributor. F-001's substance —
+  cljw embeds zwasm v2, unavoidably, resolved through the `build.zig.zon`
+  tag pin — is **untouched**; what changes is where the dep comes from and the
+  relationship around it:
+  - `build.zig.zon` `.url` now names the `zwasm` org **directly**. GitHub
+    redirects the old path, but a transfer redirect is only an alias until
+    something else claims the vacated name, so a dependency URL must never rest
+    on one. `.hash` is content-addressed and did not change (`zig fetch`
+    verified against both URLs).
+  - **Co-development is over.** The `dogfooding_handover` mailbox
+    (`from_cljw_NN` / `to_cljw_NN`), the "both repos are the user's" finding-
+    handling split recorded in the 2026-06-05 entry above, and
+    `.dev/zwasm_capabilities.md`'s per-unit refresh duty are all **retired** —
+    they were mechanisms between two repos under one owner. A zwasm-side finding
+    is now an ordinary upstream report.
+  - Earlier entries in this history keep their original wording: they record
+    where the tag was pushed and how the two repos related **at the time**, which
+    remains true of those dates.
 
 ---
 
@@ -1222,3 +1243,9 @@ namespace — the surface this invariant guarantees is always present), ADR-0158
   that ClojureWasm as a zwasm consumer forces the latest Wasm/WASI (Component Model
   always on); no Wasm-1.0-only downgrade axis. Recorded as law; operationalised by
   ADR-0135 Amendment 1 + ADR-0158.
+- 2026-08-12: the **invariant stands as shipped** — the `-Dwasm` build selects
+  zwasm's full modern surface (Wasm 3.0 + WASI 0.3 at the v2.5.0 pin) and exposes
+  no downgrade knob. What is moot is the *tracking* clause "when zwasm advances
+  WASI, cljw tracks it as the new floor": v2.5.0 is the final pin and zwasm now
+  lives in its own org under separate maintainership (F-001, same date). A forker
+  who bumps the pin inherits the invariant — never add the downgrade axis back.

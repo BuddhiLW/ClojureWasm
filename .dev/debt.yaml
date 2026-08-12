@@ -1704,7 +1704,12 @@ standing:
         - L6 monomorphization dedup (std.sort clones 0.22MB etc.): opportunistic.
         - L7 UCD two-stage packing (~-0.1MB): only when touching the generator.
         - L5 zwasm-side campaign (691KB arm64 emitter, unused component-model
-          surfaces): FILE via CODEV; defends the 4.0MB zwasm budget line.
+          surfaces): the 2026-07-16 round LANDED (zwasm ADR-0204 / D-522 stage 1,
+          -1,083KB measured here) and the budget line was re-set to 2.5MB. No
+          further round is fileable: zwasm left the org 2026-08-12
+          (github.com/zwasm/zwasm, separate maintainership), so the CODEV channel
+          this lever used is gone — a future size request is an ordinary
+          upstream report, not a co-dev handover.
       Method: scripts/binary_size_report.sh before/after each lever (reference
       platform = macOS arm64 ReleaseSafe -Dwasm stripped); component budget
       breach → attribute → lever or a conscious ADR-0172 revision, never silent.
