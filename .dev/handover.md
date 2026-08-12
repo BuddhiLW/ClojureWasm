@@ -21,20 +21,20 @@
   refresh duty) is RETIRED — see F-001's 2026-08-12 entry. Latest release:
   **v1.10.1** (2026-08-12) — **the FINAL release**. CHANGELOG is the
   release-history SSOT.
-- **First task on resume**: **one thing is outstanding and it is the user's to
-  do** (see § Docs ahead of reality). Otherwise the wind-down is DONE: README
-  declares the project unmaintained, v1.10.1 is released (4 assets, verified by
-  download + checksum + running the macOS binary incl. the Wasm FFI → 42), the
-  homebrew tap is bumped (`brew fetch` resolves 1.10.1 after `brew update`), and
-  the announcement is Discussion #15, edited to v1.10.1 with a comment recording
-  what changed (pin it in the web UI — the API has no pinDiscussion). The PERF
-  CAMPAIGN (D-450) is **stopped, not paused** — findings stay in the row as
-  a record.
-- **Docs ahead of reality — HALF CLOSED (2026-08-12)**: docs + announcement say
-  the demos are shut down and their repos archived. Archiving is **DONE**;
-  **stopping the two Fly apps is NOT** — `flyctl` has no valid token on this
-  machine (browser login required), so both still served 200 at the v1.10.1
-  tag. Do not walk the docs back; finish the shutdown.
+- **First task on resume**: nothing is pending — the wind-down is COMPLETE.
+  README declares the project unmaintained; v1.10.1 is released (4 assets,
+  verified by download + checksum + running the macOS binary incl. the Wasm FFI
+  → 42); the homebrew tap is bumped (`brew fetch` resolves 1.10.1 after `brew
+  update`); the announcement is Discussion #15, edited to v1.10.1 with a comment
+  recording what changed (the user pins it — the API has no pinDiscussion). The
+  PERF CAMPAIGN (D-450) is **stopped, not paused** — findings stay in the row.
+- **The demo shutdown is COMPLETE (2026-08-12)**, so the docs' and the
+  announcement's claims are now true: cw-playground / cw-serverless-demo /
+  cw-arcade archived (public, forkable), both Fly apps **destroyed** —
+  irreversible, and the bookshelf's 1 GB `bookshelf_data` volume went with them.
+  `fly apps list` is empty; both URLs refuse connections. Stopping the machines
+  would NOT have sufficed — both configs carry `auto_start_machines = true`, so
+  any request would have woken them.
 - **Unreleased on main**: nothing. CHANGELOG `[1.10.1]` is the SSOT.
 - **Release-process hazard** (`.github/workflows/release.yml`): cutting the
   GitHub release BY HAND before the tag workflow runs breaks the artifact
