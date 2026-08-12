@@ -155,11 +155,37 @@ Three things to know before running it:
 the test that should have constrained it → you re-run *that* mutant with
 `--ids` and watch it die. Without `--ids` you are re-sampling and hoping.
 
-The first sweep (report in `.dev/mutation/report-ce5cb6c8-seed1.md`) scored 50%
-and its three survivors were all in `popTail`'s deep-trie collapse — unreachable
-by the vector property, whose generator stopped at 96 elements. That is what
-this layer is for: the property looked correct, *was* correct, and never reached
-the branch it was aimed at.
+### Equivalent mutants
+
+Some mutants cannot be killed, because they change the source without changing
+the program. A survivor is only a missing test *after* you have ruled that out.
+
+`.dev/mutation_equivalent.jsonl` is the register of the ones already ruled out.
+Each row matches on `file` + `op` + `before` and carries a `reason`, which is a
+**proof obligation**: state why no input can distinguish the mutant. Registered
+mutants are dropped from the score instead of counted against it. An entry that
+matches no enumerated candidate is reported as **STALE** and the run exits
+non-zero — a line that moved has outrun its proof, so the mutant returns to the
+survivor list rather than staying quietly excused.
+
+Reach for the register only with an argument you could defend, and never to
+quiet a survivor you have not understood. The two entries in it today are both
+index arithmetic feeding a `>> SHIFT_BITS`, where the mutated constant lands in
+the same 32-element leaf as the original.
+
+### What the first sweep actually found
+
+The first sweep (`.dev/mutation/report-ce5cb6c8-seed1.md`) scored 50%, and all
+three of its survivors were in `popTail`'s deep-trie collapse — beyond the reach
+of the vector property, whose generator stopped at 96 elements when the trie
+only grows a level at 1057. Adding a deep-trie property killed one of them
+(`bool_and_to_or` on the collapse condition) and proved the other two equivalent
+by the argument above.
+
+Both halves of that are the point. The property looked correct, *was* correct,
+and never reached the branch it was aimed at — only the mutant showed it. And
+two thirds of a survivor list turned out not to be work at all, which is why the
+verdict is a starting point for an argument and not a score to optimise.
 
 ## Wall-clock assertions
 

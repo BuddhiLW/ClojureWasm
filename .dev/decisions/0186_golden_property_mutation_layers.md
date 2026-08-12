@@ -122,7 +122,7 @@ would be indistinguishable from a real edit.
 - `.dev/decisions/0186_golden_property_mutation_layers.md` (this file)
 - `test/golden/run.sh`, `test/golden/cases/**`
 - `test/prop/**`
-- `scripts/mutation/**`
+- `scripts/mutation/**` (including `report.py` and `.dev/mutation_equivalent.jsonl`)
 - `test/run_all.sh` (the `golden` and `prop` steps)
 - `test/README.md`, `.claude/rules/test_taxonomy.md` (the layer table)
 
@@ -130,3 +130,13 @@ would be indistinguishable from a real edit.
 
 - 2026-08-12: Status: Proposed -> Accepted. Layers 6 and 7 land with the ADR;
   Layer 8's harness lands beside them and its first sweep report follows.
+- 2026-08-12: Layer 8 gains an equivalence register
+  (`.dev/mutation_equivalent.jsonl`), consumed by `scripts/mutation/report.py`.
+  The first sweep's three survivors resolved as one real gap (killed by a new
+  deep-trie property) and two mutants that provably cannot be observed —
+  constants feeding a `>> SHIFT_BITS` that land in the same leaf either way.
+  Without a register, an unkillable mutant is re-reported every sweep and
+  trains the reader to ignore survivors, which is the one thing this layer
+  cannot afford. Registered entries are excluded from the score and each
+  carries a written proof; an entry matching no candidate is reported STALE and
+  fails the run, so a proof cannot outlive the line it was written about.

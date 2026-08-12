@@ -25,17 +25,21 @@
 
 active:
   - id: "D-577"
-    status: "open (2026-08-12, ADR-0186 residual). The three new layers are OPEN but shallow: golden covers 20 programs, property covers map/set/vector only, and no mutation sweep has been run against a committed baseline yet, so the mutation score of this suite is unmeasured. 120 of 265 src files still carry no inline test at all."
+    status: "open (2026-08-12, ADR-0186 residual). The three new layers are OPEN but shallow: golden covers 22 programs, property covers map/set/vector only, and only ONE file has been swept for mutants (vector.zig, 8 of 141 candidates), so the mutation score of this suite is still unmeasured. 120 of 265 src files carry no inline test at all."
     category: "test"
     barrier: |-
       Not a design question, a queue. Drain in this order, because each step
       tells you where the next one should point:
-        1. Run the first sweep (`scripts/mutation/run.sh --targets-from
-           .dev/mutation_targets.txt --budget 15`) and commit the report. Until
-           a sweep has run, "the suite is good" is an impression.
+        1. Widen the sweep past vector.zig (`scripts/mutation/run.sh
+           --targets-from .dev/mutation_targets.txt --budget 15`) and commit
+           the report. One file swept is not a measurement of a suite.
         2. Turn each survivor into a test in the layer that should have caught
            it — a survivor in a comparison is usually a missing property, a
-           survivor in a rendering path is usually a missing golden case.
+           survivor in a rendering path is usually a missing golden case — then
+           re-run THAT mutant with `--ids` and watch it die. Rule out
+           equivalence first: two of the first sweep's three survivors could not
+           be killed by any test and are now registered in
+           `.dev/mutation_equivalent.jsonl` with their proofs.
         3. Extend Layer 7 past the collections. The obvious next law —
            `read-string` after `pr-str` is the identity — canNOT be written at
            the Zig level as the code stands: `reader.readAll` yields `Form`

@@ -39,6 +39,7 @@ SEED=0
 IDS=""
 REV="HEAD"
 OUT_DIR="$REPO_ROOT/.dev/mutation"
+EQUIV_FILE="$REPO_ROOT/.dev/mutation_equivalent.jsonl"
 BUILD_ARGS="-Dwasm -Doptimize=Debug"
 # A mutant can hang (a loop bound flipped). Time out generously enough that a
 # slow machine is not mistaken for a hang, and treat a timeout as KILLED: a
@@ -54,6 +55,7 @@ while [ $# -gt 0 ]; do
         --seed) SEED="$2"; shift ;;
         --rev) REV="$2"; shift ;;
         --out) OUT_DIR="$2"; shift ;;
+        --equivalent) EQUIV_FILE="$2"; shift ;;
         --build-args) BUILD_ARGS="$2"; shift ;;
         --timeout) PER_MUTANT_TIMEOUT="$2"; shift ;;
         *) echo "unknown flag: $1" >&2; exit 2 ;;
@@ -187,38 +189,15 @@ done < "$SAMPLE"
 ( cd "$WORKTREE" && git checkout -- . )
 
 # --- report ---------------------------------------------------------------
-python3 - "$LOG" "$REPORT" "$STAMP" "$SEED" "$TOTAL" <<'PY'
-import collections, json, sys
-log, report, stamp, seed, total = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5]
-rows = [json.loads(l) for l in open(log) if l.strip()]
-killed = [r for r in rows if r["verdict"] == "killed"]
-survived = [r for r in rows if r["verdict"] == "survived"]
-unviable = [r for r in rows if r["verdict"] == "unviable"]
-scored = len(killed) + len(survived)
-score = (100.0 * len(killed) / scored) if scored else float("nan")
+# Survivors are reclassified against the equivalence register: a mutant listed
+# there has a written proof that no input can observe it, so it is excluded
+# from the score rather than counted as a missing test.
+set +e
+python3 "$REPO_ROOT/scripts/mutation/report.py" \
+    --log "$LOG" --report "$REPORT" --stamp "$STAMP" --seed "$SEED" \
+    --total "$TOTAL" --candidates "$ALL_MUTANTS" --equivalent "$EQUIV_FILE"
+report_rc=$?
+set -e
 
-with open(report, "w") as fh:
-    w = fh.write
-    w(f"# Mutation sweep — {stamp} (seed {seed})\n\n")
-    w(f"- Candidates enumerated: {total}\n")
-    w(f"- Mutants run: {len(rows)}\n")
-    w(f"- Killed: {len(killed)}\n- Survived: {len(survived)}\n- Unviable (did not compile): {len(unviable)}\n")
-    w(f"- **Mutation score: {score:.1f}%** (killed / (killed + survived))\n\n")
-    if survived:
-        w("## Survivors — each is a line no test constrains\n\n")
-        w("| file | line | operator | change |\n|---|---:|---|---|\n")
-        for r in sorted(survived, key=lambda r: (r["file"], r["line"])):
-            before = r["before"].replace("|", "\\|")
-            after = r["after"].replace("|", "\\|")
-            w(f"| `{r['file']}` | {r['line']} | {r['op']} | `{before}` -> `{after}` |\n")
-        w("\n")
-        by_file = collections.Counter(r["file"] for r in survived)
-        w("### Survivors per file\n\n")
-        for f, c in by_file.most_common():
-            w(f"- `{f}`: {c}\n")
-    else:
-        w("No survivors in this sample.\n")
-print(f"mutation: score {score:.1f}% — report at {report}")
-PY
-
-echo "mutation: killed=$killed survived=$survived unviable=$unviable (log: $LOG)"
+echo "mutation: raw verdicts killed=$killed survived=$survived unviable=$unviable (log: $LOG)"
+exit $report_rc
