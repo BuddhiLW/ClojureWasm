@@ -7,6 +7,21 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 
 ## [Unreleased]
 
+## [1.10.0] - 2026-08-12
+
+**The final release.** ClojureWasm is no longer maintained — a from-scratch
+Clojure runtime turned out to be more than one person can sustain, and this
+release exists so it stops at a working, fully-tested state rather than
+mid-stream. The code stays up under EPL-2.0; fork it and build on it, no
+permission needed. See the README for the full notice.
+
+Everything here is a fix, and three of the four were found by @BuddhiLW,
+who reported them with diagnoses and working branches — thank you. Each
+one's *class* was then swept, which is where the rest of the fixes came
+from. MINOR rather than PATCH because `repl` and `nrepl` gain a `-cp` /
+`-A:alias` surface, and `cljw repl` now rejects unknown arguments it used
+to ignore.
+
 ### Fixed
 
 - **A top-level `(do …)` that requires before it uses now works in every
@@ -54,6 +69,15 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
   (`scripts/check_entrypoint_surface.sh`) requires every CLI entry point
   to be classified and reach the shared classpath resolution, so a
   future subcommand cannot repeat the nREPL omission.
+
+### Changed
+
+- The embedded Wasm runtime is pinned to **zwasm v2.5.0** (was v2.4.1),
+  which brings full WASI 0.3 coverage and completes `libzwasm.a`'s C-API
+  exports. Neither reaches cljw's embedding surface — cljw drives
+  Engine/Module/Instance through Zig on the JIT-default `.auto` engine —
+  so this lands the final release on zwasm's current stable rather than
+  changing behaviour. zwasm continues under separate maintainership.
 
 ## [1.9.0] - 2026-08-05
 

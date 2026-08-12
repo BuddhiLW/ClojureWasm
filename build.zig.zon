@@ -1,6 +1,6 @@
 .{
     .name = .cljw,
-    .version = "1.9.0",
+    .version = "1.10.0",
     .fingerprint = 0x1869d207073beffa,
     .minimum_zig_version = "0.16.0",
     .dependencies = .{
@@ -11,24 +11,28 @@
         // zwasm v2 embedding API (F-001 / D-037). `lazy` so the DEFAULT build +
         // gate never resolve it — only `-Dwasm` (b.lazyDependency) does.
         //
-        // PINNED to STABLE tag **v2.4.1** (2026-08-04). Unlike the pin-hygiene
-        // bumps before it, this one is load-bearing twice over — both fixes were
-        // found FROM cljw and neither was reachable by zwasm's own fixtures:
-        //   #157 a component with 2+ exports failed validation, so
-        //        `(:require ["x.wasm" :as x])` could only ever load a
-        //        single-function component — the headline feature, blocked.
-        //   #158/#159 a captured run had no output bound. Measured here: 64 MB
-        //        per 1e6 fuel, ~64 GB under the default fuel budget. `wasm/run`
-        //        passes `:max-output-bytes` (D-349).
+        // PINNED to STABLE tag **v2.5.0** (2026-08-11) — cljw's final pin.
+        // It brings full WASI 0.3 coverage (all six proposals, 45/45 on the
+        // official wasm32-wasip3 corpus across macOS/Linux/Windows) plus the
+        // 81 missing C-API symbols in `libzwasm.a` (#161). Neither changes
+        // cljw's embedding surface: Engine/Module/Instance on `.auto` (=
+        // JIT-default, D-488) is the same API it was at v2.2.0.
+        //
+        // The v2.4.1 pin before it was load-bearing twice over, both found
+        // FROM cljw and neither reachable by zwasm's own fixtures: #157 (a
+        // component with 2+ exports failed validation, so
+        // `(:require ["x.wasm" :as x])` could only load a single-function
+        // component — the headline feature, blocked) and #158/#159 (a captured
+        // run had no output bound: 64 MB per 1e6 fuel, ~64 GB under the default
+        // budget; `wasm/run` passes `:max-output-bytes`, D-349).
         //
         // Tag history: v2.4.0 (2026-08-03) external-consumer release
         // (`-Dcompiler-rt`, sub-3.0 DCE); v2.3.0 (2026-07-17) WASI-0.3.0 sweep;
         // v2.2.1 (2026-07-16) binary-size campaign; v2.2.0 (2026-07-09) AOT
-        // full fidelity. cljw's embedding surface (Engine/Module/Instance via
-        // `.auto` = JIT-default, D-488) is unchanged by all of them.
+        // full fidelity.
         .zwasm = .{
-            .url = "git+https://github.com/clojurewasm/zwasm.git?ref=v2.4.1#c45188a639aba8ee7298209539134a61643b2bd4",
-            .hash = "zwasm-2.4.1-FT1Fv0J0jQDowvbJuWRyBg6N0aX7lj52ldrm7T7HWzBr",
+            .url = "git+https://github.com/clojurewasm/zwasm.git?ref=v2.5.0#278587f608a7564d8f2dfa53f567aab70f661296",
+            .hash = "zwasm-2.5.0-FT1Fv4KPkgCaKsDmsn05BTYsoEhH7RCUreSX8a3mwFha",
             .lazy = true,
         },
     },

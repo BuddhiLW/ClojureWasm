@@ -2,12 +2,14 @@
 
 > **SSOT for "what does the zwasm we embed offer, and what has cljw adopted".**
 > cljw embeds **zwasm v2** (F-001, unavoidable). The dep is a **tag pin** —
-> **v2.4.0** (see § Pin), pinned 2026-08-03 — the external-consumer release,
-> none of which reaches cljw; prior v2.3.0 (2026-07-17) was the
-> WASI-0.3.0-official inventory sweep, v2.2.1 (2026-07-16) the binary-size
-> campaign, v2.2.0 (`cf5d20d7`, 2026-07-09)
-> the AOT-full-fidelity release (ADR-0203). zwasm is itself under active
-> co-development (`~/Documents/MyProducts/zwasm`) and its embedding API is
+> **v2.5.0** (see § Pin), pinned 2026-08-12, and this is cljw's **final** pin:
+> the runtime is no longer maintained (README), so this ledger stops tracking
+> zwasm's growth here. Prior pins: v2.4.1 (2026-08-04) the two cljw-found
+> component/output fixes, v2.4.0 (2026-08-03) the external-consumer release,
+> v2.3.0 (2026-07-17) the WASI-0.3.0-official inventory sweep, v2.2.1
+> (2026-07-16) the binary-size campaign, v2.2.0 (`cf5d20d7`, 2026-07-09)
+> the AOT-full-fidelity release (ADR-0203). zwasm continues under active
+> co-development (`~/Documents/MyProducts/zwasm`) and its embedding API keeps
 > *growing* — notably a **JIT-backed
 > engine** (the cljw north star, ROADMAP §9.0 gap area II × III). cljw has **adopted
 > the JIT as its default** (`.auto`, D-488 discharged); the remaining north-star step
@@ -45,9 +47,23 @@ a cljw-side shim.
 
 ## Pin
 
-- **TAG PIN — v2.4.0, pinned 2026-08-03.** `build.zig.zon`
-  `.zwasm` = `.url = "git+…/zwasm.git#v2.4.0"` + `.hash = "zwasm-2.4.0-FT1Fv9E0…"`,
-  resolved from GitHub. The external-consumer release: `-Dcompiler-rt`
+- **TAG PIN — v2.5.0, pinned 2026-08-12. FINAL.** `build.zig.zon`
+  `.zwasm` = `.url = "git+…/zwasm.git?ref=v2.5.0#278587f6"` +
+  `.hash = "zwasm-2.5.0-FT1Fv4KP…"`. Brings full **WASI 0.3** coverage (all
+  six proposals, 45/45 on the official `wasm32-wasip3` corpus across
+  macOS/Linux/Windows) and the 81 declared-but-unexported C-API symbols in
+  `libzwasm.a` (zwasm #161). **Neither reaches cljw's embedding surface**:
+  cljw drives Engine/Module/Instance through Zig on `.auto` (JIT-default,
+  D-488), not the C API, and its WASI use is the component/`wasm/run` path
+  the previous pins already served. So this is a hygiene follow that lands
+  cljw's last release on zwasm's current stable rather than a behaviour
+  change; no cljw-side delta is claimed. Verified: `zig build -Dwasm` +
+  the five phase16 wasm e2e (ffi / component / component_multiexport /
+  engine_select / require_component) green on the new pin, then the full
+  gate. Prior: **v2.4.1** (2026-08-04), the two fixes found FROM cljw —
+  component multi-export validation (#157) and the captured-run output
+  bound (#158/#159). Prior: **v2.4.0** (2026-08-03), the external-consumer
+  release: `-Dcompiler-rt`
   bundles Zig's compiler-rt into `libzwasm.a` for non-Zig linkers
   (zwasm #153/#154), and a DCE fix keeps the WasmGC cohort out of
   sub-3.0 builds (zwasm #150). **Neither reaches cljw, structurally**:
@@ -235,3 +251,11 @@ have surfaced it.
   catchable error rather than hiding it. Discharges half of D-404's "BLOCKED on
   a typed component FIXTURE" — the fixture now exists and is checked in; what
   remains is the engine accepting it.
+
+- **2026-08-12** — **PIN BUMP v2.4.1 → v2.5.0 (`278587f6`), the FINAL pin.**
+  User-directed, to land cljw's last release on zwasm's current stable. zwasm
+  2.5.0 is full WASI 0.3 coverage + the `libzwasm.a` C-API export fix; neither
+  touches cljw's Zig embedding surface, so this is hygiene rather than a
+  behaviour follow (five phase16 wasm e2e + the full gate green on it). This
+  ledger's watch duty ends here: cljw is no longer maintained, while zwasm
+  continues under separate maintainership.
