@@ -31,6 +31,19 @@ zig build -Dwasm -Doptimize=ReleaseSafe   # build the Wasm-enabled `cljw` binary
 bash test/run_all.sh --serial-e2e         # the full gate; must be green before a change lands
 ```
 
+Two of the newer layers have their own entry points (ADR-0186):
+
+```sh
+bash test/golden/run.sh              # Layer 6: whole-program output snapshots
+bash test/golden/run.sh --update     # re-record them, then READ the diff
+zig build test -Dprop-seed=0xdecafbad -Dprop-iters=5000   # Layer 7: a deeper property sweep
+```
+
+If your change alters what a program prints — a value's printed form, an
+error message, an exit code — a golden snapshot will fail. That is the layer
+working. Regenerate it, read the diff, and include it in the PR; a snapshot
+regenerated without being read is worse than no snapshot.
+
 For a quick loop while iterating, `bash test/run_all.sh --smoke <e2e-step>`
 runs the unit tests, the dual-backend differential oracle, the linter, and the
 one end-to-end step you touched — tens of seconds instead of ~20 minutes. Run
