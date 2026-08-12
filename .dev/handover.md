@@ -18,18 +18,22 @@
   lookbehind / `\A\z\Z` / class algebra, multidim aget/aset, and the GC
   stops taxing long-running programs 2-4x — D-571/573/446/447 discharged).
   CHANGELOG is the release-history SSOT.
-- **First task on resume**: the wind-down sequence, NOT a feature unit. In
-  order: zwasm 2.5.0 (user-tagged) → bump the `.zwasm` pin + full gate →
-  cut the final cljw release tag → point cw-arcade / cw-playground /
-  cw-serverless-demo at that tag instead of a PATH `cljw` → post the
-  Discussions announcement (Announcements, pinned; the README already
-  carries the notice). The PERF CAMPAIGN (D-450, rush-hour 12.3 s, next
-  step was a re-profile) is **stopped, not paused** — its findings stay in
-  the row as a record. Release-process note that still applies: cutting a
-  GitHub release BY HAND before the tag workflow runs breaks the artifact
-  upload (zwasm #160 — use `view || create` then `upload --clobber`).
-- **Unreleased on main**: the Discussion #12/#13/#14 fixes + the two new
-  gates. CHANGELOG `[Unreleased]` is the SSOT for what they were.
+- **First task on resume**: the wind-down is DONE except the announcement —
+  post it in Discussions (Announcements, pinned) when the user decides to.
+  **v1.10.0 is released and is the final release** (2026-08-12): zwasm pin
+  v2.5.0, full gate 435/435, 3-OS CI green, artifacts verified by download +
+  checksum + running the macOS binary, homebrew tap bumped, cw-playground
+  and cw-serverless-demo redeployed on it (both live), cw-arcade re-verified
+  (32 tests / 153 assertions green; it pins nothing by design). The PERF
+  CAMPAIGN (D-450) is **stopped, not paused** — findings stay in the row as
+  a record.
+- **Unreleased on main**: nothing. CHANGELOG `[1.10.0]` is the SSOT.
+- **Release-process hazards** (both live in `.github/workflows/release.yml`):
+  cutting the GitHub release BY HAND before the tag workflow runs breaks the
+  artifact upload (zwasm #160), and the workflow's `gh release view || gh
+  release create` is TOCTOU across the two matrix legs — if they reach it
+  within the same instant, the loser fails on "already exists" under
+  `set -e`. v1.10.0 missed it by 47 s. Never hit, never fixed.
 - **Forbidden**: bare `zig build test` without `-Dwasm`; bare `zig build` for a
   probe (use ReleaseSafe). The FULL gate runs `--serial-e2e`, ALONE; never a
   concurrent build during a gate. `.claude/**` edits + cross-repo publishes may
