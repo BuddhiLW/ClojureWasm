@@ -21,8 +21,13 @@
   per-unit refresh duty) is RETIRED. CHANGELOG is the release-history SSOT.
 - **This repository is a MAINTAINED FORK.** Upstream `clojurewasm/ClojureWasm`
   (chaploud) stopped at v1.10.1, its final release, and invited forks under
-  EPL-2.0; `BuddhiLW/ClojureWasm` continues from that tree. `origin` = upstream
-  (read-only, wound down), `buddhilw` = the maintained remote. Issues and PRs
+  EPL-2.0; `BuddhiLW/ClojureWasm` continues from that tree. **`origin` is this
+  fork** and `main` tracks it, so the plain `git push` / `git pull` do the right
+  thing. The archived source is the `clojurewasm` remote, deliberately
+  hobbled: its push URL is `no_push`, and `remote.clojurewasm.tagOpt=--no-tags`
+  so a fetch can never deliver its `v1.10.1` over ours — that ref is what the
+  Homebrew tap resolves, and losing it would repoint every `brew install`.
+  Issues and PRs
   are OPEN here (so CONTRIBUTING's "branches to cherry-pick" no longer
   applies), the tap is `BuddhiLW/homebrew-tap` (`brew install
   buddhilw/tap/cljw`), and `1.x` continues from v1.10.1. PERF CAMPAIGN (D-450)
