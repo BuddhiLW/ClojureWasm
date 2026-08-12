@@ -19,6 +19,9 @@ Choose the layer before writing the test.
 | 3 | Differential      | `test/diff/cases.yaml`                          | TreeWalk and VM must produce equal Value for the same source. ADR-0005 / 0022.                             |
 | 4 | Bench (on demand) | `bench/compare_langs.sh` + `bench/run_bench.sh` | Perf measurement — run on demand, NOT a gate layer (the `quick.sh` auto-baseline was retired 2026-06-11). |
 | 5 | Conformance       | `test/clj/` (Phase 11+)                         | Adapted upstream Clojure JVM test.                                                                         |
+| 6 | Golden            | `test/golden/cases/*.clj` + `.expected`         | A whole program's stdout + stderr + exit code must not change. ADR-0186.                                   |
+| 7 | Property          | `src/testing/prop_*.zig`                        | A law over GENERATED input, checked against a model or an inverse. ADR-0186.                               |
+| 8 | Mutation          | `scripts/mutation/` (on demand, never gated)    | Not a test — a measurement of whether the other layers constrain a line. ADR-0186.                         |
 
 ## Why
 
@@ -43,9 +46,14 @@ Ask in order:
 4. Is it a performance measurement? → Layer 4 (run on demand via
    `bench/`, not added to the gate).
 5. Is it an upstream Clojure test port (Phase 11+)? → Layer 5.
+6. Is the thing to protect everything the program PRINTED, rather than one
+   asserted substring? → Layer 6 (`test/golden/`, `run.sh --update` to record).
+7. Does it state a law that should hold for EVERY input — an inverse, an
+   algebraic identity, agreement with a naive model? → Layer 7.
 
 If none fit, the test is in a future layer (defer or open the
-future layer's directory).
+future layer's directory). Layer 8 is not a place to put a test: it is the
+sweep that tells you which lines the layers above are not constraining.
 
 ### Naming
 
