@@ -124,13 +124,18 @@ jobs:
       # hosted mac runner). Every script is invoked as `bash foo.sh` or via
       # `#!/usr/bin/env bash`, so a brew bash 5 on PATH fixes all of them.
       # Install only what is absent (fast no-op when the image ships it).
-      - name: Install gate deps if missing (ripgrep; bash>=4 on macOS)
+      # yq is listed even though both hosted images ship it: `check_compat_members`
+      # exits 1 without it, so relying on the image means the gate is green here
+      # for a reason nobody wrote down and red on a developer machine.
+      - name: Install gate deps if missing (ripgrep, yq; bash>=4 on macOS)
         shell: bash
         run: |
           if [ "$RUNNER_OS" = "Linux" ]; then
             command -v rg >/dev/null 2>&1 || { sudo apt-get update -qq && sudo apt-get install -y -qq ripgrep; }
+            command -v yq >/dev/null 2>&1 || { sudo apt-get update -qq && sudo apt-get install -y -qq yq; }
           else
             command -v rg >/dev/null 2>&1 || brew install ripgrep
+            command -v yq >/dev/null 2>&1 || brew install yq
             if [ "$(bash -c 'echo "${BASH_VERSINFO[0]}"')" -lt 4 ]; then
               brew install bash
             fi

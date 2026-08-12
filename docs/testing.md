@@ -27,6 +27,11 @@ bash test/cljw-test --only mutation -- --targets src/runtime/collection/vector.z
 bash test/cljw-test --layer 7 -- -Dprop-seed=0xdecafbad -Dprop-iters=5000
 ```
 
+You need Zig 0.16.0 plus three things the gate shells out to: **ripgrep**,
+**yq** (mikefarah v4 — `check_compat_members` exits 1 without it, it does not
+skip), and **bash 4 or newer** (macOS ships 3.2). The hosted CI images happen to
+carry yq, which is why its absence only ever showed up locally.
+
 ## One entry point, and how that is enforced
 
 `test/cljw-test` is the entry point. `test/units.list` is the inventory behind
