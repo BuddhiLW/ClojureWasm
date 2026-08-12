@@ -19,29 +19,40 @@
   redirect, and the content `.hash` was unchanged by the move. Co-development
   (the `dogfooding_handover` mailbox, `.dev/zwasm_capabilities.md`'s per-unit
   refresh duty) is RETIRED — see F-001's 2026-08-12 entry. Latest release:
-  **v1.10.0** (2026-08-12) — **the FINAL release**. CHANGELOG is the
+  **v1.10.1** (2026-08-12) — **the FINAL release**. CHANGELOG is the
   release-history SSOT.
-- **First task on resume**: nothing is pending. The wind-down is DONE:
-  README declares the project unmaintained, v1.10.0 is released (artifacts
-  verified by download + checksum + running the macOS binary), the homebrew
-  tap is bumped, cw-playground and cw-serverless-demo are redeployed on it
-  and live, cw-arcade is re-verified (32 tests / 153 assertions; it pins
-  nothing by design), and the announcement is Discussion #15 (pin it in the
-  web UI — the API has no pinDiscussion). The PERF
+- **First task on resume**: **one thing is outstanding and it is the user's to
+  do** (see § Docs ahead of reality). Otherwise the wind-down is DONE: README
+  declares the project unmaintained, v1.10.1 is released (4 assets, verified by
+  download + checksum + running the macOS binary incl. the Wasm FFI → 42), the
+  homebrew tap is bumped (`brew fetch` resolves 1.10.1 after `brew update`), and
+  the announcement is Discussion #15, edited to v1.10.1 with a comment recording
+  what changed (pin it in the web UI — the API has no pinDiscussion). The PERF
   CAMPAIGN (D-450) is **stopped, not paused** — findings stay in the row as
   a record.
-- **Unreleased on main**: nothing. CHANGELOG `[1.10.0]` is the SSOT.
-- **Release-process hazards** (both live in `.github/workflows/release.yml`):
-  cutting the GitHub release BY HAND before the tag workflow runs breaks the
-  artifact upload (zwasm #160), and the workflow's `gh release view || gh
-  release create` is TOCTOU across the two matrix legs — if they reach it
-  within the same instant, the loser fails on "already exists" under
-  `set -e`. v1.10.0 missed it by 47 s. Never hit, never fixed.
-- **The v1.10.0 TAG still names `clojurewasm/zwasm`** (fixed after it; it is the
-  final release), and both demos' Dockerfiles build cljw from that tag — so
-  their future rebuilds ride GitHub's transfer redirect. Verified working
-  2026-08-12. It holds only while nothing claims the vacated name: **never
-  create a repo called `zwasm` under the `clojurewasm` org.**
+- **Docs ahead of reality (2026-08-12)**: README, `docs/works/demos.md` and the
+  v1.10.1 announcement all say the two hosted demos are shut down and the three
+  demo repos archived. **As of the v1.10.1 tag, neither had happened** — both
+  Fly apps still answered 200. The user stated the intent (archive
+  cw-playground / cw-serverless-demo / cw-arcade, stop Fly billing) and that the
+  demos may stop working; the actions themselves were not authorised to the
+  loop, since repo-archive is outward-facing and `fly apps destroy` is
+  irreversible. **The docs become true the moment those are done — until then
+  they are a claim the project has not honoured.** Do not "fix" the docs back;
+  finish the shutdown.
+- **Unreleased on main**: nothing. CHANGELOG `[1.10.1]` is the SSOT.
+- **Release-process hazard** (`.github/workflows/release.yml`): cutting the
+  GitHub release BY HAND before the tag workflow runs breaks the artifact
+  upload (zwasm #160). The `gh release view || gh release create` TOCTOU across
+  the matrix legs is **FIXED** as of v1.10.1 — a failed create is accepted iff
+  the release exists afterwards; all four paths were verified against real exit
+  codes. Both workflows also clear the Zig unpack target before `tar -x`, so a
+  re-run cannot die on "Cannot open: File exists".
+- **The v1.10.0 tag names `clojurewasm/zwasm`; v1.10.1 does not.** Anything
+  building from the older tag (both demo Dockerfiles pin `CLJW_REF=v1.10.0`)
+  rides GitHub's transfer redirect — verified working 2026-08-12. It holds only
+  while nothing claims the vacated name: **never create a repo called `zwasm`
+  under the `clojurewasm` org.**
 - **Forbidden**: bare `zig build test` without `-Dwasm`; bare `zig build` for a
   probe (use ReleaseSafe). The FULL gate runs `--serial-e2e`, ALONE; never a
   concurrent build during a gate. `.claude/**` edits + cross-repo publishes may
@@ -73,25 +84,14 @@
   6-entry-point differential oracle). D-374's discharge was a listed-not-probed
   claim; corrected in place. Endgame row = D-576.
 
-## Standing units (tracked in .dev/debt.yaml)
+## What was left unfinished (`.dev/debt.yaml` is the SSOT)
 
-- **D-565** — external-contributor reproducibility sweep (Discussion #11).
-  Residual: (7) survey-workflow setup notes, (8) handover pointing at
-  gitignored `private/notes/` recipes. The row carries the rest.
-- **Perf campaign (§9.2.S) — PAUSED** (D-520 / D-386 / D-005/006). **D-513**
-  item (1) `clojure.core.reducers` is the only remaining piece (repl + var :doc
-  landed); it is IN PROGRESS — its "take up on a real consumer" deferral is the
-  pattern the 2026-06-25 drain-order decision forbids.
-- **D-548** — (a) DISCHARGED (ADR-0176); residual = (b) pmap wall-clock on the
-  3-vCPU runner (timing envelope, still gated).
-
-## North star (ACTIVE, distal)
-
-cljw's differentiator = **Wasm interop (gap II) × VM-perf fusion→JIT (gap
-III)**. zwasm JIT (ADR-0200) is the cljw default; remaining =
-components-through-the-JIT — now wholly upstream's call (D-500, and zwasm is a
-separate project since 2026-08-12). Distal — needs a user nod.
-NOTE ADR-0177: "edge execution" is an AIM owned by D-552, not a capability.
+The ledger is the honest list for a fork; nothing in it is scheduled. The
+notable open ends: the perf campaign (D-520 / D-386 / D-513) stopped with its
+baseline recorded; D-565 residuals (7)(8); D-548(b) pmap timing envelope; and
+the north star — Wasm interop × VM-perf fusion→JIT — reached JIT-by-default but
+not components-through-the-JIT, which was always upstream's call (D-500) and is
+now another project's entirely.
 
 ## Reading order (resume)
 
