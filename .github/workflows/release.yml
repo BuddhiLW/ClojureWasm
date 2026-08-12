@@ -143,14 +143,26 @@ jobs:
           import os, pathlib, re
           p = pathlib.Path("Formula/cljw.rb")
           s = p.read_text()
+          tag = os.environ["TAG_NAME"]
+          version = tag.lstrip("v")
           # The formula carries no `version` line: brew scans it from the URL,
           # and `brew audit --strict` rejects stating it twice.
-          s = re.sub(r'/download/v[^/]+/', '/download/%s/' % os.environ["TAG_NAME"], s)
+          s = re.sub(r'/download/v[^/]+/', '/download/%s/' % tag, s)
           # Each sha256 sits under its own url line, so replace positionally.
           for host, sha in (("macos-aarch64", os.environ["MAC_SHA256"]),
                             ("linux-x86_64",  os.environ["LINUX_SHA256"])):
               s = re.sub(r'(cljw-%s\.tar\.gz"\n      sha256 ")[0-9a-f]*(")' % host,
                          lambda m: m.group(1) + sha + m.group(2), s)
+          # `brew test` asserts the installed binary reports this release.
+          s, n = re.subn(r'(assert_match ")[^"]*(", shell_output\("#\{bin\}/cljw --version"\))',
+                         lambda m: m.group(1) + version + m.group(2), s)
+          if n != 1:
+              raise SystemExit("expected 1 version assertion in the formula, rewrote %d" % n)
+          # No line may name a version other than the one being released.
+          stale = [l.strip() for l in s.splitlines()
+                   if re.search(r'\b\d+\.\d+\.\d+\b', l) and version not in l]
+          if stale:
+              raise SystemExit("formula still names another version: %r" % stale)
           p.write_text(s)
           PY
           grep -q "REPLACE_" Formula/cljw.rb && { echo "formula still carries a placeholder"; exit 1; }
