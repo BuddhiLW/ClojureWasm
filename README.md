@@ -152,6 +152,8 @@ from a Clojure one.
 
 ## Documentation
 
+[`docs/`](./docs/README.md) is the index — start there.
+
 - [`docs/architecture.md`](./docs/architecture.md) — a short orientation to how the
   runtime is put together.
 - [`docs/clojure_vs_clojurewasm.md`](./docs/clojure_vs_clojurewasm.md) — what
