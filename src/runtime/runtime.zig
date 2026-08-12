@@ -82,6 +82,14 @@ pub const EmbeddedComponent = struct {
     bytes: []const u8,
 };
 
+/// One `(extend-protocol A B …)` where the TARGET `B` is a protocol
+/// (ADR-0187). `target_proto` is B's fqcn; `impls` are A's methods to use for
+/// any type that satisfies B.
+pub const ProtocolTargetExt = struct {
+    target_proto: []const u8,
+    impls: []const TypeDescriptor.MethodEntry,
+};
+
 /// Process-wide execution context.
 ///
 /// Carries `io` / `gpa` / `keywords` / `vtable` / `heap_objects`,
@@ -425,6 +433,15 @@ pub const Runtime = struct {
     /// lazily built on `gc.infra` by `classDescriptor`, freed in `deinit`.
     class_descriptors: std.StringHashMapUnmanaged(*TypeDescriptor) = .empty,
 
+    /// `(extend-protocol A some.ns.B …)` where B is a PROTOCOL, not a type
+    /// (ADR-0187). Keyed by the PROVIDING protocol's fqcn; each entry names a
+    /// target protocol and the impls to use for any type satisfying it. There is
+    /// no descriptor to write these onto — a protocol's implementor set is open
+    /// and grows at runtime — so `dispatch` consults this on a per-type miss.
+    /// Keys and `MethodEntry.protocol_name` borrow the protocols' interned
+    /// fqcns; `method_name` and the slices are owned here.
+    protocol_target_exts: std.StringHashMapUnmanaged([]ProtocolTargetExt) = .empty,
+
     // java.util.Date's descriptor is the canonical rt.types entry
     // (ADR-0174 merge) — no per-Runtime lazy field.
 
@@ -731,6 +748,21 @@ pub const Runtime = struct {
                 self.gc.infra.destroy(td);
             }
             self.class_descriptors.deinit(self.gc.infra);
+        }
+
+        // ADR-0187: each entry owns its `impls` slice and every `method_name`
+        // in it. The map key and `protocol_name` borrow interned protocol
+        // fqcns, so neither is freed here.
+        {
+            var it = self.protocol_target_exts.valueIterator();
+            while (it.next()) |exts| {
+                for (exts.*) |ext| {
+                    for (ext.impls) |entry| self.gc.infra.free(entry.method_name);
+                    if (ext.impls.len > 0) self.gc.infra.free(ext.impls);
+                }
+                if (exts.*.len > 0) self.gc.infra.free(exts.*);
+            }
+            self.protocol_target_exts.deinit(self.gc.infra);
         }
 
         for (self.heap_objects.items) |entry| {

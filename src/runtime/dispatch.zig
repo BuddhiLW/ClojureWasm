@@ -37,6 +37,7 @@ const Runtime = @import("runtime.zig").Runtime;
 const Env = @import("env.zig").Env;
 const SourceLocation = @import("error/info.zig").SourceLocation;
 const td_mod = @import("type_descriptor.zig");
+const protocol_mod = @import("protocol.zig");
 const method_table = @import("dispatch/method_table.zig");
 const error_catalog = @import("error/catalog.zig");
 
@@ -129,6 +130,23 @@ pub fn dispatch(
     loc: SourceLocation,
 ) anyerror!Value {
     if (try dispatchOrNull(rt, env, cs, receiver, protocol_name, method_name, args, loc)) |v| return v;
+    // ADR-0187: `(extend-protocol P some.ns.Q …)` where Q is a PROTOCOL means
+    // "every type satisfying Q". Consulted BEFORE the Object default because on
+    // the JVM an interface impl is a real per-type impl and outranks an Object
+    // fallback. Membership is answered from the receiver's descriptor
+    // (`protocol_impls` is the SSOT, D-190), so no receiver value is needed.
+    if (rt.protocol_target_exts.get(protocol_name)) |exts| {
+        const rtd = try resolveDescriptor(rt, receiver);
+        for (exts) |ext| {
+            if (!protocol_mod.satisfiesName(ext.target_proto, rtd)) continue;
+            for (ext.impls) |me| {
+                if (!std.mem.eql(u8, me.method_name, method_name)) continue;
+                if (me.method_val.tag() == .nil) break;
+                const vt = rt.vtable orelse return error.NoVTable;
+                return try vt.callFn(rt, env, me.method_val, args, loc);
+            }
+        }
+    }
     // clj: `(extend-protocol P Object …)` is a UNIVERSAL default — after a
     // per-type miss, consult the Object descriptor (where the Object extension
     // registered). nil is excluded: clj nil is not an Object, so a type extends

@@ -17,7 +17,8 @@
 const std = @import("std");
 const value = @import("../../runtime/value/value.zig");
 const Value = value.Value;
-const Runtime = @import("../../runtime/runtime.zig").Runtime;
+const runtime_mod = @import("../../runtime/runtime.zig");
+const Runtime = runtime_mod.Runtime;
 const env_mod = @import("../../runtime/env.zig");
 const Env = env_mod.Env;
 const error_mod = @import("../../runtime/error/info.zig");
@@ -178,7 +179,7 @@ pub fn extendType(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocat
     // defaults). nil resolves below to the per-Tag nil descriptor, the same
     // one dispatch resolves a nil receiver to (dispatch.zig resolveDescriptor),
     // so the registered impls dispatch on `(m nil)`.
-    if (args[0].tag() != .type_descriptor and args[0].tag() != .nil) {
+    if (args[0].tag() != .type_descriptor and args[0].tag() != .nil and args[0].tag() != .protocol) {
         return error_catalog.raise(.type_arg_invalid, loc, .{
             .fn_name = "__extend-type!",
             .expected = "type_descriptor",
@@ -213,10 +214,15 @@ pub fn extendType(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocat
             if (host_class_mod.isKnownOpaqueClass(fqcn)) return args[0];
         }
     }
-    const td: *td_mod.TypeDescriptor = if (args[0].tag() == .nil)
-        try rt.nativeDescriptor(.nil)
-    else
-        @constCast(td_mod.asTypeDescriptorRef(args[0]));
+    // ADR-0187: a PROTOCOL target has no descriptor to write onto — its
+    // implementor set is open and grows at runtime — so the impls are recorded
+    // on the Runtime and consulted by `dispatch` on a per-type miss. Resolved
+    // after the impls are built, below.
+    const td: ?*td_mod.TypeDescriptor = switch (args[0].tag()) {
+        .nil => try rt.nativeDescriptor(.nil),
+        .protocol => null,
+        else => @constCast(td_mod.asTypeDescriptorRef(args[0])),
+    };
     const proto_name: []const u8 = switch (args[1].tag()) {
         .protocol => protocol_mod.asProtocol(args[1]).fqcn(),
         .symbol => host_interface.canonicalName(symbol_mod.asSymbol(args[1]).name) orelse {
@@ -271,7 +277,15 @@ pub fn extendType(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocat
             .method_val = fn_val,
         };
     }
-    try protocol_mod.extendTypeWithImpls(rt, td, new_impls);
+    // ADR-0187: protocol target — keep `new_impls` (the side table owns it)
+    // and record it against the PROVIDING protocol. Bump the generation so
+    // live CallSite caches re-resolve and can reach the new fallback.
+    if (td == null) {
+        try recordProtocolTargetExt(rt, proto_name, protocol_mod.asProtocol(args[0]).fqcn(), new_impls);
+        rt.protocol_generation +%= 1;
+        return args[0];
+    }
+    try protocol_mod.extendTypeWithImpls(rt, td.?, new_impls);
     // extendTypeWithImpls @memcpy's into a fresh combined slice on
     // `rt.gc.infra` and swaps it onto `td.method_table`; the input
     // `new_impls` slice is no longer referenced, so free it back.
@@ -280,8 +294,28 @@ pub fn extendType(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocat
     // MARKER protocol (`Sequential`, no method_table entry) is still
     // detectable, and `protocol_impls` stays an honest "implements P" set
     // (D-190 / ADR-0068).
-    try protocol_mod.addProtocolImpl(rt, td, proto_name);
+    try protocol_mod.addProtocolImpl(rt, td.?, proto_name);
     return args[0];
+}
+
+/// Append `{target_proto, impls}` to `rt.protocol_target_exts[provider]`
+/// (ADR-0187). Takes ownership of `impls`. A repeated (provider, target) pair
+/// appends rather than replaces, so the newest extension is found first.
+fn recordProtocolTargetExt(
+    rt: *Runtime,
+    provider: []const u8,
+    target_proto: []const u8,
+    impls: []const td_mod.TypeDescriptor.MethodEntry,
+) !void {
+    const gpa = rt.gc.infra;
+    const gop = try rt.protocol_target_exts.getOrPut(gpa, provider);
+    const old: []runtime_mod.ProtocolTargetExt = if (gop.found_existing) gop.value_ptr.* else &.{};
+    const grown = try gpa.alloc(runtime_mod.ProtocolTargetExt, old.len + 1);
+    // Newest first: dispatch takes the first satisfying entry.
+    grown[0] = .{ .target_proto = target_proto, .impls = impls };
+    @memcpy(grown[1..], old);
+    if (old.len > 0) gpa.free(old);
+    gop.value_ptr.* = grown;
 }
 
 /// `(rt/__native-type tag-keyword)` — return the `.type_descriptor`
