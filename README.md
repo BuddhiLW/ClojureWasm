@@ -13,18 +13,21 @@
   <a href="https://ziglang.org/"><img src="https://img.shields.io/badge/Zig-0.16.0-f7a41d?logo=zig&logoColor=white" alt="Zig 0.16.0" /></a>
   <a href="https://clojure.org/"><img src="https://img.shields.io/badge/Clojure-runtime-5881d8?logo=clojure&logoColor=white" alt="Clojure runtime" /></a>
   <a href="./LICENSE"><img src="https://img.shields.io/badge/License-EPL_2.0-blue.svg" alt="License: EPL 2.0" /></a>
-  <a href="https://github.com/sponsors/chaploud"><img src="https://img.shields.io/github/sponsors/chaploud?logo=githubsponsors&logoColor=white&color=ea4aaa" alt="GitHub Sponsors" /></a>
 </p>
 
-> [!NOTE]
-> ClojureWasm is stable and released regularly; the current line is **1.x**
-> (see [Releases](https://github.com/clojurewasm/ClojureWasm/releases)). It is
-> built by a very small team, so replies can take a while — but
-> [Issues](https://github.com/clojurewasm/ClojureWasm/issues) and Pull Requests
-> are open. **The single most useful thing you can report is Clojure code that
-> behaves differently here than on the JVM**; there is an issue template for
-> exactly that. Questions and general discussion are welcome in
-> [Discussions](https://github.com/clojurewasm/ClojureWasm/discussions).
+> [!IMPORTANT]
+> **ClojureWasm is no longer maintained.** A from-scratch Clojure runtime
+> turned out to be more than one person can sustain, so I am stopping here
+> while it still works. The code stays up under EPL-2.0 — fork it and build on
+> it, no permission needed.
+> [Discussions](https://github.com/clojurewasm/ClojureWasm/discussions) remain
+> open, but may go unanswered.
+>
+> I believe ClojureWasm demonstrated what a from-scratch Clojure can be: a
+> single small static binary, with a WebAssembly FFI. The hardest parts — and
+> why this needs more than a solo maintainer — were keeping up JVM-Clojure
+> compatibility (Java interop above all) and performance. Thanks to everyone
+> who used it, reported differences, and contributed fixes.
 
 ## What it is
 
@@ -159,4 +162,4 @@ Eclipse Public License 2.0 — see [LICENSE](./LICENSE) and [NOTICE](./legal/NOT
 
 ---
 
-Developed in spare time alongside a day job. Sponsorship via [GitHub Sponsors](https://github.com/sponsors/chaploud) is welcome and helps keep work going.
+Developed in spare time alongside a day job.
