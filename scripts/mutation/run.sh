@@ -20,6 +20,11 @@
 #   bash scripts/mutation/run.sh --targets src/runtime/collection/set.zig
 #   bash scripts/mutation/run.sh --targets a.zig,b.zig --budget 20 --seed 7
 #   bash scripts/mutation/run.sh --targets-from .dev/mutation_targets.txt --rev v1.10.1
+#   bash scripts/mutation/run.sh --targets v.zig --ids 1a2b3c,4d5e6f   # re-run named mutants
+#
+# `--ids` is the loop that makes a survivor actionable: a survivor names a line,
+# you write the test that should have constrained it, then you re-run THAT
+# mutant to see it die. Without it you are re-sampling and hoping.
 #
 # Output: a JSONL log plus a markdown summary under .dev/mutation/ (gitignored
 # by default — the REPORT is the artifact worth committing, not the log).
@@ -31,6 +36,7 @@ TARGETS=""
 TARGETS_FILE=""
 BUDGET=15
 SEED=0
+IDS=""
 REV="HEAD"
 OUT_DIR="$REPO_ROOT/.dev/mutation"
 BUILD_ARGS="-Dwasm -Doptimize=Debug"
@@ -44,6 +50,7 @@ while [ $# -gt 0 ]; do
         --targets) TARGETS="$2"; shift ;;
         --targets-from) TARGETS_FILE="$2"; shift ;;
         --budget) BUDGET="$2"; shift ;;
+        --ids) IDS="$2"; shift ;;
         --seed) SEED="$2"; shift ;;
         --rev) REV="$2"; shift ;;
         --out) OUT_DIR="$2"; shift ;;
@@ -110,10 +117,20 @@ done
 
 TOTAL=$(wc -l < "$ALL_MUTANTS" | tr -d ' ')
 SAMPLE="$OUT_DIR/sample-$STAMP-seed$SEED.jsonl"
-python3 - "$ALL_MUTANTS" "$SAMPLE" "$BUDGET" "$SEED" <<'PY'
+python3 - "$ALL_MUTANTS" "$SAMPLE" "$BUDGET" "$SEED" "$IDS" <<'PY'
 import json, random, sys
 src, dst, budget, seed = sys.argv[1], sys.argv[2], int(sys.argv[3]), int(sys.argv[4])
+ids = [i for i in sys.argv[5].split(",") if i] if len(sys.argv) > 5 else []
 rows = [json.loads(l) for l in open(src) if l.strip()]
+if ids:
+    by_id = {r["id"]: r for r in rows}
+    missing = [i for i in ids if i not in by_id]
+    if missing:
+        # A named mutant that no longer exists means the line moved or changed.
+        # Silently running the rest would report a kill that never happened.
+        raise SystemExit("mutants no longer present (did the file change?): " + ", ".join(missing))
+    rows = [by_id[i] for i in ids]
+    budget = 0
 if budget and len(rows) > budget:
     # Sample across the whole candidate set, not the head of it — a truncated
     # list only ever measures the top of each file.
