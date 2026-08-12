@@ -23,12 +23,11 @@ fn config() prop.Config {
 /// Values a uniform bit pattern would essentially never produce, drawn often
 /// enough that every printer branch is reached.
 const specials = [_]f64{
-    0.0,          -0.0,          1.0,      -1.0,
-    0.5,          0.1,           1.0e7,    9.999999e6,
-    1.0e-3,       9.99e-4,       1.0e20,   1.0e-20,
-    std.math.inf(f64),           -std.math.inf(f64),
-    std.math.nan(f64),           std.math.floatMin(f64),
-    std.math.floatMax(f64),      std.math.floatTrueMin(f64),
+    0.0,                    -0.0,                       1.0,               -1.0,
+    0.5,                    0.1,                        1.0e7,             9.999999e6,
+    1.0e-3,                 9.99e-4,                    1.0e20,            1.0e-20,
+    std.math.inf(f64),      -std.math.inf(f64),         std.math.nan(f64), std.math.floatMin(f64),
+    std.math.floatMax(f64), std.math.floatTrueMin(f64),
 };
 
 /// A slice of f64 spanning the whole space: one third named boundaries, the
