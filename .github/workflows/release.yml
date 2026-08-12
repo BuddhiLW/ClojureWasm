@@ -78,3 +78,71 @@ jobs:
           gh release view "$TAG_NAME" >/dev/null 2>&1 || \
             gh release create "$TAG_NAME" --title "$TAG_NAME" --generate-notes
           gh release upload "$TAG_NAME" dist/* --clobber
+
+  # Point `brew install buddhilw/tap/cljw` at the release this run just built.
+  # Runs after BOTH matrix legs so the formula never names an asset that does
+  # not exist yet; the checksums come from the .sha256 sidecars the build wrote,
+  # not from a re-hash here, so the formula pins exactly what was uploaded.
+  #
+  # Auth is a deploy key on BuddhiLW/homebrew-tap (secret TAP_DEPLOY_KEY), not a
+  # PAT: write access reaches that one repository and nothing else in the account.
+  tap:
+    name: bump homebrew tap
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    steps:
+      - name: Read the release checksums
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG_NAME: ${{ github.ref_name }}
+          GH_REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p sums && cd sums
+          gh release download "$TAG_NAME" --pattern '*.sha256' --clobber
+          # `shasum -a 256 FILE` writes "<sum>  <name>"; keep the sum alone.
+          mac=$(awk '{print $1}' cljw-macos-aarch64.tar.gz.sha256)
+          lin=$(awk '{print $1}' cljw-linux-x86_64.tar.gz.sha256)
+          test -n "$mac" && test -n "$lin"
+          {
+            echo "MAC_SHA256=$mac"
+            echo "LINUX_SHA256=$lin"
+          } >> "$GITHUB_ENV"
+
+      - name: Check out the tap
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          repository: BuddhiLW/homebrew-tap
+          ssh-key: ${{ secrets.TAP_DEPLOY_KEY }}
+          path: tap
+
+      - name: Write and push the formula
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+        shell: bash
+        working-directory: tap
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os, pathlib, re
+          p = pathlib.Path("Formula/cljw.rb")
+          s = p.read_text()
+          # The formula carries no `version` line: brew scans it from the URL,
+          # and `brew audit --strict` rejects stating it twice.
+          s = re.sub(r'/download/v[^/]+/', '/download/%s/' % os.environ["TAG_NAME"], s)
+          # Each sha256 sits under its own url line, so replace positionally.
+          for host, sha in (("macos-aarch64", os.environ["MAC_SHA256"]),
+                            ("linux-x86_64",  os.environ["LINUX_SHA256"])):
+              s = re.sub(r'(cljw-%s\.tar\.gz"\n      sha256 ")[0-9a-f]*(")' % host,
+                         lambda m: m.group(1) + sha + m.group(2), s)
+          p.write_text(s)
+          PY
+          grep -q "REPLACE_" Formula/cljw.rb && { echo "formula still carries a placeholder"; exit 1; }
+          git diff --quiet && { echo "formula already current for $TAG_NAME"; exit 0; }
+          git config user.name "clojurewasm-release"
+          git config user.email "clojurewasm-release@users.noreply.github.com"
+          git commit -am "cljw $TAG_NAME"
+          git push
