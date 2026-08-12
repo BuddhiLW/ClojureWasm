@@ -36,9 +36,9 @@
   (`test/golden/`, gated), properties (`src/testing/prop_*.zig`, in
   `zig build test`, fixed seed — sweep with `-Dprop-seed`/`-Dprop-iters`),
   mutation (`scripts/mutation/run.sh`, on demand, worktree-isolated, NEVER
-  gated). First task: **D-577** — run the first sweep and turn its survivors
-  into tests. No sweep has run yet, so this suite's mutation score is
-  unmeasured.
+  gated). First task: **D-577** — only vector.zig has been swept, so the score
+  is unmeasured. Rule out equivalence before writing a test for a survivor:
+  `.dev/mutation_equivalent.jsonl` registers the unkillable ones, with proofs.
 - **HAZARD — workflows do not fire on push/tag here.** GitHub's fork default:
   every run so far came from `gh workflow run <wf> --ref <ref>`. Until the
   Actions tab's enable button is pressed once, "no run appeared" does NOT mean
