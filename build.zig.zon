@@ -1,6 +1,6 @@
 .{
     .name = .cljw,
-    .version = "1.10.1",
+    .version = "1.10.2",
     .fingerprint = 0x1869d207073beffa,
     .minimum_zig_version = "0.16.0",
     .dependencies = .{
@@ -30,8 +30,15 @@
         // (`-Dcompiler-rt`, sub-3.0 DCE); v2.3.0 (2026-07-17) WASI-0.3.0 sweep;
         // v2.2.1 (2026-07-16) binary-size campaign; v2.2.0 (2026-07-09) AOT
         // full fidelity.
+        //
+        // zwasm moved out of the `clojurewasm` org to its own `zwasm` org on
+        // 2026-08-12, where it continues under separate maintainership. The URL
+        // below is the canonical one; do NOT rely on GitHub's transfer redirect
+        // from `clojurewasm/zwasm`, which stops being an alias the moment
+        // anything else claims that name. The `.hash` is content-addressed, so
+        // the move did not change it (verified by `zig fetch` on both URLs).
         .zwasm = .{
-            .url = "git+https://github.com/clojurewasm/zwasm.git?ref=v2.5.0#278587f608a7564d8f2dfa53f567aab70f661296",
+            .url = "git+https://github.com/zwasm/zwasm.git?ref=v2.5.0#278587f608a7564d8f2dfa53f567aab70f661296",
             .hash = "zwasm-2.5.0-FT1Fv4KPkgCaKsDmsn05BTYsoEhH7RCUreSX8a3mwFha",
             .lazy = true,
         },

@@ -16,7 +16,7 @@ language lineage separately.
   Apache-2.0. Pinned to the stable tag `v2.0.0` (commit `0853f3c1`). Resolved
   only for the Wasm-enabled build (`-Dwasm`); the
   default build does not fetch it.
-  Source: <https://github.com/clojurewasm/zwasm>.
+  Source: <https://github.com/zwasm/zwasm>.
 - **zlinter** — a development-time Zig linter used by `zig build lint`. MIT.
   Pinned to commit `9b4d67b9725e7137ac876cc628fe5dd2ca5a2681`
   (`ref=0.16.x`). Not part of the runtime; it participates in the gate only.

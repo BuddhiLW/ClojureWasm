@@ -5,7 +5,7 @@ All notable changes to ClojureWasm are documented here. The format follows
 [SemVer](https://semver.org/). SemVer compatibility guarantees start at the
 first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 
-## [Unreleased]
+## [1.10.2] - 2026-08-12
 
 The fork's first runtime changes. All of them were found by driving
 [malli](https://github.com/metosin/malli) through the
@@ -82,6 +82,21 @@ not malli accommodations (F-013).
   bash builtins instead of `env`, which is hijackable by a `~/.local/bin/env`
   on PATH.
 
+### Changed
+
+- **The embedded Wasm engine is fetched from `zwasm/zwasm`.** zwasm moved out of
+  the `clojurewasm` org into its own, where it continues under separate
+  maintainership. `build.zig.zon` now names that location directly instead of
+  relying on GitHub's transfer redirect, which is only an alias until something
+  else claims the vacated name. The pin itself is unchanged — same tag (v2.5.0),
+  same commit, same content hash. Merged from upstream, which made the same
+  change in its own final release.
+- **Release and CI workflows survive a re-run.** Both clear the Zig unpack
+  target before `tar -x`, so a re-run cannot die on "Cannot open: File exists",
+  and `release.yml`'s `gh release view || gh release create` race across the
+  matrix legs is fixed: a failed create is accepted iff the release exists
+  afterwards. Merged from upstream.
+
 ## [1.10.1] - 2026-08-12
 
 **The first release of the maintained fork.** It carries no runtime change —
@@ -105,6 +120,17 @@ one makes the guess cheap to check.
   (`brew install buddhilw/tap/cljw`), and README / CONTRIBUTING / SECURITY /
   issue templates point at this repository. The `1.x` line continues from
   v1.10.0.
+
+> **On the version number.** Upstream `clojurewasm/ClojureWasm` also tagged a
+> `v1.10.1`, on the same day, from its own tree — its last release, carrying the
+> zwasm repoint and its wind-down documentation. That tag names commit
+> `8fa46d97`; this project's `v1.10.1` names `50b85214`, and it is the one
+> `brew install buddhilw/tap/cljw` resolves. Since upstream's history is now
+> merged here, both commits are reachable from this repository and the *name*
+> `v1.10.1` no longer identifies one of them. Nothing after v1.10.1 collides:
+> upstream cut no further releases, so this project's `1.x` continues
+> unambiguously from v1.10.2.
+
 
 ## [1.10.0] - 2026-08-12
 

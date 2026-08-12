@@ -13,42 +13,60 @@
   tier comes back. Commit **and** push (atomic
   Step 6). `build.zig.zon` `.zwasm` = tag pin **v2.5.0**
   (`278587f6`, 2026-08-12, FINAL — full WASI 0.3 + the `libzwasm.a` C-API
-  export fix; neither reaches cljw's Zig embedding surface. Tagging zwasm is
-  user-only, its ADR-0156). Latest release:
-  **v1.10.0** (2026-08-12) — upstream's final release, and this fork's
-  starting point. CHANGELOG is the release-history SSOT.
-- **This repository is a MAINTAINED FORK.** Upstream
-  `clojurewasm/ClojureWasm` (chaploud) stopped at v1.10.0 and invited forks
-  under EPL-2.0; `BuddhiLW/ClojureWasm` continues from that tree.
-  `origin` = upstream (read-only, archived-in-practice), `buddhilw` = the
-  maintained remote. Changed with the handover: Issues and PRs are OPEN here
-  (so CONTRIBUTING's "branches to cherry-pick" no longer applies), the tap is
-  `BuddhiLW/homebrew-tap` (`brew install buddhilw/tap/cljw`), and `1.x`
-  continues from v1.10.0. PERF CAMPAIGN (D-450) stays **stopped** — findings
-  remain in the row as a record.
-- **Release path: PROVEN on v1.10.1** (2026-08-12) — artifacts built here,
-  both checksums matched, binary run, `brew install buddhilw/tap/cljw` +
-  `brew test` + `brew audit --strict` green. The tap bump is a `tap` job in
-  `release.yml` (deploy key, secret `TAP_DEPLOY_KEY`); v1.10.1's formula was
-  hand-written, so **v1.10.2 is the first release exercising the automated
-  bump** — watch that job.
-- **Test layers 6/7/8 are OPEN** (ADR-0186): golden snapshots
-  (`test/golden/`, gated), properties (`src/testing/prop_*.zig`, in
-  `zig build test`, fixed seed — sweep with `-Dprop-seed`/`-Dprop-iters`),
-  mutation (`scripts/mutation/run.sh`, on demand, worktree-isolated, NEVER
-  gated). First task: **D-577** — only vector.zig has been swept, so the score
-  is unmeasured. Rule out equivalence before writing a test for a survivor:
-  `.dev/mutation_equivalent.jsonl` registers the unkillable ones, with proofs.
-- **HAZARD — workflows do not fire on push/tag here.** GitHub's fork default:
-  every run so far came from `gh workflow run <wf> --ref <ref>`. Until the
-  Actions tab's enable button is pressed once, "no run appeared" does NOT mean
-  "CI passed", and a `v*` tag will not build a release by itself. Dispatch
-  explicitly, or press it and delete this bullet.
-- **Unreleased on main**: nothing. CHANGELOG `[1.10.1]` is the SSOT.
-- **Release-process hazards** (`.github/workflows/release.yml`): hand-cutting
-  the release before the tag workflow breaks artifact upload (zwasm #160); and
-  `gh release view || gh release create` is TOCTOU across the matrix legs —
-  v1.10.0 missed it by 47 s. Never hit, never fixed.
+  export fix; neither reaches cljw's Zig embedding surface). **zwasm now lives
+  at `github.com/zwasm/zwasm`** — its own org since 2026-08-12, under separate
+  maintainership; the dep URL names it directly rather than riding GitHub's
+  transfer redirect, and the content `.hash` was unchanged by the move.
+  Co-development (the `dogfooding_handover` mailbox, `.dev/zwasm_capabilities.md`'s
+  per-unit refresh duty) is RETIRED. CHANGELOG is the release-history SSOT.
+- **This repository is a MAINTAINED FORK.** Upstream `clojurewasm/ClojureWasm`
+  (chaploud) stopped at v1.10.1, its final release, and invited forks under
+  EPL-2.0; `BuddhiLW/ClojureWasm` continues from that tree. `origin` = upstream
+  (read-only, wound down), `buddhilw` = the maintained remote. Issues and PRs
+  are OPEN here (so CONTRIBUTING's "branches to cherry-pick" no longer
+  applies), the tap is `BuddhiLW/homebrew-tap` (`brew install
+  buddhilw/tap/cljw`), and `1.x` continues from v1.10.1. PERF CAMPAIGN (D-450)
+  stays **stopped** — findings remain in the row as a record.
+- **TAG CLASH — `v1.10.1` names two different commits.** Ours is `50b85214`
+  (what `brew install buddhilw/tap/cljw` installs); upstream's is `8fa46d97`.
+  Both were cut the same day from different trees, and since the upstream merge
+  both are reachable in one object graph, so that NAME no longer identifies a
+  commit. Do NOT fetch upstream's tags into this repo — it would overwrite the
+  ref the tap resolves. Releases continue at v1.10.2 and up, which collide with
+  nothing, since upstream cut nothing after v1.10.1.
+- **Anything built from the `v1.10.0` tag rides the zwasm transfer redirect**,
+  which holds only while nothing claims the vacated `clojurewasm/zwasm` name.
+  Build from v1.10.1 or later.
+- **Release path: PROVEN on v1.10.1** (2026-08-12) — artifacts built here, both
+  checksums matched, binary run, `brew install buddhilw/tap/cljw` + `brew test`
+  + `brew audit --strict` green. The tap bump is a `tap` job in `release.yml`
+  (deploy key, secret `TAP_DEPLOY_KEY`); v1.10.1's formula was hand-written, so
+  **v1.10.2 is the first release exercising the automated bump** — watch that
+  job.
+- **Test layers 6/7/8 are OPEN** (ADR-0186): golden snapshots (`test/golden/`,
+  gated), properties (`src/testing/prop_*.zig`, in `zig build test`, fixed seed
+  — sweep with `-Dprop-seed`/`-Dprop-iters`), mutation
+  (`scripts/mutation/run.sh`, on demand, worktree-isolated, NEVER gated). The
+  mutation runner's kill oracle is `--oracle`: `unit` (the default) never
+  builds the CLI and never runs golden, so a file whose behaviour IS what the
+  program prints must be swept with `--oracle unit+golden` or every rendering
+  path scores as unconstrained. First task: **D-577** — rule out equivalence
+  before writing a test for a survivor; `.dev/mutation_equivalent.jsonl`
+  registers the unkillable ones, with proofs.
+- **CI fires on push and on tags here.** Measured 2026-08-12:
+  `actions/permissions` = `{enabled: true, allowed_actions: "all"}`, all three
+  workflows `state: active`, push-triggered runs green on `main`. An earlier
+  handover carried a HAZARD bullet claiming the opposite; it was false, and a
+  stale hazard is worse than none because it teaches you to discount CI you
+  actually have.
+- **Unreleased on main**: see CHANGELOG `[Unreleased]`.
+- **Release-process hazard** (`.github/workflows/release.yml`): cutting the
+  GitHub release BY HAND before the tag workflow runs breaks the artifact
+  upload (zwasm #160). The `gh release view || gh release create` TOCTOU across
+  the matrix legs is **FIXED** as of upstream's v1.10.1, merged here — a failed
+  create is accepted iff the release exists afterwards. Both workflows also
+  clear the Zig unpack target before `tar -x`, so a re-run cannot die on
+  "Cannot open: File exists".
 - **Forbidden**: bare `zig build test` without `-Dwasm`; bare `zig build` for a
   probe (use ReleaseSafe). The FULL gate runs `--serial-e2e`, ALONE; never a
   concurrent build during a gate. `.claude/**` edits + cross-repo publishes may
@@ -72,7 +90,7 @@
   `check_entrypoint_surface.sh`, `test/e2e/entrypoint_eval_parity.sh`).
   Details in CHANGELOG [1.10.0]. Endgame row = D-576.
 
-## Standing units (tracked in .dev/debt.yaml)
+## What was left unfinished (`.dev/debt.yaml` is the SSOT)
 
 - **D-565** — external-contributor reproducibility sweep (Discussion #11).
   Items (1)-(6) DISCHARGED 2026-08-04; the ledger row carries what each was.

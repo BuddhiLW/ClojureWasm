@@ -1,5 +1,7 @@
-# Issues are open. Blank issues stay disabled so every report starts from a
-# template that asks for the one or two facts that make it actionable.
+# Issues are DISABLED on this repository and always were, so nothing in this
+# directory currently renders. The templates are kept for forks, which get a
+# working set of report forms the moment they enable Issues; this config keeps
+# blank issues off so every report starts from one of them.
 blank_issues_enabled: false
 contact_links:
   - name: 💬 Questions, ideas, "is this supposed to work?"

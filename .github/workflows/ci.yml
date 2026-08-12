@@ -84,6 +84,11 @@ jobs:
           source .github/versions.lock
           mkdir -p ~/.local
           curl -fsSL "https://ziglang.org/download/${ZIG_VERSION}/${{ matrix.zig-dir }}.tar.xz" -o /tmp/zig.tar.xz
+          # Clear both paths first so a re-run is idempotent: tar refuses to
+          # overwrite existing entries ("Cannot open: File exists"), and `mv` into
+          # an EXISTING directory nests instead of replacing, which would put the
+          # toolchain at zig-0.16.0/<zig-dir>/ and leave `zig` off PATH.
+          rm -rf "$HOME/.local/${{ matrix.zig-dir }}" "$HOME/.local/zig-0.16.0"
           tar -xJf /tmp/zig.tar.xz -C ~/.local
           mv "$HOME/.local/${{ matrix.zig-dir }}" "$HOME/.local/zig-0.16.0"
 

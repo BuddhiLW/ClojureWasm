@@ -619,15 +619,13 @@ zig fmt src/           # format
   producers, root slots, reentrant accumulators, pins, in-txn, per-tag traces,
   the `isGcManaged` membrane) + a moving-GC migration checklist. `GC-ROOT:`
   markers in source anchor each published-root site here.
-- [`.dev/zwasm_capabilities.md`](../.dev/zwasm_capabilities.md) — cljw's view of the
-  **embedded zwasm v2** runtime's embedding-API capabilities + cljw's adoption
-  status (F-001). zwasm is SHA-pinned but co-developed (`~/Documents/MyProducts/
-  zwasm`) and is growing a **JIT-backed engine** (ADR-0200) — the
-  north-star capability (ROADMAP §9.0 gap area II × III). **The loop MUST read this
-  ledger at every gap-area-unit start (Step 1a) and every Phase boundary**, refresh
-  it against zwasm's live status sources listed there, and flip the JIT row from
-  BUILDING→adoptable only when zwasm marks it ready AND the pin is (user-)bumped.
-  This is the always-on, git-tracked face of the CODEV co-dev protocol.
+- [`.dev/zwasm_capabilities.md`](../.dev/zwasm_capabilities.md) — cljw's record of
+  the **embedded zwasm v2** runtime's embedding-API capabilities + what cljw
+  adopted (F-001). **FROZEN as of 2026-08-12**: zwasm moved to its own org
+  (<https://github.com/zwasm/zwasm>) under separate maintainership, and v2.5.0 is
+  cljw's final pin — so the per-unit refresh duty and the CODEV mailbox protocol
+  that file used to carry are **retired**. Read it as background on what the
+  final pin embeds, not as a watch list.
 
 ## References
 

@@ -53,6 +53,10 @@ jobs:
           source .github/versions.lock
           mkdir -p ~/.local
           curl -fsSL "https://ziglang.org/download/${ZIG_VERSION}/${{ matrix.zig-dir }}.tar.xz" -o /tmp/zig.tar.xz
+          # Clear the target first so a re-run is idempotent: tar refuses to
+          # overwrite existing entries ("Cannot open: File exists") and, under
+          # `set -e`, delays that into a non-zero exit at the end of extraction.
+          rm -rf "$HOME/.local/${{ matrix.zig-dir }}"
           tar -xJf /tmp/zig.tar.xz -C ~/.local
           echo "$HOME/.local/${{ matrix.zig-dir }}" >> "$GITHUB_PATH"
 
@@ -74,9 +78,18 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # Create the release once (idempotent — later matrix legs just upload).
-          gh release view "$TAG_NAME" >/dev/null 2>&1 || \
-            gh release create "$TAG_NAME" --title "$TAG_NAME" --generate-notes
+          # Create the release once; later matrix legs just upload.
+          #
+          # view-then-create is a TOCTOU race across the matrix: both legs can
+          # see "no release" and both call create, and the loser exits non-zero
+          # on "already exists", failing an otherwise-good leg under `set -e`.
+          # (v1.10.0's two legs reached this 47 s apart — it was luck, not
+          # design.) So treat a failed create as fine IF the release exists
+          # afterwards; a create that failed for any other reason still fails
+          # the step, because the trailing view then finds nothing.
+          gh release view "$TAG_NAME" >/dev/null 2>&1 \
+            || gh release create "$TAG_NAME" --title "$TAG_NAME" --generate-notes \
+            || gh release view "$TAG_NAME" >/dev/null 2>&1
           gh release upload "$TAG_NAME" dist/* --clobber
 
   # Point `brew install buddhilw/tap/cljw` at the release this run just built.
