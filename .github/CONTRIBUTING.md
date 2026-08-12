@@ -14,7 +14,7 @@ that has not been written down yet — and finding them from the outside is wort
 more than anything else, because a project cannot easily see its own blind
 spots.
 
-There is a [Clojure divergence issue template](https://github.com/clojurewasm/ClojureWasm/issues/new?template=divergence.yml)
+There is a [Clojure divergence issue template](https://github.com/BuddhiLW/ClojureWasm/issues/new?template=divergence.yml)
 that asks for the three things that make such a report actionable: the
 expression, what `cljw` prints, and what a JVM REPL prints.
 
@@ -82,7 +82,7 @@ something is the way it is.
 ## Getting in touch
 
 Open-ended questions belong in
-[GitHub Discussions](https://github.com/clojurewasm/ClojureWasm/discussions);
+[GitHub Discussions](https://github.com/BuddhiLW/ClojureWasm/discussions);
 the wider Clojure community also gathers on the
 [Clojurians Slack](https://clojurians.slack.com).
 

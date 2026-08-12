@@ -15,18 +15,23 @@
   (`278587f6`, 2026-08-12, FINAL — full WASI 0.3 + the `libzwasm.a` C-API
   export fix; neither reaches cljw's Zig embedding surface. Tagging zwasm is
   user-only, its ADR-0156). Latest release:
-  **v1.10.0** (2026-08-12) — **the FINAL release**. CHANGELOG is the
-  release-history SSOT.
-- **First task on resume**: nothing is pending. The wind-down is DONE:
-  README declares the project unmaintained, v1.10.0 is released (artifacts
-  verified by download + checksum + running the macOS binary), the homebrew
-  tap is bumped, cw-playground and cw-serverless-demo are redeployed on it
-  and live, cw-arcade is re-verified (32 tests / 153 assertions; it pins
-  nothing by design), and the announcement is Discussion #15 (pin it in the
-  web UI — the API has no pinDiscussion). The PERF
-  CAMPAIGN (D-450) is **stopped, not paused** — findings stay in the row as
-  a record.
-- **Unreleased on main**: nothing. CHANGELOG `[1.10.0]` is the SSOT.
+  **v1.10.0** (2026-08-12) — upstream's final release, and this fork's
+  starting point. CHANGELOG is the release-history SSOT.
+- **This repository is a MAINTAINED FORK.** Upstream
+  `clojurewasm/ClojureWasm` (chaploud) stopped at v1.10.0 and invited forks
+  under EPL-2.0; `BuddhiLW/ClojureWasm` continues from that tree.
+  `origin` = upstream (read-only, archived-in-practice), `buddhilw` = the
+  maintained remote. What changed with the handover: Issues and PRs are OPEN
+  here (upstream disabled both — the "branches to cherry-pick" workflow in
+  CONTRIBUTING no longer applies), the homebrew tap is
+  `BuddhiLW/homebrew-tap` (`brew install buddhilw/tap/cljw`), and the `1.x`
+  line continues from v1.10.0. The PERF CAMPAIGN (D-450) stays **stopped**
+  — findings remain in the row as a record.
+- **First task on resume**: cut **v1.10.1** — a no-feature release whose only
+  job is to prove the fork's release path end to end (tag → `release.yml`
+  artifacts on this repo → tap formula bump → `brew install buddhilw/tap/cljw`).
+- **Unreleased on main**: the fork-handover docs. CHANGELOG `[Unreleased]`
+  is the SSOT.
 - **Release-process hazards** (both live in `.github/workflows/release.yml`):
   cutting the GitHub release BY HAND before the tag workflow runs breaks the
   artifact upload (zwasm #160), and the workflow's `gh release view || gh

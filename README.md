@@ -9,25 +9,28 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/clojurewasm/ClojureWasm/actions/workflows/ci.yml"><img src="https://github.com/clojurewasm/ClojureWasm/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
+  <a href="https://github.com/BuddhiLW/ClojureWasm/actions/workflows/ci.yml"><img src="https://github.com/BuddhiLW/ClojureWasm/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
   <a href="https://ziglang.org/"><img src="https://img.shields.io/badge/Zig-0.16.0-f7a41d?logo=zig&logoColor=white" alt="Zig 0.16.0" /></a>
   <a href="https://clojure.org/"><img src="https://img.shields.io/badge/Clojure-runtime-5881d8?logo=clojure&logoColor=white" alt="Clojure runtime" /></a>
   <a href="./LICENSE"><img src="https://img.shields.io/badge/License-EPL_2.0-blue.svg" alt="License: EPL 2.0" /></a>
 </p>
 
 > [!IMPORTANT]
-> **ClojureWasm is no longer maintained.** A from-scratch Clojure runtime
-> turned out to be more than one person can sustain, so I am stopping here
-> while it still works. The code stays up under EPL-2.0 — fork it and build on
-> it, no permission needed.
-> [Discussions](https://github.com/clojurewasm/ClojureWasm/discussions) remain
-> open, but may go unanswered.
+> **This is the maintained continuation of ClojureWasm.** The original
+> project by [@chaploud](https://github.com/chaploud) —
+> [clojurewasm/ClojureWasm](https://github.com/clojurewasm/ClojureWasm) —
+> stopped at **v1.10.0**, its final release, and its author invited forks
+> under EPL-2.0. Development continues here from that exact tree, with the
+> gate, the ADR record and the release process intact.
 >
-> I believe ClojureWasm demonstrated what a from-scratch Clojure can be: a
-> single small static binary, with a WebAssembly FFI. The hardest parts — and
-> why this needs more than a solo maintainer — were keeping up JVM-Clojure
-> compatibility (Java interop above all) and performance. Thanks to everyone
-> who used it, reported differences, and contributed fixes.
+> [Issues](https://github.com/BuddhiLW/ClojureWasm/issues), Pull Requests and
+> [Discussions](https://github.com/BuddhiLW/ClojureWasm/discussions) are open.
+> **The single most useful thing you can report is Clojure code that behaves
+> differently here than on the JVM** — there is an issue template for exactly
+> that.
+>
+> Installs and version pins move to this repository: `brew install
+> buddhilw/tap/cljw`, and releases continue the `1.x` line from v1.10.0.
 
 ## What it is
 
@@ -64,7 +67,7 @@ still use what other languages have already built.
 **Homebrew** (macOS arm64 / Linux x86_64):
 
 ```sh
-brew install clojurewasm/tap/cljw
+brew install buddhilw/tap/cljw
 ```
 
 The `cljw` binary is not code-signed. Homebrew installs it without a Gatekeeper
@@ -76,7 +79,7 @@ xattr -d com.apple.quarantine "$(which cljw)"
 ```
 
 Or grab a binary straight from the
-[Releases](https://github.com/clojurewasm/ClojureWasm/releases) page. Building
+[Releases](https://github.com/BuddhiLW/ClojureWasm/releases) page. Building
 from source is in [Quickstart](#quickstart) below.
 
 ## Quickstart
@@ -160,6 +163,14 @@ from a Clojure one.
 
 Eclipse Public License 2.0 — see [LICENSE](./LICENSE) and [NOTICE](./legal/NOTICE).
 
+## Credit
+
+ClojureWasm was created and written by [Shota Kudo
+(@chaploud)](https://github.com/chaploud), who took it from nothing to a
+working JVM-free Clojure runtime with a WebAssembly FFI over the life of
+[clojurewasm/ClojureWasm](https://github.com/clojurewasm/ClojureWasm), through
+v1.10.0. Everything this fork ships is built on that work.
+
 ---
 
-Developed in spare time alongside a day job.
+Maintained as a fork since v1.10.0. Developed in spare time.

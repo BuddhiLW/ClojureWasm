@@ -7,6 +7,21 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 
 ## [Unreleased]
 
+### Changed
+
+- **Maintenance moved to a fork.** Upstream
+  [clojurewasm/ClojureWasm](https://github.com/clojurewasm/ClojureWasm)
+  stopped at v1.10.0, its final release, and invited forks under EPL-2.0.
+  Development continues in
+  [BuddhiLW/ClojureWasm](https://github.com/BuddhiLW/ClojureWasm) from that
+  exact tree — same gate, same ADR record, same release workflow. Nothing in
+  the runtime changed. What moved: Issues and Pull Requests are open here
+  (upstream disabled both, so contributions arrived as branches to
+  cherry-pick), the Homebrew tap is now `buddhilw/tap`
+  (`brew install buddhilw/tap/cljw`), and README / CONTRIBUTING / SECURITY /
+  issue templates point at this repository. The `1.x` line continues from
+  v1.10.0.
+
 ## [1.10.0] - 2026-08-12
 
 **The final release.** ClojureWasm is no longer maintained — a from-scratch

@@ -19,18 +19,18 @@ is no backport branch.
 | newest `1.x` release           | ✅        |
 | any older release              | ❌        |
 
-If you are on Homebrew, `brew upgrade clojurewasm/tap/cljw` puts you on the
+If you are on Homebrew, `brew upgrade buddhilw/tap/cljw` puts you on the
 supported line.
 
 ## Reporting a vulnerability
 
 **Please do not open a public issue or Discussion for security problems.**
 
-Report privately via GitHub's **[Private Vulnerability Reporting](https://github.com/clojurewasm/ClojureWasm/security/advisories/new)**
+Report privately via GitHub's **[Private Vulnerability Reporting](https://github.com/BuddhiLW/ClojureWasm/security/advisories/new)**
 (the "Report a vulnerability" button under the repository's *Security* tab).
 If that is unavailable to you, open a minimal public Discussion asking a
 maintainer to reach out — **without any exploit detail** — and mention
-`@chaploud`.
+`@BuddhiLW`.
 
 Please include, where possible:
 
