@@ -41,3 +41,8 @@ private/
 .lsp/
 test/conformance/verified_projects/*/.cpcache/
 __pycache__/
+
+# Layer 8 (ADR-0186) mutation sweep working output: candidate lists, per-mutant
+# build logs, the JSONL verdict log. A sweep REPORT worth keeping is committed
+# deliberately (git add -f .dev/mutation/report-*.md), never by accident.
+.dev/mutation/
