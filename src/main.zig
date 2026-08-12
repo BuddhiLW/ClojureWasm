@@ -62,6 +62,12 @@ test "kindToExitCode maps internal_error → 70 and others → 1 (ADR-0019)" {
 // Pull in tests from the source tree. As more files appear under
 // src/, add them here so the unified `zig build test` discovers them.
 test {
+    // Layer 7 — property suite (ADR-0186). Reached from here like every other
+    // test file, so `zig build test` runs the properties in the same pass as
+    // the unit tests rather than behind a flag someone has to remember.
+    _ = @import("testing/prop.zig");
+    _ = @import("testing/prop_collections.zig");
+
     _ = @import("app/cli.zig");
     _ = @import("app/repl/line_editor.zig");
     _ = @import("app/deps/parse.zig");

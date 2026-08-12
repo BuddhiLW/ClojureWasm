@@ -58,6 +58,16 @@ pub fn build(b: *std.Build) void {
     build_options.addOption([]const u8, "version", build_zon.version);
     build_options.addOption(bool, "embed_raw_clj_sources", false);
 
+    // Layer 7 (ADR-0186) — the property suite's seed and iteration count. Both
+    // are FIXED by default: a gate whose input set changes per run reports a
+    // different thing each time it is asked, and a failure nobody can reproduce
+    // is a failure nobody fixes. A sweep raises them deliberately:
+    //   zig build test -Dprop-seed=0xdecafbad -Dprop-iters=5000
+    // A property that only fails under a swept seed is still a real defect —
+    // pin its seed into the default when that happens, so the gate keeps it.
+    build_options.addOption(u64, "prop_seed", b.option(u64, "prop-seed", "Layer 7 property-test seed (ADR-0186)") orelse 0x1_0BE1_5EED);
+    build_options.addOption(usize, "prop_iters", b.option(usize, "prop-iters", "Layer 7 property-test iterations per property (ADR-0186)") orelse 60);
+
     // ROADMAP §9.6 / 4.8 / §349 — backend gate (ADR-0005 / ADR-0070 / F-012).
     // `vm` is the PRODUCTION DEFAULT (flipped 2026-06-02 once every D-196
     // parity blocker closed: check_vm_parity = 0 fails, corpus 375/375 + all
