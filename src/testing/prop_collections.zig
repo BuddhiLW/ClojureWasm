@@ -316,3 +316,52 @@ test "property: pop undoes conj all the way back to empty" {
     }.f;
     try prop.forAll([]i64, testing.allocator, config(), gen, Ctx{}, wrapped);
 }
+
+test "property: pop collapses a DEEP trie correctly, level by level" {
+    // The first mutation sweep (ADR-0186) killed the shallow cases and left
+    // three survivors, all of them inside `popTail`'s recursive descent:
+    // `arrayFor(old, old.count - 2)`, the `sub_index` shift, and the
+    // `new_child == null and sub_index == 0` collapse test. None of them could
+    // be reached, because the property above generates at most 96 elements and
+    // `popTail` only recurses once a vector is deep enough to have a trie of
+    // more than one level — tail (32) + one full level (32*32) = 1057 elements.
+    //
+    // So this property is here because a mutant said the other one was blind,
+    // which is the entire reason Layer 8 exists. The sizes below straddle the
+    // boundary rather than sitting past it: a bug in the collapse is a bug
+    // about what happens AT the transition.
+    const deep_sizes = [_]u32{ 1024, 1056, 1057, 1088, 2048, 2080 };
+    var th = std.Io.Threaded.init(testing.allocator, .{});
+    defer th.deinit();
+    var rt = Runtime.init(th.io(), testing.allocator);
+    defer rt.deinit();
+
+    for (deep_sizes) |n| {
+        var v = vector_collection.empty();
+        var i: u32 = 0;
+        while (i < n) : (i += 1) v = try vector_collection.conj(&rt, v, Value.initInteger(@intCast(i)));
+        try testing.expectEqual(n, vector_collection.count(v));
+
+        // Pop all the way back to empty. Every element still readable at every
+        // depth, and the count exact after each step — a collapse that drops
+        // the wrong subtree shows up as a wrong element long before it shows
+        // up as a wrong count.
+        var remaining = n;
+        while (remaining > 0) {
+            remaining -= 1;
+            try testing.expectEqual(
+                @as(i64, @intCast(remaining)),
+                @as(i64, vector_collection.nth(v, remaining).asInteger()),
+            );
+            v = try vector_collection.pop(&rt, v);
+            try testing.expectEqual(remaining, vector_collection.count(v));
+            // Spot-check the far end too: a collapse bug in a deep subtree
+            // leaves index 0 intact while corrupting the middle.
+            if (remaining > 0) {
+                try testing.expectEqual(@as(i64, 0), @as(i64, vector_collection.nth(v, 0).asInteger()));
+                const mid = remaining / 2;
+                try testing.expectEqual(@as(i64, @intCast(mid)), @as(i64, vector_collection.nth(v, mid).asInteger()));
+            }
+        }
+    }
+}
