@@ -7,27 +7,14 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 
 ## [Unreleased]
 
-Found by driving [hive-contracts](https://gitea.hive-mcp.com) through the probe
-loop — the next rung after malli. Both are general capabilities reached through
-`clojure.tools.reader`, which `taoensso.encore` (and so `timbre`) requires.
-
-### Added
-
-- **`clojure.lang.PersistentList/create`** — a list of a collection's elements,
-  in order. `clojure.tools.reader.edn` calls it to build every list it reads.
-- **`clojure.lang.LineNumberingPushbackReader`** resolves as an opaque class
-  (ADR-0109), under its bare name as well as its FQCN since clj auto-imports
-  `clojure.lang.*`. cljw readers are not instances of it, so `instance?` is
-  uniformly false and `extend`ing it registers a branch nothing dispatches to —
-  which is what `tools.reader` does with it.
-
 ## [1.10.2] - 2026-08-12
 
-The fork's first runtime changes. All of them were found by driving
+The fork's first runtime changes. Nearly all were found by driving
 [malli](https://github.com/metosin/malli) through the
 `test/conformance/verified_projects/` probe loop — malli is the first schema
 library on the ladder, and the blockers it surfaced are general capabilities,
-not malli accommodations (F-013).
+not malli accommodations (F-013). The last two entries under Added come from the
+next rung, hive-contracts.
 
 ### Fixed
 
@@ -80,6 +67,18 @@ not malli accommodations (F-013).
   clauses are dead by construction — but portable code guarding a bounded wait
   now loads instead of failing analysis.
 
+The last two came from the next rung of the same loop,
+[hive-contracts](https://gitea.hive-mcp.com). Both are reached through
+`clojure.tools.reader`, which `taoensso.encore` — and so `timbre` — requires.
+
+- **`clojure.lang.PersistentList/create`** — a list of a collection's elements,
+  in order. `clojure.tools.reader.edn` calls it to build every list it reads.
+- **`clojure.lang.LineNumberingPushbackReader`** resolves as an opaque class
+  (ADR-0109), under its bare name as well as its FQCN since clj auto-imports
+  `clojure.lang.*`. cljw readers are not instances of it, so `instance?` is
+  uniformly false and `extend`ing it registers a branch nothing dispatches to —
+  which is what `tools.reader` does with it.
+
 ### Internal
 
 - `data/core_surface_extras.txt` regenerated, 104 → 106 names: `monitor-enter`
@@ -97,6 +96,21 @@ not malli accommodations (F-013).
 - `test/e2e/phase16_gc_torture.sh` sets and clears environment variables with
   bash builtins instead of `env`, which is hijackable by a `~/.local/bin/env`
   on PATH.
+- Two deprecated `std.mem` aliases replaced by their current names
+  (`indexOfScalar` → `findScalar`, `indexOfAny` → `findAny`). Both are `pub
+  const` aliases in 0.16 std, so the rename is behaviour-identical; the linter
+  that rejects them runs only on the macOS gate leg, which is why they were
+  reachable at all.
+- The printer gains Layer 6/7 coverage (ADR-0186): a property asserting every
+  `printFloat` output parses back to the same f64 — bit equality, so `0.0` and
+  `-0.0` stay distinct — and golden snapshots for the HAMT print path above both
+  promotion boundaries, for truncation at `*print-length*` 0, and for lazy seqs
+  nested inside collections. The first mutation sweep of `print.zig` scored
+  36.4%; these pin three of the survivors it named.
+- `scripts/mutation/run.sh` takes `--oracle`. The kill oracle was hardcoded to
+  `zig build test`, so a mutation in a rendering path could never be killed by
+  the golden layer and every printing line scored as unconstrained. `unit`
+  remains the default; `unit+golden` also renders the Layer 6 cases.
 
 ### Changed
 
