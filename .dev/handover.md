@@ -6,25 +6,24 @@
 ## Resume contract
 
 - **HEAD**: `main` (`git log` = SSOT). Per-commit = smoke locally;
-  **push-to-main CI now runs the FULL gate** (ADR-0107 rev 2026-07-21 —
-  == the local full gate, all e2e), so a red push CI is the immediate
-  e2e signal, not a next-day nightly. Commit **and** push (atomic
-  Step 6). `build.zig.zon` `.zwasm` = COMMIT pin
-  `1ecc7a8a` (zwasm main; carries #157 component export index space + #158/#159
-  the WASI capture cap — both load-bearing for cljw, unlike the v2.4.0 tag it
-  replaced. Tagging zwasm is user-only, its ADR-0156). Latest release:
-  **v1.9.0** (2026-08-05; the eval budget bounds blocking calls and follows
-  spawned work, data errors are catchable, regex gains named groups /
-  lookbehind / `\A\z\Z` / class algebra, multidim aget/aset, and the GC
-  stops taxing long-running programs 2-4x — D-571/573/446/447 discharged).
-  CHANGELOG is the release-history SSOT.
-- **First task on resume**: the wind-down is DONE except the announcement —
-  post it in Discussions (Announcements, pinned) when the user decides to.
-  **v1.10.0 is released and is the final release** (2026-08-12): zwasm pin
-  v2.5.0, full gate 435/435, 3-OS CI green, artifacts verified by download +
-  checksum + running the macOS binary, homebrew tap bumped, cw-playground
-  and cw-serverless-demo redeployed on it (both live), cw-arcade re-verified
-  (32 tests / 153 assertions green; it pins nothing by design). The PERF
+  **CI runs ONE configuration everywhere** — PR, push and dispatch all run the
+  identical `test/run_all.sh --serial-e2e` that `scripts/run_gate.sh` runs, so
+  "green" means the same run wherever it is said. The nightly schedule and its
+  tree_walk sweep are RETIRED (2026-08-12); `check_gate_parity.sh` fails if a
+  tier comes back. Commit **and** push (atomic
+  Step 6). `build.zig.zon` `.zwasm` = tag pin **v2.5.0**
+  (`278587f6`, 2026-08-12, FINAL — full WASI 0.3 + the `libzwasm.a` C-API
+  export fix; neither reaches cljw's Zig embedding surface. Tagging zwasm is
+  user-only, its ADR-0156). Latest release:
+  **v1.10.0** (2026-08-12) — **the FINAL release**. CHANGELOG is the
+  release-history SSOT.
+- **First task on resume**: nothing is pending. The wind-down is DONE:
+  README declares the project unmaintained, v1.10.0 is released (artifacts
+  verified by download + checksum + running the macOS binary), the homebrew
+  tap is bumped, cw-playground and cw-serverless-demo are redeployed on it
+  and live, cw-arcade is re-verified (32 tests / 153 assertions; it pins
+  nothing by design), and the announcement is Discussion #15 (pin it in the
+  web UI — the API has no pinDiscussion). The PERF
   CAMPAIGN (D-450) is **stopped, not paused** — findings stay in the row as
   a record.
 - **Unreleased on main**: nothing. CHANGELOG `[1.10.0]` is the SSOT.

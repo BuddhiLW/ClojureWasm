@@ -7,13 +7,13 @@
 # (preinstalled on GitHub runners); `zig build -Dwasm` fetches the embedded
 # zwasm engine + the zlinter dev-dep from git over the network.
 #
-# Tiered (ADR-0107, revised 2026-07-21) so CI verifies exactly what the local
-# full gate does on every landed commit — the fast tier is PR-only:
-#   PR → fast CORE (units + F-012 diff oracle, no e2e shell suite) for iteration.
-#   push to main → FULL gate (+ every e2e step) == the local full gate, so an
-#     e2e regression from a shared-code change fails on the push, not a day later.
-#   nightly schedule / manual dispatch → FULL gate + the non-default-backend
-#     (tree_walk) sweep (an extra backstop that is not part of the local gate).
+# ONE configuration, everywhere (2026-08-12). PR, push, dispatch and the local
+# `scripts/run_gate.sh` all run the identical full gate, so "green" means the
+# same run wherever it was said. The tiers this used to have (PR → smoke,
+# nightly → full + a tree_walk sweep) were the drift they were meant to catch:
+# the last nightly failed on a wall-clock bound in a config nothing else ran,
+# which is a finding about the runner, not about cljw.
+# `scripts/check_gate_parity.sh` enforces the single configuration mechanically.
 # The Zig toolchain, the fetched deps (zwasm/zlinter), and the build cache are
 # all preserved across runs (actions/cache), so a warm run rebuilds only what
 # changed instead of three cold ReleaseSafe builds — the dominant cost.
@@ -31,10 +31,6 @@ on:
     branches: [main]
     paths-ignore: ['**/*.md', '.dev/**']
   workflow_dispatch:
-  schedule:
-    # Nightly full gate (03:17 UTC) — the batched Linux full-e2e coverage that
-    # ADR-0049 keeps off the per-commit path.
-    - cron: '17 3 * * *'
 
 permissions:
   contents: read
@@ -150,15 +146,4 @@ jobs:
 
       - name: ci_gate.sh
         shell: bash
-        env:
-          # push-to-main + nightly + dispatch → FULL gate (== the local full
-          # gate: every e2e step), so a shared-code change that breaks an e2e
-          # step fails on the push, not a day later on the nightly (ADR-0107
-          # revision 2026-07-21). PR → fast core (its merge fires a push event
-          # that runs the full gate before it lands).
-          CLJW_CI_FULL: ${{ github.event_name != 'pull_request' && '1' || '0' }}
-          # The heavier non-default-backend (tree_walk) sweep — a second
-          # ReleaseSafe rebuild, NOT part of the local full gate — stays
-          # nightly/dispatch-only as an extra backstop.
-          CLJW_CI_PARITY: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && '1' || '0' }}
         run: bash scripts/ci_gate.sh

@@ -102,11 +102,30 @@ run_repl() {
 }
 
 run_build() {
+    # A FRESH output path per case. Writing a new executable over the same path
+    # keeps the inode, and macOS then SIGKILLs the re-run binary ("Killed: 9")
+    # because the cached code signature no longer matches its contents — which
+    # looks exactly like cljw crashing, in the entry point least able to
+    # distinguish the two. Unique names cost nothing and remove the question.
+    local out="prog_bin_${build_seq}"
+    build_seq=$((build_seq + 1))
     printf '%s\n' "$1" > "$WORK/prog.clj"
-    (cd "$WORK" && run_bounded 180 "$BIN" build prog.clj -o prog_bin -cp src >/dev/null 2>&1) || {
+    (cd "$WORK" && run_bounded 180 "$BIN" build prog.clj -o "$out" -cp src >/dev/null 2>&1) || {
         echo "BUILD-FAILED"; return 0
     }
-    (cd "$WORK" && run_bounded 30 ./prog_bin 2>&1)
+    (cd "$WORK" && run_bounded 30 "./$out" 2>&1)
+}
+
+# Reap the nREPL server for a port. `kill $!` is NOT enough: `( cd … && cmd ) &`
+# leaves bash a real subshell (two commands, so no exec-optimisation), and the
+# server is its GRANDchild through `timeout` — so killing `$!` reaps the shell
+# and orphans the runtime. Eight cases of that is eight live servers competing
+# for memory, and on macOS the kernel eventually SIGKILLs something: the symptom
+# was `Killed: 9` on a freshly built binary in the `build` entry point, i.e. the
+# leak presenting as a crash in an unrelated entry point. Matching on the exact
+# `--port N` keeps this scoped to the server this function started.
+reap_nrepl() {
+    pkill -f "nrepl --port $1( |$)" 2>/dev/null || true
 }
 
 run_nrepl() {
@@ -114,20 +133,22 @@ run_nrepl() {
     rm -f "$WORK/.nrepl-port"
     ( cd "$WORK" && run_bounded 60 "$BIN" nrepl --port "$port" -cp src >/dev/null 2>&1 ) &
     local pid=$!
-    local deadline=$((SECONDS + 15))
+    local deadline=$((SECONDS + 30))
     while [[ ! -f "$WORK/.nrepl-port" ]] && [[ $SECONDS -lt $deadline ]]; do sleep 0.1; done
     if [[ ! -f "$WORK/.nrepl-port" ]]; then
-        kill "$pid" 2>/dev/null || true
+        reap_nrepl "$port"; kill "$pid" 2>/dev/null || true
         echo "NREPL-NO-BIND"; return 0
     fi
     local out
     out=$(python3 "$ROOT/test/e2e/support/nrepl_eval.py" "$port" "$1" 2>&1 || true)
+    reap_nrepl "$port"
     kill "$pid" 2>/dev/null || true
     wait "$pid" 2>/dev/null || true
     printf '%s' "$out"
 }
 
 ENTRY_POINTS=(e_flag file stdin repl nrepl build)
+build_seq=0
 
 # --- The oracle: for each program, every entry point must agree. ---
 cases=0
@@ -136,21 +157,34 @@ for spec in "${PROGRAMS[@]}"; do
     prog="${spec#*|}"
     reference=""
     reference_ep=""
+    reference_raw=""
     for ep in "${ENTRY_POINTS[@]}"; do
-        got=$("run_${ep}" "$prog")
+        # An entry point that DIES is a finding, not a reason to abort: detecting
+        # "this one behaves differently" is the whole job. Without this, a killed
+        # child's status propagates through the assignment under `set -e` and the
+        # step exits 137 with no indication of which entry point or why.
+        set +e
+        raw=$("run_${ep}" "$prog" 2>&1)
+        st=$?
+        set -e
+        [[ "$st" -ne 0 ]] && raw="$raw
+ENTRYPOINT-EXIT-$st"
         # Compare the marked result lines (see the header): value echoes differ
         # by entry-point contract, everything else must agree.
-        got=$(printf '%s' "$got" | grep '^RESULT ' | sed -e 's/[[:space:]]*$//' || true)
+        got=$(printf '%s' "$raw" | grep '^RESULT ' | sed -e 's/[[:space:]]*$//' || true)
         if [[ -z "$reference_ep" ]]; then
             reference="$got"
             reference_ep="$ep"
+            reference_raw="$raw"
             continue
         fi
         if [[ "$got" != "$reference" ]]; then
             echo "FAIL $name: entry points disagree" >&2
             echo "  $reference_ep -> '$reference'" >&2
-            echo "  $ep -> '$got'" >&2
+            echo "  $ep -> '$got' (exit $st)" >&2
             echo "  program: $prog" >&2
+            echo "  --- $ep raw output ---" >&2
+            printf '%s\n' "$raw" | tail -20 | sed 's/^/  /' >&2
             exit 1
         fi
     done
@@ -158,7 +192,10 @@ for spec in "${PROGRAMS[@]}"; do
     # prove nothing — require the shared answer to be a real result line.
     case "$reference" in
         "RESULT "*) : ;;
-        *) fail "$name: every entry point produced a non-result: '$reference'" ;;
+        *)
+            echo "  --- $reference_ep raw output ---" >&2
+            printf '%s\n' "$reference_raw" | tail -20 | sed 's/^/  /' >&2
+            fail "$name: every entry point produced a non-result: '$reference'" ;;
     esac
     echo "PASS $name -> $reference (${#ENTRY_POINTS[@]} entry points agree)"
     cases=$((cases + 1))

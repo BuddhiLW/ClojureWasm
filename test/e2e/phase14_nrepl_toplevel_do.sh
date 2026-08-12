@@ -28,6 +28,7 @@ BIN="$ROOT/zig-out/bin/cljw"
 
 WORK=$(mktemp -d)
 SERVER_PID=""
+SERVER_PORT=""
 cleanup() {
     [[ -n "$SERVER_PID" ]] && kill "$SERVER_PID" 2>/dev/null || true
     rm -rf "$WORK"
@@ -109,12 +110,18 @@ start_server() {
     rm -f "$WORK/.nrepl-port"
     ( cd "$WORK" && "$BIN" nrepl --port "$port" "$@" >"$WORK/out.log" 2>&1 ) &
     SERVER_PID=$!
-    local deadline=$((SECONDS + 10))
+    SERVER_PORT="$port"
+    local deadline=$((SECONDS + 30))
     while [[ ! -f "$WORK/.nrepl-port" ]] && [[ $SECONDS -lt $deadline ]]; do sleep 0.1; done
-    [[ -f "$WORK/.nrepl-port" ]] || fail "server did not bind within 10s: $(cat "$WORK/out.log")"
+    [[ -f "$WORK/.nrepl-port" ]] || fail "server did not bind within 30s: $(cat "$WORK/out.log")"
 }
 
 stop_server() {
+    # Reap by PORT, not just `$SERVER_PID`: `( cd … && cmd ) &` leaves bash a
+    # real subshell, so the server is a GRANDchild and killing $! orphans it.
+    # Each leaked server holds memory until the run ends; enough of them and the
+    # kernel starts SIGKILLing unrelated processes.
+    pkill -f "nrepl --port ${SERVER_PORT}( |$)" 2>/dev/null || true
     [[ -n "$SERVER_PID" ]] && kill "$SERVER_PID" 2>/dev/null || true
     wait "$SERVER_PID" 2>/dev/null || true
     SERVER_PID=""

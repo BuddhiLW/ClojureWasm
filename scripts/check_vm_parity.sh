@@ -7,8 +7,18 @@
 # corpus + the FULL test/e2e suite against it — so an oracle-only e2e /
 # rendering regression cannot hide behind the vm-default gate.
 #
-# Cadence: on-demand / Phase boundaries (ADR-0049 per-commit-cost concern),
-# NEVER per-commit. Runtime ≈ one serial e2e pass (~5 min).
+# Cadence: **ON-DEMAND ONLY — this is not wired into any gate** (2026-08-12).
+# It used to run in the CI nightly (CLJW_CI_PARITY=1), which made CI verify
+# something the local gate did not; `scripts/check_gate_parity.sh` now fails if
+# it is put back into a launcher. What that tier reported on its last run was a
+# 5-second wall-clock bound for an nREPL port file, failing on a loaded shared
+# runner in a config nothing else ran — the same bind measures 0.08-0.14 s
+# locally on this very build. What it never had to carry is the correctness
+# parity people assume from its name: the F-012 dual-backend diff oracle runs in
+# `zig build test` on BOTH backends in every gate. This sweep adds the e2e SHELL
+# suite on the non-default backend — worth running by hand after touching
+# backend-divergent code, not worth a second gate configuration.
+# Runtime ≈ one serial e2e pass (~5 min).
 #
 # SKIPS lists e2e steps that intrinsically exercise the DEFAULT backend
 # (AOT bytecode / build pipeline) and are meaningless or false-failing on

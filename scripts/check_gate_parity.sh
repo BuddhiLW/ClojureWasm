@@ -17,6 +17,15 @@
 #
 # Two launchers can stay, but their agreement has to be executed rather than
 # asserted in a comment. That is the whole content of this check.
+#
+# 2026-08-12: extended from "both pass --serial-e2e" to "there is exactly ONE
+# configuration". CI used to run tiers — PR got `--smoke`, the nightly got the
+# full gate PLUS a tree_walk sweep of corpus + every e2e — so three different
+# runs could each be called green. The nightly's last run failed on a 5-second
+# wall-clock bound in that extra config and nowhere else; the same bind measures
+# 0.08-0.14 s locally on the same build, so the tier's only finding was about
+# the runner. Tiers are gone, and the checks below make their return a gate
+# failure rather than a review-time thing to notice.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -36,9 +45,37 @@ grep -q -- 'MODE=(--serial-e2e)' scripts/run_gate.sh \
 grep -q -- '--serial-e2e)' test/run_all.sh \
     || note "test/run_all.sh no longer accepts --serial-e2e; both launchers are passing a flag it ignores."
 
+# --- ONE configuration: no CI-only tier may come back. ---
+#
+# These greps read CODE, not prose: the headers below deliberately NAME the
+# retired switches to explain why they are gone, and a check that counted a
+# comment would fire on its own documentation. Strip comment lines first.
+code_of() { grep -vE '^\s*#' "$1"; }
+
+# ci_gate.sh must run the full gate unconditionally: exactly one run_all.sh
+# invocation, and no branch that could select a different one.
+n_runs="$(code_of scripts/ci_gate.sh | grep -cE '^\s*bash test/run_all.sh' || true)"
+[[ "$n_runs" == "1" ]] \
+    || note "scripts/ci_gate.sh invokes test/run_all.sh $n_runs time(s) — expected exactly 1; a tier is back, so CI would run something local does not."
+code_of scripts/ci_gate.sh | grep -qE 'CLJW_CI_(FULL|PARITY)' \
+    && note "scripts/ci_gate.sh branches on CLJW_CI_FULL/PARITY again — that is the tiering this check exists to keep out."
+
+# The workflow must not re-introduce a tier by env either. (A schedule is fine
+# in principle — but only if it runs the SAME gate, which means no CLJW_CI_*
+# switch exists to make it differ.)
+if [[ -f .github/workflows/ci.yml ]]; then
+    code_of .github/workflows/ci.yml | grep -qE 'CLJW_CI_(FULL|PARITY)' \
+        && note ".github/workflows/ci.yml sets CLJW_CI_FULL/PARITY — CI would verify a different configuration from the local gate."
+fi
+
+# The non-default-backend sweep is an on-demand tool. If it is wired into a
+# launcher, it is a CI-vs-local difference again.
+code_of scripts/ci_gate.sh | grep -q 'check_vm_parity.sh' \
+    && note "scripts/ci_gate.sh runs check_vm_parity.sh — that sweep is on-demand, not part of the gate."
+
 if [[ "$fail" -ne 0 ]]; then
     echo "  A local 'full gate green' must mean the same run CI will do. Fix the launcher, or" >&2
     echo "  change BOTH and update ci_gate.sh's header claim in the same commit." >&2
     exit 1
 fi
-echo "    gate_parity: run_gate.sh and ci_gate.sh both run the full gate with --serial-e2e"
+echo "    gate_parity: one configuration — run_gate.sh and ci_gate.sh both run test/run_all.sh --serial-e2e, no CI-only tier"

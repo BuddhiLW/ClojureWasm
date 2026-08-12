@@ -39,12 +39,19 @@ rm -f "$PORT_FILE"
 SERVER_PID=$!
 trap 'kill $SERVER_PID 2>/dev/null || true; rm -f "$PORT_FILE" /tmp/cljw_nrepl_*.$$' EXIT
 
-# Wait up to 5s for .nrepl-port file (= bound + writing port file).
-deadline=$((SECONDS + 5))
+# Wait for the .nrepl-port file (= bind + writing the port file). The bound is
+# an ORDER OF MAGNITUDE, not a budget: the bind measures ~0.1 s even on the slow
+# tree_walk build, so 30 s still discriminates "the server never came up" from
+# "the runner is busy" — which is the only thing this assertion is for. It was
+# 5 s, and 5 s is what failed on a loaded shared runner (`.claude/rules/
+# test_taxonomy.md`: a wall-clock upper bound near the measured value is a flake
+# generator, and it eventually fails for the one reason it was not written to
+# detect).
+deadline=$((SECONDS + 30))
 while [[ ! -f "$PORT_FILE" ]] && [[ $SECONDS -lt $deadline ]]; do
     sleep 0.1
 done
-[[ -f "$PORT_FILE" ]] || fail "nrepl_port_file: .nrepl-port not created within 5s"
+[[ -f "$PORT_FILE" ]] || fail "nrepl_port_file: .nrepl-port not created within 30s"
 echo "PASS nrepl_port_file -> $(cat "$PORT_FILE")"
 
 # SE-9: the nREPL server binds LOOPBACK (127.0.0.1) by default, never 0.0.0.0.

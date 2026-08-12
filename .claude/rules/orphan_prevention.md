@@ -45,6 +45,36 @@ running (use `ssh host 'timeout 600 cmd'` or
 too. Prefer one-shot `cljw -e '…'` / heredoc (per
 [`cljw_invocation.md`](cljw_invocation.md)) over long-lived REPL pipes.
 
+4. **`kill $!` does NOT reap `( cd DIR && cmd ) &` — kill by a scoped
+   pattern.** With two commands in the subshell, bash cannot
+   exec-optimise it away, so `$!` is the SUBSHELL and the server is its
+   grandchild (through `timeout`, if wrapped). Killing `$!` reaps the
+   shell and **orphans the runtime**. Every nREPL e2e in this repo had
+   this shape and leaked one server per `start_server` — measured
+   2026-08-12: `phase14_nrepl_classpath` left 3 live `cljw nrepl`
+   processes behind, `phase14_nrepl_toplevel_do` 4.
+
+   It does not present as a leak. Each survivor holds its memory for the
+   rest of the run, and macOS eventually SIGKILLs *something else* — the
+   symptom was `Killed: 9` on a freshly built binary in an unrelated
+   entry point, i.e. a resource leak wearing the costume of a runtime
+   crash. (The CI runner's "Terminate orphan process: pid (…) (cljw)"
+   flood at job cleanup was the same leak, reported by the runner
+   instead of by us.)
+
+   Reap by something that identifies the process itself, and keep the
+   pattern scoped so it cannot hit an unrelated run:
+
+   ```bash
+   start_server() { ( cd "$WORK" && "$BIN" nrepl --port "$port" ) & SERVER_PID=$!; SERVER_PORT="$port"; }
+   stop_server()  { pkill -f "nrepl --port ${SERVER_PORT}( |$)" 2>/dev/null || true
+                    kill "$SERVER_PID" 2>/dev/null || true; wait "$SERVER_PID" 2>/dev/null || true; }
+   ```
+
+   A test that starts servers should end with none: `pgrep -f
+   'zig-out/bin/cljw' | wc -l` is the check, and it belongs in the
+   loop's head after touching any server-spawning e2e.
+
 ## Gate launcher
 
 `bash scripts/run_gate.sh` (preferred over raw `test/run_all.sh`) reaps

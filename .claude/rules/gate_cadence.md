@@ -166,16 +166,25 @@ local does not".
 header claim in the same commit.** A parity claim that only a comment makes is
 the thing that failed here.
 
-One tier deliberately runs MORE than the local full gate: the nightly/dispatch
-CI adds the non-default-backend sweep (`CLJW_CI_PARITY=1` →
-`scripts/check_vm_parity.sh`, every e2e on the tree_walk build). A nightly-only
-red is therefore possible without any local-vs-CI drift in the shared tiers.
-Its local reproductions: `bash scripts/check_vm_parity.sh` (this host) and
-`bash scripts/run_remote_ubuntu.sh --parity` (Linux — the slowest
-backend × host combination, where speed-scaled test bounds break first; the
-2026-08-05 nightly red reproduced ONLY there). Run the Linux parity leg
-pre-tag whenever the release touched a metered surface (budget steps, fuel,
-deadlines) or the e2e suite's timing assertions.
+**No tier runs more than any other any more (2026-08-12).** PR, push, dispatch
+and the local `run_gate.sh` all run the identical `test/run_all.sh
+--serial-e2e`; the nightly schedule and its `CLJW_CI_PARITY=1` tree_walk sweep
+are gone, and `check_gate_parity.sh` fails if either comes back.
+
+The reason is what the last nightly actually reported: `phase14_nrepl` failed a
+**5-second wall-clock bound** for the `.nrepl-port` file, on the tree_walk build,
+on a loaded shared runner — a configuration nothing else ran. The same bind
+measures **0.08-0.14 s** locally on that same build. So the extra tier's finding
+was a fact about the runner, delivered a day late, in a config no one could
+reproduce from a normal gate. That is the cost side; the benefit side was
+smaller than its name suggests, because the **F-012 dual-backend diff oracle
+already runs in `zig build test` on BOTH backends in every gate**. Only the e2e
+SHELL suite on the non-default backend went away with it.
+
+`scripts/check_vm_parity.sh` remains as an **on-demand** tool (and
+`run_remote_ubuntu.sh --parity` runs it on Linux — the slowest backend × host
+combination, where speed-scaled bounds break first). Reach for it deliberately
+after touching backend-divergent code, not on a schedule.
 
 ## Related
 
