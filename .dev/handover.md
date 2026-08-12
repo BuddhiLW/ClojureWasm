@@ -21,23 +21,29 @@
   `clojurewasm/ClojureWasm` (chaploud) stopped at v1.10.0 and invited forks
   under EPL-2.0; `BuddhiLW/ClojureWasm` continues from that tree.
   `origin` = upstream (read-only, archived-in-practice), `buddhilw` = the
-  maintained remote. What changed with the handover: Issues and PRs are OPEN
-  here (upstream disabled both — the "branches to cherry-pick" workflow in
-  CONTRIBUTING no longer applies), the homebrew tap is
-  `BuddhiLW/homebrew-tap` (`brew install buddhilw/tap/cljw`), and the `1.x`
-  line continues from v1.10.0. The PERF CAMPAIGN (D-450) stays **stopped**
-  — findings remain in the row as a record.
-- **First task on resume**: cut **v1.10.1** — a no-feature release whose only
-  job is to prove the fork's release path end to end (tag → `release.yml`
-  artifacts on this repo → tap formula bump → `brew install buddhilw/tap/cljw`).
-- **Unreleased on main**: the fork-handover docs. CHANGELOG `[Unreleased]`
-  is the SSOT.
+  maintained remote. Changed with the handover: Issues and PRs are OPEN here
+  (so CONTRIBUTING's "branches to cherry-pick" no longer applies), the tap is
+  `BuddhiLW/homebrew-tap` (`brew install buddhilw/tap/cljw`), and `1.x`
+  continues from v1.10.0. PERF CAMPAIGN (D-450) stays **stopped** — findings
+  remain in the row as a record.
+- **Release path: PROVEN on v1.10.1** (2026-08-12) — artifacts built by this
+  repo, both sidecar checksums recomputed and matched, the Linux binary run
+  (`--version` = 1.10.1), `brew install buddhilw/tap/cljw` + `brew test` +
+  `brew audit --strict` green. The tap bump is now a `tap` job in
+  `release.yml` (deploy key, secret `TAP_DEPLOY_KEY`); v1.10.1's formula was
+  written by hand, so **v1.10.2 is the first release that exercises the
+  automated bump** — watch that job.
+- **HAZARD — workflows do not fire on push/tag here.** GitHub's fork default:
+  every run so far came from `gh workflow run <wf> --ref <ref>`. Until the
+  Actions tab's enable button is pressed once, "no run appeared" does NOT mean
+  "CI passed", and a `v*` tag will not build a release by itself. Dispatch
+  explicitly, or press it and delete this bullet.
+- **Unreleased on main**: nothing. CHANGELOG `[1.10.1]` is the SSOT.
 - **Release-process hazards** (both live in `.github/workflows/release.yml`):
   cutting the GitHub release BY HAND before the tag workflow runs breaks the
-  artifact upload (zwasm #160), and the workflow's `gh release view || gh
-  release create` is TOCTOU across the two matrix legs — if they reach it
-  within the same instant, the loser fails on "already exists" under
-  `set -e`. v1.10.0 missed it by 47 s. Never hit, never fixed.
+  artifact upload (zwasm #160), and `gh release view || gh release create` is
+  TOCTOU across the two matrix legs — simultaneous, the loser dies on "already
+  exists" under `set -e`. v1.10.0 missed it by 47 s. Never hit, never fixed.
 - **Forbidden**: bare `zig build test` without `-Dwasm`; bare `zig build` for a
   probe (use ReleaseSafe). The FULL gate runs `--serial-e2e`, ALONE; never a
   concurrent build during a gate. `.claude/**` edits + cross-repo publishes may
@@ -47,19 +53,15 @@
 
 ## Current state (details = CHANGELOG + git log)
 
-- **Issues and PRs are DISABLED and always were** (deliberate — the
-  maintainer cannot service them); **Discussions is the one channel**, and
-  outside contributors send branches to cherry-pick. CONTRIBUTING exempts
-  them from the loop's own conventions, so a contributed commit is taken
-  as-is with authorship preserved and any missing `Smell-audited:` line
-  amended in. Debug tooling: `scripts/check_*.sh` headers are each their
-  own SSOT — read the script, not a list here.
-- **2026-08-12: the README declares ClojureWasm no longer maintained**
-  (`1c8a9cbf`); the Sponsors badge, README footer line, and `.github/FUNDING.yml`
-  are gone with it. Issues/PRs were always disabled — Discussions is the one
-  channel. Wind-down context + the surveyed wording/transfer research:
-  memory `clojurewasm-wind-down-plan`, `private/notes/2026-08-11-{sunset-wording,
-  transfer-risk}-survey.md`.
+- **Issues, PRs and Discussions are all OPEN here** (they were disabled
+  upstream, so contributions used to arrive as branches to cherry-pick).
+  CONTRIBUTING exempts outside contributors from the loop's own conventions:
+  a contributed commit is taken as-is with authorship preserved and any
+  missing `Smell-audited:` line amended in. Debug tooling:
+  `scripts/check_*.sh` headers are each their own SSOT — read the script.
+- Upstream's own wind-down (`1c8a9cbf` README notice, Sponsors + FUNDING.yml
+  removed, Discussion #15) is history now; `956c34ee` replaced that notice
+  with the fork's.
 - 2026-08-11/12: Discussions #12/#13/#14 (BuddhiLW) answered in code — three
   fix branches cherry-picked with authorship preserved, each one's CLASS then
   swept and fenced. #12 repr-misread → 3 more live bugs (multimethod isa? at 9
@@ -74,8 +76,8 @@
 
 - **D-565** — external-contributor reproducibility sweep (Discussion #11).
   Items (1)-(6) DISCHARGED 2026-08-04; the ledger row carries what each was.
-  Residual: (7) survey-workflow setup notes, (8) handover pointing at
-  gitignored `private/notes/` recipes. Companion: zwasm D-526.
+  Residuals (7)/(8) both point into upstream's gitignored `private/notes/`,
+  which did not come with the fork — treat as unreachable, not pending.
 
 - **Perf campaign (§9.2.S) — PAUSED** (D-520 / D-386 / D-005/006). **D-513**
   item (1) `clojure.core.reducers` is the only remaining piece (repl + var :doc
