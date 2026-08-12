@@ -36,10 +36,20 @@ active:
         2. Turn each survivor into a test in the layer that should have caught
            it — a survivor in a comparison is usually a missing property, a
            survivor in a rendering path is usually a missing golden case.
-        3. Extend Layer 7 past the collections: print/read round-trip
-           (`pr-str` then `read-string` is the identity on every printable
-           value) is the highest-value next property, since it crosses reader,
-           printer and value representation in one law.
+        3. Extend Layer 7 past the collections. The obvious next law —
+           `read-string` after `pr-str` is the identity — canNOT be written at
+           the Zig level as the code stands: `reader.readAll` yields `Form`
+           (syntax) while `print.printResult` consumes `Value` (runtime), so
+           the two are not inverses of each other and nothing in between is
+           exposed. Either drive it through the evaluator (making it a
+           Clojure-level generative test, seeded so the gate stays
+           deterministic) or take `serialize.serializeChunk` /
+           `deserializeChunk`, which ARE a genuine inverse pair — at the cost
+           of a generator for well-formed BytecodeChunks, which is the real
+           work in that option.
+        4. `scripts/check_adr_history.sh` fails on 101 pre-existing ADRs and is
+           wired into NO gate. Either wire it and fix them, or delete it; a
+           check nothing runs is a check nobody trusts.
       Do NOT chase the 120 untested files as a number: the sweep ranks them by
       whether an unconstrained line there would matter, which a file count
       cannot.
