@@ -24,6 +24,26 @@
 # md-table-align no longer pads it to ~800 KB of whitespace.
 
 active:
+  - id: "D-577"
+    status: "open (2026-08-12, ADR-0186 residual). The three new layers are OPEN but shallow: golden covers 20 programs, property covers map/set/vector only, and no mutation sweep has been run against a committed baseline yet, so the mutation score of this suite is unmeasured. 120 of 265 src files still carry no inline test at all."
+    category: "test"
+    barrier: |-
+      Not a design question, a queue. Drain in this order, because each step
+      tells you where the next one should point:
+        1. Run the first sweep (`scripts/mutation/run.sh --targets-from
+           .dev/mutation_targets.txt --budget 15`) and commit the report. Until
+           a sweep has run, "the suite is good" is an impression.
+        2. Turn each survivor into a test in the layer that should have caught
+           it — a survivor in a comparison is usually a missing property, a
+           survivor in a rendering path is usually a missing golden case.
+        3. Extend Layer 7 past the collections: print/read round-trip
+           (`pr-str` then `read-string` is the identity on every printable
+           value) is the highest-value next property, since it crosses reader,
+           printer and value representation in one law.
+      Do NOT chase the 120 untested files as a number: the sweep ranks them by
+      whether an unconstrained line there would matter, which a file count
+      cannot.
+    last_reviewed: "2026-08-12"
   - id: "D-574"
     status: "open (2026-08-06, ADR-0184 residual). reify's anonymous TypeDescriptor is trackHeap'd per EVALUATION (lang/primitive/protocol.zig makeReifyDescriptor path) — the same immortality shape ADR-0184 killed for Functions, in miniature: a reify form evaluated in a loop grows persistent_marks + leaks a TD per iteration. The fix shape mirrors ADR-0184: make the anonymous TD (or a TD cell) collectable, instance-mediated trace already exists (traceReifiedInstance); audit method_table readers for a dead-TD window first (freeReifyDescriptor currently only touches names)."
     category: "gc"

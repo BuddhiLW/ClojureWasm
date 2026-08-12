@@ -26,24 +26,29 @@
   `BuddhiLW/homebrew-tap` (`brew install buddhilw/tap/cljw`), and `1.x`
   continues from v1.10.0. PERF CAMPAIGN (D-450) stays **stopped** — findings
   remain in the row as a record.
-- **Release path: PROVEN on v1.10.1** (2026-08-12) — artifacts built by this
-  repo, both sidecar checksums recomputed and matched, the Linux binary run
-  (`--version` = 1.10.1), `brew install buddhilw/tap/cljw` + `brew test` +
-  `brew audit --strict` green. The tap bump is now a `tap` job in
+- **Release path: PROVEN on v1.10.1** (2026-08-12) — artifacts built here,
+  both checksums matched, binary run, `brew install buddhilw/tap/cljw` +
+  `brew test` + `brew audit --strict` green. The tap bump is a `tap` job in
   `release.yml` (deploy key, secret `TAP_DEPLOY_KEY`); v1.10.1's formula was
-  written by hand, so **v1.10.2 is the first release that exercises the
-  automated bump** — watch that job.
+  hand-written, so **v1.10.2 is the first release exercising the automated
+  bump** — watch that job.
+- **Test layers 6/7/8 are OPEN** (ADR-0186): golden snapshots
+  (`test/golden/`, gated), properties (`src/testing/prop_*.zig`, in
+  `zig build test`, fixed seed — sweep with `-Dprop-seed`/`-Dprop-iters`),
+  mutation (`scripts/mutation/run.sh`, on demand, worktree-isolated, NEVER
+  gated). First task: **D-577** — run the first sweep and turn its survivors
+  into tests. No sweep has run yet, so this suite's mutation score is
+  unmeasured.
 - **HAZARD — workflows do not fire on push/tag here.** GitHub's fork default:
   every run so far came from `gh workflow run <wf> --ref <ref>`. Until the
   Actions tab's enable button is pressed once, "no run appeared" does NOT mean
   "CI passed", and a `v*` tag will not build a release by itself. Dispatch
   explicitly, or press it and delete this bullet.
 - **Unreleased on main**: nothing. CHANGELOG `[1.10.1]` is the SSOT.
-- **Release-process hazards** (both live in `.github/workflows/release.yml`):
-  cutting the GitHub release BY HAND before the tag workflow runs breaks the
-  artifact upload (zwasm #160), and `gh release view || gh release create` is
-  TOCTOU across the two matrix legs — simultaneous, the loser dies on "already
-  exists" under `set -e`. v1.10.0 missed it by 47 s. Never hit, never fixed.
+- **Release-process hazards** (`.github/workflows/release.yml`): hand-cutting
+  the release before the tag workflow breaks artifact upload (zwasm #160); and
+  `gh release view || gh release create` is TOCTOU across the matrix legs —
+  v1.10.0 missed it by 47 s. Never hit, never fixed.
 - **Forbidden**: bare `zig build test` without `-Dwasm`; bare `zig build` for a
   probe (use ReleaseSafe). The FULL gate runs `--serial-e2e`, ALONE; never a
   concurrent build during a gate. `.claude/**` edits + cross-repo publishes may
@@ -62,15 +67,10 @@
 - Upstream's own wind-down (`1c8a9cbf` README notice, Sponsors + FUNDING.yml
   removed, Discussion #15) is history now; `956c34ee` replaced that notice
   with the fork's.
-- 2026-08-11/12: Discussions #12/#13/#14 (BuddhiLW) answered in code — three
-  fix branches cherry-picked with authorship preserved, each one's CLASS then
-  swept and fenced. #12 repr-misread → 3 more live bugs (multimethod isa? at 9
-  defmethods, http client/server 9-entry headers, error_render context) +
-  `check_repr_decode.sh`; #13/#14 entry-point divergence → `cljw repl`'s
-  `[-cp][-A]` surface, `cljw build`'s missing top-level-`do` unroll,
-  `check_entrypoint_surface.sh` + `test/e2e/entrypoint_eval_parity.sh` (a
-  6-entry-point differential oracle). D-374's discharge was a listed-not-probed
-  claim; corrected in place. Endgame row = D-576.
+- 2026-08-11/12: Discussions #12/#13/#14 answered in code; each one's CLASS
+  then swept and fenced (`check_repr_decode.sh`,
+  `check_entrypoint_surface.sh`, `test/e2e/entrypoint_eval_parity.sh`).
+  Details in CHANGELOG [1.10.0]. Endgame row = D-576.
 
 ## Standing units (tracked in .dev/debt.yaml)
 
