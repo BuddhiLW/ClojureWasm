@@ -7,6 +7,81 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 
 ## [Unreleased]
 
+The fork's first runtime changes. All of them were found by driving
+[malli](https://github.com/metosin/malli) through the
+`test/conformance/verified_projects/` probe loop — malli is the first schema
+library on the ladder, and the blockers it surfaced are general capabilities,
+not malli accommodations (F-013).
+
+### Fixed
+
+- **Macro expansion no longer drops symbol metadata.** `formToValue` attaches a
+  symbol's `^meta` to the symbol Value (ADR-0110), but `valueToForm` rebuilt only
+  `{ns, name}` — so every macro-produced form silently shed type hints,
+  `^:private`, `^:const`, `^:dynamic`, and the `^:volatile-mutable` /
+  `^:unsynchronized-mutable` deftype field markers. The visible symptom was a
+  `deftype` whose method `set!`s a mutable field failing to resolve that field
+  when, and only when, a macro emitted the form:
+
+  ```clojure
+  (defmacro mm [x] x)
+  (mm (deftype E [^:volatile-mutable c]
+        clojure.lang.IDeref (deref [_this] (do (set! c 9) c))))
+  ;; was: Name error: Unable to resolve symbol: 'c'
+  ```
+
+  Writing the identical `deftype` literally worked, which is what isolated the
+  fault to the Value↔Form round trip rather than to `deftype` or to `set!`.
+
+### Added
+
+- **`(instance? my.ns.MyProtocol x)`** — a protocol named by the interface name
+  `defprotocol` generates on the JVM now resolves, including the package-segment
+  demunge, so `my_ns.core.Q` finds the protocol in `my-ns.core`. Bare `P` and
+  `alias/P` already worked; only the dotted form was unreachable.
+- **`monitor-enter` / `monitor-exit`** in `clojure.core` — the two halves
+  `locking` was already built from, on the same object monitor.
+- **`clojure.lang.LazilyPersistentVector`** — `createOwning` / `create`.
+- **`clojure.lang.PersistentArrayMap`** — `createWithCheck` (throws
+  `IllegalArgumentException` on a duplicate key) / `create`.
+- **`clojure.lang.Murmur3/hashLong`** and **`/hashInt`** — the implementations
+  already existed in `hash.zig`; only the surface entries were missing.
+- **`java.util.ArrayDeque`** — `push` / `pop` / `peek` / `poll` / `addFirst` /
+  `addLast` / `removeFirst` / `removeLast` / `peekFirst` / `peekLast` / `size` /
+  `isEmpty` / `clear`, plus `seq` and `count`.
+- **`java.util.concurrent.TimeUnit`** — the seven constants as host-enum
+  singletons (ADR-0161 registry), plus `.name` / `.toString` / `.toMillis` /
+  `.toNanos`.
+- **`java.lang.reflect.Array`** — `newInstance` / `getLength`. AD-031: the
+  component-type argument is ignored, since cljw arrays are Object[] (ADR-0105).
+- **`java.util.HashMap`** — the `(int, float)` sizing constructor and `.putAll`.
+- **`java.util.AbstractList` / `java.util.Vector`** resolve as opaque classes
+  (ADR-0109), so a library branching on them loads with that branch correctly
+  dead. `java.util.ArrayList` declares `AbstractList` among its host supertypes,
+  so `instance?` stays JVM-faithful for the one cljw does have values of.
+- **`InterruptedException`, `TimeoutException`, `ExecutionException`** are now
+  known catch classes. cljw has no interrupts and never throws them, so the
+  clauses are dead by construction — but portable code guarding a bounded wait
+  now loads instead of failing analysis.
+
+### Internal
+
+- `data/core_surface_extras.txt` regenerated, 104 → 106 names: `monitor-enter`
+  and `monitor-exit` are a deliberate addition to clojure.core's extra public
+  surface (AD-057). No name was removed.
+- `scripts/check_core_surface.sh` pins `LC_ALL=C`. `sort`/`comm` were collating
+  under the caller's locale, so the ledger regenerated to a different order on
+  different machines — 16 lines of reordering noise around 2 real ones, in the
+  one diff the gate exists to keep readable.
+- `test/e2e/phase15_ns_import.sh` uses `java.util.ServiceLoader` as its
+  unimplemented-class fixture. It had used `ArrayDeque`, which this release
+  implements — the same way it previously used HashSet/TreeSet before D-431.
+  `ServiceLoader` is classloader-driven, so a JVM-free runtime will not
+  implement it and the fixture cannot go stale again.
+- `test/e2e/phase16_gc_torture.sh` sets and clears environment variables with
+  bash builtins instead of `env`, which is hijackable by a `~/.local/bin/env`
+  on PATH.
+
 ## [1.10.1] - 2026-08-12
 
 **The first release of the maintained fork.** It carries no runtime change —

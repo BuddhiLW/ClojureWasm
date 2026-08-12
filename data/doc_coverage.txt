@@ -138,6 +138,8 @@ clojure.core/chunk-rest
 clojure.core/chunked-seq?
 clojure.core/destructure
 clojure.core/import*
+clojure.core/monitor-enter
+clojure.core/monitor-exit
 clojure.core/print-method
 clojure.core/queue?
 clojure.core/re-find-all

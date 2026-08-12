@@ -90,6 +90,12 @@ pub const ENTRIES = [_]Entry{
     .{ .name = "ReflectiveOperationException", .parent = "Exception" },
     .{ .name = "ClassNotFoundException", .parent = "ReflectiveOperationException" },
 
+    // Checked concurrency family: caught (never thrown — cljw has no interrupts)
+    // by portable code guarding a bounded wait.
+    .{ .name = "InterruptedException", .parent = "Exception" },
+    .{ .name = "TimeoutException", .parent = "Exception" },
+    .{ .name = "ExecutionException", .parent = "Exception" },
+
     .{ .name = "RuntimeException", .parent = "Exception" },
     .{ .name = "ArithmeticException", .parent = "RuntimeException" },
     .{ .name = "ClassCastException", .parent = "RuntimeException" },
@@ -125,6 +131,9 @@ const FQCN_MAP = std.StaticStringMap([]const u8).initComptime(.{
     .{ "java.lang.NumberFormatException", "NumberFormatException" },
     .{ "java.lang.IllegalStateException", "IllegalStateException" },
     .{ "java.util.concurrent.CancellationException", "CancellationException" },
+    .{ "java.lang.InterruptedException", "InterruptedException" },
+    .{ "java.util.concurrent.TimeoutException", "TimeoutException" },
+    .{ "java.util.concurrent.ExecutionException", "ExecutionException" },
     .{ "java.lang.IndexOutOfBoundsException", "IndexOutOfBoundsException" },
     .{ "java.lang.NullPointerException", "NullPointerException" },
     .{ "java.lang.UnsupportedOperationException", "UnsupportedOperationException" },
@@ -163,6 +172,11 @@ pub fn isKnownException(class_name: []const u8) bool {
 /// false (clj-faithful: a cljw int IS a Long, not an Integer) and lets libs that
 /// branch on these JVM classes load with the JVM-class branch correctly dead.
 /// `Character`/`Boolean` are NOT here — cljw models those as real types.
+///
+/// The java.util entries are the same shape for a different reason: concrete JVM
+/// collection classes cljw has no values of. A surface class that IS one of their
+/// subtypes still matches through its `host_supertypes` (java.util.ArrayList
+/// declares java.util.AbstractList), so membership stays JVM-faithful.
 const OPAQUE_CLASSES = std.StaticStringMap(void).initComptime(.{
     .{"java.math.BigInteger"},
     .{"Integer"},
@@ -173,6 +187,8 @@ const OPAQUE_CLASSES = std.StaticStringMap(void).initComptime(.{
     .{"java.lang.Byte"},
     .{"Float"},
     .{"java.lang.Float"},
+    .{"java.util.AbstractList"},
+    .{"java.util.Vector"},
 });
 
 /// True iff `class_name` is a recognised OPAQUE host class (ADR-0109). Such a

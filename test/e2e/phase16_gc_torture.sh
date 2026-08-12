@@ -293,7 +293,7 @@ assert_eq 'analysis_const_root' "$("$BIN" -e '(defmacro m [x] x) (deftype T [] O
 # recursive mark descended the whole chain on the native stack. Runs WITHOUT
 # torture: the trigger is the NORMAL threshold collect, and per-back-edge
 # collects would make 1M realizations quadratic.
-assert_eq 'deep_chain_mark' "$(env -u CLJW_GC_TORTURE "$BIN" -e '(count (repeat 1000000 1))')" '1000000'
+assert_eq 'deep_chain_mark' "$(unset CLJW_GC_TORTURE; "$BIN" -e '(count (repeat 1000000 1))')" '1000000'
 
 # --- ADR-0184: Functions are collectable GC cells ---
 # (a) loop-created closures DIE; the live one survives + still runs. Before
@@ -310,6 +310,6 @@ assert_eq 'self_recursive_survives' "$("$BIN" -e '(let [a [7]] (letfn [(go [n] (
 # (CLJW_GC_TORTURE_ALLOC=1 = collect at every gc.alloc). The callee root must
 # be live BEFORE the binder runs, or the rest-cons alloc sweeps the executing
 # fn out from under its own binding.
-assert_eq 'variadic_callee_rooted_before_bind' "$(env CLJW_GC_TORTURE_ALLOC=1 "$BIN" -e '(reduce + (apply (fn [& xs] xs) [1 2 3 4 5]))')" '15'
+assert_eq 'variadic_callee_rooted_before_bind' "$(CLJW_GC_TORTURE_ALLOC=1 "$BIN" -e '(reduce + (apply (fn [& xs] xs) [1 2 3 4 5]))')" '15'
 
 echo "ALL phase16_gc_torture PASS"

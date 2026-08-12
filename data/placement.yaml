@@ -24,8 +24,8 @@
 schema_version: "2.0"
 summary:
   namespaces_required: 32
-  total: 1353
-  zig: 394
+  total: 1355
+  zig: 396
   clj: 748
   value: 205
   unbound: 6
@@ -591,6 +591,8 @@ vars:
   "clojure.core/min-key": { impl: clj, flags: "-" }
   "clojure.core/mix-collection-hash": { impl: zig, flags: "-" }
   "clojure.core/mod": { impl: zig, flags: "-" }
+  "clojure.core/monitor-enter": { impl: zig, flags: "-" }
+  "clojure.core/monitor-exit": { impl: zig, flags: "-" }
   "clojure.core/name": { impl: zig, flags: "-" }
   "clojure.core/namespace": { impl: zig, flags: "-" }
   "clojure.core/namespace-munge": { impl: clj, flags: "-" }

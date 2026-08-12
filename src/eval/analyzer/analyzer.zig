@@ -711,7 +711,34 @@ pub fn resolveClassValue(rt: *Runtime, env: *Env, sym_ns: ?[]const u8, sym_name:
     if (!std.mem.eql(u8, simple, cname)) {
         if (rt.types.get(simple)) |td| return try type_descriptor.makeTypeDescriptorRef(rt, td);
     }
+    // A protocol under its clj interface name: `(defprotocol P)` in ns `a.b` is
+    // referenced as `a.b.P`.
+    if (std.mem.findScalarLast(u8, cname, '.')) |dot| {
+        if (protocolByInterfaceName(env, cname[0..dot], cname[dot + 1 ..])) |pv| return pv;
+    }
     return null;
+}
+
+/// The protocol value `pname` names in namespace `ns_name`, retried with `_`
+/// read back as `-` (clj munges the package segment). Null when the namespace
+/// or the Var is absent, or the Var holds a non-protocol.
+fn protocolByInterfaceName(env: *Env, ns_name: []const u8, pname: []const u8) ?Value {
+    if (protocolVarIn(env, ns_name, pname)) |v| return v;
+    if (std.mem.indexOfScalar(u8, ns_name, '_') == null) return null;
+    var buf: [256]u8 = undefined;
+    if (ns_name.len > buf.len) return null;
+    @memcpy(buf[0..ns_name.len], ns_name);
+    for (buf[0..ns_name.len]) |*c| {
+        if (c.* == '_') c.* = '-';
+    }
+    return protocolVarIn(env, buf[0..ns_name.len], pname);
+}
+
+fn protocolVarIn(env: *Env, ns_name: []const u8, pname: []const u8) ?Value {
+    const ns = env.findNs(ns_name) orelse return null;
+    const v = ns.resolve(pname) orelse return null;
+    const val = v.deref();
+    return if (val.tag() == .protocol) val else null;
 }
 
 // --- Symbol resolution ---
@@ -1516,7 +1543,18 @@ pub fn valueToForm(
         .float => .{ .data = .{ .float = v.asFloat() }, .location = call_loc },
         .symbol => blk: {
             const sym = symbol_mod.asSymbol(v);
-            break :blk .{ .data = .{ .symbol = .{ .ns = sym.ns, .name = sym.name } }, .location = call_loc };
+            var form: Form = .{ .data = .{ .symbol = .{ .ns = sym.ns, .name = sym.name } }, .location = call_loc };
+            // The Form→Value direction attaches a symbol's `^meta` (ADR-0110);
+            // carry it back so a macro that passes a metadata-bearing symbol
+            // through — a type hint, `^:private`, a deftype field's
+            // `^:volatile-mutable` — does not silently shed it.
+            const m = symbol_mod.metaOf(v);
+            if (m != .nil_val) {
+                const meta_form = try arena.create(Form);
+                meta_form.* = try valueToForm(arena, rt, env, m, call_loc);
+                form.meta = meta_form;
+            }
+            break :blk form;
         },
         .keyword => blk: {
             const kw = keyword.asKeyword(v);

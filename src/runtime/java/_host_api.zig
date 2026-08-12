@@ -109,6 +109,7 @@ const java_surfaces = [_]type{
     // (method_table empty) — D-105.
     @import("time/ZonedDateTime.zig"),
     @import("util/ArrayList.zig"),
+    @import("util/ArrayDeque.zig"),
     @import("util/HashMap.zig"),
     @import("util/HashSet.zig"),
     @import("util/TreeSet.zig"),
@@ -124,6 +125,8 @@ const java_surfaces = [_]type{
     // Matcher's backing impl is shipped by Pattern's regex/match.zig.
     @import("util/regex/Matcher.zig"),
     @import("util/regex/Pattern.zig"),
+    @import("util/concurrent/TimeUnit.zig"),
+    @import("lang/reflect/Array.zig"),
 };
 
 /// The third surface tree (ADR-0108): `clojure.lang.*` runtime internals that
@@ -140,6 +143,8 @@ const clojure_surfaces = [_]type{
     @import("../clojure/lang/APersistentMap.zig"),
     @import("../clojure/lang/APersistentSet.zig"),
     @import("../clojure/lang/Murmur3.zig"),
+    @import("../clojure/lang/LazilyPersistentVector.zig"),
+    @import("../clojure/lang/PersistentArrayMap.zig"),
 };
 
 /// Walk every enumerated surface's `___HOST_EXTENSION` declaration,

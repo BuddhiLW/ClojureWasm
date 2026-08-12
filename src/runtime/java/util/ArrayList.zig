@@ -316,7 +316,7 @@ var descriptor: type_descriptor.TypeDescriptor = .{
     .method_table = &.{},
     .static_fields = &.{},
     // List + Collection + Iterable (Collection extends Iterable). D-466 follow-up.
-    .host_supertypes = &.{ "java.util.List", "java.util.Collection", "java.lang.Iterable" },
+    .host_supertypes = &.{ "java.util.List", "java.util.AbstractList", "java.util.Collection", "java.lang.Iterable" },
     .print_content = printContent,
     .parent = null,
     .meta = .nil_val,

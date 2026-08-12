@@ -39,6 +39,7 @@ replacing corpus copies + hand-laid `-cp`. Verified end-to-end: **medley** loads
 | 13   | clj-time                   | n/a           | 5           | not-probed | not pure (joda-time Java dep) — out of pure ladder, kept as a boundary marker                                                                                                                                                                                                                                                                                                                                                                                         |
 | 14   | core.async                 | master        | 5           | not-probed | NEEDS-ROW: threads / executors / go-macro state machine (Campaign Stage 1.7 Phase B)                                                                                                                                                                                                                                                                                                                                                                                   |
 | 15   | next.jdbc                  | n/a           | 5           | not-probed | not pure (java.sql.* JDBC) — out of pure ladder, boundary marker                                                                                                                                                                                                                                                                                                                                                                                                      |
+| 16   | metosin/malli              | master (cljc) | 2           | verified   | NOW a committed verified_project (2026-08-12): validate/explain over predicate, `:map`, `:vector`, `:maybe`, `:enum` and sequence-regex (`:cat`) schemas, plus `explicit-keys`. Nine sequential blockers, every fix general — see the rung note below. First SCHEMA library on the ladder, and the one that unblocks a schema-first consumer stack.                                                                                                                     |
 
 ## Notes per rung
 
@@ -48,6 +49,22 @@ replacing corpus copies + hand-laid `-cp`. Verified end-to-end: **medley** loads
   cljw's `clojure.core` surface (protocols, records, transducers, sorted
   collections, metadata, regex, reduce-kv) covers a real pure-Clojure library
   end to end.
+- **Rung 16 (malli, verified):** nine sequential blockers, discovered one per
+  re-probe. Eight were surface gaps — `LazilyPersistentVector/createOwning`,
+  `PersistentArrayMap/createWithCheck`, `Murmur3/hashLong`,
+  `java.lang.reflect.Array/newInstance`, `java.util.ArrayDeque`,
+  `java.util.concurrent.TimeUnit`, `HashMap`'s `(int, float)` ctor + `.putAll`,
+  and `AbstractList`/`Vector` as opaque classes. Two were deeper: `instance?`
+  could not resolve a protocol by the interface name `defprotocol` generates
+  (`malli.registry.Registry`), and **`valueToForm` dropped symbol metadata on
+  macro expansion's return leg** — a general fault that shed type hints,
+  `^:private` and mutable-field markers from every macro-produced form, found
+  only because malli's transitive dep `borkdude/dynaload` happens to `set!` a
+  `^:volatile-mutable` field from a macro-emitted `deftype`.
+  Two lessons worth carrying: a lib's own transitive deps (`dynaload` here) are
+  part of its blocker chain and need their coord in the project's `deps.edn`;
+  and a blocker that appears three layers from its cause is bisected by asking
+  which construct works when written literally and fails when a macro emits it.
 - **Rung 8 (cuerdas, partial → Pattern/quote landed):** loads after its
   `cuerdas.regexp` dependency is laid out, but `capitalize` (and other fns) hit
   `(java.util.regex.Pattern/quote ...)` — a static Java-class method call cljw
