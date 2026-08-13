@@ -19,8 +19,7 @@
 ;; deftest VAR's :file/:line meta (D-563b) where clj reads the failing
 ;; assertion's stack frame (deftest-line vs is-line — the narrowed AD-041);
 ;; `report :error` cannot print a JVM cause trace (also AD-041). Deferred:
-;; per-var lifecycle events (begin/end-test-var, end-test-ns), use-fixtures,
-;; with-test.
+;; per-var lifecycle events (begin/end-test-var, end-test-ns), with-test.
 
 (ns clojure.test
   (:refer-clojure)
@@ -46,6 +45,11 @@
 
 ;; ns-name-symbol -> vector of test Vars (deftest appends; run-tests reads).
 (def *test-registry* (atom {}))
+
+;; ns-name-symbol -> {:once [fixture-fn …] :each [fixture-fn …]}. clj hangs
+;; these off the ns's metadata; cljw namespaces carry no user metadata, so the
+;; registry mirrors *test-registry* and is keyed the same way.
+(def *fixture-registry* (atom {}))
 
 ;; ---------------------------------------------------------------------------
 ;; report multimethod (keyed on :type) + do-report. `^:dynamic` so an
@@ -241,13 +245,53 @@
             (fn [v#] (conj (or v# []) (var ~name))))
      (var ~name)))
 
+;; ---------------------------------------------------------------------------
+;; Fixtures. A fixture is a function of one 0-arg thunk: it does its setup,
+;; calls the thunk, and does its teardown. `:once` wraps a whole namespace's
+;; run, `:each` wraps every individual test.
+;; ---------------------------------------------------------------------------
+(defn default-fixture
+  "The identity fixture — calls `f` and nothing else."
+  [f]
+  (f))
+
+(defn compose-fixtures
+  "One fixture running `f1` outside `f2`."
+  [f1 f2]
+  (fn [g] (f1 (fn [] (f2 g)))))
+
+(defn join-fixtures
+  "The fixtures composed into a single fixture, applied left to right."
+  [fixtures]
+  (reduce compose-fixtures default-fixture fixtures))
+
+(defn use-fixtures
+  "Register `fns` as `:once` (per namespace) or `:each` (per test) fixtures
+  for the current namespace. Called at load time, like clj's."
+  [fixture-type & fns]
+  (swap! *fixture-registry* update (ns-name *ns*)
+         (fn [m] (update (or m {}) fixture-type (fn [v] (into (or v []) fns)))))
+  nil)
+
+(defn- fixtures-for [ns-sym kind]
+  (join-fixtures (get (get (deref *fixture-registry*) ns-sym) kind)))
+
 (defn test-var [v]
   (when v
     (binding [*testing-vars* (conj *testing-vars* v)]
       ;; Emit the per-var report events (clj parity) so a reporter that wraps
       ;; each test — clojure.test.junit's <testcase>, custom reporters — fires.
       (do-report {:type :begin-test-var :var v})
-      ((deref v))
+      ;; clj parity: an exception thrown OUTSIDE an `is` is that test's error,
+      ;; not the run's. Without this catch a single bad test aborts every
+      ;; remaining test in the run.
+      (try
+        ((deref v))
+        (catch Throwable e
+          (do-report {:type :error
+                      :message "Uncaught exception, not in assertion."
+                      :expected nil
+                      :actual e})))
       (do-report {:type :end-test-var :var v}))))
 
 (defn run-tests [& ns-syms]
@@ -255,9 +299,12 @@
     (binding [*report-counters* (atom *initial-report-counters*)]
       (doseq [ns-sym targets]
         (do-report {:type :begin-test-ns :ns ns-sym})
-        (doseq [v (get (deref *test-registry*) ns-sym)]
-          (swap! *report-counters* update :test inc)
-          (test-var v))
+        (let [each-fixture (fixtures-for ns-sym :each)]
+          ((fixtures-for ns-sym :once)
+           (fn []
+             (doseq [v (get (deref *test-registry*) ns-sym)]
+               (swap! *report-counters* update :test inc)
+               (each-fixture (fn [] (test-var v)))))))
         ;; clj parity: emit :end-test-ns so a reporter that brackets a namespace
         ;; (junit's </testsuite>, custom reporters) fires.
         (do-report {:type :end-test-ns :ns ns-sym}))
