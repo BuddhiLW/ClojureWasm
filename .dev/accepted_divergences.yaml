@@ -987,3 +987,39 @@ accepted:
     example: '(let [s (java.util.concurrent.Semaphore. 1 true)] (.isFair s)) => true, yet a thread that has waited longer has no priority over a newcomer, unlike the JVM.'
     derives_from: "ADR-0029 (host surface registry) + ADR-0106 (host_instance state) + the budgeted-sleep wait Thread/sleep owns (D-442 / D-571)."
     pin: "test/e2e/semaphore.sh — isFair_records_flag (the flag round-trips) + queue_length_while_parked (a parked waiter is counted, and the permit is handed over)."
+  - id: "AD-062"
+    area: "concurrency"
+    summary: |-
+      `java.util.concurrent.atomic.AtomicInteger` does NOT truncate to 32 bits.
+      cljw has one integer width, so AtomicInteger and AtomicLong share a
+      backing impl over the same `host_instance` word: `.incrementAndGet` at
+      `Integer/MAX_VALUE` yields 2147483648 where the JVM wraps to
+      `Integer/MIN_VALUE`. Arithmetic saturates at the i64 ends rather than
+      wrapping, matching what cljw's own integer ops already do.
+      Emulating 32-bit wraparound would mean introducing a narrower integer
+      cljw has nowhere else, so a value read back out of the atomic would not
+      behave like any other cljw integer. Overflow-dependent code is rare;
+      code that reads a counter is not.
+    example: '(let [a (java.util.concurrent.atomic.AtomicInteger. Integer/MAX_VALUE)] (.incrementAndGet a)) => cljw 2147483648 / clj -2147483648'
+    derives_from: "ADR-0059 (no JVM) + cljw's single i64 integer width (D-165 Long/BigInt origins)."
+    pin: "test/e2e/concurrent_atomics.sh — atomicinteger_no_32bit_truncation."
+  - id: "AD-063"
+    area: "runtime"
+    summary: |-
+      `(.totalMemory r)` / `(.freeMemory r)` / `(.maxMemory r)` answer from
+      cljw's own mark-sweep accounting, not from a JVM heap that does not
+      exist. `totalMemory` is the live set or the adaptive collect threshold,
+      whichever is larger (cljw keeps no reserved-but-unused pool, so the
+      threshold is the honest analogue of committed heap); `freeMemory` is the
+      headroom between them; `maxMemory` is the per-eval ceiling
+      `CLJW_EVAL_MAX_HEAP_MB` sets (ADR-0125), or `Long/MAX_VALUE` when the
+      heap is unmetered.
+      The consequence worth stating: on an unmetered cljw a used/max heap-
+      pressure ratio reads ~0 and a pressure monitor never fires. That is
+      TRUE — an unmetered heap has no ceiling to be pressured against — and it
+      is why the reading is wired to the real ceiling rather than to a
+      fabricated constant, which would make the same monitor fire on numbers
+      that mean nothing.
+    example: 'CLJW_EVAL_MAX_HEAP_MB unset: (.maxMemory (Runtime/getRuntime)) => 9223372036854775807 (no ceiling) / with CLJW_EVAL_MAX_HEAP_MB=64 => 67108864, and the pressure ratio becomes real.'
+    derives_from: "ADR-0028 (mark-sweep + adaptive threshold) + ADR-0125 / D-352 (per-eval heap ceiling) + ADR-0059 (no JVM)."
+    pin: "test/e2e/concurrent_atomics.sh — runtime_memory_is_coherent + runtime_maxmemory_unmetered_is_exact_long."

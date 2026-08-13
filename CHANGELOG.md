@@ -21,6 +21,35 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
   through cljw: `hive-weave.gate` and `hive-weave.budget` — permit gating,
   cost-based budget admission, saturation timeouts and stats — now run on it.
 
+- **`java.util.concurrent.atomic.{AtomicLong,AtomicInteger,AtomicBoolean}`.**
+  One CAS-moved word each: `<init>` (`[v]`), `.get`, `.set`, `.lazySet`,
+  `.getAndSet`, `.compareAndSet` / `.weakCompareAndSet`, plus the numeric
+  `.incrementAndGet`, `.decrementAndGet`, `.getAndIncrement`,
+  `.getAndDecrement`, `.addAndGet`, `.getAndAdd`, `.longValue` / `.intValue`.
+  Exact under cljw's real OS threads — four threads racing 500 increments
+  apiece land 2000, not fewer. AtomicInteger does not truncate to 32 bits
+  (AD-062).
+
+- **`java.util.concurrent.TimeoutException` is constructible.** `catch` already
+  resolved the class (`host_class.zig` carries the FQCN mapping and the
+  `TimeoutException < Exception` edge); the surface adds `(TimeoutException.)`
+  / `(TimeoutException. msg)`, which is what a library needs to raise one.
+
+- **`java.lang.Runtime` reports memory.** `.totalMemory`, `.freeMemory` and
+  `.maxMemory` answer from cljw's own mark-sweep accounting and from the
+  `CLJW_EVAL_MAX_HEAP_MB` ceiling (ADR-0125) rather than from a fabricated
+  constant, so a heap-pressure monitor either reads real numbers or correctly
+  reads "no ceiling" (AD-063).
+
+### Fixed
+
+- **Host surfaces returning a large integer no longer hand back a Double.**
+  `Value.initInteger` silently converts an argument outside the NaN-boxed i48
+  range to an `f64`; an exact Long past that range must be heap-boxed through
+  `big_int.allocFromI64(rt, i, .long)`. Caught on `(.maxMemory
+  (Runtime/getRuntime))`, which returned `9.223372036854776E18` — a value that
+  fails `(= … Long/MAX_VALUE)` and poisons integer arithmetic downstream.
+
 ## [1.10.2] - 2026-08-12
 
 The fork's first runtime changes. Nearly all were found by driving
