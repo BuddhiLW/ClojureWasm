@@ -42,9 +42,40 @@ whole-collection traversal probe that checks for accidental O(n²).
 | **`next`** | **0.99** | **2164** | **2184× slower** |
 | **`list` `count`** | **0.18** | **481** | **2711× slower** |
 
-The headline is NOT "cljw is slow". The HAMT work is sound — cljw beats the JVM
-on `nth`/`assoc`/`conj`/`get`/`dissoc`. Every loss is one of two specific
-mistakes, and neither is a data-structure problem:
+### Correction: the small deltas above are NOT reliable
+
+The first table's "cljw faster" verdicts on the sub-microsecond ops were an
+artefact of too few reps and no baseline. Re-measured best-of-7 over 20000 ops
+with an empty-loop baseline subtracted (n=16000):
+
+| per 20000 ops | clj | cljw | |
+|---|---|---|---|
+| **empty `dotimes`** | **0.043** | **0.900** | **clj 21× faster** |
+| `nth` | 0.373 | 0.879 | cljw 2.4× |
+| `assoc` | 49.38 | 21.43 | cljw 2.3× |
+| map `assoc` | 73.93 | 18.77 | cljw 3.9× |
+| map `dissoc` | 2.62 | 8.15 | clj 3.1× |
+| `conj` | 1.75 | 7.62 | clj 4.4× |
+
+Two separate things, which the first table conflated:
+
+- **Interpretation speed: the JVM is far ahead.** An empty loop costs cljw 45ns
+  per iteration against the JVM's 2.2ns. That is not Zig losing to Java — it is
+  an *interpreter* (tree-walk / VM) losing to a *JIT* that has compiled the loop
+  to native code with the induction variable in a register. Nothing about the
+  collection work changes it; only a compiler would.
+- **The persistent structures themselves: same league, trading wins.** cljw is
+  ahead on `nth` and on both `assoc`es (its bump-allocating GC makes the
+  path-copy cheaper); the JVM is ahead on `conj` and `dissoc`. No 1000× effects
+  in either direction once the algorithms match.
+
+So: do not read this bench as "Zig beats the JVM". Read it as "the data
+structures are sound, and every catastrophic number below is algorithmic".
+
+### The catastrophic numbers are algorithmic, not linguistic
+
+Every loss is one of two specific mistakes, and neither is a data-structure
+problem:
 
 1. **An abstraction-barrier violation** — the Clojure layer re-implements an
    operation the Zig barrier already provides correctly. `pop` was the pure
