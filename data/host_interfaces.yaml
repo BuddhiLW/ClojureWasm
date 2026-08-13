@@ -49,6 +49,45 @@ interfaces:
       hasheq: { status: wired, wires_to: "hash consult — clj (hash x) prefers hasheq (D-280d5); hashFn consults Object/hasheq before hashCode" }
       equiv: { status: wired, wires_to: "= consult — clj collection value-equality (D-280d8); valueEqual consults Object/equiv before equals (same-type)" }
 
+  # --- java.util.concurrent functional interfaces: REIFY targets (not
+  # collection supertypes). A concurrency library hands a thread pool a
+  # ThreadFactory to mint workers and a Callable as the unit of work. These
+  # are method_family (the method IS dispatched through the reify's method
+  # table), not host_inert. They live here rather than in compat_tiers.yaml
+  # because reify rejects a class value outright ("expected protocol, got
+  # type_descriptor") — a reify-able host interface can ONLY be a marker name.
+  - name: java.util.concurrent.ThreadFactory
+    aliases: [ThreadFactory]
+    derives_from: "java.util.concurrent.ThreadFactory — the JDK's single-method worker-minting seam; the standard reify target when sizing/naming a pool's threads (java.util.concurrent, stable since 1.5)."
+    tier: A
+    recognised: true
+    note: >-
+      hive-weave.pool reifies it bare after :import; hive-weave.guarded names it
+      fully qualified inline. Both spellings carry a MARKERS row.
+    methods:
+      newThread: { status: wired, wires_to: "reify method dispatch — (.newThread tf r) resolves through the reify's own method_table; the executor tier calls it to mint each worker" }
+  - name: java.util.concurrent.Callable
+    aliases: [Callable]
+    derives_from: "java.util.concurrent.Callable — the JDK's value-returning unit of work; what ExecutorService/.submit accepts and what libraries reify (java.util.concurrent, stable since 1.5)."
+    tier: A
+    recognised: true
+    note: >-
+      cljw's executor tier also accepts a plain 0-arg fn as the unit of work
+      (clj's own submit does the IFn-is-Callable coercion); this row is for code
+      that reifies Callable explicitly.
+    methods:
+      call: { status: wired, wires_to: "reify method dispatch — (.call c) resolves through the reify's own method_table; the executor tier invokes it when the submitted work is a reified Callable rather than a fn" }
+  - name: java.lang.Runnable
+    aliases: [Runnable]
+    derives_from: "java.lang.Runnable — the JDK's void unit of work; what a Thread constructor takes and a standard reify target (java.lang, stable since 1.0)."
+    tier: A
+    recognised: true
+    note: >-
+      cljw's (Thread. f) already accepts a 0-arg fn directly; this row lets code
+      that reifies Runnable explicitly load and dispatch.
+    methods:
+      run: { status: wired, wires_to: "reify method dispatch — (.run r) resolves through the reify's own method_table" }
+
   # --- clojure.lang.* deftype/reify supertype family (the closed set; 網羅) ---
   # recognised: false → enumerated as the planned closed set, NOT yet in the
   # host_interface.zig table. D-275 slices 3+ flip each to recognised: true by

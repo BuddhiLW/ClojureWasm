@@ -41,6 +41,14 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
   constant, so a heap-pressure monitor either reads real numbers or correctly
   reads "no ceiling" (AD-063).
 
+- **`ThreadFactory`, `Callable` and `Runnable` are reify-able.**
+  `(reify java.util.concurrent.ThreadFactory (newThread [_ r] …))` — and the
+  bare spelling after `:import` — now loads and dispatches, so a library can
+  hand a pool its own worker-minting policy. They join the host-interface
+  closed set (`data/host_interfaces.yaml`, ADR-0102) rather than becoming
+  native classes, because `reify` accepts only a protocol Var or a marker name
+  and rejects a class value outright.
+
 ### Fixed
 
 - **Host surfaces returning a large integer no longer hand back a Double.**

@@ -92,6 +92,19 @@ const JAVA_UTIL_COLLECTION: HostInterface = .{ .kind = .host_inert, .canonical =
 // `.close`/`.read` on the wrapped InputStream resolve at EVAL, so the deftype loads.
 const JAVA_IO_CLOSEABLE: HostInterface = .{ .kind = .host_inert, .canonical = "java.io.Closeable" };
 
+// The java.util.concurrent functional interfaces a concurrency library REIFIES
+// (rather than declares as a collection supertype): a thread pool takes a
+// `ThreadFactory` to mint its workers and a `Callable` as the unit of work.
+// method_family, not host_inert — the method IS dispatched: `(.newThread tf r)`
+// resolves through the reify's own method table, which is how the executor tier
+// consults a caller-supplied factory. Registering them here rather than as
+// native TypeDescriptors is forced by reify itself, which rejects a class value
+// ("__reify!: expected protocol, got type_descriptor") and accepts only a
+// protocol Var or a quote-wrapped marker name.
+const THREAD_FACTORY: HostInterface = .{ .kind = .method_family, .canonical = "java.util.concurrent.ThreadFactory", .wired_methods = &.{"newThread"} };
+const CALLABLE: HostInterface = .{ .kind = .method_family, .canonical = "java.util.concurrent.Callable", .wired_methods = &.{"call"} };
+const RUNNABLE: HostInterface = .{ .kind = .method_family, .canonical = "java.lang.Runnable", .wired_methods = &.{"run"} };
+
 // protocol_remap interfaces (D-280b+): the macro rewrites each declared method to
 // its cljw (protocol, method) target. ILookup's valAt → ILookup/-lookup (a 3-arity
 // valAt collapses onto the same -lookup via D-279 multi-arity; the not-found arm is
@@ -462,6 +475,14 @@ const MARKERS = std.StaticStringMap(HostInterface).initComptime(.{
     .{ "MapEquivalence", MAP_EQUIVALENCE },
     .{ "IPersistentMap", IPERSISTENT_MAP },
     .{ "java.io.Serializable", SERIALIZABLE },
+    // Both spellings: a library `:import`s the class then reifies it bare
+    // (hive-weave.pool), or names it qualified inline (hive-weave.guarded).
+    .{ "java.util.concurrent.ThreadFactory", THREAD_FACTORY },
+    .{ "ThreadFactory", THREAD_FACTORY },
+    .{ "java.util.concurrent.Callable", CALLABLE },
+    .{ "Callable", CALLABLE },
+    .{ "java.lang.Runnable", RUNNABLE },
+    .{ "Runnable", RUNNABLE },
     // D-416 bare aliases (data.finger-tree declares these bare) — see the D-306
     // collection-base note below.
     .{ "ILookup", ILOOKUP },
