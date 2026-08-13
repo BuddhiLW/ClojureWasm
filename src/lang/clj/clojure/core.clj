@@ -671,7 +671,7 @@
         (cljw.internal/__queue-pop coll)
         (if (vector? coll)
           (if (pos? (count coll))
-            (into [] (take (dec (count coll)) coll))
+            (cljw.internal/__vector-pop coll)
             (throw (IllegalStateException. "Can't pop empty vector")))
           (if (list? coll)
             (if (seq coll)

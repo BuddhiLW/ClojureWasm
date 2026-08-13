@@ -1045,6 +1045,27 @@ pub fn queuePopFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocat
     return persistent_queue.pop(rt, args[0]);
 }
 
+/// `(__vector-pop v)` — drop the LAST element via `vector.pop`, the JVM
+/// `PersistentVector.pop()` algorithm (tail fast path, else pull the last leaf
+/// out of the trie and collapse a level if it empties): O(log32 n) and it
+/// shares structure with the parent.
+///
+/// The Clojure-level `pop` used to rebuild instead — `(into [] (take (dec
+/// (count coll)) coll))` — which is O(n) and allocates a whole fresh trie, so
+/// `pop` was ~4000x slower than clj's on a 16k vector while the correct
+/// algorithm sat in `vector.zig` reachable only from `java.util.ArrayDeque`.
+/// Empty is rejected here so `pop` keeps raising IllegalStateException.
+pub fn vectorPopFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
+    _ = env;
+    try error_catalog.checkArity("__vector-pop", args, 1, loc);
+    if (args[0].tag() != .vector)
+        return error_catalog.raise(.type_arg_invalid, loc, .{ .fn_name = "__vector-pop", .expected = "a vector", .actual = @tagName(args[0].tag()) });
+    return vector.pop(rt, args[0]) catch |e| switch (e) {
+        error.PopEmpty => error_catalog.raise(.type_arg_invalid, loc, .{ .fn_name = "__vector-pop", .expected = "a non-empty vector", .actual = "an empty vector" }),
+        else => e,
+    };
+}
+
 /// `#queue (e1 e2 …)` data-reader (ADR-0087): build a queue by conj-ing the
 /// form's elements in order. cljw extension (clj has no `#queue` reader); makes
 /// the cljw print form reader-round-trippable.
@@ -1118,6 +1139,7 @@ const ENTRIES = [_]Entry{
     .{ .name = "__kv-reduce-or", .f = &kvReduceOrFn },
     .{ .name = "queue?", .f = &queueQFn },
     .{ .name = "__queue-pop", .f = &queuePopFn },
+    .{ .name = "__vector-pop", .f = &vectorPopFn },
     .{ .name = "disj", .f = &disjFn },
     .{ .name = "contains?", .f = &containsQFn },
     .{ .name = "get", .f = &getFn },
