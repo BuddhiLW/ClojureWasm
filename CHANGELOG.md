@@ -41,6 +41,19 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
   constant, so a heap-pressure monitor either reads real numbers or correctly
   reads "no ceiling" (AD-063).
 
+- **`java.util.concurrent.LinkedBlockingQueue`.** A bounded FIFO backed by a
+  cljw vector plus a head index: `<init>` (`[capacity]`, unbounded without),
+  `.offer` (`[x]`, `[x timeout unit]`), `.put`, `.poll` (`[]`,
+  `[timeout unit]`), `.take`, `.peek`, `.size`, `.isEmpty`,
+  `.remainingCapacity`, `.remove` (`[]`, `[x]`), `.contains`, `.clear`,
+  `.toArray`, `.drainTo`. The head index is what keeps it a queue —
+  `vector.subvec` is an O(n) eager copy (D-044), so dequeuing by rebuilding
+  from index 1 would make draining a work queue quadratic; the dead prefix is
+  compacted only once it dominates the vector, which amortises to O(1). Blocking
+  waits poll through the budgeted sleep `Thread/sleep` owns, and the per-instance
+  spin lock is never held across one. `.drainTo` returns the drained elements
+  rather than filling a mutable target cljw does not have (AD-064).
+
 - **`ThreadFactory`, `Callable` and `Runnable` are reify-able.**
   `(reify java.util.concurrent.ThreadFactory (newThread [_ r] …))` — and the
   bare spelling after `:import` — now loads and dispatches, so a library can

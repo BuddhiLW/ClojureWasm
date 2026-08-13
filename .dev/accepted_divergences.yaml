@@ -1023,3 +1023,21 @@ accepted:
     example: 'CLJW_EVAL_MAX_HEAP_MB unset: (.maxMemory (Runtime/getRuntime)) => 9223372036854775807 (no ceiling) / with CLJW_EVAL_MAX_HEAP_MB=64 => 67108864, and the pressure ratio becomes real.'
     derives_from: "ADR-0028 (mark-sweep + adaptive threshold) + ADR-0125 / D-352 (per-eval heap ceiling) + ADR-0059 (no JVM)."
     pin: "test/e2e/concurrent_atomics.sh — runtime_memory_is_coherent + runtime_maxmemory_unmetered_is_exact_long."
+  - id: "AD-064"
+    area: "concurrency"
+    summary: |-
+      `(.drainTo q coll)` RETURNS the drained elements as a cljw vector and
+      empties the queue; it does not add them to `coll`, and the second
+      argument is accepted-and-ignored. On the JVM `drainTo` mutates the target
+      collection in place and returns the transferred count.
+      cljw's collections are persistent — there is no mutable target to drain
+      INTO, so the JVM signature has no faithful reading here. Returning the
+      elements is the only shape that loses no information: a caller writes
+      `(let [xs (.drainTo q [])] …)` instead of reading `coll` afterwards. The
+      arity is kept so the JVM call shape still compiles.
+      `.remove` follows the JVM instead of diverging: the 1-arity raises on an
+      empty queue (`.poll` is the nil-returning form) and the 2-arity drops the
+      first equal element and reports whether one was found.
+    example: '(let [q (java.util.concurrent.LinkedBlockingQueue. 8)] (.offer q 1) (.drainTo q [])) => cljw [1] / clj 1, with the element pushed into the (mutable) target collection.'
+    derives_from: "ADR-0059 (no JVM) + cljw persistent collections (no mutable drain target)."
+    pin: "test/e2e/linked_blocking_queue.sh — drainTo_returns_and_empties."
