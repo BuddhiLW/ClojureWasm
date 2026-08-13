@@ -7,6 +7,20 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 
 ## [Unreleased]
 
+### Added
+
+- **`java.util.concurrent.Semaphore`.** Permits live in one atomic counter and
+  move by CAS: `<init>` (`n` / `n fair?`), `.acquire` (`[n]`), `.tryAcquire`
+  (`[n]`, `[timeout unit]`, `[n timeout unit]`), `.release` (`[n]`),
+  `.availablePermits`, `.drainPermits`, `.getQueueLength`, `.hasQueuedThreads`,
+  `.isFair`. A parked caller polls through the budgeted sleep `Thread/sleep`
+  owns, so `future-cancel` and the eval budget cut the wait short instead of
+  pinning a worker for the whole timeout. Fairness is recorded but does not
+  order acquisition (AD-061). Found by driving
+  [hive-weave](https://github.com/hive-agi/hive-weave)'s admission gates
+  through cljw: `hive-weave.gate` and `hive-weave.budget` — permit gating,
+  cost-based budget admission, saturation timeouts and stats — now run on it.
+
 ## [1.10.2] - 2026-08-12
 
 The fork's first runtime changes. Nearly all were found by driving

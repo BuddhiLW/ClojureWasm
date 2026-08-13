@@ -967,3 +967,23 @@ accepted:
     example: '(re-pattern "(a)\\1") => cljw UNCATCHABLE "this regex feature … is not supported" / clj #"(a)\1" compiles and (re-matches #"(a)\1" "aa") => ["aa" "a"]'
     derives_from: "ADR-0031 (Pike-NFA, non-backtracking invariant — linear-time matching is the security property, F-002 finished form)."
     pin: "test/e2e/regex_parity_gaps.sh — backref compile raises the uncatchable unsupported signal and a (catch Throwable …) does NOT swallow it."
+  - id: "AD-061"
+    area: "concurrency"
+    summary: |-
+      `java.util.concurrent.Semaphore`'s `fair?` constructor flag is recorded
+      and reported by `.isFair`, but acquisition ALWAYS barges: a waiter takes
+      the permit it can CAS, in no particular order. The JVM's fair mode
+      guarantees FIFO hand-off through an AQS wait queue; cljw's permits live
+      in one atomic counter and a parked caller polls it through the budgeted
+      sleep that `Thread/sleep` owns (so future-cancel and the eval budget cut
+      the wait short). Building a FIFO queue would mean a second parking
+      mechanism whose abandonment path — a timed `tryAcquire` giving up mid-
+      queue — is the part that goes wrong quietly.
+      The flag is kept rather than rejected because the constructor arity is
+      what real code writes (`(Semaphore. n fair?)`), and `.isFair` answering
+      truthfully lets a caller detect the difference. Throughput and mutual
+      exclusion are unaffected; only starvation-freedom under sustained
+      contention is.
+    example: '(let [s (java.util.concurrent.Semaphore. 1 true)] (.isFair s)) => true, yet a thread that has waited longer has no priority over a newcomer, unlike the JVM.'
+    derives_from: "ADR-0029 (host surface registry) + ADR-0106 (host_instance state) + the budgeted-sleep wait Thread/sleep owns (D-442 / D-571)."
+    pin: "test/e2e/semaphore.sh — isFair_records_flag (the flag round-trips) + queue_length_while_parked (a parked waiter is counted, and the permit is handed over)."

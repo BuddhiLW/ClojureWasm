@@ -64,6 +64,18 @@ fn toNanos(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) an
         (if (n < 0) std.math.minInt(i64) else std.math.maxInt(i64)));
 }
 
+/// `n` units of `unit_val` in nanoseconds, saturating; null when `unit_val` is
+/// not a TimeUnit constant. The sole reader of NANOS_PER outside this file.
+pub fn nanosOf(unit_val: Value, n: i64) ?i64 {
+    if (unit_val.tag() != .host_instance) return null;
+    const inst = host_instance.asHostInstance(unit_val);
+    const inst_fqcn = inst.descriptor.fqcn orelse return null;
+    if (!std.mem.eql(u8, inst_fqcn, descriptor.fqcn.?)) return null;
+    const nanos = NANOS_PER[@as(usize, @intCast(inst.state[0]))];
+    return std.math.mul(i64, n, nanos) catch
+        (if (n < 0) std.math.minInt(i64) else std.math.maxInt(i64));
+}
+
 fn initDescriptor(td: *type_descriptor.TypeDescriptor, gpa: std.mem.Allocator) anyerror!void {
     if (td.method_table.len != 0) return; // idempotent
     const entries = try gpa.alloc(type_descriptor.TypeDescriptor.MethodEntry, 4);

@@ -126,6 +126,7 @@ const java_surfaces = [_]type{
     @import("util/regex/Matcher.zig"),
     @import("util/regex/Pattern.zig"),
     @import("util/concurrent/TimeUnit.zig"),
+    @import("util/concurrent/Semaphore.zig"),
     @import("lang/reflect/Array.zig"),
 };
 
