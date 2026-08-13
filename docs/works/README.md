@@ -63,9 +63,13 @@ un-cloned transitive dep (not a real cljw feature gap) is marked
 un-fetched Maven/transitive dep" — they are not cljw failures, just
 not-yet-loadable without laying the dep out.
 
-`.cljc` reader conditionals resolve to the `:clj` branch on cljw (cljw is a
-Clojure runtime, not ClojureScript), so `#?(:clj ... :cljs ...)` picks the
-JVM-shaped branch — which is exactly where the Java interop blockers live.
+`.cljc` reader conditionals resolve against the feature set
+`{:cljw, :clj, :default}` (ADR-0188). cljw is a Clojure runtime, not
+ClojureScript, so `#?(:clj ... :cljs ...)` picks the JVM-shaped branch — which
+is exactly where the Java interop blockers live. `:cljw` names *this* runtime
+for the cases where it diverges from the JVM; since branches are read
+left-to-right, it only wins where an author put it ahead of `:clj`, so an
+existing library reads exactly the branch it always did.
 
 ## How to add a library
 
