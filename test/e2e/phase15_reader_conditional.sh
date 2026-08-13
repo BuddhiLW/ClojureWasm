@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 # test/e2e/phase15_reader_conditional.sh — #? reader conditionals (D-232).
 # `#?(:clj a :cljs b :default c)` reads ONE branch by platform feature. cljw's
-# feature set is {:clj, :default} (it implements Clojure, not ClojureScript), so
-# the first :clj/:default branch (left-to-right, clj-faithful) is read; a
-# non-matching #? reads as nothing. The .cljc gate for real-world libraries
+# feature set is {:cljw, :clj, :default} — :clj because it implements Clojure
+# (not ClojureScript), :cljw so a .cljc file can name THIS runtime where it
+# diverges from the JVM (ADR-0188). The first branch whose key is in that set
+# (left-to-right, clj-faithful) is read; a non-matching #? reads as nothing.
+# The .cljc gate for real-world libraries
 # (weavejester/medley). No corpus: `clj -M -e` rejects #? without :read-cond
 # (a .cljc context); the expected values follow clj semantics. Layer 2.
 set -euo pipefail
@@ -22,6 +24,23 @@ assert_eq 'clj-branch' \
 assert_eq 'clj-branch-reordered' \
   "$("$BIN" -e '#?(:cljs 9 :clj 8)' 2>&1 | tail -1)" \
   '8'
+
+# :cljw names THIS runtime — a .cljc file records a cljw-specific expectation
+# by putting the :cljw branch AHEAD of :clj (ADR-0188)
+assert_eq 'cljw-branch' \
+  "$("$BIN" -e '#?(:cljw 1 :clj 2 :cljs 3)' 2>&1 | tail -1)" \
+  '1'
+
+# left-to-right is the whole rule: :clj first still wins, so every existing
+# .cljc keeps reading exactly the branch it read before
+assert_eq 'cljw-after-clj-loses' \
+  "$("$BIN" -e '#?(:clj 2 :cljw 1)' 2>&1 | tail -1)" \
+  '2'
+
+# a lone :cljw branch matches (no :clj / :default needed)
+assert_eq 'cljw-alone' \
+  "$("$BIN" -e '#?(:cljs 9 :cljw 4)' 2>&1 | tail -1)" \
+  '4'
 
 # :default is the fallback when there is no :clj branch
 assert_eq 'default-fallback' \
@@ -49,6 +68,11 @@ assert_eq 'no-match-ns-tail' \
 assert_eq 'splice-clj' \
   "$("$BIN" -e '[1 #?@(:clj [2 3]) 4]' 2>&1 | tail -1)" \
   '[1 2 3 4]'
+# #?@ obeys the SAME feature set as #? — a reader whose two paths disagree
+# would select different branches for the same file
+assert_eq 'splice-cljw' \
+  "$("$BIN" -e '[1 #?@(:cljw [2 3] :clj [8 9]) 4]' 2>&1 | tail -1)" \
+  '[1 2 3 4]'
 # a non-matching #?@ splices nothing
 assert_eq 'splice-no-match' \
   "$("$BIN" -e '[0 #?@(:cljs [9]) 5]' 2>&1 | tail -1)" \
@@ -62,4 +86,4 @@ assert_eq 'splice-top-level' \
   "$("$BIN" -e '#?@(:clj [1 2])' 2>&1 | grep -cm1 'only allowed inside')" \
   '1'
 
-echo "OK — phase15_reader_conditional (10 cases) green"
+echo "OK — phase15_reader_conditional (14 cases) green"

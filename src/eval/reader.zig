@@ -849,11 +849,22 @@ pub const Reader = struct {
         return Form{ .data = .nil, .location = discard_loc };
     }
 
-    /// `#?(:clj a :cljs b :default c)` reader conditional. cljw's platform
-    /// feature set is `{:clj, :default}` (it implements Clojure semantics, not
-    /// ClojureScript), so the FIRST branch whose key is `:clj` or `:default`
-    /// (scanned left-to-right, clj-faithful) is read; a non-matching `#?` reads
-    /// as nothing (like `#_` — the next form is returned).
+    /// `#?(:cljw a :clj b :cljs c :default d)` reader conditional. cljw's
+    /// platform feature set is `{:cljw, :clj, :default}` — `:clj` because it
+    /// implements Clojure semantics (not ClojureScript), `:cljw` because a
+    /// `.cljc` file must be able to name THIS runtime where it diverges from
+    /// the JVM (ADR-0188). The FIRST branch whose key is in that set (scanned
+    /// left-to-right, clj-faithful) is read, so `:cljw` only wins where the
+    /// author put it ahead of `:clj`; a non-matching `#?` reads as nothing
+    /// (like `#_` — the next form is returned).
+    /// cljw's reader-conditional platform feature set, as ONE predicate — `#?`
+    /// and `#?@` must never disagree about which branch a file selects.
+    fn isPlatformFeature(k: []const u8) bool {
+        return std.mem.eql(u8, k, "cljw") or
+            std.mem.eql(u8, k, "clj") or
+            std.mem.eql(u8, k, "default");
+    }
+
     fn readReaderConditional(self: *Reader, tok: Token) ReadError!Form {
         const loc = self.locOf(tok);
         // D-457(3): `#?` is rejected in a data-read (`read-string`) unless opted in
@@ -869,7 +880,7 @@ pub const Reader = struct {
         while (i + 1 < items.len) : (i += 2) {
             if (items[i].data == .keyword and items[i].data.keyword.ns == null) {
                 const k = items[i].data.keyword.name;
-                if (std.mem.eql(u8, k, "clj") or std.mem.eql(u8, k, "default"))
+                if (isPlatformFeature(k))
                     return items[i + 1];
             }
         }
@@ -901,7 +912,7 @@ pub const Reader = struct {
         while (i + 1 < items.len) : (i += 2) {
             if (items[i].data == .keyword and items[i].data.keyword.ns == null) {
                 const k = items[i].data.keyword.name;
-                if (std.mem.eql(u8, k, "clj") or std.mem.eql(u8, k, "default")) {
+                if (isPlatformFeature(k)) {
                     return switch (items[i + 1].data) {
                         .list => |l| l,
                         .vector => |v| v,
