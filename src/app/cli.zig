@@ -333,7 +333,8 @@ fn dispatchArgsRest(
                 \\  <file.clj>         Run the named source file as a script (no result echo).
                 \\  -                  Run stdin as a script (no result echo; heredoc-friendly).
                 \\  -cp, --classpath <dirs>  Colon-separated dirs `require` searches
-                \\                     for `.clj`/`.cljc` libs (else $CLJW_PATH, else ".").
+                \\                     for `.cljw`/`.clj`/`.cljc` libs, in that order
+                \\                     (else $CLJW_PATH, else ".").
                 \\  -A:a1:a2           Select deps.edn aliases (their :extra-paths /
                 \\                     :extra-deps join the classpath).
                 \\  -M[:a] [main-opts] Run mode: the alias :main-opts + your args via

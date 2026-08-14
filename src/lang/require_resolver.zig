@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: EPL-2.0
 //! Filesystem + chained require resolvers (ADR-0084, D-158).
 //!
-//! `filesystemResolver` maps a namespace symbol to a `.clj`/`.cljc` file on the
-//! `rt.load_paths` classpath (`foo.bar-baz` → `foo/bar_baz.clj`, JVM munge) and
+//! `filesystemResolver` maps a namespace symbol to a `.cljw`/`.clj`/`.cljc` file
+//! on the `rt.load_paths` classpath (`foo.bar-baz` → `foo/bar_baz.clj`, JVM munge) and
 //! reads its source. `chainedResolver` tries the bootstrap-embedded resolver
 //! FIRST (so clojure.core / clojure.test can never be shadowed by a stray
 //! on-disk file), then the filesystem. The CLI installs `chainedResolver` for
@@ -57,16 +57,24 @@ fn mungeNsToPath(arena: std.mem.Allocator, ns_name: []const u8) !?[]u8 {
     return buf;
 }
 
+/// Source extensions `require` probes at each classpath root, in probe order
+/// (ADR-0189). `.cljw` is cljw's own extension and is probed FIRST, so a
+/// `foo/bar.cljw` beside a `foo/bar.clj` is the file cljw loads; `.clj` and
+/// `.cljc` follow, unchanged. First hit wins — the search stops at the first
+/// readable file, and a later extension is never consulted for that root.
+pub const search_exts = [_][]const u8{ ".cljw", ".clj", ".cljc" };
+
 /// Resolve `ns_name` to source by searching `rt.load_paths` for
-/// `<dir>/<munged>.clj` then `.cljc`. Returns null when no file is found (so the
-/// chain / caller maps to `lib_not_found`); raises `lib_load_failed` when a file
-/// exists but cannot be read. Source + label live in `rt.load_arena`.
+/// `<dir>/<munged>` + each extension in `search_exts`, in that order. Returns
+/// null when no file is found (so the chain / caller maps to `lib_not_found`);
+/// raises `lib_load_failed` when a file exists but cannot be read. Source +
+/// label live in `rt.load_arena`.
 pub fn filesystemResolver(rt: *Runtime, ns_name: []const u8) anyerror!?ResolvedSource {
     const arena = rt.load_arena.allocator();
     // An empty-segment name resolves to nothing, like clj's classloader — the
     // caller maps null to `lib_not_found`.
     const rel = (try mungeNsToPath(arena, ns_name)) orelse return null;
-    const exts = [_][]const u8{ ".clj", ".cljc" };
+    const exts = search_exts;
     for (rt.load_paths) |dir| {
         for (exts) |ext| {
             const path = try std.fmt.allocPrint(arena, "{s}/{s}{s}", .{ dir, rel, ext });
@@ -127,4 +135,16 @@ test "mungeNsToPath refuses an empty namespace segment (D-343)" {
     // is exactly what a namespace is made of.
     try testing.expectEqualStrings("demo/math", (try mungeNsToPath(a, "demo.math")).?);
     try testing.expectEqualStrings("demo__math", (try mungeNsToPath(a, "demo--math")).?);
+}
+
+test "search_exts probes .cljw before .clj before .cljc (ADR-0189)" {
+    // Order IS the contract: the resolver stops at the first readable file, so
+    // a `.cljw` beside a `.clj` must be the one that loads. Pinned here rather
+    // than only end-to-end because a reordering is silent — both orders resolve
+    // every single-extension project identically, and only a project carrying
+    // BOTH files can observe the difference.
+    try testing.expectEqual(@as(usize, 3), search_exts.len);
+    try testing.expectEqualStrings(".cljw", search_exts[0]);
+    try testing.expectEqualStrings(".clj", search_exts[1]);
+    try testing.expectEqualStrings(".cljc", search_exts[2]);
 }
