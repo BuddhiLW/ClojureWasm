@@ -2,18 +2,37 @@
 # target on its NATIVE runner and attach it to the GitHub Release. Native builds
 # (not cross-compile) keep the embedded zwasm JIT's arch-specific codegen honest.
 #
-# TRIGGER: build.zig.zon's `.version` is the SSOT. Every push to main runs
-# `preflight`, which releases that version only when no release for it exists
-# yet; pushing a `v*` tag releases that tag; manual dispatch releases whatever
-# version main names (`force: true` re-releases an existing one). So a push
-# that does not bump `.version` costs one short job and does nothing.
+# TRIGGER: build.zig.zon's `.version` is the SSOT for the MAJOR.MINOR series;
+# the PATCH rolls forward on its own. Every push to main runs `preflight`:
+#
+#   * `.version` names a version that has never shipped -> release it verbatim.
+#     A MINOR or MAJOR bump is still the deliberate human act it always was:
+#     write `1.11.0` by hand and the next push ships `v1.11.0`.
+#   * `.version` names a version that HAS shipped -> this push is a patch.
+#     preflight takes the first free patch in that series, writes it back into
+#     build.zig.zon, commits it as `chore(release): vX.Y.Z` and releases THAT
+#     commit — so `cljw --version` still matches its tag with no human bump.
+#
+# A `v*` tag push releases that tag verbatim, no bumping. Manual dispatch cuts a
+# patch on demand (skipping the relevance check below); `force: true` re-releases
+# whatever `.version` currently names.
+#
+# RELEVANCE: a branch push cuts a patch only when something that can change the
+# binary moved since the last release — `src/**`, `build.zig`,
+# `.github/versions.lock`, this workflow. build.zig.zon is deliberately NOT on
+# that list: the bump commit touches it, and counting it would make each release
+# mint the next one forever. A dependency-hash-only edit to build.zig.zon rides
+# along with the next source change, or with a manual dispatch.
+#
+# The bump commit is pushed with GITHUB_TOKEN, whose pushes do not start new
+# workflow runs, so the loop is closed on that side too.
 #
 # The skip lives in `preflight` rather than in an `on.push.paths` filter
 # because a `paths` filter also applies to tag pushes, which would drop the
 # tag trigger whenever the tagged commit did not touch build.zig.zon.
 #
-# The deliberate human act is the version bump itself — the autonomous loop
-# does not edit `.version`.
+# CHANGELOG.md's `[Unreleased]` heading is NOT stamped here; the release notes
+# come from `--generate-notes` over the commits.
 #
 # NOTE (first-tag validation): the artifact build uses
 # `-Dwasm -Doptimize=ReleaseSafe -Dcpu=baseline` (baseline CPU avoids SIGILL on
@@ -41,48 +60,113 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  # Resolve the tag to release and decide whether there is anything to do.
-  # `version` comes from build.zig.zon on a branch push / dispatch, and from the
-  # ref itself on a tag push.
+  # Resolve the tag to release, auto-bumping the patch when the version
+  # build.zig.zon names has already shipped. `sha` is the commit the release is
+  # cut from: the pushed head, or the bump commit this job just made.
   preflight:
     name: preflight
     runs-on: ubuntu-22.04
-    timeout-minutes: 5
+    timeout-minutes: 10
     outputs:
       tag: ${{ steps.resolve.outputs.tag }}
+      sha: ${{ steps.resolve.outputs.sha }}
       proceed: ${{ steps.resolve.outputs.proceed }}
     steps:
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          # The relevance check diffs against the previous release tag, and the
+          # bump commit is pushed from here.
+          fetch-depth: 0
 
-      - name: Resolve the tag and check for an existing release
+      - name: Resolve the tag, bumping the patch when the series has shipped
         id: resolve
         env:
           GH_TOKEN: ${{ github.token }}
           FORCE: ${{ inputs.force }}
+          EVENT: ${{ github.event_name }}
         shell: bash
         run: |
           set -euo pipefail
+
+          emit() {
+            {
+              echo "tag=$1"
+              echo "sha=$2"
+              echo "proceed=$3"
+            } >> "$GITHUB_OUTPUT"
+          }
+          released() { gh release view "$1" >/dev/null 2>&1; }
+
+          # A tag push releases exactly that tag: no bumping, no relevance check.
           if [[ "$GITHUB_REF" == refs/tags/* ]]; then
             tag="${GITHUB_REF#refs/tags/}"
-          else
-            # Keep this reader in step with .github/versions.lock's own rule:
-            # split on the first '=' and strip quotes, no inline comments.
-            version=$(sed -n 's/^[[:space:]]*\.version[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' build.zig.zon)
-            if [[ -z "$version" ]]; then
-              echo "could not read .version from build.zig.zon" >&2
-              exit 1
+            if [[ "$FORCE" != "true" ]] && released "$tag"; then
+              echo "release $tag already exists — nothing to do"
+              emit "$tag" "$GITHUB_SHA" false
+              exit 0
             fi
-            tag="v$version"
-          fi
-          echo "tag=$tag" >> "$GITHUB_OUTPUT"
-          if [[ "$FORCE" != "true" ]] && gh release view "$tag" >/dev/null 2>&1; then
-            echo "release $tag already exists — nothing to do"
-            echo "proceed=false" >> "$GITHUB_OUTPUT"
-          else
             echo "releasing $tag"
-            echo "proceed=true" >> "$GITHUB_OUTPUT"
+            emit "$tag" "$GITHUB_SHA" true
+            exit 0
           fi
+
+          # Keep this reader in step with .github/versions.lock's own rule:
+          # split on the first '=' and strip quotes, no inline comments.
+          version=$(sed -n 's/^[[:space:]]*\.version[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' build.zig.zon)
+          if [[ -z "$version" ]]; then
+            echo "could not read .version from build.zig.zon" >&2
+            exit 1
+          fi
+
+          # The version main names has never shipped — release it as written.
+          # This is the hand-written MINOR/MAJOR bump, and `force` re-cuts it.
+          if [[ "$FORCE" == "true" ]] || ! released "v$version"; then
+            echo "releasing v$version as build.zig.zon names it"
+            emit "v$version" "$GITHUB_SHA" true
+            exit 0
+          fi
+
+          # It has shipped, so this push is a patch. Skip when nothing that can
+          # change the binary moved since that release. build.zig.zon is absent
+          # from these paths on purpose — see the header.
+          if [[ "$EVENT" == "push" ]]; then
+            changed=$(git diff --name-only "v$version...HEAD" -- \
+                        src build.zig .github/versions.lock .github/workflows/release.yml)
+            if [[ -z "$changed" ]]; then
+              echo "nothing release-relevant since v$version — nothing to do"
+              emit "v$version" "$GITHUB_SHA" false
+              exit 0
+            fi
+            echo "release-relevant since v$version:"
+            echo "$changed"
+          fi
+
+          if [[ ! "$version" =~ ^([0-9]+\.[0-9]+)\.([0-9]+)$ ]]; then
+            echo "cannot patch-bump the non-numeric version '$version' — bump .version by hand" >&2
+            exit 1
+          fi
+          series="${BASH_REMATCH[1]}"
+          patch="${BASH_REMATCH[2]}"
+          # Take the first free patch in the series rather than version+1, so a
+          # hand-cut tag further ahead is never overwritten.
+          while patch=$((patch + 1)); released "v$series.$patch"; do :; done
+          next="$series.$patch"
+
+          sed -i "s/^\([[:space:]]*\.version[[:space:]]*=[[:space:]]*\"\)[^\"]*\(\"\)/\1$next\2/" build.zig.zon
+          wrote=$(sed -n 's/^[[:space:]]*\.version[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' build.zig.zon)
+          if [[ "$wrote" != "$next" ]]; then
+            echo "rewriting .version did not take (build.zig.zon now says '$wrote')" >&2
+            exit 1
+          fi
+
+          git config user.name "clojurewasm-release"
+          git config user.email "clojurewasm-release@users.noreply.github.com"
+          git add build.zig.zon
+          git commit -m "chore(release): v$next"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
+          echo "bumped .version $version -> $next, releasing v$next"
+          emit "v$next" "$(git rev-parse HEAD)" true
 
   build:
     name: build (${{ matrix.name }})
@@ -105,6 +189,10 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          # The bump commit, when preflight made one — the run's own SHA still
+          # carries the PREVIOUS `.version`, and that is what the binary reports.
+          ref: ${{ needs.preflight.outputs.sha }}
 
       - name: Install Zig 0.16.0
         shell: bash
@@ -134,11 +222,14 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TAG_NAME: ${{ needs.preflight.outputs.tag }}
+          TARGET_SHA: ${{ needs.preflight.outputs.sha }}
         shell: bash
         run: |
           set -euo pipefail
           # `--target` makes the tag when the run came from a branch push; on a
-          # tag push the tag already exists and the flag is inert.
+          # tag push the tag already exists and the flag is inert. It names
+          # preflight's SHA, so an auto-bumped release is tagged at the commit
+          # whose build.zig.zon actually says this version.
           #
           # Create the release once; later matrix legs just upload.
           #
@@ -150,7 +241,7 @@ jobs:
           # afterwards; a create that failed for any other reason still fails
           # the step, because the trailing view then finds nothing.
           gh release view "$TAG_NAME" >/dev/null 2>&1 \
-            || gh release create "$TAG_NAME" --target "$GITHUB_SHA" --title "$TAG_NAME" --generate-notes \
+            || gh release create "$TAG_NAME" --target "$TARGET_SHA" --title "$TAG_NAME" --generate-notes \
             || gh release view "$TAG_NAME" >/dev/null 2>&1
           gh release upload "$TAG_NAME" dist/* --clobber
 
