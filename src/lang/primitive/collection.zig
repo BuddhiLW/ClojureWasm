@@ -45,6 +45,7 @@ const IPS_FQCN: []const u8 = "IPersistentSet";
 const sequence = @import("sequence.zig");
 const range_mod = @import("../../runtime/collection/range.zig");
 const vector = @import("../../runtime/collection/vector.zig");
+const array_seq = @import("../../runtime/collection/array_seq.zig");
 const java_array = @import("../../runtime/collection/java_array.zig");
 const list = @import("../../runtime/collection/list.zig");
 const map = @import("../../runtime/collection/map.zig");
@@ -509,6 +510,25 @@ pub fn nthFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) 
                 break :blk error_catalog.raise(.index_out_of_range, loc, .{ .fn_name = "nth" });
             }
             break :blk vector.nth(coll, @intCast(idx));
+        },
+        // PERF: clj reaches `nth` on a vector's seq through `RT.nthFrom`, which
+        // WALKS (PersistentVector$ChunkedSeq is Counted, not Indexed). The view
+        // holds the backing vector, so the same answer is one indexed read.
+        // Index discipline mirrors the `.vector` arm. [refs: O-058]
+        .array_seq => blk: {
+            if (idx < 0) {
+                if (has_default) break :blk default;
+                break :blk error_catalog.raise(.type_arg_invalid, loc, .{
+                    .fn_name = "nth",
+                    .expected = "non-negative integer index",
+                    .actual = "negative",
+                });
+            }
+            if (idx >= array_seq.countOf(coll)) {
+                if (has_default) break :blk default;
+                break :blk error_catalog.raise(.index_out_of_range, loc, .{ .fn_name = "nth" });
+            }
+            break :blk array_seq.nth(coll, @intCast(idx));
         },
         // A MapEntry is a 2-vector: index 0→key, 1→val (D-209 / ADR-0078).
         .map_entry => blk: {

@@ -62,6 +62,7 @@ const duration_value_mod = @import("time/duration_value.zig");
 const local_date_time_value_mod = @import("time/local_date_time_value.zig");
 const lazy_seq_mod = @import("lazy_seq.zig");
 const range_collection = @import("collection/range.zig");
+const array_seq_collection = @import("collection/array_seq.zig");
 const env_mod = @import("env.zig");
 const dispatch_mod = @import("dispatch.zig");
 const writer_value = @import("writer_value.zig");
@@ -832,7 +833,7 @@ fn snapshotPrintLimits() void {
 /// collection, including a `.map_entry` which renders as the 2-vector `[k v]`).
 fn isCollectionTag(t: Value.Tag) bool {
     return switch (t) {
-        .list, .range, .vector, .map_entry, .persistent_queue, .hash_set, .sorted_set, .sorted_map, .array_map, .hash_map => true,
+        .list, .range, .array_seq, .vector, .map_entry, .persistent_queue, .hash_set, .sorted_set, .sorted_map, .array_map, .hash_map => true,
         else => false,
     };
 }
@@ -967,6 +968,7 @@ fn printValueNative(w: *Writer, v: Value) anyerror!void {
         .string => if (print_readably) try printString(w, string_collection.asString(v)) else try w.writeAll(string_collection.asString(v)),
         .list => try printList(w, v),
         .range => try printRange(w, v),
+        .array_seq => try printArraySeq(w, v),
         .vector => try printVector(w, v),
         // A MapEntry prints as the 2-vector `[k v]`.
         .map_entry => {
@@ -1444,6 +1446,22 @@ pub fn printRange(w: *Writer, v: Value) anyerror!void {
         if (try lengthTruncated(w, i, " ")) break;
         if (i > 0) try w.writeByte(' ');
         try printValue(w, range_collection.elementAt(v, i));
+    }
+    try w.writeByte(')');
+}
+
+/// Render an `.array_seq` vector view as a list `(a b c)` — it is a seq, so it
+/// prints in seq form, not the `[…]` of the vector it views. Index-driven
+/// through the view like `printRange`, so it allocates nothing and never walks
+/// a cons chain.
+pub fn printArraySeq(w: *Writer, v: Value) anyerror!void {
+    try w.writeByte('(');
+    const n = array_seq_collection.countOf(v);
+    var i: u32 = 0;
+    while (i < n) : (i += 1) {
+        if (try lengthTruncated(w, @intCast(i), " ")) break;
+        if (i > 0) try w.writeByte(' ');
+        try printValue(w, array_seq_collection.nth(v, i));
     }
     try w.writeByte(')');
 }

@@ -1064,3 +1064,29 @@ accepted:
     example: '(let [f (future (Thread/sleep 5000))] [(.cancel f false) (.isCancelled f)]) => cljw [true true] / clj [false false] — the JVM refuses to cancel a running task when the flag is false.'
     derives_from: "D-442 / ADR-0153 (cooperative cancellation) + ADR-0059 (no JVM thread interrupt)."
     pin: "test/e2e/future_methods.sh — cancel_flag_is_ignored_ad065."
+
+  - id: "AD-066"
+    area: "collections"
+    summary: |-
+      `(class (seq v))` on a vector answers `ArraySeq`, where clj answers
+      `clojure.lang.PersistentVector$ChunkedSeq`.
+      cljw has ONE indexed-view seq representation (`.array_seq`,
+      `runtime/collection/array_seq.zig`, O-058) standing in for the family of
+      indexed seqs clj gives separate classes: `PersistentVector$ChunkedSeq`
+      over a vector and `ArraySeq` over a Java array are the same two words
+      here — a backing collection plus a cursor — read through the
+      `backingCount` / `elementAt` switches, so a second backing is a new arm
+      rather than a new type. This is the same collapse F-005 performs on the
+      numeric tower (BigInt and BigInteger become one `.big_int`, whose
+      class-name consequence is already recorded above), applied to seqs.
+      The name kept is the reserved day-1 name for the A14 slot. Only the class
+      NAME diverges: `seq?` / `sequential?` / `coll?` / `counted?` / `=` /
+      `hash` / print form / `nth` / `count` all match clj, and the value is `=`
+      to both the list and the vector with the same elements, so nothing that
+      treats it AS a seq can tell the difference.
+      Before O-058 this expression answered `PersistentList`, because `seq` on
+      a vector eagerly copied into one. Neither the old nor the new answer
+      matches clj, so no code that was portable has been broken.
+    example: '(class (seq [1 2 3])) => cljw ArraySeq / clj clojure.lang.PersistentVector$ChunkedSeq. Also `(class (seq (into-array [1 2])))` would be ArraySeq in BOTH — the one backing for which the shared name is exact.'
+    derives_from: "AD-003 (simple class name for cljw-native types) + F-004 A14 slot reservation + the F-005 family-collapse precedent."
+    pin: "test/e2e/vector_seq_view.sh — class_name."

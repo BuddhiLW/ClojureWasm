@@ -122,7 +122,11 @@ fn fuseBaseKind(coll: Value) FuseBaseKind {
         cur = vector_mod.nth(fuse, 1); // fuse = [xform source]
     }
     return switch (cur.tag()) {
-        .range, .vector, .chunked_cons => .chunked,
+        // `.array_seq` joins the CONCRETE bases: its elements are reachable
+        // without forcing anything, which is the property this enum is really
+        // sorting on (only `.unchunked` is acted upon — it alone delegates to
+        // `-fused-reduce`). [refs: O-058]
+        .range, .vector, .chunked_cons, .array_seq => .chunked,
         .list, .cons, .nil => .unchunked,
         else => .unknown,
     };

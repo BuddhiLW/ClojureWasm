@@ -37,6 +37,7 @@ const tagged_literal_mod = @import("tagged_literal.zig");
 const vector = @import("collection/vector.zig");
 const list = @import("collection/list.zig");
 const range = @import("collection/range.zig");
+const array_seq = @import("collection/array_seq.zig");
 const persistent_queue = @import("collection/persistent_queue.zig");
 const map = @import("collection/map.zig");
 const map_entry_mod = @import("collection/map_entry.zig");
@@ -75,7 +76,7 @@ fn isSequential(v: Value) bool {
     const t = v.tag();
     // A MapEntry is a 2-vector (D-209), so `(= (first {:a 1}) [:a 1])`→true.
     // A queue is Sequential, so `(= (conj EMPTY 1 2) [1 2])`→true (ADR-0087).
-    if (t == .vector or t == .list or t == .lazy_seq or t == .range or t == .map_entry or t == .persistent_queue)
+    if (t == .vector or t == .list or t == .lazy_seq or t == .range or t == .array_seq or t == .map_entry or t == .persistent_queue)
         return true;
     // A deftype/reify declaring clojure.lang.Sequential (e.g. data.finger-tree's
     // double-list) compares element-wise like clj's `=` (Util.pcequiv over the
@@ -98,12 +99,15 @@ fn isCountable(v: Value) bool {
     // length short-circuit drops the lazy tail (`(= (cons 1 (lazy-seq [2 3]))
     // (list 1 2 3))` → wrongly false). The element walk early-outs at the first
     // length mismatch anyway. Vector / map_entry / queue counts ARE reliable.
-    return t == .vector or t == .map_entry or t == .persistent_queue;
+    // `.array_seq` IS countable: it views an IMMUTABLE vector, so its
+    // `backing count - index` is exact and no lazy tail can extend it.
+    return t == .vector or t == .map_entry or t == .persistent_queue or t == .array_seq;
 }
 
 fn seqLen(v: Value) u32 {
     return switch (v.tag()) {
         .vector => vector.count(v),
+        .array_seq => array_seq.countOf(v),
         .list => list.countOf(v),
         .map_entry => 2,
         .persistent_queue => @intCast(persistent_queue.count(v)),
@@ -118,6 +122,9 @@ const Cursor = union(enum) {
     /// A compact `.range` walked by index via `start + i*step` — O(1) per
     /// element, no allocation (the seq-walk would materialise chunks).
     rng: struct { v: Value, i: i64, n: i64 },
+    /// A `.array_seq` vector view walked by index through the view — O(1) per
+    /// element and rt-free, like `.vec` (the seq-walk would allocate a cell).
+    aseq: struct { v: Value, i: u32, n: u32 },
     /// A MapEntry walked as the 2-vector `[key val]` (D-209).
     ment: struct { v: Value, i: u32 },
     /// A PersistentQueue walked front-list then rear-vector (ADR-0087).
@@ -132,6 +139,7 @@ const Cursor = union(enum) {
         return switch (v.tag()) {
             .vector => .{ .vec = .{ .v = v, .i = 0, .n = vector.count(v) } },
             .range => .{ .rng = .{ .v = v, .i = 0, .n = range.countOf(v) } },
+            .array_seq => .{ .aseq = .{ .v = v, .i = 0, .n = array_seq.countOf(v) } },
             .map_entry => .{ .ment = .{ .v = v, .i = 0 } },
             .persistent_queue => .{ .q = .{ .front = persistent_queue.frontOf(v), .rear = persistent_queue.rearOf(v), .ri = 0 } },
             // A `.list` cons may carry a NON-list seq as its rest (a "Cons over
@@ -167,6 +175,12 @@ const Cursor = union(enum) {
             .rng => |*s| {
                 if (s.i >= s.n) return null;
                 const e = range.elementAt(s.v, s.i);
+                s.i += 1;
+                return e;
+            },
+            .aseq => |*s| {
+                if (s.i >= s.n) return null;
+                const e = array_seq.nth(s.v, s.i);
                 s.i += 1;
                 return e;
             },
@@ -571,7 +585,10 @@ pub fn keyEqValue(a: Value, b: Value) bool {
 }
 
 inline fn isSeqKeyTag(t: Value.Tag) bool {
-    return t == .vector or t == .list or t == .map_entry;
+    // `.array_seq` qualifies for the rt-FREE path because `SeqKeyCursor` walks
+    // it by index with no forcing — the reason `.lazy_seq`/`.range` are absent
+    // does not apply to a view over an immutable vector.
+    return t == .vector or t == .list or t == .map_entry or t == .array_seq;
 }
 
 /// Symbol equality (ADR-0110): ns+name structural, metadata IGNORED — symbol
@@ -734,7 +751,7 @@ pub fn valueHash(v: Value) u32 {
         // recursive, via the SAME formula so an equal vector and list
         // collide into one bucket (Clojure's sequential =). Partner of
         // seqKeyEq (D-092).
-        .vector, .list, .map_entry, .persistent_queue => seqHash(v),
+        .vector, .list, .map_entry, .persistent_queue, .array_seq => seqHash(v),
         // Map / set keys hash by content (order-independent), rt-free via
         // the collection module's structure walk (D-092). Partner of
         // map.contentEq / set.contentEq.
@@ -884,6 +901,8 @@ const SeqKeyCursor = struct {
 
     const Inner = union(enum) {
         vec: struct { v: Value, i: u32, n: u32 },
+        /// A `.array_seq` vector view — rt-free index walk, same as `.vec`.
+        aseq: struct { v: Value, i: u32, n: u32 },
         /// A MapEntry walked as the 2-vector `[key val]` (D-209) — rt-free.
         ment: struct { v: Value, i: u32 },
         /// A PersistentQueue walked front-list then rear-vector (ADR-0087).
@@ -894,6 +913,7 @@ const SeqKeyCursor = struct {
     fn init(v: Value) SeqKeyCursor {
         return .{ .inner = switch (v.tag()) {
             .vector => .{ .vec = .{ .v = v, .i = 0, .n = vector.count(v) } },
+            .array_seq => .{ .aseq = .{ .v = v, .i = 0, .n = array_seq.countOf(v) } },
             .map_entry => .{ .ment = .{ .v = v, .i = 0 } },
             .persistent_queue => .{ .q = .{ .front = persistent_queue.frontOf(v), .rear = persistent_queue.rearOf(v), .ri = 0 } },
             else => .{ .lst = v },
@@ -905,6 +925,12 @@ const SeqKeyCursor = struct {
             .vec => |*s| {
                 if (s.i >= s.n) return null;
                 const e = vector.nth(s.v, s.i);
+                s.i += 1;
+                return e;
+            },
+            .aseq => |*s| {
+                if (s.i >= s.n) return null;
+                const e = array_seq.nth(s.v, s.i);
                 s.i += 1;
                 return e;
             },
@@ -1176,7 +1202,7 @@ pub fn hashConsult(v: Value) ClojureWasmError!u32 {
 /// `.persistent_queue => seqHash` arm — closes a hash/eq inconsistency).
 fn isSeqKeyValue(v: Value) bool {
     return switch (v.tag()) {
-        .vector, .list, .map_entry, .persistent_queue, .lazy_seq, .range, .chunked_cons => true,
+        .vector, .list, .map_entry, .persistent_queue, .lazy_seq, .range, .chunked_cons, .array_seq => true,
         .typed_instance, .reified_instance => isSequential(v),
         else => false,
     };

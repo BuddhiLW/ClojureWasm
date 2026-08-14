@@ -37,9 +37,9 @@ whole-collection traversal probe that checks for accidental O(n²).
 | `list` `conj` | 0.36 | 0.43 | comparable |
 | **`pop`** | **1.93** | **8278** | **4288× slower → FIXED (O-056), now 2.47** |
 | **`subvec`** | **1.06** | **7929** | **7480× slower** |
-| **`seq`** | **0.60** | **2123** | **3549× slower** |
-| **`rest`** | **0.87** | **2253** | **2576× slower** |
-| **`next`** | **0.99** | **2164** | **2184× slower** |
+| **`seq`** | **0.60** | **2123** | **3549× slower → FIXED (O-058), now 0.36** |
+| **`rest`** | **0.87** | **2253** | **2576× slower → FIXED (O-058), now 0.39** |
+| **`next`** | **0.99** | **2164** | **2184× slower → FIXED (O-058), now 0.38** |
 | **`list` `count`** | **0.18** | **481** | **2711× slower → FIXED (O-057), now 0.19** |
 
 ### Correction: the small deltas above are NOT reliable
@@ -103,35 +103,64 @@ problem:
 
 | # | Fix | Kind | Unblocks |
 |---|---|---|---|
-| 1 | `SubVector` view (D-044 — "land when the benefit is measurable"; it is now measured: 7480×) | view | `subvec`, every `drop`/`take`-style slice built on it — **and (2), see below** |
-| 2 | Chunked vector-seq VIEW behind the existing seq protocol | view, not algorithm | `seq` + `rest` + `next` in one change — the systemic one, since these are what every hand-written seq walk uses |
-| ~~3~~ | ~~Cached count on `PersistentList`~~ | ~~one field~~ | **DONE — O-057. The field already existed; what was missing was a way to say when it is exact.** |
+| ~~1~~ | ~~`SubVector` view~~ → still open, but on its OWN | view | `subvec` (7480×) and slice-style ops built on it |
+| ~~2~~ | ~~Chunked vector-seq VIEW behind the existing seq protocol~~ | view, not algorithm | **DONE — O-058. `seq`/`rest`/`next` are now an `.array_seq` view; all three are FASTER than clj.** |
+| ~~3~~ | ~~Cached count on `PersistentList`~~ | ~~one field~~ | **DONE — O-057.** |
 
-**(1) now ranks above (2) because it is (2)'s enabler.** `.range` already shows
-the shape a chunked seq takes here without costing a Tag: `range.seqChunk`
-materialises ≤32 elements into a `chunked_cons` whose `next` is *a smaller
-`.range`* — a self-similar producer value, not a closure and not a new
-representation. The vector analogue of "a smaller range" is "the vector minus
-its first 32 elements", which is exactly a `SubVector` view. Land (1) and (2)
-is `chunked_cons{v[k..k+32], subvec(v, k+32)}`, reusing the one chunk
-mechanism (F-011) with no new seq type at all.
+### Correction: (2) never needed (1)
 
-Note the constraint that makes this the attractive route: `heap_tag.zig`'s
-census is closed at 64 slots, and its own doc says spending one of the 9
-`unallocated` names is a user decision, not an implementation detail. A design
-that needs no new Tag sidesteps that question entirely. `SubVector` itself
-still has to answer it — either a repurposed slot, or a `start: u32` inside
-`Vector`'s existing `_pad: [6]u8` (no struct growth, but then EVERY vector op
-must honour the offset, which is the real cost and the thing to weigh).
+The earlier revision of this file ranked `SubVector` above the vector-seq on the
+grounds that it was the seq's *enabler* — "the vector analogue of 'a smaller
+range' is 'the vector minus its first 32 elements', which is exactly a
+`SubVector` view". That was wrong, and it stalled the larger win behind a
+`heap_tag`-census question that did not apply to it.
 
-(1) and (2) are the same shape and should follow OCP: add a new seq/vector
-REPRESENTATION that satisfies the existing protocol, so no consumer changes —
-not an `if` branch at each call site. That is also what keeps D-044's "new Tag
-slot + polymorphic dispatch" cost honest.
+`next` of a seq is a **seq**, not a collection. Clojure's own answer is
+`PersistentVector$ChunkedSeq`, which holds the SAME vector at a higher index —
+it never constructs a smaller vector. So the seq view needs `(vector, index)`,
+which is what O-058 built, and `subvec` is an independent problem about
+returning a *vector* that shares a parent's root and tail.
 
-Caveat on (1): `reduce` / `doseq` / `into` over a vector are already fast — the
-index-walk and chunk-drain fast paths (O-002, O-004, O-032) bypass `seq`
-entirely, and `traversal.clj` confirms they stay linear. So the eager `seq`
-hurts hand-written `loop`/`recur` walks and library code, not the idiomatic
-core paths. That is why it is ranked by breadth rather than by any single
-benchmark regression.
+Two lessons worth keeping, because both were reasoning failures rather than
+implementation ones:
+
+- **Check what the reference implementation actually returns** before deriving a
+  dependency from an analogy. The analogy to `.range` was apt for the chunking
+  *mechanism* and misleading about the *tail type*.
+- **A blocked item can block a neighbour that is not actually downstream.** The
+  census question ("may we spend one of the 9 `unallocated` names") is real for
+  `SubVector` and was never live for the seq view — A14 `.array_seq` was already
+  an allocated slot, already declared across every protocol table in
+  `interface_membership.zig`, already named in `class_name.zig`, and merely had
+  no producer. `equal.zig`'s header anticipated it in as many words: "when a
+  producer mints those tags."
+
+### What is left: `subvec` (7480×)
+
+`vector.zig::subvec` eagerly copies (D-044) where Clojure returns an
+`APersistentVector$SubVector` sharing the parent's root and tail. This one DOES
+have to answer the tag question, and it is a genuine user decision per
+`heap_tag.zig`'s own doc:
+
+- **(a) repurpose an `unallocated` slot** (`.tuple` / `.box` are the plausible
+  names) — clean and polymorphic, and the census is explicitly published so that
+  the question is "may `box` become `subvec`", not "may we amend F-004". Spends
+  a name.
+- **(b) `start: u32` inside `Vector`'s existing `_pad: [6]u8`** — no struct
+  growth and no Tag spent, but then EVERY vector op must honour the offset, and
+  any path that reads `root`/`tail` without it goes silently wrong. That review
+  surface is the real cost, not the four bytes.
+
+Note the asymmetry with O-058: there, no consumer had to change, because a new
+representation satisfied an existing protocol. Option (b) is the opposite shape
+— it changes the meaning of an existing representation, so it touches every
+consumer. That is the argument for (a) even though (a) is the one that spends
+something.
+
+### Caveat that still holds
+
+`reduce` / `doseq` / `into` over a vector were already fast — the index-walk and
+chunk-drain fast paths (O-002, O-004, O-032) bypass `seq` entirely, and
+`traversal.clj` confirms they stay linear. So O-058 helped hand-written
+`loop`/`recur` walks and library code rather than the idiomatic core paths,
+which is why it was ranked by breadth rather than by a benchmark regression.

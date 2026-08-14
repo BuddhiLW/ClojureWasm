@@ -33,6 +33,9 @@ GitHub wiki.
 - [`landscape.md`](./landscape.md) — where cljw sits among Clojure runtimes.
 - [`works/binary_size.md`](./works/binary_size.md) — the measured size
   comparison behind the headline number.
+- [`works/collection_performance.md`](./works/collection_performance.md) — cljw
+  against JVM Clojure on the persistent data structures, measured: where it is
+  faster, where it is slower, and the one operation still to fix.
 - [`../CHANGELOG.md`](../CHANGELOG.md) — release history; the SSOT for what
   changed when.
 

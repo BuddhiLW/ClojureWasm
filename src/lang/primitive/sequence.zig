@@ -51,6 +51,7 @@ const string_collection = @import("../../runtime/collection/string.zig");
 const chunked_cons = @import("../../runtime/collection/chunked_cons.zig");
 const chunk_transform = @import("chunk_transform.zig");
 const range = @import("../../runtime/collection/range.zig");
+const array_seq = @import("../../runtime/collection/array_seq.zig");
 const java_array = @import("../../runtime/collection/java_array.zig");
 const transient_vector = @import("../../runtime/collection/transient/transient_vector.zig");
 const transient_array_map = @import("../../runtime/collection/transient/transient_array_map.zig");
@@ -120,6 +121,10 @@ pub fn countFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation
         .chunked_cons => Value.initInteger(@intCast(chunked_cons.count(coll))),
         // PERF: O(1) precomputed range length, no element walk [refs: O-001]
         .range => Value.initInteger(range.countOf(coll)),
+        // PERF: a vector view counts by subtraction — backing count minus the
+        // read cursor — where the eager list copy it replaced had to allocate
+        // n cells before it could answer. [refs: O-058]
+        .array_seq => Value.initInteger(@intCast(array_seq.countOf(coll))),
         // deftype/reify share one arm (rseq's pattern): clj RT.count routes BOTH
         // by the same rules, so a reify must not bypass the deftype logic (D-422
         // twin). A defrecord counts by field_count (with a -count override honoured
@@ -290,7 +295,13 @@ pub fn seqFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) 
             return try stringToList(rt, s);
         },
         .list, .cons => list.seq(coll),
-        .vector => if (vector.count(coll) > 0) try vectorToList(rt, coll) else .nil_val,
+        // PERF: a VIEW, not a copy — `(seq v)` is two words holding
+        // `(vector, index)` like the JVM's PersistentVector$ChunkedSeq, where
+        // this used to build an eager n-cell PersistentList. `make` answers nil
+        // for an empty vector, so no count guard is needed. [refs: O-058]
+        .vector => try array_seq.make(rt, coll, 0),
+        // An ArraySeq is already a seq; `seq` on one is identity.
+        .array_seq => coll,
         // ADR-0105: a Java array is Seqable (clj parity), eager element seq.
         .array => if (java_array.alength(coll) > 0) try arrayToList(rt, coll) else .nil_val,
         // A MapEntry seqs as `(key val)` (D-209 / ADR-0078).
@@ -397,6 +408,8 @@ pub fn firstFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation
         .chunked_cons => chunked_cons.first(coll),
         // PERF: O(1) head (start), no chunk materialised for just first [refs: O-001]
         .range => range.first(coll),
+        // PERF: O(1) indexed read through the view [refs: O-058]
+        .array_seq => array_seq.first(coll),
         .lazy_seq => try lazy_seq.first(rt, env, coll),
         .string => firstStringCodepoint(coll),
         .array_map, .hash_map, .hash_set => blk: {
@@ -438,7 +451,9 @@ pub fn restFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation)
     const coll = args[0];
     const raw: Value = if (coll.isNil()) .nil_val else switch (coll.tag()) {
         .list, .cons => list.rest(coll),
-        .vector => if (vector.count(coll) > 1) try vectorTailAsList(rt, coll, 1) else .nil_val,
+        // PERF: advance the view instead of copying the tail [refs: O-058]
+        .vector => try array_seq.make(rt, coll, 1),
+        .array_seq => try array_seq.rest(rt, coll),
         .map_entry => try list.consHeap(rt, map_entry.valOf(coll), .nil_val), // (rest [k v]) → (v)
         .persistent_queue => blk: {
             const s = try persistent_queue.seqOf(rt, coll);
@@ -491,7 +506,11 @@ pub fn nextFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation)
             // For an explicit-nil tail, seqFn(nil) is nil — unchanged.
             break :blk try seqFn(rt, env, &.{r}, loc);
         },
-        .vector => if (vector.count(coll) > 1) try vectorTailAsList(rt, coll, 1) else .nil_val,
+        // PERF: advance the view instead of copying the tail. `make` answers
+        // nil past the end, which is exactly `next`'s empty-tail rule (`rest`
+        // lifts that nil to the empty list at its own exit). [refs: O-058]
+        .vector => try array_seq.make(rt, coll, 1),
+        .array_seq => try array_seq.rest(rt, coll),
         .map_entry => try list.consHeap(rt, map_entry.valOf(coll), .nil_val), // (next [k v]) → (v)
         .persistent_queue => blk: {
             const s = try persistent_queue.seqOf(rt, coll);
@@ -597,7 +616,12 @@ pub fn emptyFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation
         .sorted_map => try sorted.emptyMapBy(rt, coll.decodePtr(*const sorted.SortedMap).comparator), // repr-decode-ok: comparator field read; sorted_map has a single backing
         .sorted_set => try sorted.emptySetBy(rt, coll.decodePtr(*const sorted.SortedSet).map.decodePtr(*const sorted.SortedMap).comparator), // repr-decode-ok: comparator field read; sorted_set has a single backing
         .persistent_queue => try persistent_queue.emptyQueue(rt), // (empty q) → EMPTY
-        .list, .cons => try list.emptyList(rt), // (empty '(1 2)) → () (D-164)
+        // Every ISeq empties to `()`, not just a cons chain: clj's `ASeq.empty()`
+        // returns `PersistentList.EMPTY` for a range / lazy seq / chunked seq /
+        // vector view alike. `.range`, `.lazy_seq` and `.chunked_cons` were
+        // reaching the `else` dispatch and raising, which is a pre-existing gap
+        // this arm closes alongside `.array_seq`. (D-164)
+        .list, .cons, .range, .lazy_seq, .chunked_cons, .array_seq => try list.emptyList(rt),
         // JVM Clojure: (empty "hi") → nil (String is not a Clojure
         // collection per IPersistentCollection contract). cw v1
         // follows the same semantic; a 0-length string is not what
@@ -620,11 +644,6 @@ pub fn emptyFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation
 
 // --- helpers ---
 
-/// vector → eager list build (head-to-tail copy).
-fn vectorToList(rt: *Runtime, vec: Value) !Value {
-    return try vectorTailAsList(rt, vec, 0);
-}
-
 /// Java array → eager list view (ADR-0105). Built head-to-tail so generic seq
 /// walkers (vec / map / reduce / into) see the array elements in order.
 fn arrayToList(rt: *Runtime, arr: Value) !Value {
@@ -634,20 +653,6 @@ fn arrayToList(rt: *Runtime, arr: Value) !Value {
     while (i > 0) {
         i -= 1;
         acc = try list.consHeap(rt, items[i], acc);
-    }
-    return acc;
-}
-
-/// vector[start..] → list view, built eager (head-to-tail).
-fn vectorTailAsList(rt: *Runtime, vec: Value, start: u32) !Value {
-    const n = vector.count(vec);
-    if (n <= start) return .nil_val;
-    var acc: Value = .nil_val;
-    var i = n;
-    while (i > start) {
-        i -= 1;
-        const elt = try vector_nth_safe(vec, i, .{ .line = 0, .column = 0 });
-        acc = try list.consHeap(rt, elt, acc);
     }
     return acc;
 }
@@ -701,6 +706,7 @@ fn firstOfSeq(rt: *Runtime, env: *Env, sv: Value, loc: SourceLocation) anyerror!
         .list, .cons => list.first(sv),
         .chunked_cons => chunked_cons.first(sv),
         .range => range.first(sv),
+        .array_seq => array_seq.first(sv),
         .lazy_seq => try lazy_seq.first(rt, env, sv),
         else => return error_catalog.raise(.type_arg_invalid, loc, .{
             .fn_name = "first",
@@ -716,6 +722,7 @@ fn restOfSeq(rt: *Runtime, env: *Env, sv: Value, loc: SourceLocation) anyerror!V
         .list, .cons => list.rest(sv),
         .chunked_cons => try chunked_cons.rest(rt, sv),
         .range => try chunked_cons.rest(rt, try range.seqChunk(rt, sv)),
+        .array_seq => try array_seq.rest(rt, sv),
         .lazy_seq => try lazy_seq.rest(rt, env, sv),
         else => return error_catalog.raise(.type_arg_invalid, loc, .{
             .fn_name = "rest",
@@ -740,6 +747,9 @@ fn seqNext(rt: *Runtime, env: *Env, cur: Value) anyerror!Value {
         // as non-nil). Within-chunk rest is a chunked_cons → seq is a no-op.
         .chunked_cons => try lazy_seq.seq(rt, env, try chunked_cons.rest(rt, cur)),
         .range => try lazy_seq.seq(rt, env, try chunked_cons.rest(rt, try range.seqChunk(rt, cur))),
+        // No lazy tail is possible over an immutable vector, so the view's
+        // own nil-past-the-end is already the walk-terminating answer.
+        .array_seq => try array_seq.rest(rt, cur),
         .lazy_seq => try lazy_seq.next(rt, env, cur),
         else => .nil_val,
     };

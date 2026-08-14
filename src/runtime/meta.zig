@@ -29,6 +29,7 @@ const ref = @import("stm/ref.zig");
 const symbol = @import("symbol.zig");
 const keyword = @import("keyword.zig");
 const td_mod = @import("type_descriptor.zig");
+const array_seq = @import("collection/array_seq.zig");
 
 /// `(meta obj)` — obj's metadata map, or nil for a non-IObj / no-meta value.
 /// The single meta-read switch shared by the `(meta x)` primitive and
@@ -42,6 +43,7 @@ pub fn metaOf(rt: *Runtime, env: *Env, v: Value, loc: SourceLocation) anyerror!V
         .hash_set => set.metaOf(v),
         .list => list.metaOf(v),
         .lazy_seq => lazy_seq.metaOf(v),
+        .array_seq => array_seq.metaOf(v),
         .var_ref => try synthVarMeta(rt, v),
         .atom => atom.metaOf(v),
         .agent => agent.metaOf(v),

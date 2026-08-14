@@ -18,6 +18,7 @@ const error_catalog = @import("../../runtime/error/catalog.zig");
 const SourceLocation = error_mod.SourceLocation;
 const dispatch = @import("../../runtime/dispatch.zig");
 const vector = @import("../../runtime/collection/vector.zig");
+const array_seq = @import("../../runtime/collection/array_seq.zig");
 const map = @import("../../runtime/collection/map.zig");
 const set = @import("../../runtime/collection/set.zig");
 const list = @import("../../runtime/collection/list.zig");
@@ -83,6 +84,9 @@ pub fn withMetaFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocat
         .array_map, .hash_map => try map.withMeta(rt, v, m),
         .hash_set => try set.withMeta(rt, v, m),
         .list => try list.withMeta(rt, v, m),
+        // A seq is IObj on the JVM (ASeq), so a vector VIEW must round-trip
+        // meta as the eager list it replaced did.
+        .array_seq => try array_seq.withMeta(rt, v, m),
         .lazy_seq => try lazy_seq.withMeta(rt, v, m),
         // D-304 / ADR-0110: mints a fresh non-interned symbol carrying meta.
         // Keyword stays in the `else` arm (clj rejects keyword metadata).

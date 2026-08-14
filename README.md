@@ -50,6 +50,11 @@ still use what other languages have already built.
 - **A lot of everyday Clojure runs** — `clojure.core` plus a growing set of
   standard-library namespaces (`clojure.string` / `set` / `walk` / `zip` /
   `edn` / `data.json` / `data.csv` / `math` / `pprint` / `test` / `tools.cli` …).
+- **Persistent collections at JVM-comparable speed** — vectors, maps and sets
+  trade wins with JVM Clojure op by op, and `seq` / `rest` / `next` over a
+  vector are currently faster. Tight numeric loops are still the JVM's, since
+  cljw interprets where the JVM JIT-compiles;
+  [measured, both sides](docs/works/collection_performance.md).
 - **A CIDER-compatible nREPL** — `cljw nrepl` and connect your editor to
   evaluate real Clojure live.
 - **WebAssembly as an FFI** — `(wasm/load "mod.wasm")` then
@@ -170,6 +175,9 @@ and should not be relied on. The source is the most complete example of what
 - [`docs/testing.md`](./docs/testing.md) — how to run the suite, what each of
   the eight test layers is for, and where a new test belongs. **Read this
   before sending a patch.**
+- [`docs/works/collection_performance.md`](./docs/works/collection_performance.md)
+  — measured collection performance against JVM Clojure, and the honest split
+  between interpreter speed and data-structure speed.
 - [`bench/README.md`](./bench/README.md) — the benchmark catalogue and
   cross-language cold-start numbers.
 
