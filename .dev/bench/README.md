@@ -40,7 +40,7 @@ whole-collection traversal probe that checks for accidental O(n²).
 | **`seq`** | **0.60** | **2123** | **3549× slower** |
 | **`rest`** | **0.87** | **2253** | **2576× slower** |
 | **`next`** | **0.99** | **2164** | **2184× slower** |
-| **`list` `count`** | **0.18** | **481** | **2711× slower** |
+| **`list` `count`** | **0.18** | **481** | **2711× slower → FIXED (O-057), now 0.19** |
 
 ### Correction: the small deltas above are NOT reliable
 
@@ -83,6 +83,16 @@ problem:
    `core.clj` bypassed it with `(into [] (take (dec (count coll)) coll))`.
    Fixed as O-056; the fix added no algorithm, it just exposed the barrier op.
 
+   `list count` was the same class with a twist: the barrier op existed
+   (`Cons.count`, O(1)) but was DISTRUSTED, because a `.list` cell can head a
+   mixed chain (`(cons x (map …))`) where the stored number is the `.list`
+   prefix length, not the total. Fixed as O-057 by making the field
+   self-validating — a `COUNT_UNKNOWN` sentinel marks exactly the chains that
+   must still walk — rather than by waiting for the D-178 `.list`/`.cons` tag
+   split the old comment deferred to. When a barrier value is right *most* of
+   the time, say WHICH times in the value itself; a blanket distrust throws
+   the fast path away for every caller.
+
 2. **Materialising where Clojure keeps a VIEW** — `seq`/`rest`/`next` on a
    vector build an eager `PersistentList` (`sequence.zig` `vectorToList` /
    `vectorTailAsList`) where Clojure returns a `ChunkedSeq` holding
@@ -93,9 +103,26 @@ problem:
 
 | # | Fix | Kind | Unblocks |
 |---|---|---|---|
-| 1 | Chunked vector-seq VIEW (vector + index) behind the existing seq protocol | view, not algorithm | `seq` + `rest` + `next` in one change — the systemic one, since these are what every hand-written seq walk uses |
-| 2 | `SubVector` view (D-044 — "land when the benefit is measurable"; it is now measured: 7480×) | view | `subvec`, and every `drop`/`take`-style slice built on it |
-| 3 | Cached count on `PersistentList` | one field | `count` on a list |
+| 1 | `SubVector` view (D-044 — "land when the benefit is measurable"; it is now measured: 7480×) | view | `subvec`, every `drop`/`take`-style slice built on it — **and (2), see below** |
+| 2 | Chunked vector-seq VIEW behind the existing seq protocol | view, not algorithm | `seq` + `rest` + `next` in one change — the systemic one, since these are what every hand-written seq walk uses |
+| ~~3~~ | ~~Cached count on `PersistentList`~~ | ~~one field~~ | **DONE — O-057. The field already existed; what was missing was a way to say when it is exact.** |
+
+**(1) now ranks above (2) because it is (2)'s enabler.** `.range` already shows
+the shape a chunked seq takes here without costing a Tag: `range.seqChunk`
+materialises ≤32 elements into a `chunked_cons` whose `next` is *a smaller
+`.range`* — a self-similar producer value, not a closure and not a new
+representation. The vector analogue of "a smaller range" is "the vector minus
+its first 32 elements", which is exactly a `SubVector` view. Land (1) and (2)
+is `chunked_cons{v[k..k+32], subvec(v, k+32)}`, reusing the one chunk
+mechanism (F-011) with no new seq type at all.
+
+Note the constraint that makes this the attractive route: `heap_tag.zig`'s
+census is closed at 64 slots, and its own doc says spending one of the 9
+`unallocated` names is a user decision, not an implementation detail. A design
+that needs no new Tag sidesteps that question entirely. `SubVector` itself
+still has to answer it — either a repurposed slot, or a `start: u32` inside
+`Vector`'s existing `_pad: [6]u8` (no struct growth, but then EVERY vector op
+must honour the offset, which is the real cost and the thing to weigh).
 
 (1) and (2) are the same shape and should follow OCP: add a new seq/vector
 REPRESENTATION that satisfies the existing protocol, so no consumer changes —

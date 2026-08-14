@@ -162,13 +162,15 @@ pub fn countFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation
             });
         },
         .list, .cons, .lazy_seq => {
-            // O(n) generic walk. A `.list` cons may hold a non-list seq as
-            // its rest (a "Cons over a seq", e.g. `(cons x (map …))` /
-            // `(conj (range 3) 99)`), so the O(1) `.count` field is a lie
-            // for mixed chains — walk instead, forcing lazy layers and
-            // advancing through whatever tag the rest takes. Pure-list O(1)
-            // count is the F-004 finished form once the `.list` / `.cons`
-            // tags split (PersistentList vs Cons); see debt D-178.
+            // PERF: a PURE `.list` chain carries an exact O(1) count, so
+            // return it without walking. The walk below stays for the mixed
+            // chain a `.list` cell can head — a "Cons over a seq"
+            // (`(cons x (map …))` / `(conj (range 3) 99)`) — where the stored
+            // count would describe the `.list` prefix only. `exactCountOf`
+            // reports which case this is instead of the caller guessing, so
+            // no D-178 `.list`/`.cons` tag split is needed to get the fast
+            // path. [refs: O-057]
+            if (list.exactCountOf(coll)) |n| return Value.initInteger(@intCast(n));
             var n: i64 = 0;
             var cur = try lazy_seq.seq(rt, env, coll);
             while (!cur.isNil()) {

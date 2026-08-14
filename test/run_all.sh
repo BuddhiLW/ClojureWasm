@@ -780,6 +780,7 @@ run_step "e2e_phase14_deftype_transient_family" "bash test/e2e/phase14_deftype_t
 run_step "e2e_phase14_print_method"          "bash test/e2e/phase14_print_method.sh"
 run_step "e2e_phase14_member_on_native"      "bash test/e2e/phase14_member_on_native.sh"
 run_step "e2e_phase14_java_method_grouping"  "bash test/e2e/phase14_java_method_grouping.sh"
+run_step "e2e_list_count_exact"              "bash test/e2e/list_count_exact.sh"
 run_step "e2e_phase14_fn_prepost"            "bash test/e2e/phase14_fn_prepost.sh"
 run_step "e2e_phase14_deftype_ideref"        "bash test/e2e/phase14_deftype_ideref.sh"
 run_step "e2e_phase14_equality"              "bash test/e2e/phase14_equality.sh"
