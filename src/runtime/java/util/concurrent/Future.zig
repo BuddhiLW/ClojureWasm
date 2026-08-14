@@ -29,7 +29,6 @@
 //! finish but report cancelled" the way the JVM's flag does, and honouring only
 //! one of the two values would be a worse lie than ignoring it.
 
-const std = @import("std");
 const Value = @import("../../../value/value.zig").Value;
 const Runtime = @import("../../../runtime.zig").Runtime;
 const Env = @import("../../../env.zig").Env;
