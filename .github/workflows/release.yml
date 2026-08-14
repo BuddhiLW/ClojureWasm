@@ -17,12 +17,19 @@
 # patch on demand (skipping the relevance check below); `force: true` re-releases
 # whatever `.version` currently names.
 #
+# CHANGELOG: the bump commit also stamps `## [Unreleased]` as `## [X.Y.Z] - date`
+# and opens a fresh one (`.github/stamp_changelog.py`), so CHANGELOG.md and the
+# tag are written together and cannot drift. A patch whose [Unreleased] body is
+# empty is NOT stamped — an auto-cut release nobody wrote up must not mint an
+# empty version heading. The GitHub release page still uses `--generate-notes`.
+#
 # RELEVANCE: a branch push cuts a patch only when something that can change the
 # binary moved since the last release — `src/**`, `build.zig`,
-# `.github/versions.lock`, this workflow. build.zig.zon is deliberately NOT on
-# that list: the bump commit touches it, and counting it would make each release
-# mint the next one forever. A dependency-hash-only edit to build.zig.zon rides
-# along with the next source change, or with a manual dispatch.
+# `.github/versions.lock`, this workflow, the stamper. build.zig.zon and
+# CHANGELOG.md are deliberately NOT on that list: the bump commit touches both,
+# and counting them would make each release mint the next one forever. A
+# dependency-hash-only edit to build.zig.zon rides along with the next source
+# change, or with a manual dispatch.
 #
 # The bump commit is pushed with GITHUB_TOKEN, whose pushes do not start new
 # workflow runs, so the loop is closed on that side too.
@@ -30,9 +37,6 @@
 # The skip lives in `preflight` rather than in an `on.push.paths` filter
 # because a `paths` filter also applies to tag pushes, which would drop the
 # tag trigger whenever the tagged commit did not touch build.zig.zon.
-#
-# CHANGELOG.md's `[Unreleased]` heading is NOT stamped here; the release notes
-# come from `--generate-notes` over the commits.
 #
 # NOTE (first-tag validation): the artifact build uses
 # `-Dwasm -Doptimize=ReleaseSafe -Dcpu=baseline` (baseline CPU avoids SIGILL on
@@ -132,7 +136,8 @@ jobs:
           # from these paths on purpose — see the header.
           if [[ "$EVENT" == "push" ]]; then
             changed=$(git diff --name-only "v$version...HEAD" -- \
-                        src build.zig .github/versions.lock .github/workflows/release.yml)
+                        src build.zig .github/versions.lock \
+                        .github/workflows/release.yml .github/stamp_changelog.py)
             if [[ -z "$changed" ]]; then
               echo "nothing release-relevant since v$version — nothing to do"
               emit "v$version" "$GITHUB_SHA" false
@@ -160,9 +165,24 @@ jobs:
             exit 1
           fi
 
+          # Stamp CHANGELOG.md's [Unreleased] section as this version, in the
+          # SAME commit as the bump so the file and the tag never disagree.
+          # Exit 1 means its body was empty and nothing was stamped — an
+          # ordinary outcome for a patch nobody wrote up, not a failure.
+          stamped=()
+          set +e
+          python3 .github/stamp_changelog.py "$next"
+          rc=$?
+          set -e
+          case "$rc" in
+            0) stamped=(CHANGELOG.md) ;;
+            1) ;;
+            *) echo "stamp_changelog.py failed ($rc)" >&2; exit 1 ;;
+          esac
+
           git config user.name "clojurewasm-release"
           git config user.email "clojurewasm-release@users.noreply.github.com"
-          git add build.zig.zon
+          git add build.zig.zon "${stamped[@]}"
           git commit -m "chore(release): v$next"
           git push origin "HEAD:${GITHUB_REF_NAME}"
           echo "bumped .version $version -> $next, releasing v$next"

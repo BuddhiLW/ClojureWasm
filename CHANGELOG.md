@@ -7,6 +7,59 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 
 ## [Unreleased]
 
+### Internal
+
+- **The release bump also stamps this file.** `preflight` renames
+  `## [Unreleased]` to `## [X.Y.Z] - date` and opens a fresh one in the SAME
+  `chore(release)` commit that rewrites `build.zig.zon`, so the changelog and
+  the tag are written together and cannot drift
+  (`.github/stamp_changelog.py`).
+
+  A version whose `[Unreleased]` body is **empty is not stamped**: patches now
+  cut themselves on every source push, and a release nobody wrote up must not
+  mint an empty version heading. CHANGELOG.md is deliberately absent from the
+  workflow's relevance paths for the same reason build.zig.zon is — the bump
+  commit touches both, and counting them would make each release mint the next.
+
+  `1.10.3`–`1.10.5` were stamped by hand: they shipped between the arrival of
+  automatic patch releases and this, so their entries had accumulated under a
+  single `[Unreleased]` heading with no version to attach to.
+
+## [1.10.5] - 2026-08-14
+
+### Fixed
+
+- **Dropped a dead `std` import from `Future.zig`.** Lint-only; the module's
+  behaviour is unchanged.
+
+## [1.10.4] - 2026-08-14
+
+### Changed
+
+- **`(seq v)` / `(rest v)` / `(next v)` on a vector are now a VIEW, not a copy.**
+  They used to build an eager `PersistentList` — n cell allocations and n trie
+  descents per call. They now return an `ArraySeq` holding `(vector, index)`,
+  which is what Clojure does (`PersistentVector$ChunkedSeq`). All three drop
+  from O(n) to O(1): measured over a 16000-element vector, `seq` 2123 → 0.36 ms,
+  `rest` 2253 → 0.39 ms, `next` 2164 → 0.38 ms per 2000 ops — from 2184-3549×
+  slower than JVM Clojure 1.12.4 to 1.7-2.6× faster. `nth` on such a seq is now
+  O(1) too, where clj still walks. See `O-058` in `.dev/optimizations.md`.
+
+  Everything observable is unchanged — it prints as a seq, is `=` to the list
+  and the vector with the same elements, hashes with them, and works as a map
+  key — with ONE exception: **`(class (seq [1 2 3]))` now answers `ArraySeq`
+  where it used to answer `PersistentList`.** Neither matches the JVM's
+  `PersistentVector$ChunkedSeq`; code that branches on that class name was
+  already non-portable, and `seq?` / `sequential?` / `coll?` / `counted?` are
+  unaffected.
+
+  This closes item 2 of `.dev/bench/README.md`'s ranked list — which that file
+  had wrongly recorded as blocked on item 1 (`SubVector`). See the correction
+  there: `next` of a seq is a seq, so the vector-seq needed `(vector, index)`
+  and never needed a smaller vector. `subvec` remains eager (D-044).
+
+## [1.10.3] - 2026-08-14
+
 ### Added
 
 - **`java.util.concurrent.Future`'s method names on cljw's own futures.** `.get`
@@ -96,30 +149,6 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
   closed set (`data/host_interfaces.yaml`, ADR-0102) rather than becoming
   native classes, because `reify` accepts only a protocol Var or a marker name
   and rejects a class value outright.
-
-### Changed
-
-- **`(seq v)` / `(rest v)` / `(next v)` on a vector are now a VIEW, not a copy.**
-  They used to build an eager `PersistentList` — n cell allocations and n trie
-  descents per call. They now return an `ArraySeq` holding `(vector, index)`,
-  which is what Clojure does (`PersistentVector$ChunkedSeq`). All three drop
-  from O(n) to O(1): measured over a 16000-element vector, `seq` 2123 → 0.36 ms,
-  `rest` 2253 → 0.39 ms, `next` 2164 → 0.38 ms per 2000 ops — from 2184-3549×
-  slower than JVM Clojure 1.12.4 to 1.7-2.6× faster. `nth` on such a seq is now
-  O(1) too, where clj still walks. See `O-058` in `.dev/optimizations.md`.
-
-  Everything observable is unchanged — it prints as a seq, is `=` to the list
-  and the vector with the same elements, hashes with them, and works as a map
-  key — with ONE exception: **`(class (seq [1 2 3]))` now answers `ArraySeq`
-  where it used to answer `PersistentList`.** Neither matches the JVM's
-  `PersistentVector$ChunkedSeq`; code that branches on that class name was
-  already non-portable, and `seq?` / `sequential?` / `coll?` / `counted?` are
-  unaffected.
-
-  This closes item 2 of `.dev/bench/README.md`'s ranked list — which that file
-  had wrongly recorded as blocked on item 1 (`SubVector`). See the correction
-  there: `next` of a seq is a seq, so the vector-seq needed `(vector, index)`
-  and never needed a smaller vector. `subvec` remains eager (D-044).
 
 ### Fixed
 
