@@ -7,6 +7,8 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 
 ## [Unreleased]
 
+## [1.10.6] - 2026-08-14
+
 ### Internal
 
 - **The release bump also stamps this file.** `preflight` renames
