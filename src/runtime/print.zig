@@ -1210,6 +1210,30 @@ const ExtmapPrintCtx = struct {
     }
 };
 
+/// The `#<tag> "<body>"` reader-literal parts of a descriptor-tagged host
+/// value (today only `#inst`), or null when `v` is not one. `buf` holds the
+/// formatted body.
+///
+/// Shared by the printer and by the analyzer's Value→Form inverse. The two
+/// MUST agree: whatever prints as a reader literal is exactly what has to
+/// read back as the same value, and a macro expansion carrying such a value
+/// round-trips through this form. Two copies of the rule would let a printed
+/// literal and a re-analysed one drift apart silently.
+pub fn readerTagParts(v: Value, buf: []u8) ?struct { tag: []const u8, body: []const u8 } {
+    if (v.tag() != .typed_instance) return null;
+    const inst = v.decodePtr(*const td_mod.TypedInstance);
+    const tag = inst.descriptor.print_tag orelse return null;
+    if (inst.field_count < 1 or inst.fields()[0].tag() != .integer) return null;
+    const epoch_ms = inst.fields()[0].asInteger();
+    // A 2-field inst value is a Timestamp (epoch-ms + nanos) → 9-digit
+    // fraction; a 1-field one is a Date → 3-digit ms.
+    const iso = if (inst.field_count >= 2 and inst.fields()[1].tag() == .integer)
+        instant_mod.formatInstantNanos(buf, epoch_ms, @intCast(inst.fields()[1].asInteger()))
+    else
+        instant_mod.formatInstantMillis(buf, epoch_ms);
+    return .{ .tag = tag, .body = iso };
+}
+
 fn printTypedInstance(w: *Writer, v: Value) anyerror!void {
     const inst = v.decodePtr(*const td_mod.TypedInstance);
     // A deftype declaring clojure.lang.IPersistentMap prints map-style when a
@@ -1279,17 +1303,10 @@ fn printTypedInstance(w: *Writer, v: Value) anyerror!void {
     // Reader-tag host value: emit `#<tag> "<iso>"`. Today only
     // `#inst` (java.util.Date) — body = the epoch-ms field 0 as the
     // canonical ISO string. Descriptor-driven (no rt, no surface import).
-    if (inst.descriptor.print_tag) |tag| {
-        if (inst.field_count >= 1 and inst.fields()[0].tag() == .integer) {
-            var buf: [48]u8 = undefined;
-            const epoch_ms = inst.fields()[0].asInteger();
-            // A 2-field inst value is a Timestamp (epoch-ms + nanos) →
-            // 9-digit fraction; a 1-field one is a Date → 3-digit ms.
-            const iso = if (inst.field_count >= 2 and inst.fields()[1].tag() == .integer)
-                instant_mod.formatInstantNanos(&buf, epoch_ms, @intCast(inst.fields()[1].asInteger()))
-            else
-                instant_mod.formatInstantMillis(&buf, epoch_ms);
-            try w.print("#{s} \"{s}\"", .{ tag, iso });
+    {
+        var buf: [48]u8 = undefined;
+        if (readerTagParts(v, &buf)) |parts| {
+            try w.print("#{s} \"{s}\"", .{ parts.tag, parts.body });
             return;
         }
     }

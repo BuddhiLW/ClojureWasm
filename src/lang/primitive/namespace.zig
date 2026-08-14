@@ -218,12 +218,23 @@ pub fn nsRefersFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocat
 /// `(ns-resolve ns sym)` — the Var `sym` resolves to within `ns` (mappings then
 /// refers), or nil. Spec: clojure.core/ns-resolve (2-arity; the 3-arity env
 /// form is not modelled).
+///
+/// A QUALIFIED `sym` names its own namespace, and that prefix is read in the
+/// context of `ns` — its aliases first, then real namespace names — so
+/// `(ns-resolve 'my.app 'str/blank?)` follows my.app's `:as str`. Ignoring
+/// the prefix and looking the bare name up in `ns` would answer confidently
+/// about the wrong namespace.
 pub fn nsResolveFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
     _ = rt;
     try error_catalog.checkArity("ns-resolve", args, 2, loc);
     const ns = try resolveNsOrRaise(env, args[0], "ns-resolve", loc);
     if (args[1].tag() != .symbol) return Value.nil_val;
-    if (ns.resolve(symbol_mod.asSymbol(args[1]).name)) |v| return Value.encodeHeapPtr(.var_ref, v);
+    const sym = symbol_mod.asSymbol(args[1]);
+    const target: *Namespace = if (sym.ns) |prefix|
+        (ns.aliases.get(prefix) orelse env.findNs(prefix) orelse return Value.nil_val)
+    else
+        ns;
+    if (target.resolve(sym.name)) |v| return Value.encodeHeapPtr(.var_ref, v);
     return Value.nil_val;
 }
 

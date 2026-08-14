@@ -64,6 +64,7 @@ const big_decimal = @import("../../runtime/numeric/big_decimal.zig");
 const ratio_mod = @import("../../runtime/numeric/ratio.zig");
 const print_mod = @import("../../runtime/print.zig");
 const regex_value = @import("../../runtime/regex/value.zig");
+const uuid_mod = @import("../../runtime/uuid.zig");
 const class_name = @import("../../runtime/class_name.zig");
 const host_class = @import("../../runtime/error/host_class.zig");
 const host_interface = @import("../../runtime/host_interface.zig");
@@ -491,10 +492,23 @@ pub fn parseBigIntLiteral(rt: *Runtime, digits: []const u8, loc: error_mod.Sourc
 /// integer is the input with the decimal point removed; the scale is
 /// the number of digits after the dot.
 pub fn parseBigDecimalLiteral(rt: *Runtime, digits: []const u8, loc: error_mod.SourceLocation) !Value {
-    // Locate the decimal point if any. JVM accepts `1M`, `1.5M`, and
-    // exponent `1.5e3M` — the latter is left as a debt row.
+    // JVM accepts `1M`, `1.5M`, and exponent `1.5e3M`. The exponent is not a
+    // separate representation — a BigDecimal is (unscaled, scale), and
+    // `× 10^exp` is exactly `scale -= exp`. Split it off first so the
+    // mantissa below is the plain `[-]ddd[.ddd]` shape.
+    var mantissa = digits;
+    var exponent: i32 = 0;
+    if (std.mem.indexOfAny(u8, digits, "eE")) |e_pos| {
+        mantissa = digits[0..e_pos];
+        const exp_txt = digits[e_pos + 1 ..];
+        if (exp_txt.len == 0) return error_catalog.raise(.big_decimal_literal_invalid, loc, .{ .text = digits });
+        exponent = std.fmt.parseInt(i32, exp_txt, 10) catch
+            return error_catalog.raise(.big_decimal_literal_invalid, loc, .{ .text = digits });
+    }
+
+    // Locate the decimal point if any.
     var dot_pos: ?usize = null;
-    for (digits, 0..) |c, idx| {
+    for (mantissa, 0..) |c, idx| {
         if (c == '.') {
             dot_pos = idx;
             break;
@@ -507,25 +521,29 @@ pub fn parseBigDecimalLiteral(rt: *Runtime, digits: []const u8, loc: error_mod.S
     var buf_len: usize = 0;
     var scale: i32 = 0;
     if (dot_pos) |p| {
-        const pre = digits[0..p];
-        const post = digits[p + 1 ..];
+        const pre = mantissa[0..p];
+        const post = mantissa[p + 1 ..];
         if (pre.len + post.len > buf.len) {
-            return error_catalog.raise(.float_literal_invalid, loc, .{ .text = digits });
+            return error_catalog.raise(.big_decimal_literal_invalid, loc, .{ .text = digits });
         }
         std.mem.copyForwards(u8, buf[0..pre.len], pre);
         std.mem.copyForwards(u8, buf[pre.len .. pre.len + post.len], post);
         buf_len = pre.len + post.len;
         scale = @intCast(post.len);
     } else {
-        if (digits.len > buf.len) {
-            return error_catalog.raise(.float_literal_invalid, loc, .{ .text = digits });
+        if (mantissa.len > buf.len) {
+            return error_catalog.raise(.big_decimal_literal_invalid, loc, .{ .text = digits });
         }
-        std.mem.copyForwards(u8, buf[0..digits.len], digits);
-        buf_len = digits.len;
+        std.mem.copyForwards(u8, buf[0..mantissa.len], mantissa);
+        buf_len = mantissa.len;
     }
+    // `× 10^exponent` on a (unscaled, scale) pair is a scale shift, so a
+    // literal exponent never touches the digits.
+    scale = std.math.sub(i32, scale, exponent) catch
+        return error_catalog.raise(.big_decimal_literal_invalid, loc, .{ .text = digits });
 
     var unscaled = big_int.parseBase10(rt, buf[0..buf_len]) catch
-        return error_catalog.raise(.float_literal_invalid, loc, .{ .text = digits });
+        return error_catalog.raise(.big_decimal_literal_invalid, loc, .{ .text = digits });
     defer unscaled.deinit();
 
     return try big_decimal.allocFromManagedScale(rt, &unscaled, scale);
@@ -1581,6 +1599,37 @@ pub fn valueToForm(
         // A regex in a macro expansion (e.g. `(is (thrown-with-msg? E #"…" …))`)
         // round-trips through its reader-literal source.
         .regex => .{ .data = .{ .regex_literal = regex_value.asRegex(v).source() }, .location = call_loc },
+        // A uuid has no literal Form of its own, but it round-trips exactly
+        // through the `#uuid "…"` tagged literal that produced it —
+        // `formToValue` applies the `uuid` data-reader to rebuild the value.
+        // A macro whose argument or expansion contains a `#uuid` literal
+        // reaches here, which is any `(when-var-exists uuid? …)`-shaped body.
+        .uuid => blk: {
+            const canonical = uuid_mod.canonicalOf(v);
+            const inner = try arena.create(Form);
+            inner.* = .{ .data = .{ .string = try arena.dupe(u8, &canonical) }, .location = call_loc };
+            break :blk .{
+                .data = .{ .tagged = .{ .tag = .{ .name = "uuid" }, .form = inner } },
+                .location = call_loc,
+            };
+        },
+        // `#inst "…"` — same round-trip as `.uuid`, via the descriptor's
+        // reader tag. `readerTagParts` is the printer's own rule, shared so a
+        // value cannot print as one literal and re-analyse as another. A
+        // typed_instance with no reader tag (a deftype / defrecord instance,
+        // or a bare-toString time value) has no literal to return to and
+        // falls through to the error below.
+        .typed_instance => blk: {
+            var buf: [48]u8 = undefined;
+            const parts = print_mod.readerTagParts(v, &buf) orelse
+                return error_catalog.raise(.macro_return_not_data, call_loc, .{ .tag = @tagName(v.tag()) });
+            const inner = try arena.create(Form);
+            inner.* = .{ .data = .{ .string = try arena.dupe(u8, parts.body) }, .location = call_loc };
+            break :blk .{
+                .data = .{ .tagged = .{ .tag = .{ .name = parts.tag }, .form = inner } },
+                .location = call_loc,
+            };
+        },
         // Any seq tag — FORCE lazy layers so a macro's `(seq (concat …))`
         // syntax-quote expansion (and its lazy tail) realizes into a concrete
         // list Form. A plain `list_collection.rest` would not force the lazy

@@ -49,3 +49,6 @@ __pycache__/
 
 # Throwaway detached worktrees for scratch work (git worktree add --detach .dev/wt-<purpose>)
 .dev/wt-*/
+
+# nREPL writes the live port here at `cljw nrepl` startup — machine-local.
+.nrepl-port

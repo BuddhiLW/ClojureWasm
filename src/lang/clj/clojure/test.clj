@@ -46,10 +46,11 @@
 ;; ns-name-symbol -> vector of test Vars (deftest appends; run-tests reads).
 (def *test-registry* (atom {}))
 
-;; ns-name-symbol -> {:once [fixture-fn …] :each [fixture-fn …]}. clj hangs
-;; these off the ns's metadata; cljw namespaces carry no user metadata, so the
-;; registry mirrors *test-registry* and is keyed the same way.
-(def *fixture-registry* (atom {}))
+;; clj hangs these off the ns's metadata; cljw namespaces carry no user
+;; metadata, so the registry mirrors *test-registry* and is keyed the same way.
+(def *fixture-registry*
+  "Atom of ns-name-symbol -> {:once [fixture-fn …] :each [fixture-fn …]}."
+  (atom {}))
 
 ;; ---------------------------------------------------------------------------
 ;; report multimethod (keyed on :type) + do-report. `^:dynamic` so an

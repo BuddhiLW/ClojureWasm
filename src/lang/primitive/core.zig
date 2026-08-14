@@ -1602,7 +1602,9 @@ pub fn gensymFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocatio
 }
 
 /// `(rt/__resolve sym)` — the Var that `sym` resolves to, as a `.var_ref`
-/// Value. A qualified `ns/name` symbol consults that namespace; an
+/// Value. A qualified `ns/name` symbol consults that namespace — resolved
+/// the way every other `s/name` site resolves a prefix, so a REQUIRE ALIAS
+/// works (`(resolve 'str/blank?)` under `[clojure.string :as str]`); an
 /// unqualified name the current namespace (own mappings, then refers).
 /// nil when the symbol — or its named namespace — does not resolve. The
 /// `.clj` `resolve` wraps this; the var_ref derefs to the Var's value and
@@ -1618,7 +1620,7 @@ pub fn resolvePrim(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLoca
     }
     const sym = symbol_mod.asSymbol(args[0]);
     const ns: *env_mod.Namespace = if (sym.ns) |ns_name|
-        (env.findNs(ns_name) orelse
+        (env.findNsOrAlias(ns_name) orelse
             // A qualified ns miss may be a class symbol (clojure.lang.BigInt,
             // java.lang.String) — clj's `resolve` returns the Class. D-421.
             return (try analyzer.resolveClassValue(rt, env, sym.ns, sym.name)) orelse Value.nil_val)

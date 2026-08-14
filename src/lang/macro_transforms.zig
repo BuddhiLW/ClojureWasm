@@ -1033,7 +1033,8 @@ fn expandWhile(arena: std.mem.Allocator, rt: *Runtime, args: []const Form, loc: 
 /// `(when-first [x coll] body…)` →
 /// `(when-let [g (seq coll)] (let* [x (first g)] (do body…)))`.
 fn expandWhenFirst(arena: std.mem.Allocator, rt: *Runtime, args: []const Form, loc: SourceLocation) macro_dispatch.ExpandError!Form {
-    if (args.len < 2)
+    // Binding vector only, like when-let: an empty body folds to `(do)` = nil.
+    if (args.len < 1)
         return error_catalog.raise(.when_first_form_incomplete, loc, .{});
     if (args[0].data != .vector or args[0].data.vector.len != 2)
         return error_catalog.raise(.when_first_bindings_invalid, args[0].location, .{});
@@ -2862,7 +2863,10 @@ fn expandWhenLet(
     loc: SourceLocation,
 ) macro_dispatch.ExpandError!Form {
     _ = rt;
-    if (args.len < 2)
+    // Only the binding vector is required: `(when-let [x 1])` is legal and
+    // yields nil either way (clj parity), which is what a `(testing "label")`
+    // with no body expands into.
+    if (args.len < 1)
         return error_catalog.raise(.when_let_form_incomplete, loc, .{});
 
     const binding_form = args[0];
@@ -3445,8 +3449,9 @@ fn expandThunkWrapper(
     args: []const Form,
     loc: SourceLocation,
 ) macro_dispatch.ExpandError!Form {
-    if (args.len == 0)
-        return error_catalog.raise(.form_malformed, loc, .{ .name = "delay/future requires at least one body form" });
+    // An empty body is legal for every caller: `(delay)` / `(future)` /
+    // `(dosync)` yield nil and `(lazy-seq)` yields (), because `(fn* [])`
+    // with no body forms is itself nil-valued. clj parity.
     const empty_params = try arena.dupe(Form, &.{});
     const params_form: Form = .{ .data = .{ .vector = empty_params }, .location = loc };
     var fn_items = try arena.alloc(Form, 2 + args.len);

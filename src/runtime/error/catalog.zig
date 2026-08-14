@@ -74,6 +74,7 @@ pub const Code = enum {
     form_malformed,
     integer_literal_invalid,
     float_literal_invalid,
+    big_decimal_literal_invalid,
     string_unterminated,
     map_literal_arity_odd,
 
@@ -611,6 +612,11 @@ pub fn entry(comptime code: Code) Entry {
             .kind = .number_error,
             .phase = .parse,
             .template = "Invalid float literal '{[text]s}'",
+        },
+        .big_decimal_literal_invalid => .{
+            .kind = .number_error,
+            .phase = .parse,
+            .template = "Invalid bigdec literal '{[text]s}M'",
         },
         .string_unterminated => .{
             .kind = .string_error,
@@ -1242,7 +1248,7 @@ pub fn entry(comptime code: Code) Entry {
         .when_first_form_incomplete => .{
             .kind = .syntax_error,
             .phase = .macroexpand,
-            .template = "when-first requires [name coll] and at least one body form",
+            .template = "when-first requires a [name coll] binding vector",
         },
         .when_first_bindings_invalid => .{
             .kind = .syntax_error,
@@ -1407,7 +1413,7 @@ pub fn entry(comptime code: Code) Entry {
         .when_let_form_incomplete => .{
             .kind = .syntax_error,
             .phase = .macroexpand,
-            .template = "when-let requires [name expr] and at least one body form",
+            .template = "when-let requires a [name expr] binding vector",
         },
 
         // --- Eval (type) ---
