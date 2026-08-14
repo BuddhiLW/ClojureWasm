@@ -9,6 +9,41 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 
 ### Added
 
+- **`java.util.concurrent.Future`'s method names on cljw's own futures.** `.get`
+  (`[]` / `[timeout unit]`), `.isDone`, `.isCancelled` and `.cancel`
+  (`[]` / `[mayInterruptIfRunning]`) now resolve on the value `(future …)`
+  returns — which already answered `Future` to `class` and already had every
+  semantic behind `deref` / `realized?` / `future-cancel` / `future-cancelled?`.
+  Each method delegates to that existing primitive, so `.get` and `@` cannot
+  disagree: a cancelled future still throws `CancellationException` and a failed
+  one still re-raises the worker's marshalled error (ADR-0120) rather than a
+  second set of answers invented for the Java spelling.
+
+  The timed arity is the one deliberate departure from cljw's own `deref`:
+  `(.get f timeout unit)` **throws `java.util.concurrent.TimeoutException`**
+  where the 3-arity `deref` returns a caller-supplied default, because code that
+  catches TimeoutException to decide whether to cancel would read a returned
+  default as success. The eval budget still bounds the wait, and a future still
+  pending at the budget's deadline reports the budget instead.
+
+  `Future` also joins the reify-able host interfaces (both the qualified and the
+  bare post-`:import` spelling), for libraries that synthesise an
+  already-completed Future rather than minting a worker.
+
+  `mayInterruptIfRunning` is accepted and ignored (AD-065): cljw's cancellation
+  is cooperative, so there is no queue-vs-running distinction to honour.
+
+- **`java.util.concurrent.RejectedExecutionException` is a known exception
+  type**, so `(catch RejectedExecutionException …)` compiles. A `RuntimeException`
+  like on the JVM. Caught-but-never-thrown for now, joining `InterruptedException`
+  / `TimeoutException` / `ExecutionException` in that family — cljw has no pool
+  that rejects a submission yet.
+
+  Both found by driving [hive-weave](https://github.com/hive-agi/hive-weave)
+  through cljw: `hive-weave.pool` — a bounded pool with caller-runs fallback,
+  binding-conveying `submit!` and a synthetic Future for work that ran on the
+  caller thread — now loads on it.
+
 - **`java.util.concurrent.Semaphore`.** Permits live in one atomic counter and
   move by CAS: `<init>` (`n` / `n fair?`), `.acquire` (`[n]`), `.tryAcquire`
   (`[n]`, `[timeout unit]`, `[n timeout unit]`), `.release` (`[n]`),

@@ -1041,3 +1041,26 @@ accepted:
     example: '(let [q (java.util.concurrent.LinkedBlockingQueue. 8)] (.offer q 1) (.drainTo q [])) => cljw [1] / clj 1, with the element pushed into the (mutable) target collection.'
     derives_from: "ADR-0059 (no JVM) + cljw persistent collections (no mutable drain target)."
     pin: "test/e2e/linked_blocking_queue.sh — drainTo_returns_and_empties."
+  - id: "AD-065"
+    area: "concurrency"
+    summary: |-
+      `(.cancel f mayInterruptIfRunning)` ACCEPTS the flag and IGNORES it: both
+      `true` and `false` behave as the JVM's `cancel(true)` would, and the
+      1-arity `(.cancel f)` is accepted too.
+      cljw's cancellation is cooperative (D-442 / ADR-0153): `future-cancel`
+      moves a still-pending future to `.cancelled` and wakes it, and a blocking
+      primitive inside the thunk (`Thread/sleep`, a Semaphore wait) polls
+      `cancelRequested` and aborts. A thunk in a tight CPU loop with no blocking
+      point runs to completion either way — which is also what the JVM's
+      `cancel(true)` does in practice, since it interrupts rather than kills.
+      So the flag's JVM meaning ("may I interrupt a RUNNING task, or only
+      cancel a queued one?") has no distinct implementation here: there is no
+      queue-vs-running distinction to honour and no interrupt to withhold.
+      Ignoring it is more honest than picking one of the two values to respect,
+      which would make `false` silently mean something it does not.
+      `.cancel` still reports truthfully: it returns true only when THIS call is
+      the one that cancelled a still-pending future, false for a future that
+      already realised or was already cancelled — the JVM's contract.
+    example: '(let [f (future (Thread/sleep 5000))] [(.cancel f false) (.isCancelled f)]) => cljw [true true] / clj [false false] — the JVM refuses to cancel a running task when the flag is false.'
+    derives_from: "D-442 / ADR-0153 (cooperative cancellation) + ADR-0059 (no JVM thread interrupt)."
+    pin: "test/e2e/future_methods.sh — cancel_flag_is_ignored_ad065."

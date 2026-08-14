@@ -164,6 +164,12 @@ pub fn registerAll(env: *Env) !void {
     // `.char` instance methods (charValue / compareTo) — the
     // java.lang.Character instance surface.
     try @import("../runtime/java/lang/Character.zig").installNativeMethods(env.rt);
+    // java.util.concurrent.Future method NAMES (.get/.isDone/.isCancelled/
+    // .cancel) on the `.future` value — the semantics already existed as
+    // deref / realized? / future-cancelled? / future-cancel, so a library
+    // holding a `^Future` (hive-weave.pool, .guarded) reaches them by their
+    // Java spelling instead of only the Clojure one.
+    try @import("../runtime/java/util/concurrent/Future.zig").installNativeMethods(env.rt);
 
     // ADR-0171: `__`-prefixed kernel helpers leave clojure.core for
     // cljw.internal BEFORE the user refer + printer index, so neither

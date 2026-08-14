@@ -104,6 +104,11 @@ const JAVA_IO_CLOSEABLE: HostInterface = .{ .kind = .host_inert, .canonical = "j
 const THREAD_FACTORY: HostInterface = .{ .kind = .method_family, .canonical = "java.util.concurrent.ThreadFactory", .wired_methods = &.{"newThread"} };
 const CALLABLE: HostInterface = .{ .kind = .method_family, .canonical = "java.util.concurrent.Callable", .wired_methods = &.{"call"} };
 const RUNNABLE: HostInterface = .{ .kind = .method_family, .canonical = "java.lang.Runnable", .wired_methods = &.{"run"} };
+// Future is BOTH a native value and a reify target. `(future …)` answers these
+// four already (java/util/concurrent/Future.zig installs them on the `.future`
+// descriptor); this row covers the other direction — a library synthesising a
+// Future for an already-computed value, which cannot be a real worker thread.
+const FUTURE: HostInterface = .{ .kind = .method_family, .canonical = "java.util.concurrent.Future", .wired_methods = &.{ "get", "cancel", "isDone", "isCancelled" } };
 
 // protocol_remap interfaces (D-280b+): the macro rewrites each declared method to
 // its cljw (protocol, method) target. ILookup's valAt → ILookup/-lookup (a 3-arity
@@ -483,6 +488,8 @@ const MARKERS = std.StaticStringMap(HostInterface).initComptime(.{
     .{ "Callable", CALLABLE },
     .{ "java.lang.Runnable", RUNNABLE },
     .{ "Runnable", RUNNABLE },
+    .{ "java.util.concurrent.Future", FUTURE },
+    .{ "Future", FUTURE },
     // D-416 bare aliases (data.finger-tree declares these bare) — see the D-306
     // collection-base note below.
     .{ "ILookup", ILOOKUP },

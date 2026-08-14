@@ -105,6 +105,11 @@ pub const ENTRIES = [_]Entry{
     .{ .name = "IllegalStateException", .parent = "RuntimeException" },
     // java.util.concurrent.CancellationException ⊂ IllegalStateException (D-442).
     .{ .name = "CancellationException", .parent = "IllegalStateException" },
+    // java.util.concurrent.RejectedExecutionException ⊂ RuntimeException — what a
+    // saturated or shut-down pool throws on submit. Caught (never thrown yet) by
+    // portable code that falls back to running the work on the caller thread;
+    // hive-weave.pool guards its `.submit` with it.
+    .{ .name = "RejectedExecutionException", .parent = "RuntimeException" },
     .{ .name = "IndexOutOfBoundsException", .parent = "RuntimeException" },
     .{ .name = "NullPointerException", .parent = "RuntimeException" },
     .{ .name = "UnsupportedOperationException", .parent = "RuntimeException" },
@@ -131,6 +136,7 @@ const FQCN_MAP = std.StaticStringMap([]const u8).initComptime(.{
     .{ "java.lang.NumberFormatException", "NumberFormatException" },
     .{ "java.lang.IllegalStateException", "IllegalStateException" },
     .{ "java.util.concurrent.CancellationException", "CancellationException" },
+    .{ "java.util.concurrent.RejectedExecutionException", "RejectedExecutionException" },
     .{ "java.lang.InterruptedException", "InterruptedException" },
     .{ "java.util.concurrent.TimeoutException", "TimeoutException" },
     .{ "java.util.concurrent.ExecutionException", "ExecutionException" },
