@@ -4,10 +4,15 @@
 //! value; every mutation moves it with `@cmpxchgWeak` or `@atomicRmw`, so the
 //! surfaces are safe under cljw's real OS threads.
 //!
-//! Backend: impl-only (no `___HOST_EXTENSION` — the per-class surface files
-//! under this directory export the markers and share this `Impl`).
+//! Backend: impl-only
 //! Impl deps: host_instance
 //! Clojure peer: none
+//!
+//! This file exports no `___HOST_EXTENSION` of its own — the per-class surface
+//! files under this directory carry the markers and share this `Impl`. The
+//! three marker lines above must each stand alone: `check_surface_marker.sh`
+//! anchors `Backend:` with `$`, so a trailing parenthetical reads as a
+//! malformed marker.
 //!
 //! `Impl` is comptime-parameterised by the class's descriptor slot, its name
 //! (for arity/type errors) and its `Repr`, because AtomicLong / AtomicInteger

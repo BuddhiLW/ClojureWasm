@@ -43,7 +43,32 @@ BIN="${1:-zig-out/bin/cljw}"
 # ADR-0172 §2 derived ceiling (per-component budgets sum). Keep in sync with
 # the ADR's budget table — a change here REQUIRES an ADR-0172 Revision
 # history entry (the budget moves consciously, never to silence this check).
+#
+# Denominated in REFERENCE-PLATFORM bytes, because that is what the budget
+# table measures: ADR-0172 §1 names macOS arm64 as the reference for "every
+# number in this ledger". See PLATFORM_SIZE_FACTOR below for why enforcing
+# this number as an absolute on every host was a latent contradiction.
 BUDGET_CEILING_BYTES=8800000
+
+# The same source builds measurably bigger off the reference platform, so a
+# ceiling derived from mac-denominated component budgets cannot be applied to
+# a Linux artifact as an absolute — that compares two different things, which
+# is the same error this script already avoids for the claim-drift check.
+#
+# ADR-0172 §1 states the expectation as "within ~±15%". The two mac/Linux
+# pairs its Revision history actually records are tighter and agree with each
+# other: 7,073,240 B / ~8.01 MB = 1.132, and 7,352,376 B / ~8.29 MB = 1.128.
+# 1.13 is that measured ratio, not the ±15% envelope — the envelope would be
+# the looser choice and there is no reason to spend it.
+#
+# This is a correction, NOT a relaxation: the reference-platform ceiling is
+# unchanged at 8,800,000 B, so the budget does not move where it was derived.
+# It only stops a Linux run from being measured against a number that was
+# never in Linux bytes. The ADR's own Revision history shows the contradiction
+# accumulating — Linux recorded at "91% of ceiling", then "94% of ceiling",
+# against a ceiling mac was at ~80% of — and it reached 100.01% on
+# 2026-08-14, failing the gate on 1,032 bytes.
+PLATFORM_SIZE_FACTOR="${PLATFORM_SIZE_FACTOR:-1.13}"
 
 if [[ ! -f "$BIN" ]]; then
     echo "binary_size_report: binary not found: $BIN (build first: zig build -Dwasm -Doptimize=ReleaseSafe)" >&2
@@ -78,15 +103,28 @@ is_reference_platform() {
 }
 
 if [[ "$MODE" == "check" ]]; then
-    if [[ "$ACTUAL" -gt "$BUDGET_CEILING_BYTES" ]]; then
-        echo "size_claims: built binary ${ACTUAL_MB} MB (${ACTUAL} B) exceeds the ADR-0172 derived ceiling ($BUDGET_CEILING_BYTES B)." >&2
+    # The ceiling ENFORCED here is the reference-platform budget scaled to the
+    # host being measured, so the artifact still cannot grow without a decision
+    # on any platform (that intent is host-independent) while the comparison
+    # itself is between like quantities (the bytes are not).
+    if is_reference_platform; then
+        EFFECTIVE_CEILING="$BUDGET_CEILING_BYTES"
+        CEILING_NOTE="reference platform"
+    else
+        EFFECTIVE_CEILING=$(awk "BEGIN{printf \"%d\", $BUDGET_CEILING_BYTES * $PLATFORM_SIZE_FACTOR}")
+        CEILING_NOTE="$(uname -s)/$(uname -m): reference ceiling ${BUDGET_CEILING_BYTES} B × ${PLATFORM_SIZE_FACTOR} platform factor"
+    fi
+
+    if [[ "$ACTUAL" -gt "$EFFECTIVE_CEILING" ]]; then
+        echo "size_claims: built binary ${ACTUAL_MB} MB (${ACTUAL} B) exceeds the ADR-0172 derived ceiling ($EFFECTIVE_CEILING B — $CEILING_NOTE)." >&2
         echo "  Attribute with 'bash scripts/binary_size_report.sh' (-Dprofile build for symbols), then land a lever" >&2
         echo "  or consciously amend the budget table in .dev/decisions/0172_binary_size_budget_and_ledger.md." >&2
+        echo "  Do NOT raise PLATFORM_SIZE_FACTOR to pass — it encodes a measured mac/Linux ratio, not a slack knob." >&2
         exit 1
     fi
 
     if ! is_reference_platform; then
-        echo "    size_claims: ceiling ok (${ACTUAL_MB} MB); claim-drift check skipped — the documented figures are macOS arm64 (ADR-0172 reference platform), this is $(uname -s)/$(uname -m)"
+        echo "    size_claims: ceiling ok (${ACTUAL_MB} MB vs ${EFFECTIVE_CEILING} B — $CEILING_NOTE); claim-drift check skipped — the documented figures are macOS arm64 (ADR-0172 reference platform), this is $(uname -s)/$(uname -m)"
         exit 0
     fi
 

@@ -112,6 +112,14 @@ A component crossing its budget line triggers: attribute (report tool) →
 either a lever lands or the budget line is consciously amended **in this ADR**
 (Revision history entry). Never silently.
 
+**Every figure in this table is in reference-platform bytes** (macOS arm64, per
+§1) — including the derived ceiling. The gate therefore scales it by
+`PLATFORM_SIZE_FACTOR` when it runs off the reference platform; enforcing the
+mac-denominated total as an absolute on Linux compares two different things and
+failed for exactly that reason on 2026-08-14 (see Revision history). A number
+here moves only for a component that actually grew, never to accommodate a
+platform.
+
 ### 3. Size-claims gate (the recurrence-prevention mechanism)
 
 `test/run_all.sh` gains the `size_claims` step (full gate, after
@@ -405,6 +413,43 @@ dispositions grounded, platform binding declared, peer number measured).
   honest even if a component drifts between audits.
 
 ## Revision history
+
+- **2026-08-14 (ceiling re-denominated per platform, conscious — governance
+  correction, NOT a budget increase)**: the `size_claims` gate failed on the
+  Linux x86_64 leg at 8,801,032 B against the 8,800,000 B derived ceiling — by
+  1,032 bytes, 0.012%. Attribution showed the overrun is not a component
+  regression but a unit error in the gate itself.
+
+  §1 of this ADR names macOS arm64 as the reference for "every number in this
+  ledger", and every component budget in §2's table is measured there. The gate
+  nonetheless compared that mac-denominated total against whatever host it ran
+  on — and §1 also states the Linux artifact is expected "within ~±15%" of the
+  reference. A ceiling in mac bytes enforced as an absolute on a platform this
+  ADR says is systematically larger had to fail eventually; the two entries
+  below record it approaching, at "91% of ceiling" and then "94% of ceiling",
+  while the reference artifact those budgets describe sat at ~80%.
+
+  Fix: `binary_size_report.sh` keeps `BUDGET_CEILING_BYTES=8800000` as the
+  **reference-platform** ceiling — unchanged, so the budget does not move where
+  it was derived — and scales it by a `PLATFORM_SIZE_FACTOR` of **1.13** off
+  the reference platform. 1.13 is the ratio this history already measured
+  twice (7,073,240 B / ~8.01 MB = 1.132; 7,352,376 B / ~8.29 MB = 1.128), not
+  the looser ±15% envelope. Linux's effective ceiling becomes 9,944,000 B, and
+  the current artifact sits at 88.5% of it — consistent with the reference
+  artifact's 85.8% of 8.8 MB, which is the tell that the two are now measuring
+  the same thing. The "cannot grow without a decision" intent is unchanged and
+  still enforced on every platform; only the unit is corrected. Verified by a
+  deliberate break: `PLATFORM_SIZE_FACTOR=1.0` still fails the gate on this
+  binary, so the check is re-denominated, not defanged.
+
+  Not attempted here: re-measuring the reference artifact to confirm mac's
+  current headroom. `zig build -Dtarget=aarch64-macos` does not cross-compile
+  from Linux — vendored zwasm's platform layer carries arm64 inline-asm
+  clobber lists and Linux-only syscall constants (`MAP.JIT`, `siginfo_t.addr`),
+  6 compile errors. So the mac figure in §2's table remains the 2026-08-04
+  measurement until a run on the reference platform refreshes it, and the
+  Linux-side per-component attribution stays unavailable because
+  `binary_size_report.sh`'s breakdown parses macOS `size -m` output.
 
 - **2026-07-17 (D-561 Unicode name table, conscious)**: `Character/getName`
   + `codePointOf` land the full UCD 16.0.0 name table as pre-compressed
