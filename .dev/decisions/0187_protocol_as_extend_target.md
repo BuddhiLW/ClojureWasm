@@ -1,6 +1,6 @@
 # 0187 — Extend a protocol to another protocol via a dispatch-miss fallback
 
-- **Status**: Proposed
+- **Status**: Accepted (code: commit c00825b3; e2e phase14_extend_protocol_targets.sh 8/8; flipped 2026-08-17)
 - **Date**: 2026-08-12
 - **Author**: BuddhiLW
 - **Tags**: protocols, dispatch, host-compat
