@@ -69,6 +69,7 @@ test {
     _ = @import("testing/prop_collections.zig");
     _ = @import("testing/prop_print.zig");
     _ = @import("testing/prop_equal.zig");
+    _ = @import("testing/prop_compare.zig");
 
     _ = @import("app/cli.zig");
     _ = @import("app/repl/line_editor.zig");
