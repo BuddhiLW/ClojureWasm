@@ -872,16 +872,17 @@ pub fn dissocFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocatio
             break :blk try td_mod.allocInstanceFull(rt, inst.descriptor, fields, inst.meta, ext);
         },
         else => blk: {
-            // D-089 row 8.6 cycle 3: IPersistentMap -without slow-path.
-            // Single-key only; multi-key extension folds via reduce in
-            // user code (same shape as the assoc outer-else).
-            if (args.len != 2) {
-                break :blk error_catalog.raise(.feature_not_supported, loc, .{
-                    .name = "multi-key dissoc on extend-type IPersistentMap receiver",
-                });
+            // D-089 row 8.6 cycle 3: IPersistentMap `-without` slow-path. Multi-key
+            // folds over repeated single-key `-without` (mirrors the assoc else arm,
+            // D-378); a non-map receiver raises a catchable protocol-no-impl on the
+            // first dispatch, same as the single-key path.
+            var acc: Value = coll;
+            var i: usize = 1;
+            while (i < args.len) : (i += 1) {
+                var cs: dispatch.CallSite = .{};
+                acc = try dispatch.dispatch(rt, env, &cs, acc, IPM_FQCN, "-without", &.{ acc, args[i] }, loc);
             }
-            var cs: dispatch.CallSite = .{};
-            break :blk try dispatch.dispatch(rt, env, &cs, coll, IPM_FQCN, "-without", args, loc);
+            break :blk acc;
         },
     };
 }
