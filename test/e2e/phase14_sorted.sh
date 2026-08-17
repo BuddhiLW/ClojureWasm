@@ -30,6 +30,11 @@ assert_eq 'set_cont'  "$("$BIN" -e '(contains? (sorted-set 1 2 3) 2)')"    'true
 assert_eq 'set_conj'  "$("$BIN" -e '(seq (conj (sorted-set 1 3) 2))')"     '(1 2 3)'
 assert_eq 'set_dup'   "$("$BIN" -e '(count (sorted-set 1 2 2 3))')"        '3'
 assert_eq 'set_print' "$("$BIN" -e '(str (sorted-set 3 1 2))')"           '"#{1 2 3}"'
+# CLJW-SORT-NAN: NaN compares .eq to every number -> treated as a duplicate key on
+# LLRB insert (no native-compare panic); the tie's value wins insert-order (clj parity).
+assert_eq 'set_nan'   "$("$BIN" -e '(str (sorted-set 1.0 ##NaN))')"        '"#{1.0}"'
+assert_eq 'set_nan2'  "$("$BIN" -e '(seq (sorted-set 1.0 ##NaN 2.0))')"    '(1.0 2.0)'
+assert_eq 'map_nan'   "$("$BIN" -e '(str (sorted-map 1.0 :a ##NaN :b))')"  '"{1.0 :b}"'
 # sorted?
 assert_eq 'sortedQ_m' "$("$BIN" -e '(sorted? (sorted-map))')"            'true'
 assert_eq 'sortedQ_s' "$("$BIN" -e '(sorted? (sorted-set))')"            'true'

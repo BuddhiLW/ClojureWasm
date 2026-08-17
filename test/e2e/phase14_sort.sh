@@ -43,5 +43,15 @@ assert_eq 'sort_large_max' "$("$BIN" -e '(last (sort (reverse (range 5000))))')"
 assert_eq 'sort_seq'    "$("$BIN" -e '(sort [3 1 2])')"            '(1 2 3)'
 assert_eq 'sort_isseq'  "$("$BIN" -e '(seq? (sort [3 1 2]))')"     'true'
 assert_eq 'sortby_seq'  "$("$BIN" -e '(sort-by - [3 1 2])')"       '(3 2 1)'
+# CLJW-SORT-NAN: a NaN operand must not panic the native sort. NaN compares .eq
+# to every number (clj compare rule) so a stable sort preserves input order.
+# int+NaN exercises the cross-category numSign path; float+NaN the same-category
+# floating arm. Exact tie-order for 3+ mixed-magnitude elements is not asserted
+# (block sort vs clj TimSort under a non-transitive comparator) — cardinality is.
+assert_eq 'sort_nan_int'  "$("$BIN" -e '(into [] (sort [1 ##NaN]))')"          '[1 ##NaN]'
+assert_eq 'sort_nan_flt'  "$("$BIN" -e '(into [] (sort [2.0 ##NaN]))')"        '[2.0 ##NaN]'
+assert_eq 'sort_nan_cnt'  "$("$BIN" -e '(count (sort [3 ##NaN 1]))')"          '3'
+assert_eq 'sort_nan_fcnt' "$("$BIN" -e '(count (sort [2.0 ##NaN 1.0 3.0]))')"  '4'
+assert_eq 'sortby_nan'    "$("$BIN" -e '(into [] (sort-by identity [1 ##NaN]))')" '[1 ##NaN]'
 
 echo "ALL phase14_sort PASS"

@@ -240,6 +240,22 @@ accepted:
       `:volatile-mutable` keyword (assignability) is acted on.
     derives_from: "F-004 (NaN-box uniform 8-byte Value, no primitive field storage) + F-005 (no primitive specialization) + ADR-0104"
     pin: "test/e2e/phase14_deftype_mutable.sh — long_hint_ignored_accepts_non_long (a `^long` mutable field accepts a String set)"
+  - id: "AD-018"
+    summary: "quot/rem/mod with a NaN operand yield NaN in cljw; JVM Clojure THROWS NumberFormatException (its double remainder routes a NaN quotient through new BigDecimal(NaN))"
+    example: '(mod ##NaN 3) => cljw ##NaN / clj THROW NumberFormatException "Infinite or NaN"; likewise (rem ##NaN 3), (quot ##NaN 3), (mod 3 ##NaN)'
+    why: |-
+      F-005's single-f64 numeric tower runs quot/rem/mod on a float operand
+      through one clean IEEE path (@trunc of the f64 quotient), so a NaN in
+      yields NaN out uniformly. JVM Clojure's DoubleOps.remainder casts the
+      quotient to long only when it is in Long range; a NaN quotient fails
+      that range test and falls to new BigDecimal(q), which throws
+      NumberFormatException on NaN/Infinity. cljw does not reproduce that
+      long-cast-BigDecimal fallback, so it returns NaN instead of throwing —
+      the same "cljw's cleaner numeric surface vs clj's throw" shape as
+      AD-008. quot/rem already returned NaN; fixing CLJW-MOD-PANIC (numSign's
+      float arm hit std.math.order's unreachable on NaN) made mod join them.
+    derives_from: "F-005 (numeric tower: single internal f64, one clean float quot/rem/mod path) + AD-008 (cljw's cleaner numeric surface where clj throws)"
+    pin: "test/e2e/phase14_quot_rem_mod_tower.sh — quot_nan / rem_nan / mod_nan_d / mod_nan_v lock cljw's ##NaN (the divergent value; clj throws)"
   - id: "AD-019"
     summary: "Java arrays are type-erased: element type hints (`^\"[B\"`, `^ints`, `^bytes`) are advisory only, and a typed-array constructor / `aset` does not coerce or type-check non-byte/short/char elements."
     example: '(let [^"[B" b (byte-array 1)] (aset b 0 65) (aget b 0)) => 65 (a non-byte stored into a byte-typed array, no error); (class (object-array 0)) => cljw "array" / clj "[Ljava.lang.Object;"'

@@ -41,6 +41,15 @@ assert_eq 'mod_neg'        "$("$BIN" -e '(mod -7 3)')"      '2'
 assert_eq 'mod_neg_div'    "$("$BIN" -e '(mod 7 -3)')"      '-2'
 assert_eq 'mod_float_frac' "$("$BIN" -e '(mod 10.5 3)')"    '1.5'
 
+# --- NaN operand: cljw's single-f64 tower (F-005) returns NaN uniformly for
+# quot/rem/mod (AD-018). JVM Clojure THROWS NumberFormatException here (its double
+# remainder routes a NaN quotient through new BigDecimal(NaN)); cljw does not
+# reproduce that fallback. mod must NOT panic (was numSign's std.math.order unreachable).
+assert_eq 'quot_nan'   "$("$BIN" -e '(quot ##NaN 3)')"  '##NaN'
+assert_eq 'rem_nan'    "$("$BIN" -e '(rem ##NaN 3)')"   '##NaN'
+assert_eq 'mod_nan_d'  "$("$BIN" -e '(mod ##NaN 3)')"   '##NaN'
+assert_eq 'mod_nan_v'  "$("$BIN" -e '(mod 3 ##NaN)')"   '##NaN'
+
 # --- divide-by-zero throws for every category (incl. float — unlike `/`) ---
 assert_has 'quot_zero'     "$("$BIN" -e '(quot 3N 0)' 2>&1)"   'Divide by zero'
 assert_has 'rem_zero'      "$("$BIN" -e '(rem 10 0)' 2>&1)"    'Divide by zero'

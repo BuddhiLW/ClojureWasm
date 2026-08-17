@@ -623,6 +623,14 @@ pub fn divPromoting(rt: *Runtime, a: Value, b: Value) !Value {
     return try wrapManaged(rt, &q);
 }
 
+/// Three-way order of two f64 that maps a NaN operand to `.eq`
+/// (the clojure.core/compare rule). Shared by every numeric-tower
+/// ordering site: `valueCompare`'s float arm + `numSign`.
+pub fn floatOrder(a: f64, b: f64) std.math.Order {
+    if (std.math.isNan(a) or std.math.isNan(b)) return .eq;
+    return std.math.order(a, b);
+}
+
 /// Exact sign of a numeric Value: `.lt` (negative) / `.eq` (zero) /
 /// `.gt` (positive). Used by `modPromoting`'s floor-mod correction.
 /// Exact (no float round-off) for the integer / BigInt / Ratio cases;
@@ -631,7 +639,7 @@ fn numSign(v: Value) std.math.Order {
     return switch (v.tag()) {
         .integer => std.math.order(@as(i64, v.asInteger()), 0),
         .char => std.math.order(@as(i64, v.asChar()), 0),
-        .float => std.math.order(v.asFloat(), 0),
+        .float => floatOrder(v.asFloat(), 0),
         .big_int => big_int.asManaged(v).toConst().orderAgainstScalar(0),
         .ratio => switch (ratio_mod.parts(v)) {
             .small => |s| std.math.order(s.n, 0),
@@ -1071,4 +1079,24 @@ test "exactI64 accepts integer / in-range BigInt; rejects float / ratio" {
     try testing.expectError(error.NotAnInteger, exactI64(Value.initFloat(3.0)));
     const half = try divPromoting(&fix.rt, Value.initInteger(1), Value.initInteger(2));
     try testing.expectError(error.NotAnInteger, exactI64(half));
+}
+
+test "floatOrder maps a NaN operand to .eq (no std.math.order unreachable)" {
+    const nan = std.math.nan(f64);
+    try testing.expectEqual(std.math.Order.eq, floatOrder(nan, 1.0));
+    try testing.expectEqual(std.math.Order.eq, floatOrder(1.0, nan));
+    try testing.expectEqual(std.math.Order.eq, floatOrder(nan, nan));
+    try testing.expectEqual(std.math.Order.lt, floatOrder(1.0, 2.0));
+    try testing.expectEqual(std.math.Order.gt, floatOrder(2.0, 1.0));
+    try testing.expectEqual(std.math.Order.eq, floatOrder(1.0, 1.0));
+}
+
+test "modPromoting with a NaN operand yields NaN, never a numSign panic" {
+    var fix = Fixture.init();
+    defer fix.deinit();
+    const nan = Value.initFloat(std.math.nan(f64));
+    const md = try modPromoting(&fix.rt, nan, Value.initInteger(3));
+    try testing.expect(md.isFloat() and std.math.isNan(md.asFloat()));
+    const mv = try modPromoting(&fix.rt, Value.initInteger(3), nan);
+    try testing.expect(mv.isFloat() and std.math.isNan(mv.asFloat()));
 }

@@ -82,7 +82,7 @@ fn numericOrder(rt: *Runtime, a: Value, b: Value, loc: SourceLocation) anyerror!
     if (ca == cb) {
         return switch (ca) {
             .integer => intOrder(a, b),
-            .floating => std.math.order(a.asFloat(), b.asFloat()),
+            .floating => promote.floatOrder(a.asFloat(), b.asFloat()),
             .ratio => try ratio.compareValue(rt, a, b),
             .decimal => try big_decimal.compareValue(rt, a, b),
             .none => unreachable,
