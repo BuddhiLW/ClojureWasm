@@ -1226,7 +1226,7 @@
 
 ;; `(empty? coll)` — true when coll has no items (nil counts as empty).
 (def empty?
-  (fn* [coll] (= 0 (count coll))))
+  (fn* [coll] (not (seq coll))))
 
 ;; `(fnil f x)` / `(fnil f x y)` / `(fnil f x y z)` — wrap f so its first
 ;; 1/2/3 args are replaced by the defaults when nil; trailing args pass
