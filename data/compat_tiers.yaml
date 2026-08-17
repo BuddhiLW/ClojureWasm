@@ -725,14 +725,15 @@ tiers:
       clojure.data: {status: "planned (clojure.data/diff)"}
       clojure.java.io: {status: "planned (cw-native rewrite)"}
       clojure.java.shell: {status: "planned"}
-      # Down-tiered from A 2026-05-29: these were declared Tier A
-      # ("100% PASS gate") but are UNIMPLEMENTED at v0.1.0 — no math.clj,
-      # no spec/ directory (verified). Their math/spec surfaces are
-      # post-v0.1.0 quality-loop work (F-010), not a v0.1.0 Tier A peer of
-      # JVM Clojure. cw v1 math fns currently live in clojure.core.
-      clojure.math: {status: "deferred (post-v0.1.0 quality loop, F-010; unimplemented)"}
-      clojure.spec.alpha: {status: "deferred (post-v0.1.0 quality loop, F-010; unimplemented)"}
-      clojure.spec.gen.alpha: {status: "deferred (post-v0.1.0 quality loop, F-010; unimplemented)"}
+      # Down-tiered from A 2026-05-29, then IMPLEMENTED in the post-v0.1.0
+      # F-010 quality loop (verified 2026-08-17): all three are bundled .clj
+      # under src/lang/clj/clojure/, eager-loaded by bootstrap.zig, and
+      # exercised by e2e + clj_corpus. The 2026-05-29 "no math.clj / no spec/
+      # directory (verified)" claim is stale and superseded. Tier letter stays
+      # B (a status-truth fix, not a tier change — tier_classification.md).
+      clojure.math: {status: "implemented (clojure/math.clj; loaded by bootstrap.zig; corpus clojure_math.txt + math_doc_claims.txt)"}
+      clojure.spec.alpha: {status: "implemented (clojure/spec/alpha.clj, 2019-line port; loaded by bootstrap.zig; e2e phase15_spec.sh + corpus spec.txt; D-475). Generative subset (s/gen, s/exercise) throws at call time — clojure.test.check not bundled"}
+      clojure.spec.gen.alpha: {status: "implemented (clojure/spec/gen/alpha.clj; loaded by bootstrap.zig). Combinators/prims dynaload clojure.test.check.* at call time; unbundled so they throw when forced"}
   C:
     description: "Thin reflective implementation via TypeDescriptor walk."
     special_forms:
