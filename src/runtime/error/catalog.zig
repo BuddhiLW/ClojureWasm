@@ -516,6 +516,16 @@ pub const Code = enum {
     /// args: `.{ .url = "..." }` — an outbound HTTP(S) request failed (connect /
     /// TLS / DNS / protocol error).
     http_request_failed,
+    /// args: `.{ .detail = "..." }` — a `cljw.net` argument was malformed (bad
+    /// receiver, host, port, buffer, or count).
+    net_arg_invalid,
+    /// args: `.{ .host = "...", .port = <i64> }` — `cljw.net/connect` could not
+    /// resolve the host or open the stream.
+    net_connect_failed,
+    /// args: `.{ .op = "..." }` — a `cljw.net` read / write / flush failed.
+    net_io_failed,
+    /// args: `.{}` — a `cljw.net` operation was attempted on a closed socket.
+    net_socket_closed,
 
     // --- System ---
     out_of_memory,
@@ -1744,6 +1754,26 @@ pub fn entry(comptime code: Code) Entry {
             .kind = .io_error,
             .phase = .eval,
             .template = "cljw.http.client: request to '{[url]s}' failed (connect / TLS / DNS / protocol)",
+        },
+        .net_arg_invalid => .{
+            .kind = .type_error,
+            .phase = .eval,
+            .template = "cljw.net: {[detail]s}",
+        },
+        .net_connect_failed => .{
+            .kind = .io_error,
+            .phase = .eval,
+            .template = "cljw.net: could not connect to '{[host]s}:{[port]d}'",
+        },
+        .net_io_failed => .{
+            .kind = .io_error,
+            .phase = .eval,
+            .template = "cljw.net: socket {[op]s} failed",
+        },
+        .net_socket_closed => .{
+            .kind = .value_error,
+            .phase = .eval,
+            .template = "cljw.net: the socket is closed",
         },
         .internal_error => .{
             .kind = .internal_error,

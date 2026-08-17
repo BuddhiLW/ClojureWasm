@@ -11,10 +11,12 @@ const Env = @import("../env.zig").Env;
 const build_options = @import("build_options");
 const http_server = @import("http/server.zig");
 const eval_with_budget = @import("eval/with_budget.zig");
+const net_socket = @import("net/socket.zig");
 
 pub fn installAll(env: *Env) !void {
     try http_server.register(env);
     try eval_with_budget.register(env);
+    try net_socket.register(env);
     // wasm FFI surface (ADR-0099): only under `-Dwasm`, so the default build
     // never resolves zwasm (F-001). The comptime-false branch is not analysed,
     // so `wasm/surface.zig` (and its `@import("zwasm")`) is absent by default.
