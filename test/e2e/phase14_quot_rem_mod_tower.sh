@@ -49,6 +49,12 @@ assert_eq 'quot_nan'   "$("$BIN" -e '(quot ##NaN 3)')"  '##NaN'
 assert_eq 'rem_nan'    "$("$BIN" -e '(rem ##NaN 3)')"   '##NaN'
 assert_eq 'mod_nan_d'  "$("$BIN" -e '(mod ##NaN 3)')"   '##NaN'
 assert_eq 'mod_nan_v'  "$("$BIN" -e '(mod 3 ##NaN)')"   '##NaN'
+# +/-Inf DIVIDEND: clj throws (non-finite quotient); cljw returns the non-finite
+# result. An Inf DIVISOR over a finite dividend agrees (0 quotient -> NaN both).
+assert_eq 'quot_inf'   "$("$BIN" -e '(quot ##Inf 3)')"  '##Inf'
+assert_eq 'rem_inf'    "$("$BIN" -e '(rem ##Inf 3)')"   '##NaN'
+assert_eq 'mod_inf'    "$("$BIN" -e '(mod ##Inf 3)')"   '##NaN'
+assert_eq 'quot_ninf'  "$("$BIN" -e '(quot ##-Inf 3)')" '##-Inf'
 
 # --- divide-by-zero throws for every category (incl. float — unlike `/`) ---
 assert_has 'quot_zero'     "$("$BIN" -e '(quot 3N 0)' 2>&1)"   'Divide by zero'

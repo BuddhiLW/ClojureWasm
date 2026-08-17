@@ -241,8 +241,8 @@ accepted:
     derives_from: "F-004 (NaN-box uniform 8-byte Value, no primitive field storage) + F-005 (no primitive specialization) + ADR-0104"
     pin: "test/e2e/phase14_deftype_mutable.sh — long_hint_ignored_accepts_non_long (a `^long` mutable field accepts a String set)"
   - id: "AD-018"
-    summary: "quot/rem/mod with a NaN operand yield NaN in cljw; JVM Clojure THROWS NumberFormatException (its double remainder routes a NaN quotient through new BigDecimal(NaN))"
-    example: '(mod ##NaN 3) => cljw ##NaN / clj THROW NumberFormatException "Infinite or NaN"; likewise (rem ##NaN 3), (quot ##NaN 3), (mod 3 ##NaN)'
+    summary: "quot/rem/mod whose QUOTIENT is non-finite — any NaN operand, or a +/-Inf dividend — yield a non-finite result (NaN or +/-Inf) in cljw; JVM Clojure THROWS NumberFormatException (a non-finite quotient routes through new BigDecimal). An Inf DIVISOR over a finite dividend has a finite (0) quotient and AGREES (both NaN)."
+    example: '(quot ##Inf 3) => cljw ##Inf / clj THROW; (rem ##Inf 3) => cljw ##NaN / clj THROW; (quot ##-Inf 3) => cljw ##-Inf / clj THROW; (mod ##NaN 3) => cljw ##NaN / clj THROW "Infinite or NaN"; (mod 3 ##Inf) => ##NaN in BOTH (Inf divisor, finite quotient — not a divergence)'
     why: |-
       F-005's single-f64 numeric tower runs quot/rem/mod on a float operand
       through one clean IEEE path (@trunc of the f64 quotient), so a NaN in
@@ -254,8 +254,12 @@ accepted:
       the same "cljw's cleaner numeric surface vs clj's throw" shape as
       AD-008. quot/rem already returned NaN; fixing CLJW-MOD-PANIC (numSign's
       float arm hit std.math.order's unreachable on NaN) made mod join them.
+      The rule is the QUOTIENT's finiteness: a +/-Inf dividend also yields a
+      non-finite quotient so clj throws there too, while an Inf divisor over a
+      finite dividend gives a 0 quotient and both runtimes return NaN (verified
+      2026-08-17 against the clj oracle).
     derives_from: "F-005 (numeric tower: single internal f64, one clean float quot/rem/mod path) + AD-008 (cljw's cleaner numeric surface where clj throws)"
-    pin: "test/e2e/phase14_quot_rem_mod_tower.sh — quot_nan / rem_nan / mod_nan_d / mod_nan_v lock cljw's ##NaN (the divergent value; clj throws)"
+    pin: "test/e2e/phase14_quot_rem_mod_tower.sh — quot_nan/rem_nan/mod_nan_d/mod_nan_v (NaN family) + quot_inf/rem_inf/mod_inf/quot_ninf (+/-Inf-dividend family) lock cljw's non-finite result (clj throws)"
   - id: "AD-019"
     summary: "Java arrays are type-erased: element type hints (`^\"[B\"`, `^ints`, `^bytes`) are advisory only, and a typed-array constructor / `aset` does not coerce or type-check non-byte/short/char elements."
     example: '(let [^"[B" b (byte-array 1)] (aset b 0 65) (aget b 0)) => 65 (a non-byte stored into a byte-typed array, no error); (class (object-array 0)) => cljw "array" / clj "[Ljava.lang.Object;"'
