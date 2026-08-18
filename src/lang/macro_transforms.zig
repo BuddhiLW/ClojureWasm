@@ -228,14 +228,14 @@ fn expandDefonce(
     declform[0] = sym("def", loc);
     declform[1] = name;
     var bform = try arena.alloc(Form, 2); // (bound? (def name))
-    bform[0] = sym("bound?", loc);
+    bform[0] = coreSym("bound?", loc);
     bform[1] = try list(arena, declform, loc);
     var dform = try arena.alloc(Form, 3); // (def name expr)
     dform[0] = sym("def", loc);
     dform[1] = name;
     dform[2] = args[1];
     var wform = try arena.alloc(Form, 3);
-    wform[0] = sym("when-not", loc);
+    wform[0] = coreSym("when-not", loc);
     wform[1] = try list(arena, bform, loc);
     wform[2] = try list(arena, dform, loc);
     return list(arena, wform, loc);
@@ -379,7 +379,7 @@ fn sequentialDestructure(
     if (has_rest) {
         cur_seq = sym(try rt.gensym(arena, "seq"), loc);
         try out.append(arena, cur_seq);
-        try out.append(arena, try makeCall(arena, "seq", &.{g}, loc));
+        try out.append(arena, try coreCall(arena, "seq", &.{g}, loc));
     }
 
     var idx: i64 = 0;
@@ -405,14 +405,14 @@ fn sequentialDestructure(
         if (has_rest) {
             const gfirst = sym(try rt.gensym(arena, "first"), loc);
             try out.append(arena, gfirst);
-            try out.append(arena, try makeCall(arena, "first", &.{cur_seq}, loc));
+            try out.append(arena, try coreCall(arena, "first", &.{cur_seq}, loc));
             const next_seq = sym(try rt.gensym(arena, "seq"), loc);
             try out.append(arena, next_seq);
-            try out.append(arena, try makeCall(arena, "next", &.{cur_seq}, loc));
+            try out.append(arena, try coreCall(arena, "next", &.{cur_seq}, loc));
             cur_seq = next_seq;
             try destructureInto(out, arena, rt, e, gfirst, loc);
         } else {
-            const nth_val = try makeCall(arena, "nth", &.{ g, intForm(idx, loc), nilForm(loc) }, loc);
+            const nth_val = try coreCall(arena, "nth", &.{ g, intForm(idx, loc), nilForm(loc) }, loc);
             try destructureInto(out, arena, rt, e, nth_val, loc);
         }
         idx += 1;
@@ -448,14 +448,14 @@ fn associativeDestructure(
     //   (if (seq? g) (if (next g) (apply hash-map g) (if (seq g) (first g) {})) g)
     try out.append(arena, g);
     try out.append(arena, try makeCall(arena, "if", &.{
-        try makeCall(arena, "seq?", &.{g}, loc),
+        try coreCall(arena, "seq?", &.{g}, loc),
         try makeCall(arena, "if", &.{
-            try makeCall(arena, "next", &.{g}, loc),
-            try makeCall(arena, "apply", &.{ sym("hash-map", loc), g }, loc),
+            try coreCall(arena, "next", &.{g}, loc),
+            try coreCall(arena, "apply", &.{ coreSym("hash-map", loc), g }, loc),
             try makeCall(arena, "if", &.{
-                try makeCall(arena, "seq", &.{g}, loc),
-                try makeCall(arena, "first", &.{g}, loc),
-                try makeCall(arena, "hash-map", &.{}, loc),
+                try coreCall(arena, "seq", &.{g}, loc),
+                try coreCall(arena, "first", &.{g}, loc),
+                try coreCall(arena, "hash-map", &.{}, loc),
             }, loc),
         }, loc),
         g,
@@ -562,8 +562,8 @@ fn makeGet(
     default: ?Form,
     loc: SourceLocation,
 ) macro_dispatch.ExpandError!Form {
-    if (default) |d| return makeCall(arena, "get", &.{ g, key, d }, loc);
-    return makeCall(arena, "get", &.{ g, key }, loc);
+    if (default) |d| return coreCall(arena, "get", &.{ g, key, d }, loc);
+    return coreCall(arena, "get", &.{ g, key }, loc);
 }
 
 /// Look up a binding symbol's `:or` default by name. `null` if absent.
@@ -589,6 +589,26 @@ fn makeCall(
 ) macro_dispatch.ExpandError!Form {
     var items = try arena.alloc(Form, 1 + call_args.len);
     items[0] = sym(fn_name, loc);
+    @memcpy(items[1..], call_args);
+    return list(arena, items, loc);
+}
+
+/// Build a `clojure.core/<name>` symbol Form.
+fn coreSym(name: []const u8, loc: SourceLocation) Form {
+    return .{ .data = .{ .symbol = .{ .ns = "clojure.core", .name = name } }, .location = loc };
+}
+
+/// Build a call Form `(clojure.core/fn_name args...)` — the qualified head a
+/// macro expansion must emit for any clojure.core Var it names, so a namespace
+/// that shadows the name cannot capture the expansion (macro hygiene).
+fn coreCall(
+    arena: std.mem.Allocator,
+    fn_name: []const u8,
+    call_args: []const Form,
+    loc: SourceLocation,
+) macro_dispatch.ExpandError!Form {
+    var items = try arena.alloc(Form, 1 + call_args.len);
+    items[0] = coreSym(fn_name, loc);
     @memcpy(items[1..], call_args);
     return list(arena, items, loc);
 }
@@ -651,7 +671,7 @@ fn expandLoop(
     }
 
     var let_items = try arena.alloc(Form, 2 + body.len);
-    let_items[0] = sym("let", loc);
+    let_items[0] = coreSym("let", loc);
     let_items[1] = try vec(arena, lets.items, loc);
     @memcpy(let_items[2..], body);
     const wrapped = try list(arena, let_items, loc);
@@ -849,7 +869,7 @@ fn someThread(arena: std.mem.Allocator, rt: *Runtime, args: []const Form, loc: S
     for (forms, 0..) |form, i| {
         const threaded = try threadStep(arena, g, form, dir);
         const nilq_items = try arena.alloc(Form, 2);
-        nilq_items[0] = sym("nil?", loc);
+        nilq_items[0] = coreSym("nil?", loc);
         nilq_items[1] = g;
         const if_items = try arena.alloc(Form, 4);
         if_items[0] = sym("if", loc);
@@ -902,14 +922,14 @@ fn expandIfSome(arena: std.mem.Allocator, rt: *Runtime, args: []const Form, loc:
     inner_binding[0] = name_form;
     inner_binding[1] = sym(gname, loc);
     const inner_let_items = try arena.alloc(Form, 3);
-    inner_let_items[0] = sym("let", loc);
+    inner_let_items[0] = coreSym("let", loc);
     inner_let_items[1] = .{ .data = .{ .vector = inner_binding }, .location = loc };
     inner_let_items[2] = then_form;
     const inner_let = try list(arena, inner_let_items, loc);
 
     // (nil? g)
     const nilq_items = try arena.alloc(Form, 2);
-    nilq_items[0] = sym("nil?", loc);
+    nilq_items[0] = coreSym("nil?", loc);
     nilq_items[1] = sym(gname, loc);
 
     // (if (nil? g) else (let* [name g] then))
@@ -934,7 +954,7 @@ fn expandWhenSome(arena: std.mem.Allocator, rt: *Runtime, args: []const Form, lo
         return error_catalog.raise(.when_some_form_incomplete, loc, .{});
     const body_form = try foldBody(arena, args[1..], loc);
     const items = try arena.alloc(Form, 4);
-    items[0] = sym("if-some", loc);
+    items[0] = coreSym("if-some", loc);
     items[1] = args[0];
     items[2] = body_form;
     items[3] = nilForm(loc);
@@ -979,12 +999,12 @@ fn expandDotimes(arena: std.mem.Allocator, rt: *Runtime, args: []const Form, loc
     const body = args[1..];
     const ng = sym(try rt.gensym(arena, "dotimes_n"), loc);
 
-    const recur_form = try makeCall(arena, "recur", &.{try makeCall(arena, "inc", &.{i_sym}, loc)}, loc);
-    const lt_form = try makeCall(arena, "<", &.{ i_sym, ng }, loc);
+    const recur_form = try makeCall(arena, "recur", &.{try coreCall(arena, "inc", &.{i_sym}, loc)}, loc);
+    const lt_form = try coreCall(arena, "<", &.{ i_sym, ng }, loc);
 
     // (when (< i ng) body… (recur (inc i)))
     const when_items = try arena.alloc(Form, 3 + body.len);
-    when_items[0] = sym("when", loc);
+    when_items[0] = coreSym("when", loc);
     when_items[1] = lt_form;
     @memcpy(when_items[2 .. 2 + body.len], body);
     when_items[2 + body.len] = recur_form;
@@ -994,7 +1014,7 @@ fn expandDotimes(arena: std.mem.Allocator, rt: *Runtime, args: []const Form, loc
     loop_binding[0] = i_sym;
     loop_binding[1] = intForm(0, loc);
     const loop_items = try arena.alloc(Form, 3);
-    loop_items[0] = sym("loop", loc);
+    loop_items[0] = coreSym("loop", loc);
     loop_items[1] = .{ .data = .{ .vector = loop_binding }, .location = loc };
     loop_items[2] = try list(arena, when_items, loc);
 
@@ -1017,14 +1037,14 @@ fn expandWhile(arena: std.mem.Allocator, rt: *Runtime, args: []const Form, loc: 
 
     // (when test body… (recur))
     const when_items = try arena.alloc(Form, 3 + body.len);
-    when_items[0] = sym("when", loc);
+    when_items[0] = coreSym("when", loc);
     when_items[1] = test_form;
     @memcpy(when_items[2 .. 2 + body.len], body);
     when_items[2 + body.len] = recur_form;
 
     // (loop [] (when …))
     const loop_items = try arena.alloc(Form, 3);
-    loop_items[0] = sym("loop", loc);
+    loop_items[0] = coreSym("loop", loc);
     loop_items[1] = .{ .data = .{ .vector = try arena.alloc(Form, 0) }, .location = loc };
     loop_items[2] = try list(arena, when_items, loc);
     return list(arena, loop_items, loc);
@@ -1049,9 +1069,9 @@ fn expandWhenFirst(arena: std.mem.Allocator, rt: *Runtime, args: []const Form, l
     // pattern lowers (plain symbol reduces to let*, no regression).
     const inner_binding = try arena.alloc(Form, 2);
     inner_binding[0] = x_sym;
-    inner_binding[1] = try makeCall(arena, "first", &.{g}, loc);
+    inner_binding[1] = try coreCall(arena, "first", &.{g}, loc);
     const inner_let_items = try arena.alloc(Form, 3);
-    inner_let_items[0] = sym("let", loc);
+    inner_let_items[0] = coreSym("let", loc);
     inner_let_items[1] = .{ .data = .{ .vector = inner_binding }, .location = loc };
     inner_let_items[2] = try foldBody(arena, args[1..], loc);
     const inner_let = try list(arena, inner_let_items, loc);
@@ -1059,9 +1079,9 @@ fn expandWhenFirst(arena: std.mem.Allocator, rt: *Runtime, args: []const Form, l
     // (when-let [g (seq coll)] inner_let)
     const wl_binding = try arena.alloc(Form, 2);
     wl_binding[0] = g;
-    wl_binding[1] = try makeCall(arena, "seq", &.{coll_expr}, loc);
+    wl_binding[1] = try coreCall(arena, "seq", &.{coll_expr}, loc);
     const wl_items = try arena.alloc(Form, 3);
-    wl_items[0] = sym("when-let", loc);
+    wl_items[0] = coreSym("when-let", loc);
     wl_items[1] = .{ .data = .{ .vector = wl_binding }, .location = loc };
     wl_items[2] = inner_let;
     return list(arena, wl_items, loc);
@@ -1082,7 +1102,7 @@ const DoseqStep = struct { needrec: bool, form: Form };
 /// `(let <binding-vector-form> <body>)` — used so doseq binds destructure.
 fn makeLet(arena: std.mem.Allocator, binding: Form, body: Form, loc: SourceLocation) macro_dispatch.ExpandError!Form {
     const items = try arena.alloc(Form, 3);
-    items[0] = sym("let", loc);
+    items[0] = coreSym("let", loc);
     items[1] = binding;
     items[2] = body;
     return list(arena, items, loc);
@@ -1118,7 +1138,7 @@ fn doseqStep(
             // (when v inner.form [recform if inner.needrec])
             const append = inner.needrec and recform != null;
             const items = try arena.alloc(Form, if (append) 4 else 3);
-            items[0] = sym("when", loc);
+            items[0] = coreSym("when", loc);
             items[1] = v;
             items[2] = inner.form;
             if (append) items[3] = recform.?;
@@ -1144,18 +1164,18 @@ fn doseqStep(
 
     // A real `bind coll` pair → build a loop over (seq coll), slow path only.
     const gname = sym(try rt.gensym(arena, "doseq_seq"), loc);
-    const recform_inner = try makeCall(arena, "recur", &.{try makeCall(arena, "next", &.{gname}, loc)}, loc);
+    const recform_inner = try makeCall(arena, "recur", &.{try coreCall(arena, "next", &.{gname}, loc)}, loc);
     const inner = try doseqStep(arena, rt, recform_inner, rest, body, loc);
 
     // (let [bind (first g)] inner.form)
     const lb = try arena.alloc(Form, 2);
     lb[0] = k;
-    lb[1] = try makeCall(arena, "first", &.{gname}, loc);
+    lb[1] = try coreCall(arena, "first", &.{gname}, loc);
     const let_form = try makeLet(arena, .{ .data = .{ .vector = lb }, .location = loc }, inner.form, loc);
 
     // (when g <let_form> [recur (next g) if inner.needrec])
     const when_items = try arena.alloc(Form, if (inner.needrec) 4 else 3);
-    when_items[0] = sym("when", loc);
+    when_items[0] = coreSym("when", loc);
     when_items[1] = gname;
     when_items[2] = let_form;
     if (inner.needrec) when_items[3] = recform_inner;
@@ -1163,9 +1183,9 @@ fn doseqStep(
     // (loop [g (seq coll)] <when>)
     const loop_binding = try arena.alloc(Form, 2);
     loop_binding[0] = gname;
-    loop_binding[1] = try makeCall(arena, "seq", &.{v}, loc);
+    loop_binding[1] = try coreCall(arena, "seq", &.{v}, loc);
     const loop_items = try arena.alloc(Form, 3);
-    loop_items[0] = sym("loop", loc);
+    loop_items[0] = coreSym("loop", loc);
     loop_items[1] = .{ .data = .{ .vector = loop_binding }, .location = loc };
     loop_items[2] = try list(arena, when_items, loc);
     return .{ .needrec = true, .form = try list(arena, loop_items, loc) };
@@ -1214,7 +1234,7 @@ fn forStep(
 ) macro_dispatch.ExpandError!Form {
     if (exprs.len == 0)
         // Innermost: emit the body and lazily continue the enclosing iterator.
-        return makeCall(arena, "cons", &.{ body, outer_cont.? }, loc);
+        return coreCall(arena, "cons", &.{ body, outer_cont.? }, loc);
 
     const k = exprs[0];
     const v = exprs[1];
@@ -1232,7 +1252,7 @@ fn forStep(
         } else if (std.mem.eql(u8, kname, "while")) {
             // (when v inner) - false => nil => the lazy-seq terminates.
             const items = try arena.alloc(Form, 3);
-            items[0] = sym("when", loc);
+            items[0] = coreSym("when", loc);
             items[1] = v;
             items[2] = inner;
             return list(arena, items, loc);
@@ -1251,20 +1271,20 @@ fn forStep(
     // A real `bind coll` pair -> a self-recursive lazy iterator over (seq coll).
     const giter = sym(try rt.gensym(arena, "for_iter"), loc);
     const gxs = sym(try rt.gensym(arena, "for_s"), loc);
-    const cont_form = try listOf(arena, &.{ giter, try makeCall(arena, "rest", &.{gxs}, loc) }, loc); // (giter (rest gxs))
-    const recform = try makeCall(arena, "recur", &.{try makeCall(arena, "rest", &.{gxs}, loc)}, loc); // (recur (rest gxs))
+    const cont_form = try listOf(arena, &.{ giter, try coreCall(arena, "rest", &.{gxs}, loc) }, loc); // (giter (rest gxs))
+    const recform = try makeCall(arena, "recur", &.{try coreCall(arena, "rest", &.{gxs}, loc)}, loc); // (recur (rest gxs))
     const inner = try forStep(arena, rt, cont_form, recform, rest, body, loc);
 
     // (let [bind (first gxs)] inner)
     const lb = try arena.alloc(Form, 2);
     lb[0] = k;
-    lb[1] = try makeCall(arena, "first", &.{gxs}, loc);
+    lb[1] = try coreCall(arena, "first", &.{gxs}, loc);
     const let_form = try makeLet(arena, .{ .data = .{ .vector = lb }, .location = loc }, inner, loc);
 
     // (when (seq gxs) <let_form>)
     const when_items = try arena.alloc(Form, 3);
-    when_items[0] = sym("when", loc);
-    when_items[1] = try makeCall(arena, "seq", &.{gxs}, loc);
+    when_items[0] = coreSym("when", loc);
+    when_items[1] = try coreCall(arena, "seq", &.{gxs}, loc);
     when_items[2] = let_form;
     const when_form = try list(arena, when_items, loc);
 
@@ -1284,12 +1304,12 @@ fn forStep(
     const spec_items = try arena.alloc(Form, 3);
     spec_items[0] = giter;
     spec_items[1] = .{ .data = .{ .vector = param_vec }, .location = loc };
-    spec_items[2] = try makeCall(arena, "lazy-seq", &.{loop_form}, loc);
+    spec_items[2] = try coreCall(arena, "lazy-seq", &.{loop_form}, loc);
     const spec_form = try list(arena, spec_items, loc);
     const letfn_bindings = try arena.alloc(Form, 1);
     letfn_bindings[0] = spec_form;
     const letfn_items = try arena.alloc(Form, 3);
-    letfn_items[0] = sym("letfn", loc);
+    letfn_items[0] = coreSym("letfn", loc);
     letfn_items[1] = .{ .data = .{ .vector = letfn_bindings }, .location = loc };
     letfn_items[2] = try listOf(arena, &.{ giter, v }, loc); // (giter coll)
     const iter_expr = try list(arena, letfn_items, loc);
@@ -1302,11 +1322,11 @@ fn forStep(
     const gfs = sym(try rt.gensym(arena, "for_fs"), loc);
     const fb = try arena.alloc(Form, 2);
     fb[0] = gfs;
-    fb[1] = try makeCall(arena, "seq", &.{iter_expr}, loc);
+    fb[1] = try coreCall(arena, "seq", &.{iter_expr}, loc);
     const if_items = try arena.alloc(Form, 4);
     if_items[0] = sym("if", loc);
     if_items[1] = gfs;
-    if_items[2] = try makeCall(arena, "concat", &.{ gfs, outer_cont.? }, loc);
+    if_items[2] = try coreCall(arena, "concat", &.{ gfs, outer_cont.? }, loc);
     if_items[3] = outer_recform.?;
     return makeLet(arena, .{ .data = .{ .vector = fb }, .location = loc }, try list(arena, if_items, loc), loc);
 }
@@ -1332,7 +1352,7 @@ fn expandFor(arena: std.mem.Allocator, rt: *Runtime, args: []const Form, loc: So
 /// `(= g (quote const))` — value-equality against an unevaluated constant.
 fn caseConstEq(arena: std.mem.Allocator, g: Form, const_form: Form, loc: SourceLocation) macro_dispatch.ExpandError!Form {
     const quoted = try makeCall(arena, "quote", &.{const_form}, loc);
-    return makeCall(arena, "=", &.{ g, quoted }, loc);
+    return coreCall(arena, "=", &.{ g, quoted }, loc);
 }
 
 /// Test for one clause's test-constant: a list `(c1 c2 …)` →
@@ -1361,7 +1381,7 @@ fn noMatchThrow(arena: std.mem.Allocator, g: Form, loc: SourceLocation) macro_di
     map_items[1] = g;
     const map_form: Form = .{ .data = .{ .map = map_items }, .location = loc };
     const msg: Form = .{ .data = .{ .string = "No matching clause" }, .location = loc };
-    const exinfo = try makeCall(arena, "ex-info", &.{ msg, map_form }, loc);
+    const exinfo = try coreCall(arena, "ex-info", &.{ msg, map_form }, loc);
     return makeCall(arena, "throw", &.{exinfo}, loc);
 }
 
@@ -1442,7 +1462,7 @@ fn condpEmit(arena: std.mem.Allocator, rt: *Runtime, gpred: Form, gexpr: Form, a
     binding[0] = p;
     binding[1] = pred_call;
     const ifl = try arena.alloc(Form, 4);
-    ifl[0] = sym("if-let", loc);
+    ifl[0] = coreSym("if-let", loc);
     ifl[1] = .{ .data = .{ .vector = binding }, .location = loc };
     ifl[2] = fn_call;
     ifl[3] = more;
@@ -1512,11 +1532,11 @@ fn expandAssert(arena: std.mem.Allocator, rt: *Runtime, args: []const Form, loc:
     const prefix: Form = .{ .data = .{ .string = "Assert failed: " }, .location = loc };
     // (pr-str (quote <expr>)) — the asserted form, printed clj-style.
     const quoted = try makeCall(arena, "quote", &.{expr}, loc);
-    const pr_form = try makeCall(arena, "pr-str", &.{quoted}, loc);
+    const pr_form = try coreCall(arena, "pr-str", &.{quoted}, loc);
     const msg: Form = if (args.len == 2) blk: {
         const nl: Form = .{ .data = .{ .string = "\n" }, .location = loc };
-        break :blk try makeCall(arena, "str", &.{ prefix, args[1], nl, pr_form }, loc);
-    } else try makeCall(arena, "str", &.{ prefix, pr_form }, loc);
+        break :blk try coreCall(arena, "str", &.{ prefix, args[1], nl, pr_form }, loc);
+    } else try coreCall(arena, "str", &.{ prefix, pr_form }, loc);
     const ae_sym: Form = .{ .data = .{ .symbol = .{ .ns = "cljw.internal", .name = "__assertion-error" } }, .location = loc };
     var ae_items = try arena.alloc(Form, 2);
     ae_items[0] = ae_sym;
@@ -1532,8 +1552,8 @@ fn expandAssert(arena: std.mem.Allocator, rt: *Runtime, args: []const Form, loc:
 fn expandLazyCat(arena: std.mem.Allocator, rt: *Runtime, args: []const Form, loc: SourceLocation) macro_dispatch.ExpandError!Form {
     _ = rt;
     const items = try arena.alloc(Form, 1 + args.len);
-    items[0] = sym("concat", loc);
-    for (args, 0..) |a, i| items[1 + i] = try makeCall(arena, "lazy-seq", &.{a}, loc);
+    items[0] = coreSym("concat", loc);
+    for (args, 0..) |a, i| items[1 + i] = try coreCall(arena, "lazy-seq", &.{a}, loc);
     return list(arena, items, loc);
 }
 
@@ -1708,7 +1728,7 @@ fn expandIfLet(
     inner_binding[0] = name_form;
     inner_binding[1] = sym(gname, loc);
     const inner_let_items = try arena.alloc(Form, 3);
-    inner_let_items[0] = sym("let", loc);
+    inner_let_items[0] = coreSym("let", loc);
     inner_let_items[1] = .{ .data = .{ .vector = inner_binding }, .location = loc };
     inner_let_items[2] = then_form;
     const inner_let = try list(arena, inner_let_items, loc);
@@ -1915,7 +1935,7 @@ fn transformFnArity(
 
     const new_params_vec = try vec(arena, new_params.items, loc);
     var let_items = try arena.alloc(Form, 2 + body.len);
-    let_items[0] = sym("let", loc);
+    let_items[0] = coreSym("let", loc);
     let_items[1] = try vec(arena, lets.items, loc);
     @memcpy(let_items[2..], body);
     const wrapped = try arena.alloc(Form, 1);
@@ -1940,7 +1960,7 @@ fn expandFn(
     if (args.len >= 2 and args[0].data == .symbol) {
         const name = args[0];
         var inner_items = try arena.alloc(Form, args.len);
-        inner_items[0] = sym("fn", loc);
+        inner_items[0] = coreSym("fn", loc);
         @memcpy(inner_items[1..], args[1..]);
         var binding = try arena.alloc(Form, 2);
         binding[0] = name;
@@ -1993,7 +2013,7 @@ fn wrapBodyInDo(arena: std.mem.Allocator, body: []const Form, loc: SourceLocatio
 /// `(assert cond)` form.
 fn assertForm(arena: std.mem.Allocator, cond: Form, loc: SourceLocation) macro_dispatch.ExpandError!Form {
     var items = try arena.alloc(Form, 2);
-    items[0] = sym("assert", loc);
+    items[0] = coreSym("assert", loc);
     items[1] = cond;
     return list(arena, items, loc);
 }
@@ -2106,7 +2126,7 @@ fn expandDefmulti(
     // the no-match dispatch value, `:hierarchy <h>` swaps the hierarchy var).
     // Inline key/value pairs; unknown keys are ignored (forward-compatible).
     var default_form: Form = .{ .data = .{ .keyword = .{ .ns = null, .name = "default" } }, .location = loc };
-    var hierarchy_form: Form = sym("-global-hierarchy", loc);
+    var hierarchy_form: Form = coreSym("-global-hierarchy", loc);
     var oi: usize = di + 1;
     while (oi + 1 < args.len) : (oi += 2) {
         const opt = args[oi];
@@ -2181,7 +2201,7 @@ fn expandDefmethod(
     // method param (`(defmethod m :k [a [b c]] …)`) is lowered (clj parity;
     // clojure.test-helper's `assert-expr` methods destructure their args).
     var fn_items = try arena.alloc(Form, 3);
-    fn_items[0] = sym("fn", loc);
+    fn_items[0] = coreSym("fn", loc);
     fn_items[1] = params_form;
     fn_items[2] = body_form;
     const fn_form = try list(arena, fn_items, loc);
@@ -2376,7 +2396,7 @@ fn rewriteProtocolRemap(
     // interface's CLASS value and fail __extend-type!'s "expected protocol" check.
     if (impls.len == 0) {
         var ext_items = try arena.alloc(Form, 3);
-        ext_items[0] = sym("extend-type", loc);
+        ext_items[0] = coreSym("extend-type", loc);
         ext_items[1] = target_form;
         ext_items[2] = try quoteWrap(arena, sym(declared_name, loc));
         return list(arena, ext_items, loc);
@@ -2423,7 +2443,7 @@ fn rewriteProtocolRemap(
     var sections = try arena.alloc(Form, protos.items.len + 1);
     {
         var decl_items = try arena.alloc(Form, 3);
-        decl_items[0] = sym("extend-type", loc);
+        decl_items[0] = coreSym("extend-type", loc);
         decl_items[1] = target_form;
         decl_items[2] = try quoteWrap(arena, sym(declared_name, loc));
         sections[protos.items.len] = try list(arena, decl_items, loc);
@@ -2431,7 +2451,7 @@ fn rewriteProtocolRemap(
     for (protos.items, 0..) |proto, si| {
         var sec: std.ArrayList(Form) = .empty;
         defer sec.deinit(arena);
-        try sec.append(arena, sym("extend-type", loc));
+        try sec.append(arena, coreSym("extend-type", loc));
         try sec.append(arena, target_form);
         try sec.append(arena, sym(proto, loc));
         for (impls) |impl| {
@@ -2621,7 +2641,7 @@ fn expandExtendType(
                 nt_items[1] = .{ .data = .{ .keyword = .{ .name = tag } }, .location = loc };
                 const nt = try list(arena, nt_items, loc);
                 var ext_items = try arena.alloc(Form, 3 + (args.len - 2));
-                ext_items[0] = sym("extend-type", loc);
+                ext_items[0] = coreSym("extend-type", loc);
                 ext_items[1] = nt;
                 ext_items[2] = args[1];
                 @memcpy(ext_items[3..], args[2..]);
@@ -2653,7 +2673,7 @@ fn expandExtendType(
                 while (i < args.len and args[i].data == .list) : (i += 1) {}
                 const impls = args[start..i];
                 var ext_items = try arena.alloc(Form, 3 + impls.len);
-                ext_items[0] = sym("extend-type", proto.location);
+                ext_items[0] = coreSym("extend-type", proto.location);
                 ext_items[1] = target_form;
                 ext_items[2] = proto;
                 @memcpy(ext_items[3..], impls);
@@ -2841,7 +2861,7 @@ fn expandExtendProtocol(
         // the next macro pass, so no need to duplicate the
         // method-impl normalisation here.
         var ext_items = try arena.alloc(Form, 3 + impls.len);
-        ext_items[0] = sym("extend-type", type_form.location);
+        ext_items[0] = coreSym("extend-type", type_form.location);
         ext_items[1] = type_form;
         ext_items[2] = protocol_form;
         @memcpy(ext_items[3..], impls);
@@ -2884,7 +2904,7 @@ fn expandWhenLet(
     // through expandIfLet on the next pass, so we get the gensym for
     // free.
     const if_let_items = try arena.alloc(Form, 4);
-    if_let_items[0] = sym("if-let", loc);
+    if_let_items[0] = coreSym("if-let", loc);
     if_let_items[1] = binding_form;
     if_let_items[2] = body_form;
     if_let_items[3] = nilForm(loc);
@@ -3307,7 +3327,7 @@ fn lowerDefType(
             try out_impls.append(arena, impl);
         }
         var ext_items = try arena.alloc(Form, 3 + out_impls.items.len);
-        ext_items[0] = sym("extend-type", section.proto.location);
+        ext_items[0] = coreSym("extend-type", section.proto.location);
         ext_items[1] = args[0];
         ext_items[2] = section.proto;
         @memcpy(ext_items[3..], out_impls.items);
@@ -3493,7 +3513,7 @@ fn expandLetfn(
         const spec_items = spec.data.list;
         // (fn params... body...)
         var fn_items = try arena.alloc(Form, spec_items.len);
-        fn_items[0] = sym("fn", spec.location);
+        fn_items[0] = coreSym("fn", spec.location);
         @memcpy(fn_items[1..], spec_items[1..]);
         binds[i * 2] = spec_items[0];
         binds[i * 2 + 1] = try list(arena, fn_items, spec.location);
