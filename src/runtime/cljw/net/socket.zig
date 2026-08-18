@@ -33,7 +33,10 @@ const java_array = @import("../../collection/java_array.zig");
 const host_instance = @import("../../host_instance.zig");
 const type_descriptor = @import("../../type_descriptor.zig");
 
-const IO_BUF = 4096;
+/// Reader/writer buffer size, and therefore the most one `.read` can return.
+/// A `SocketBox` costs 2 * IO_BUF; a caller draining a multi-megabyte response
+/// pays one host call per IO_BUF bytes.
+const IO_BUF = 65536;
 
 /// Heap carrier for one connected stream. Address-stable: `reader`/`writer`
 /// borrow `rbuf`/`wbuf` in place, so the box must never be copied after `init`.
