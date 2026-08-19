@@ -12,9 +12,48 @@ const std = @import("std");
 const prop = @import("prop.zig");
 const build_options = @import("build_options");
 const print = @import("../runtime/print.zig");
+const string_escape = @import("../runtime/string_escape.zig");
+const value_mod = @import("../runtime/value/value.zig");
+const Value = value_mod.Value;
+const Runtime = @import("../runtime/runtime.zig").Runtime;
+const Env = @import("../runtime/env.zig").Env;
+const SourceLocation = @import("../runtime/error/info.zig").SourceLocation;
+const keyword = @import("../runtime/keyword.zig");
+const string_collection = @import("../runtime/collection/string.zig");
+const vector_collection = @import("../runtime/collection/vector.zig");
+const map_collection = @import("../runtime/collection/map.zig");
+const set_collection = @import("../runtime/collection/set.zig");
 
 const Writer = std.Io.Writer;
 const testing = std.testing;
+
+/// One value nesting a vector, a map and a set over leaves of every scalar
+/// kind, shaped by the generated ints so a slice covers many structures rather
+/// than one. The map crosses the ArrayMap -> HAMT boundary at 16 entries and
+/// the set at 8, which is where the printer switches walk.
+fn buildNested(rt: *Runtime, xs: []i64) !Value {
+    var vec = vector_collection.empty();
+    var map = map_collection.empty();
+    var set = set_collection.empty();
+    for (xs, 0..) |x, i| {
+        const leaf: Value = switch (@as(u3, @truncate(@as(u64, @bitCast(x))))) {
+            0, 1 => Value.initInteger(x),
+            2 => Value.initFloat(@as(f64, @floatFromInt(@rem(x, 1_000_000)))),
+            3 => try keyword.intern(rt, null, "k"),
+            4 => try string_collection.alloc(rt, "a\"b\n"),
+            5 => .true_val,
+            6 => .nil_val,
+            7 => Value.initChar('x'),
+        };
+        vec = try vector_collection.conj(rt, vec, leaf);
+        map = try map_collection.assoc(rt, map, Value.initInteger(@intCast(i)), leaf);
+        set = try set_collection.conj(rt, set, leaf);
+    }
+    var out = try vector_collection.conj(rt, vector_collection.empty(), vec);
+    out = try vector_collection.conj(rt, out, map);
+    out = try vector_collection.conj(rt, out, set);
+    return try map_collection.assoc(rt, map_collection.empty(), try keyword.intern(rt, null, "root"), out);
+}
 
 /// Gate defaults, overridable for a sweep: `zig build test -Dprop-seed=0x… -Dprop-iters=…`.
 fn config() prop.Config {
@@ -137,4 +176,174 @@ test "property: printFloat output re-parses to the same f64" {
 
 test "property: a finite float renders as float syntax, never integer syntax" {
     try prop.forAll([]f64, testing.allocator, config(), FloatSlice{}, {}, readableShape);
+}
+
+// --- string escaping: printString vs the reader's unescape ---
+
+/// Bytes worth drawing far more often than a uniform sample would: the five
+/// sequences `printString` escapes, the quote/backslash pair that terminates a
+/// token, control bytes it passes through raw, and multi-byte UTF-8 lead bytes.
+const interesting_bytes = [_]u8{
+    '"',  '\\', '\n', '\t', '\r',
+    0x00, 0x01, 0x1f, 0x7f, ' ',
+    'a',  'Z',  '0',  ';',  '(',
+    ')',  '[',  ']',  '{',  '}',
+    '#',  '^',  '`',  '~',  '@',
+};
+
+/// A byte string over the interesting set plus uniform noise. Not constrained
+/// to valid UTF-8 on purpose: `printString` walks bytes, so a lone
+/// continuation byte must survive the round trip like any other.
+const ByteString = struct {
+    max_len: usize = 40,
+
+    pub fn generate(self: ByteString, rand: std.Random, alloc: std.mem.Allocator, size: usize) ![]u8 {
+        const len = rand.uintLessThan(usize, @min(size, self.max_len) + 1);
+        const out = try alloc.alloc(u8, len);
+        for (out) |*slot| {
+            slot.* = if (rand.uintLessThan(u8, 2) == 0)
+                interesting_bytes[rand.uintLessThan(usize, interesting_bytes.len)]
+            else
+                rand.int(u8);
+        }
+        return out;
+    }
+
+    /// Halve, then drop one byte — the shortest string that still fails is
+    /// almost always a single escape.
+    pub fn shrink(self: ByteString, alloc: std.mem.Allocator, v: []u8, out: *std.ArrayList([]u8)) !void {
+        _ = self;
+        if (v.len == 0) return;
+        try out.append(alloc, try alloc.dupe(u8, v[0 .. v.len / 2]));
+        try out.append(alloc, try alloc.dupe(u8, v[v.len / 2 ..]));
+        var i: usize = 0;
+        while (i < v.len) : (i += 1) {
+            const smaller = try alloc.alloc(u8, v.len - 1);
+            @memcpy(smaller[0..i], v[0..i]);
+            @memcpy(smaller[i..], v[i + 1 ..]);
+            try out.append(alloc, smaller);
+        }
+    }
+
+    pub fn free(self: ByteString, alloc: std.mem.Allocator, v: []u8) void {
+        _ = self;
+        alloc.free(v);
+    }
+
+    pub fn describe(self: ByteString, alloc: std.mem.Allocator, v: []u8) ![]u8 {
+        _ = self;
+        return std.fmt.allocPrint(alloc, "{d} bytes: {any}", .{ v.len, v });
+    }
+};
+
+/// Whatever `printString` writes, the reader's unescape takes back to the
+/// original bytes. The two carry independent escape tables — `print.zig` has
+/// its own `switch`, `runtime/string_escape.zig` is what the reader calls — so
+/// agreement is evidence, not a tautology.
+fn escapeRoundTrips(_: void, s: []u8) anyerror!void {
+    var buf: [1024]u8 = undefined;
+    var w: Writer = .fixed(&buf);
+    try print.printString(&w, s);
+    const rendered = w.buffered();
+
+    // The rendering is always a quoted token, and the quotes are the only
+    // unescaped ones in it.
+    if (rendered.len < 2) return error.RenderingTooShort;
+    if (rendered[0] != '"' or rendered[rendered.len - 1] != '"') return error.RenderingNotQuoted;
+
+    const body = rendered[1 .. rendered.len - 1];
+    const back = string_escape.unescape(testing.allocator, body, .{}) catch
+        return error.PrintedStringDoesNotUnescape;
+    // `unescape` returns the input BORROWED when it holds no backslash, and a
+    // fresh slice otherwise; free only what it allocated.
+    defer if (back.ptr != body.ptr) testing.allocator.free(back);
+
+    if (!std.mem.eql(u8, back, s)) return error.StringRoundTripChangedBytes;
+}
+
+test "property: printString output unescapes back to the original bytes" {
+    try prop.forAll([]u8, testing.allocator, config(), ByteString{}, {}, escapeRoundTrips);
+}
+
+// --- the port seam: a null port cannot reach the VM ---
+
+/// Instrumented backend: counts entries instead of doing anything. The oracle
+/// for "was the VM entered" shares no code with the ~800-line renderer, so
+/// unlike comparing two rendered strings it cannot be fooled by a wrong byte
+/// appearing on both sides.
+var vm_entries: usize = 0;
+
+fn countingCallFn(rt: *Runtime, env: *Env, fn_val: Value, args: []const Value, loc: SourceLocation) anyerror!Value {
+    _ = .{ rt, env, fn_val, args, loc };
+    vm_entries += 1;
+    return .nil_val;
+}
+
+fn countingTypeKey(val: Value) []const u8 {
+    _ = val;
+    return "counted";
+}
+
+/// `printValue(null, …)` never consults `print-method` and never dispatches a
+/// protocol, for any value — the null says the caller cannot evaluate, and the
+/// renderer must honour that even with a backend installed and ready.
+///
+/// Since the ports became a parameter this is enforced by the type, so the
+/// property is a regression guard: it fails the day anyone reintroduces an
+/// ambient channel (a thread-local, a global) for the same job.
+fn nullPortNeverConsults(rt: *Runtime, xs: []i64) anyerror!void {
+    const v = try buildNested(rt, xs);
+    vm_entries = 0;
+    var buf: [8192]u8 = undefined;
+    var w: Writer = .fixed(&buf);
+    print.printValue(null, &w, v) catch |err| switch (err) {
+        // A value larger than the buffer is not what this law is about.
+        error.WriteFailed => {},
+        else => return err,
+    };
+    if (vm_entries != 0) return error.NullPortConsultedTheVm;
+}
+
+test "property: a null port is never consulted" {
+    const gen = prop.IntSlice{ .distinct = 8, .max_len = 24 };
+    const body = struct {
+        fn f(_: void, xs: []i64) anyerror!void {
+            var th = std.Io.Threaded.init(testing.allocator, .{});
+            defer th.deinit();
+            var rt = Runtime.init(th.io(), testing.allocator);
+            defer rt.deinit();
+            rt.vtable = .{ .callFn = countingCallFn, .valueTypeKey = countingTypeKey };
+            try nullPortNeverConsults(&rt, xs);
+        }
+    }.f;
+    try prop.forAll([]i64, testing.allocator, config(), gen, {}, body);
+}
+
+/// `printValue` is TOTAL: every value the generator can build renders without
+/// an error other than the buffer filling, and renders something. The heap
+/// tags with no dedicated branch fall back to `#<tag>`, and this is what says
+/// so — a new tag with no arm shows up here rather than in a user's REPL.
+fn printValueIsTotal(rt: *Runtime, xs: []i64) anyerror!void {
+    const v = try buildNested(rt, xs);
+    var buf: [8192]u8 = undefined;
+    var w: Writer = .fixed(&buf);
+    print.printValue(null, &w, v) catch |err| switch (err) {
+        error.WriteFailed => return,
+        else => return err,
+    };
+    if (w.buffered().len == 0) return error.PrintedNothing;
+}
+
+test "property: printValue renders every generated value without raising" {
+    const gen = prop.IntSlice{ .distinct = 8, .max_len = 24 };
+    const body = struct {
+        fn f(_: void, xs: []i64) anyerror!void {
+            var th = std.Io.Threaded.init(testing.allocator, .{});
+            defer th.deinit();
+            var rt = Runtime.init(th.io(), testing.allocator);
+            defer rt.deinit();
+            try printValueIsTotal(&rt, xs);
+        }
+    }.f;
+    try prop.forAll([]i64, testing.allocator, config(), gen, {}, body);
 }
