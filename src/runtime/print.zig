@@ -745,6 +745,11 @@ pub fn printConsult(rt: *Runtime, env: *env_mod.Env, w: *Writer, v: Value) anyer
         return;
     }
     const ports: Ports = .{ .rt = rt, .env = env, .consult = true };
+    // The limits belong to the whole top-level print, including one an override
+    // renders. `printResultPorts` snapshots them on the fall-through; a firing
+    // override returns before it, so the snapshot has to happen here — without
+    // it the override body runs on whatever the PREVIOUS print left behind.
+    snapshotPrintLimits();
     if (try fireOverride(ports, w, v)) return;
     try printResultPorts(ports, w, v);
 }
