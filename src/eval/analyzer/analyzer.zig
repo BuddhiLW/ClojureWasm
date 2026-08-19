@@ -85,7 +85,7 @@ const syntax_quote = @import("syntax_quote.zig");
 /// namespace / catch-class, unsupported-feature, and reader-tag
 /// codes. See the equivalent comment in `eval/reader.zig` for the
 /// design rationale.
-pub const AnalyzeError = error_mod.ClojureWasmError;
+pub const AnalyzeError = error_mod.ClojureWasmError || error{ThrownValue};
 
 // --- Scope (local-binding chain consulted during analysis) ---
 

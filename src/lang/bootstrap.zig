@@ -210,6 +210,10 @@ pub const FILES: []const FileEntry = &.{
     // plus a SEQUENTIAL fold (AD-058: no ForkJoinPool). require-on-demand; clj
     // does not auto-load it either, so eager here would break F-011 parity.
     f("clojure.core.reducers", "clj/clojure/core/reducers.clj"),
+    // cljw.test — source-path test discovery + runner over clojure.test
+    // (`cljw -m cljw.test`). Loads after clojure.test (FILES[10]) and cljw.fs;
+    // require-on-demand. Appended last so earlier FILES[N] indices stay stable.
+    f("cljw.test", "clj/cljw/test.clj"),
 };
 
 /// The build-active subset of `FILES`. **Every walk that compiles, emits, or

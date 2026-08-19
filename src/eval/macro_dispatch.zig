@@ -49,7 +49,7 @@ const list_collection = @import("../runtime/collection/list.zig");
 /// analyzer) so call sites in `analyze` can `try` the result without
 /// a type widen — see `reader.ReadError` / `analyzer.AnalyzeError`
 /// for the same pattern.
-pub const ExpandError = error_mod.ClojureWasmError;
+pub const ExpandError = error_mod.ClojureWasmError || error{ThrownValue};
 pub const ZigExpandFn = *const fn (
     arena: std.mem.Allocator,
     rt: *Runtime,
@@ -220,6 +220,14 @@ pub fn narrowCallFnError(e: anyerror, loc: SourceLocation) ExpandError {
         error.IndexError => error.IndexError,
         error.IoError => error.IoError,
         error.InternalError => error.InternalError,
+        // A macro that THROWS — `(defmacro m [] (throw (ex-info …)))`, and
+        // every argument-validating macro in clojure.core — raises
+        // `error.ThrownValue` with the exception Value parked on the runtime.
+        // Re-raising it unchanged is what lets the caller's `catch` see the
+        // exception the macro threw; folding it into InternalError instead
+        // discards both the message and the catchability (clj surfaces a
+        // macroexpansion throw as a catchable exception carrying its cause).
+        error.ThrownValue => error.ThrownValue,
         // Anything outside the ClojureWasmError envelope (e.g. a Zig-
         // level error tag the runtime synthesised) lands as
         // InternalError so the AnalyzeError surface stays narrow.

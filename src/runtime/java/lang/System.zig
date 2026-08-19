@@ -86,12 +86,23 @@ fn staticProperty(name: []const u8) ?[]const u8 {
     return null;
 }
 
+/// The runtime's source path rendered as a `path.separator`-joined string —
+/// the value of `java.class.path`. Caller owns the returned Value's string.
+/// Null when no source path is configured (nothing to name).
+fn classPath(rt: *Runtime) anyerror!?Value {
+    if (rt.load_paths.len == 0) return null;
+    const joined = try std.mem.join(rt.gpa, staticProperty("path.separator").?, rt.load_paths);
+    defer rt.gpa.free(joined);
+    return try string_mod.alloc(rt, joined);
+}
+
 /// Implements `(java.lang.System/getProperty key)` + 2-arg
 /// `(getProperty key default)`.
 /// Spec: returns the system property for `key`, else nil (1-arg) or
 /// `default` (2-arg). cw v1 answers OS-truthful properties (separators,
-/// os.name/os.arch, file.encoding, user.dir); other keys (incl. `java.*`)
-/// miss (no-JVM: cljw has no Java runtime).
+/// os.name/os.arch, file.encoding, user.dir) plus `java.class.path` — the
+/// resolved source path, which is what that key names on the JVM too. Other
+/// keys (incl. the rest of `java.*`) miss (no-JVM: cljw has no Java runtime).
 /// JVM reference: java.lang.System#getProperty.
 /// cw v1 tier: A.
 fn getProperty(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
@@ -108,6 +119,9 @@ fn getProperty(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation
         var buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
         const n = std.process.currentPath(rt.io, &buf) catch return propertyMiss(args);
         return string_mod.alloc(rt, buf[0..n]);
+    }
+    if (std.mem.eql(u8, name, "java.class.path")) {
+        if (try classPath(rt)) |v| return v;
     }
     return propertyMiss(args);
 }
@@ -181,6 +195,11 @@ fn getProperties(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocati
         } else |_| {
             // Unreadable cwd — the key is simply absent, like getProperty's miss.
         }
+    }
+    // java.class.path, likewise resolved at call time from the source path.
+    if (try classPath(rt)) |v| {
+        const k = try string_mod.alloc(rt, "java.class.path");
+        out = try map_collection.assoc(rt, out, k, v);
     }
     var it = rt.system_properties.iterator();
     while (it.next()) |entry| {
