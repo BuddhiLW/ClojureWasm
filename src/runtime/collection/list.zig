@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: EPL-2.0
 //! PersistentList — Clojure's singly-linked cons-cell list.
 //!
 //! Each `Cons` cell holds `first` (head), `rest` (tail: `nil` or another

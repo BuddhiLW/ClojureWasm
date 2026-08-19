@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: EPL-2.0
 //! Value renderer (`pr-str` style).
 //!
 //! A single printer so that the REPL, nREPL, the `pr-str` / `prn`

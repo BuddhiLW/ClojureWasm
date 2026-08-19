@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: EPL-2.0
 //! Tokenizer — Clojure source text → token stream.
 //!
 //! Stateful iterator: callers loop on `next()` until they see `.eof`.

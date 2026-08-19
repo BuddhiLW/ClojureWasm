@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: EPL-2.0
 //! Env — namespace graph + Var registry + dynamic-binding stack.
 //!
 //! Per-session container. The CLI allocates one Env; an nREPL server

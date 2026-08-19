@@ -13,6 +13,11 @@
 # Opting out is a row with gated=no, never an absence.
 
 # --- composite entry points -------------------------------------------------
+# `full` is THE gate configuration, as data. Both launchers resolve to this
+# row: scripts/ci_gate.sh runs it through this CLI, scripts/run_gate.sh reaps
+# orphans and runs the same command. scripts/check_gate_parity.sh executes
+# `--only full --dry-run` and compares, so the agreement is run, not asserted.
+full|1,2,3,5,6,7|yes|composite,serial|bash test/run_all.sh --serial-e2e
 gate|1,2,3,5,6,7|yes|composite|bash scripts/run_gate.sh
 smoke|1,3,7|yes|composite,fast|bash test/run_all.sh --smoke
 ci|1,2,3,5,6,7|yes|composite,config|bash scripts/ci_gate.sh
@@ -65,7 +70,10 @@ check_epipe_head|-|yes|via-gate|bash scripts/check_epipe_head.sh
 check_feature_keyword|-|yes|via-gate|bash scripts/check_feature_keyword.sh --gate
 check_gate_parity|-|yes|via-gate|bash scripts/check_gate_parity.sh
 check_host_interface|-|yes|via-gate|bash scripts/check_host_interface.sh --gate
+check_dual_backend_parity|-|yes|via-gate|bash scripts/check_dual_backend_parity.sh --gate
 check_lazy_ns_replay|-|yes|via-gate|bash scripts/check_lazy_ns_replay.sh
+check_module_docstring|-|yes|via-gate|bash scripts/check_module_docstring.sh --check
+check_provisional_sync|-|yes|via-gate|bash scripts/check_provisional_sync.sh --gate
 check_placement_status|-|yes|via-gate|bash scripts/check_placement_status.sh
 check_portable_timeout|-|yes|via-gate|bash scripts/check_portable_timeout.sh
 check_reference_clones|-|yes|via-gate|bash scripts/check_reference_clones.sh
@@ -76,20 +84,28 @@ zone_check|-|yes|via-gate|bash scripts/zone_check.sh --gate
 binary_size_report|-|yes|via-gate|bash scripts/binary_size_report.sh --check zig-out/bin/cljw
 
 # --- checks NOT reachable from the gate -------------------------------------
-# Every row below is a declared exclusion. `todo:` in the tags means the
-# exclusion is unresolved and owns a kanban entry, not that it is acceptable.
-check_adr_history|-|no|todo:CLJW-ADRGATE|bash scripts/check_adr_history.sh
-check_compat_tiers_sync|-|no|todo|bash scripts/check_compat_tiers_sync.sh
-check_dual_backend_parity|-|no|todo|bash scripts/check_dual_backend_parity.sh
-check_facts_immutable|-|no|todo|bash scripts/check_facts_immutable.sh
-check_learning_doc|-|no|todo|bash scripts/check_learning_doc.sh
-check_md_tables|-|no|todo|bash scripts/check_md_tables.sh
-check_module_docstring|-|no|todo|bash scripts/check_module_docstring.sh
-check_no_op_stub|-|no|todo|bash scripts/check_no_op_stub.sh
-check_provisional_sync|-|no|todo|bash scripts/check_provisional_sync.sh
-check_smell_audit|-|no|todo|bash scripts/check_smell_audit.sh
-check_tier_d_error_msg|-|no|todo|bash scripts/check_tier_d_error_msg.sh
-check_vm_parity|-|no|todo|bash scripts/check_vm_parity.sh
+# Every row below is a declared exclusion, and its tag says which KIND:
+#
+#   hook       payload-driven PreToolUse hook. It reads a JSON payload on stdin
+#              and acts on the command being run, so a batch invocation has
+#              nothing to inspect — it fails closed by design.
+#   authoring  inspects a commit or a document being written; no meaning in a
+#              batch run of the suite.
+#   on-demand  outside the gate by a RECORDED decision, not by neglect. Each
+#              such script's own header names the decision.
+#   dormant    the discipline it enforces is suspended by an ADR; the script is
+#              kept because the ADR's resumption clause needs it.
+#   todo:      UNRESOLVED. check_runner_reach.sh fails on it — an exclusion
+#              either has one of the settled kinds above or the script goes.
+check_adr_history|-|no|on-demand|bash scripts/check_adr_history.sh
+check_compat_tiers_sync|-|no|on-demand,informational|bash scripts/check_compat_tiers_sync.sh
+check_facts_immutable|-|no|hook|bash scripts/check_facts_immutable.sh
+check_learning_doc|-|no|hook,dormant|bash scripts/check_learning_doc.sh
+check_md_tables|-|no|hook|bash scripts/check_md_tables.sh
+check_no_op_stub|-|no|on-demand,informational|bash scripts/check_no_op_stub.sh
+check_smell_audit|-|no|hook|bash scripts/check_smell_audit.sh
+check_tier_d_error_msg|-|no|on-demand,informational|bash scripts/check_tier_d_error_msg.sh
+check_vm_parity|-|no|on-demand|bash scripts/check_vm_parity.sh
 # Authoring-time checks: they inspect a commit or a document being written, so
 # they have no meaning in a batch run of the suite.
 check_handover_framing|-|no|authoring|bash scripts/check_handover_framing.sh

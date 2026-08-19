@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: EPL-2.0
 //! Primitive registration entry point.
 //!
 //! `registerAll(env)` runs once at boot (from the runner's setup,

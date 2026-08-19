@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: EPL-2.0
 //! Layer 7 (Property) engine — ADR-0186.
 //!
 //! Generate inputs, assert a law over each, and on failure report the SMALLEST

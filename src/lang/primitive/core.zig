@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: EPL-2.0
 //! Core predicate primitives for the `rt/` namespace.
 //!
 //! The bit-level predicates `nil?` / `true?` / `false?` / `identical?`

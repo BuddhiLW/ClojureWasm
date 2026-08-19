@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: EPL-2.0
 //! Error infrastructure for ClojureWasm runtime.
 //!
 //! Provides:

@@ -1,6 +1,10 @@
 # CI — the host-local gate on the supported OSes (macOS arm64 + Linux x86_64),
 # mirroring the local gate. Each matrix leg runs `scripts/ci_gate.sh`, so CI
 # verifies exactly what the maintainer runs per host (single source of truth).
+# ci_gate.sh reaches the suite only through `test/cljw-test`, the one entry
+# point: `--only fmt`, then `--only full`. What `full` runs is a row in
+# test/units.list, so the gate configuration is defined once, not once per
+# launcher.
 #
 # Triggers: pull_request (any target) + push to `main` + manual dispatch.
 # The gate has no external runtime dependency beyond Zig 0.16.0 and python3

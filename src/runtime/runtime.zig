@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: EPL-2.0
 //! Runtime — the process-wide handle every layer threads through.
 //!
 //! Three-tier architecture (see ROADMAP §4.3):

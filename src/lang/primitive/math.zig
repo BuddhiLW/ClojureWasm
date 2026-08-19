@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: EPL-2.0
 //! Arithmetic + comparison primitives for the `rt/` namespace:
 //! `+`, `-`, `*`, `/`, `quot`, `rem`, `mod`, the auto-promoting
 //! `+'`/`-'`/`*'`/`inc'`/`dec'` family (ADR-0100: in cljw these are

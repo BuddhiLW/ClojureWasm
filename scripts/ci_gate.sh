@@ -36,6 +36,10 @@
 # The Zig package + build cache is preserved across CI runs (see ci.yml), so a
 # warm run rebuilds only what changed rather than cold ReleaseSafe builds.
 #
+# Every unit reaches the suite through test/cljw-test, the one entry point.
+# What `full` runs is a row in test/units.list, not a string repeated here and
+# in run_gate.sh; check_gate_parity.sh resolves the row and compares.
+#
 # Usage:
 #   bash scripts/ci_gate.sh
 set -euo pipefail
@@ -43,10 +47,12 @@ cd "$(dirname "$0")/.."
 
 echo "[ci_gate] host: $(uname -s) — zig $(zig version)"
 
-echo "[ci_gate] (1/2) zig fmt --check src/"
-zig fmt --check src/
+# fmt first and separately: it is seconds, and a non-canonical file should kill
+# the run before a 15-minute gate, not after it.
+echo "[ci_gate] (1/2) fmt"
+bash test/cljw-test --only fmt
 
-echo "[ci_gate] (2/2) full gate: test/run_all.sh --serial-e2e"
-bash test/run_all.sh --serial-e2e
+echo "[ci_gate] (2/2) full gate"
+bash test/cljw-test --only full
 
 echo "[ci_gate] OK ($(uname -s))"

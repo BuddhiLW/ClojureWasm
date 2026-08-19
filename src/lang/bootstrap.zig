@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: EPL-2.0
 //! Stage-1 bootstrap — read+analyse+evaluate the embedded Clojure
 //! source files (currently `clj/clojure/core.clj` and
 //! `clj/clojure/string.clj`) after `primitive.registerAll` populates

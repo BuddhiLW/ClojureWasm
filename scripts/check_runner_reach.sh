@@ -2,8 +2,9 @@
 # Every runnable script in the repository must have a row in test/units.list.
 #
 # Exits non-zero on: a script with no row, a row naming a script that does not
-# exist, or a duplicate id. A script that should not run in the suite gets a
-# row with gated=no — an exclusion is declared, never an absence.
+# exist, a duplicate id, or a row still tagged `todo:`. A script that should
+# not run in the suite gets a row with gated=no AND a settled kind saying why
+# — an exclusion is declared, never an absence and never indefinite.
 #
 # Usage: bash scripts/check_runner_reach.sh
 set -uo pipefail
@@ -59,10 +60,18 @@ if [ -n "$gone" ]; then
     rc=1
 fi
 
+# An exclusion carries a SETTLED kind (hook / authoring / on-demand / dormant /
+# timing / measurement / network / config / internal / meta / via-gate), or the
+# script goes. `todo:` is the unsettled tag, and it fails here rather than
+# being reported and lived with — the count reached zero on 2026-08-18 and a
+# report nobody has to act on is how it got to twelve.
 todo=$(printf '%s\n' "$rows" | awk -F'|' '$4 ~ /todo/ {print "  " $1 "  (" $4 ")"}')
 if [ -n "$todo" ]; then
-    echo "check_runner_reach: $(printf '%s\n' "$todo" | wc -l | tr -d ' ') declared-but-unresolved exclusion(s):"
-    printf '%s\n' "$todo"
+    echo "check_runner_reach: $(printf '%s\n' "$todo" | wc -l | tr -d ' ') unresolved exclusion(s) tagged todo:" >&2
+    printf '%s\n' "$todo" >&2
+    echo "  Resolve each: gate it (gated=yes), delete the script, or give it a" >&2
+    echo "  settled kind — the registry header lists them." >&2
+    rc=1
 fi
 
 if [ "$rc" -eq 0 ]; then

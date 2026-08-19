@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: EPL-2.0
 //! Analyzer — Form → Node (semantic analysis).
 //!
 //! Reads the Form tree the Reader produced and emits a typed Node

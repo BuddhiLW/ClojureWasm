@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: EPL-2.0
 //! Form — the AST emitted by the Reader and consumed by the Analyzer.
 //!
 //! Each Form carries syntactic shape (`FormData`) plus a `SourceLocation`

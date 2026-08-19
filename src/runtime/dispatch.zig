@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: EPL-2.0
 //! Layer-0 → Layer-1+ dispatch types.
 //!
 //! `BuiltinFn` has the signature `(rt, env, args, loc) Error!Value`

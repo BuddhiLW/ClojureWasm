@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: EPL-2.0
 //! Reader — token stream → Form AST.
 //!
 //! Scope: nil / boolean / integer / float / string / symbol / keyword /

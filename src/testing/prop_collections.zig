@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: EPL-2.0
 //! Layer 7 (Property) — laws the persistent collections must obey for any
 //! sequence of operations. ADR-0186.
 //!

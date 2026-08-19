@@ -341,6 +341,10 @@ run_step "host_interface"       "bash scripts/check_host_interface.sh --gate"
 run_step "test_reach"           "bash scripts/check_test_reach.sh --gate"
 run_step "e2e_reach"            "bash scripts/check_e2e_reach.sh --gate"
 run_step "e2e_dup"              "bash scripts/check_e2e_dup.sh"
+# Every runnable script in the repository has a row in test/units.list, and
+# every row names a file that exists. An exclusion is a gated=no row, never
+# an absence.
+run_step "runner_reach"         "bash scripts/check_runner_reach.sh"
 # Informational (no --gate): every D-NNN cited in source/docs must resolve
 # to a debt.yaml row (kills phantom IDs), + prints the quality-loop-floor
 # backlog so the F-010 loop sees it. Tech-debt consolidation 2026-05-31 /
@@ -413,6 +417,9 @@ run_step "clj_attribution"      "bash scripts/check_clj_attribution.sh --gate"
 # was generated once and gated by nothing, so it rotted to covering under half
 # of clojure.core while `find-doc` kept answering confidently (ADR-0181).
 run_step "doc_coverage"         "bash scripts/check_doc_coverage.sh"
+# Every src/**/*.zig opens with the two-line canonical header (SPDX + //!).
+# .claude/rules/module_docstring.md carries the exemptions.
+run_step "module_docstring"     "bash scripts/check_module_docstring.sh --check"
 # `| head -N` fed by a command is a silent-death trap under pipefail: the
 # producer takes SIGPIPE, the script dies before printing its diagnostic, and it
 # only bites on a loaded machine. ab84126b fixed four sites and left 24.

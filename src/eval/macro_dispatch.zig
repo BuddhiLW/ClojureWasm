@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: EPL-2.0
 //! Macro dispatch — Layer-1 entry point for macro expansion.
 //!
 //! ADR 0001 routes macro expansion through this module instead of

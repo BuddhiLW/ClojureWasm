@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: EPL-2.0
 //! Zig-level Form→Form transforms for the bootstrap macros.
 //!
 //! The `BOOTSTRAP` table maps each bootstrap macro name (binding /

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: EPL-2.0
 //! Error catalog — Single Source Of Truth for cw user-facing error
 //! messages. Per ADR-0018 (amendment 2 — `<target>_<state-adjective>`
 //! naming convention; phase no longer encoded in the Code name).

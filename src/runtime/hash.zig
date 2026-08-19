@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: EPL-2.0
 //! Murmur3 hash for ClojureWasm — Clojure-compatible hash values.
 //!
 //! Mirrors `clojure.lang.Murmur3` in Clojure JVM. All multiplications

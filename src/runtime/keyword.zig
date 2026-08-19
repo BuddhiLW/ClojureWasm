@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: EPL-2.0
 //! Keyword interning (rt-aware).
 //!
 //! Keywords are interned: identical (ns, name) pairs share one heap

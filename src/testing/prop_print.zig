@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: EPL-2.0
 //! Layer 7 (Property) — laws the printer obeys for every input. ADR-0186.
 //!
 //! The oracle is `std.fmt.parseFloat`, which shares no implementation with

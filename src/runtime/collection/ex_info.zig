@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: EPL-2.0
 //! Heap-backed `ex-info` Value.
 //!
 //! Mirrors Clojure's `clojure.lang.ExceptionInfo`: a structured error

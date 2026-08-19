@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: EPL-2.0
 //! Node — the analyser's typed AST.
 //!
 //! `Form` (`form.zig`) is the literal surface representation a Reader

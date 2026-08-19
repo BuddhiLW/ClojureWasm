@@ -44,15 +44,32 @@ reachable from it, and nothing could tell you so. A claim about coverage that
 no check can falsify decays into decoration.
 
 A script that should not run in the suite gets a row with `gated=no` and a tag
-saying why — `timing` for benches, `measurement` for mutation, `network` for
-the verified-projects loop, `authoring` for checks that inspect a commit being
-written. An exclusion is declared, never an absence. Rows tagged `todo` are
-exclusions nobody has resolved yet; that count is meant to reach zero.
+saying which KIND of exclusion it is — `timing` for benches, `measurement` for
+mutation, `network` for the verified-projects loop, `authoring` for checks that
+inspect a commit being written, `hook` for a PreToolUse hook that reads a JSON
+payload on stdin and so has nothing to inspect in a batch run, `on-demand` for a
+script kept out by a recorded decision, `dormant` for one whose discipline an
+ADR has suspended. An exclusion is declared, never an absence, and it names the
+reason it is settled. `todo:` is the one tag that is not settled, and
+`check_runner_reach.sh` fails on it: an exclusion carries a settled kind or the
+script goes.
 
-The composites (`gate`, `smoke`, `ci`) delegate to `test/run_all.sh` and
+`check_runner_reach` runs inside the gate (`run_all.sh`, step `runner_reach`),
+so an unregistered script fails a normal run rather than waiting for someone to
+invoke the meta-check by hand.
+
+The composites (`full`, `gate`, `smoke`, `ci`) delegate to `test/run_all.sh` and
 `scripts/run_gate.sh`, which still own step dispatch, the resume ledger and the
 parallel e2e pool. Those remain callable directly; the CLI is the front door,
 not a replacement.
+
+**CI enters through the CLI too.** `.github/workflows/ci.yml` runs
+`scripts/ci_gate.sh`, which is two `cljw-test` calls — `--only fmt`, then
+`--only full`. What `full` runs is the registry row, so the gate configuration
+is defined in one place instead of being repeated per launcher.
+`scripts/check_gate_parity.sh` resolves that row by running
+`cljw-test --only full --dry-run` and comparing, so CI-vs-local agreement is
+executed rather than asserted.
 
 **The build lock is not a guarantee.** Every unit run through `cljw-test` takes
 `.dev/.build.lock`, so two builds cannot overlap *through the CLI*. A `zig

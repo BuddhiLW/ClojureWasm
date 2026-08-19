@@ -32,11 +32,22 @@ cd "$(dirname "$0")/.."
 fail=0
 note() { echo "check_gate_parity: $1" >&2; fail=1; }
 
-# The mode each launcher hands to run_all.sh for a FULL (non-smoke) run.
-ci_line="$(grep -nE '^\s*bash test/run_all.sh' scripts/ci_gate.sh | grep -v -- '--smoke' || true)"
-[[ -n "$ci_line" ]] || note "scripts/ci_gate.sh has no full-gate 'bash test/run_all.sh' line — did it change shape?"
-printf '%s' "$ci_line" | grep -q -- '--serial-e2e' \
-    || note "scripts/ci_gate.sh's full gate no longer passes --serial-e2e: $ci_line"
+# The full-gate configuration is ONE registry row, and the CLI resolves it.
+# `--dry-run` runs nothing, so this is the configuration itself, not a grep for
+# a sentence about it.
+FULL_CMD="bash test/run_all.sh --serial-e2e"
+resolved="$(bash test/cljw-test --only full --dry-run 2>/dev/null || true)"
+[[ "$resolved" == "full: $FULL_CMD" ]] \
+    || note "test/cljw-test --only full resolves to '${resolved:-<nothing>}', expected 'full: $FULL_CMD' — the registry row that defines the gate changed."
+
+# CI reaches the suite only through the CLI, so the row above is the single
+# definition rather than a string repeated per launcher.
+code_of() { grep -vE '^\s*#' "$1"; }
+code_of scripts/ci_gate.sh | grep -qE '^\s*bash test/run_all.sh' \
+    && note "scripts/ci_gate.sh calls test/run_all.sh directly — it must go through test/cljw-test --only full, or CI stops resolving the registry row."
+n_full="$(code_of scripts/ci_gate.sh | grep -cE '^\s*bash test/cljw-test --only full$' || true)"
+[[ "$n_full" == "1" ]] \
+    || note "scripts/ci_gate.sh runs 'test/cljw-test --only full' $n_full time(s) — expected exactly 1; a tier is back, so CI would run something local does not."
 
 grep -q -- 'MODE=(--serial-e2e)' scripts/run_gate.sh \
     || note "scripts/run_gate.sh no longer defaults to --serial-e2e, so the local full gate would validate a different configuration from CI."
@@ -49,14 +60,8 @@ grep -q -- '--serial-e2e)' test/run_all.sh \
 #
 # These greps read CODE, not prose: the headers below deliberately NAME the
 # retired switches to explain why they are gone, and a check that counted a
-# comment would fire on its own documentation. Strip comment lines first.
-code_of() { grep -vE '^\s*#' "$1"; }
-
-# ci_gate.sh must run the full gate unconditionally: exactly one run_all.sh
-# invocation, and no branch that could select a different one.
-n_runs="$(code_of scripts/ci_gate.sh | grep -cE '^\s*bash test/run_all.sh' || true)"
-[[ "$n_runs" == "1" ]] \
-    || note "scripts/ci_gate.sh invokes test/run_all.sh $n_runs time(s) — expected exactly 1; a tier is back, so CI would run something local does not."
+# comment would fire on its own documentation. Comment lines are stripped by
+# code_of, defined above.
 code_of scripts/ci_gate.sh | grep -qE 'CLJW_CI_(FULL|PARITY)' \
     && note "scripts/ci_gate.sh branches on CLJW_CI_FULL/PARITY again — that is the tiering this check exists to keep out."
 
@@ -78,4 +83,4 @@ if [[ "$fail" -ne 0 ]]; then
     echo "  change BOTH and update ci_gate.sh's header claim in the same commit." >&2
     exit 1
 fi
-echo "    gate_parity: one configuration — run_gate.sh and ci_gate.sh both run test/run_all.sh --serial-e2e, no CI-only tier"
+echo "    gate_parity: one configuration — test/units.list 'full' is $FULL_CMD, ci_gate.sh reaches it through test/cljw-test, run_gate.sh runs it directly, no CI-only tier"

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: EPL-2.0
 //! TreeWalk — evaluate the Node tree by recursive descent.
 //!
 //! This is the simplest possible interpreter. It is also the
