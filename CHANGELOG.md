@@ -33,6 +33,29 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 
 ### Fixed
 
+- **`*print-level*` was off by one for every record.** The depth bookkeeping
+  keyed off `Value.tag()`, and `.typed_instance` is not a collection tag — but
+  a record and a deftype declaring `clojure.lang.IPersistentMap` both render as
+  maps. `(binding [*print-level* 1] (pr-str (R. {:x 1})))` gave
+  `#user.R{:a {:x 1}}` where clj gives `#user.R{:a #}`, and at the cut a record
+  now renders `#user.R#` — the tag prints outside the cut and the map body
+  inside it, as clj does. A deftype carries no tag, so it cuts to `#` whole.
+
+- **A `print-method` override rendered against the PREVIOUS print's limits.**
+  `printConsult` snapshotted `*print-length*` / `*print-level*` / `*print-meta*`
+  / `*print-namespace-maps*` / `*print-readably*` only on the path where no
+  override fired. So `(binding [*print-length* 2] (pr-str (Box. [1 2 3 4 5])))`
+  printed `Box<[1 2 3 4 5]>` instead of clj's `Box<[1 2 ...]>` — and because the
+  snapshot is thread-local, a print's output depended on what had been printed
+  before it in the process. The same expression could render truncated or
+  untruncated according to print history, so a test could pass alone and fail in
+  a suite. Only a value whose own type carried the override was affected; the
+  same value nested one level deeper was already correct.
+
+- **An IPersistentMap-declaring deftype inside a `print-method` override**
+  rendered `#Pm[{:a 1}]` instead of clj's `{:a 1}`, because the override path
+  never armed the context the map-style render needs.
+
 - **A macro that `throw`s while expanding now surfaces the exception it
   threw** — catchable, with its message, its `ex-data` and its host class
   intact. It used to become `Internal error: macro callFn raised foreign
@@ -93,6 +116,20 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
   `test-var`. `*test-registry*` is demoted to a pure definition-order index.
   This is what makes cljw legible to any runner that enumerates `ns-interns`
   filtering on `:test`, and what makes `(alter-meta! #'f assoc :test …)` work.
+
+- **The printer's VM re-entry is an explicit parameter.** `printValue` took
+  `(w, v)` — the signature of something that cannot evaluate — while two
+  file-private thread-locals let it call arbitrary user Clojure and dispatch
+  protocols. Both are gone, replaced by a `?Ports` threaded through the
+  recursion: `null` at a caller that cannot evaluate, rt/env at one that can.
+  The three print fixes above were all one shape — state armed at one entry
+  point and read from another — which a parameter makes impossible.
+
+- **Printing no longer realizes what `*print-level*` will cut**, and no longer
+  rebuilds a vector that holds nothing lazy. A depth-18 tree at
+  `*print-level* 1` renders in 0.10 ms where it took 6668 ms (50 prints); a
+  20 000-element vector printed 200 times takes 189 ms where it took 1167 ms.
+  No output changes.
 
 ## [1.10.6] - 2026-08-14
 
