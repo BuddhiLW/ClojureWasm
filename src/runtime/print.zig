@@ -226,6 +226,17 @@ fn listFromItems(rt: *Runtime, items: []const Value) !Value {
 /// concrete contents. Scalars / maps / sets pass through unchanged (lazy
 /// nested in a map value / set element is a rare residual).
 fn deepRealize(rt: *Runtime, env: *env_mod.Env, v: Value) anyerror!Value {
+    return deepRealizeAt(rt, env, v, 0);
+}
+
+/// `deepRealize` at collection-nesting `depth` (root = 0). Nothing below the
+/// `*print-level*` cut is rendered — it prints as `#` — so realizing it is
+/// work whose result is discarded, and on a deep structure that is the whole
+/// cost of the print.
+fn deepRealizeAt(rt: *Runtime, env: *env_mod.Env, v: Value, depth: i64) anyerror!Value {
+    if (print_level_limit) |lvl| {
+        if (depth >= lvl) return v;
+    }
     switch (v.tag()) {
         // `.list` shares the generic seq walk: a `.list` cons may carry a
         // non-list seq as its rest (a "Cons over a seq", e.g.
@@ -237,7 +248,7 @@ fn deepRealize(rt: *Runtime, env: *env_mod.Env, v: Value) anyerror!Value {
         // `(rest (range 5))`) — without this it fell through to the generic
         // `#<chunked_cons>` render instead of its elements (it already realizes
         // correctly in a `.list` tail, e.g. `(cons 0 (seq (range 3)))`).
-        .lazy_seq, .list, .chunked_cons => return realizeSeqWalk(rt, env, v),
+        .lazy_seq, .list, .chunked_cons => return realizeSeqWalk(rt, env, v, depth),
         // A `Sequential` deftype (e.g. `Eduction`) prints as its realized
         // seq, not the deftype default `#Name[..]` (ADR-0068). The
         // marker — NOT `Seqable` — is the discriminator: a record is Seqable
@@ -261,8 +272,8 @@ fn deepRealize(rt: *Runtime, env: *env_mod.Env, v: Value) anyerror!Value {
                     // walk the ISeq protocol, NOT deepRealize(s) which re-dispatches
                     // `-seq` on the same instance forever.
                     if (s.tag() == .typed_instance or s.tag() == .reified_instance)
-                        return realizeInstanceSeq(rt, env, s);
-                    return deepRealize(rt, env, s); // `-seq` → a lazy_seq/list (e.g. Eduction)
+                        return realizeInstanceSeq(rt, env, s, depth);
+                    return deepRealizeAt(rt, env, s, depth); // `-seq` → a lazy_seq/list (e.g. Eduction)
                 }
             }
             return v;
@@ -275,27 +286,40 @@ fn deepRealize(rt: *Runtime, env: *env_mod.Env, v: Value) anyerror!Value {
         // opaque `#<fqcn>` render (AD-020).
         .host_instance => {
             const inst = @import("host_instance.zig").asHostInstance(v);
-            if (inst.descriptor.print_content) |pc| return deepRealize(rt, env, try pc(rt, v));
+            if (inst.descriptor.print_content) |pc| return deepRealizeAt(rt, env, try pc(rt, v), depth);
             return v;
         },
         .vector => {
             const n = vector_collection.count(v);
-            var out = vector_collection.empty();
+            // Copy on the FIRST element a realize actually changes, like the
+            // map arm below. An all-strict vector is returned as-is instead of
+            // being rebuilt element by element on every print.
+            var out: ?Value = null;
             var i: u32 = 0;
             while (i < n) : (i += 1) {
-                out = try vector_collection.conj(rt, out, try deepRealize(rt, env, vector_collection.nth(v, i)));
+                const e = vector_collection.nth(v, i);
+                const re = try deepRealizeAt(rt, env, e, depth + 1);
+                if (out) |acc| {
+                    out = try vector_collection.conj(rt, acc, re);
+                } else if (@intFromEnum(re) != @intFromEnum(e)) {
+                    var acc = vector_collection.empty();
+                    var j: u32 = 0;
+                    while (j < i) : (j += 1) acc = try vector_collection.conj(rt, acc, vector_collection.nth(v, j));
+                    out = try vector_collection.conj(rt, acc, re);
+                }
             }
+            const rebuilt = out orelse return v;
             // Carry metadata through the rebuild so `*print-meta*` sees it
             // (the realize pass must not strip `^meta`).
             const m = vector_collection.metaOf(v);
-            return if (m.isNil()) out else try vector_collection.withMeta(rt, out, m);
+            return if (m.isNil()) rebuilt else try vector_collection.withMeta(rt, rebuilt, m);
         },
         // A MapEntry realizes its key/val (which may hold lazy seqs) while
         // staying a MapEntry, so it still prints `[k v]`.
         .map_entry => return try map_entry_collection.make(
             rt,
-            try deepRealize(rt, env, map_entry_collection.keyOf(v)),
-            try deepRealize(rt, env, map_entry_collection.valOf(v)),
+            try deepRealizeAt(rt, env, map_entry_collection.keyOf(v), depth + 1),
+            try deepRealizeAt(rt, env, map_entry_collection.valOf(v), depth + 1),
         ),
         // Map values / set elements may hold lazy seqs too (potpuri's
         // build-tree assocs a lazy children seq). Re-assoc / re-conj ONLY the
@@ -309,8 +333,8 @@ fn deepRealize(rt: *Runtime, env: *env_mod.Env, v: Value) anyerror!Value {
             while (ks.tag() == .list and list_collection.countOf(ks) > 0) : (ks = list_collection.rest(ks)) {
                 const k = list_collection.first(ks);
                 const val = try map_collection.get(v, k);
-                const rk = try deepRealize(rt, env, k);
-                const rv = try deepRealize(rt, env, val);
+                const rk = try deepRealizeAt(rt, env, k, depth + 1);
+                const rv = try deepRealizeAt(rt, env, val, depth + 1);
                 if (@intFromEnum(rk) != @intFromEnum(k)) {
                     out = try map_collection.dissoc(rt, out, k);
                     out = try map_collection.assoc(rt, out, rk, rv);
@@ -331,7 +355,7 @@ fn deepRealize(rt: *Runtime, env: *env_mod.Env, v: Value) anyerror!Value {
             while (ks.tag() == .list and list_collection.countOf(ks) > 0) : (ks = list_collection.rest(ks)) {
                 const k = list_collection.first(ks);
                 const val = try sorted_collection.get(rt, env, v, k, noloc);
-                const rv = try deepRealize(rt, env, val);
+                const rv = try deepRealizeAt(rt, env, val, depth + 1);
                 if (@intFromEnum(rv) != @intFromEnum(val)) {
                     out = try sorted_collection.assoc(rt, env, out, k, rv, noloc);
                 }
@@ -343,7 +367,7 @@ fn deepRealize(rt: *Runtime, env: *env_mod.Env, v: Value) anyerror!Value {
             var es = try set_collection.seq(rt, v);
             while (es.tag() == .list and list_collection.countOf(es) > 0) : (es = list_collection.rest(es)) {
                 const e = list_collection.first(es);
-                const re = try deepRealize(rt, env, e);
+                const re = try deepRealizeAt(rt, env, e, depth + 1);
                 if (@intFromEnum(re) != @intFromEnum(e)) {
                     out = try set_collection.disj(rt, out, e);
                     out = try set_collection.conj(rt, out, re);
@@ -357,7 +381,7 @@ fn deepRealize(rt: *Runtime, env: *env_mod.Env, v: Value) anyerror!Value {
             var es = try sorted_collection.seq(rt, v);
             while (es.tag() == .list and list_collection.countOf(es) > 0) : (es = list_collection.rest(es)) {
                 const e = list_collection.first(es);
-                const re = try deepRealize(rt, env, e);
+                const re = try deepRealizeAt(rt, env, e, depth + 1);
                 if (@intFromEnum(re) != @intFromEnum(e)) {
                     out = try sorted_collection.disjSet(rt, env, out, e, noloc);
                     out = try sorted_collection.conjSet(rt, env, out, re, noloc);
@@ -374,7 +398,7 @@ fn deepRealize(rt: *Runtime, env: *env_mod.Env, v: Value) anyerror!Value {
 /// `Sequential` typed_instance arm: `lazy_seq_mod` forces lazy layers,
 /// routes `.list` cells to the list ops, and coerces a Seqable deftype
 /// through its `-seq`, so one loop realizes all.
-fn realizeSeqWalk(rt: *Runtime, env: *env_mod.Env, v: Value) anyerror!Value {
+fn realizeSeqWalk(rt: *Runtime, env: *env_mod.Env, v: Value, depth: i64) anyerror!Value {
     var items: std.ArrayList(Value) = .empty;
     defer items.deinit(rt.gpa);
     var cur = v;
@@ -404,7 +428,7 @@ fn realizeSeqWalk(rt: *Runtime, env: *env_mod.Env, v: Value) anyerror!Value {
         const s = try lazy_seq_mod.seq(rt, env, cur);
         if (s.tag() == .nil) break;
         cur_root[0] = s;
-        try items.append(rt.gpa, try deepRealize(rt, env, try lazy_seq_mod.first(rt, env, s)));
+        try items.append(rt.gpa, try deepRealizeAt(rt, env, try lazy_seq_mod.first(rt, env, s), depth + 1));
         gc_frame.locals = items.items; // root the just-appended item across rest's force
         cur = try lazy_seq_mod.rest(rt, env, s);
     }
@@ -427,7 +451,7 @@ fn realizeSeqWalk(rt: *Runtime, env: *env_mod.Env, v: Value) anyerror!Value {
 /// `*print-length*`-bounded; deepRealizes each element;
 /// GC-rooted like `realizeSeqWalk`. A `-next` that yields a non-instance seq
 /// (lazy/list) hands off to `realizeSeqWalk` for the tail.
-fn realizeInstanceSeq(rt: *Runtime, env: *env_mod.Env, start: Value) anyerror!Value {
+fn realizeInstanceSeq(rt: *Runtime, env: *env_mod.Env, start: Value, depth: i64) anyerror!Value {
     var items: std.ArrayList(Value) = .empty;
     defer items.deinit(rt.gpa);
     var cur = start;
@@ -445,7 +469,7 @@ fn realizeInstanceSeq(rt: *Runtime, env: *env_mod.Env, start: Value) anyerror!Va
         gc_frame.locals = items.items;
         var cs1: dispatch_mod.CallSite = .{};
         const f = (try dispatch_mod.dispatchOrNull(rt, env, &cs1, cur, "ISeq", "-first", &.{cur}, noloc)) orelse break;
-        try items.append(rt.gpa, try deepRealize(rt, env, f));
+        try items.append(rt.gpa, try deepRealizeAt(rt, env, f, depth + 1));
         gc_frame.locals = items.items;
         var cs2: dispatch_mod.CallSite = .{};
         cur = (try dispatch_mod.dispatchOrNull(rt, env, &cs2, cur, "ISeq", "-next", &.{cur}, noloc)) orelse break;
@@ -453,7 +477,7 @@ fn realizeInstanceSeq(rt: *Runtime, env: *env_mod.Env, start: Value) anyerror!Va
     // A `-next` that returned a non-instance seq (lazy_seq/list): realize its tail.
     if (!cur.isNil() and cur.tag() != .typed_instance and cur.tag() != .reified_instance) {
         cur_root[0] = cur;
-        var t = try realizeSeqWalk(rt, env, cur);
+        var t = try realizeSeqWalk(rt, env, cur, depth);
         while (t.tag() == .list and list_collection.countOf(t) > 0) : (t = list_collection.rest(t)) {
             try items.append(rt.gpa, list_collection.first(t));
             gc_frame.locals = items.items;
@@ -844,6 +868,9 @@ fn snapshotPrintLimits() void {
 fn isCollectionTag(t: Value.Tag) bool {
     return switch (t) {
         .list, .range, .array_seq, .vector, .map_entry, .persistent_queue, .hash_set, .sorted_set, .sorted_map, .array_map, .hash_map => true,
+        // Reachable only unrealized: a null-ports render, or below the cut
+        // where the realize is skipped. Both must still print `#`.
+        .lazy_seq, .chunked_cons => true,
         else => false,
     };
 }
@@ -1204,7 +1231,7 @@ fn printMapLikeTypedInstance(ports: Ports, w: *Writer, v: Value) anyerror!bool {
     }
     print_depth += 1;
     defer print_depth -= 1;
-    const entries = try realizeSeqWalk(ports.rt, ports.env, s);
+    const entries = try realizeSeqWalk(ports.rt, ports.env, s, print_depth);
     try w.writeByte('{');
     var node = entries;
     var i: i64 = 0;
@@ -1700,6 +1727,95 @@ pub fn printString(w: *Writer, s: []const u8) anyerror!void {
 
 const testing = std.testing;
 const Runtime = @import("runtime.zig").Runtime;
+
+/// Count non-overlapping occurrences of `needle` in `hay`.
+fn occurrences(hay: []const u8, needle: []const u8) usize {
+    var n: usize = 0;
+    var i: usize = 0;
+    while (std.mem.indexOfPos(u8, hay, i, needle)) |at| : (i = at + needle.len) n += 1;
+    return n;
+}
+
+/// Render `v` under one pair of limits, restoring them after. The limits are
+/// file-private thread-locals, which is why the two monotonicity laws below
+/// live here rather than in `testing/prop_print.zig`.
+fn renderAtLimits(buf: []u8, v: Value, length: ?i64, level: ?i64) ![]const u8 {
+    const saved_len = print_length_limit;
+    const saved_lvl = print_level_limit;
+    const saved_depth = print_depth;
+    defer {
+        print_length_limit = saved_len;
+        print_level_limit = saved_lvl;
+        print_depth = saved_depth;
+    }
+    print_length_limit = length;
+    print_level_limit = level;
+    print_depth = 0;
+    var w: Writer = .fixed(buf);
+    try printValue(null, &w, v);
+    return w.buffered();
+}
+
+// Raising `*print-length*` never removes output: the `...` marker can only
+// disappear, never appear, and at a limit past the collection's size there is
+// none at all. Exhaustive over every limit from 0 to size+1 rather than
+// sampled — the domain is small enough that exhaustive is the stronger claim.
+test "property: *print-length* truncation is monotone in the limit" {
+    var th = std.Io.Threaded.init(testing.allocator, .{});
+    defer th.deinit();
+    var rt = Runtime.init(th.io(), testing.allocator);
+    defer rt.deinit();
+
+    const sizes = [_]u32{ 0, 1, 2, 5, 9 };
+    for (sizes) |n| {
+        var vec = vector_collection.empty();
+        var i: u32 = 0;
+        while (i < n) : (i += 1) vec = try vector_collection.conj(&rt, vec, Value.initInteger(i));
+
+        var buf_a: [512]u8 = undefined;
+        var buf_b: [512]u8 = undefined;
+        var lim: i64 = 0;
+        while (lim <= @as(i64, n) + 1) : (lim += 1) {
+            const lower = try renderAtLimits(&buf_a, vec, lim, null);
+            const lower_marks = occurrences(lower, "...");
+            const higher = try renderAtLimits(&buf_b, vec, lim + 1, null);
+            // Never MORE truncation from a HIGHER limit.
+            try testing.expect(occurrences(higher, "...") <= lower_marks);
+            // At or past the size, nothing is cut.
+            if (lim >= n) try testing.expectEqual(@as(usize, 0), lower_marks);
+        }
+    }
+}
+
+// Raising `*print-level*` never turns rendered structure back into `#`. The
+// generated value carries no set, record or tagged literal, so every `#` in
+// the rendering is a level cut.
+test "property: *print-level* truncation is monotone in the limit" {
+    var th = std.Io.Threaded.init(testing.allocator, .{});
+    defer th.deinit();
+    var rt = Runtime.init(th.io(), testing.allocator);
+    defer rt.deinit();
+
+    // [[[[0]]]] to a depth of 6 — one cut per level, so the count moves.
+    var nested = Value.initInteger(0);
+    var d: u32 = 0;
+    while (d < 6) : (d += 1) {
+        nested = try vector_collection.conj(&rt, vector_collection.empty(), nested);
+    }
+
+    var buf_a: [512]u8 = undefined;
+    var buf_b: [512]u8 = undefined;
+    var lvl: i64 = 0;
+    while (lvl <= 8) : (lvl += 1) {
+        const lower = try renderAtLimits(&buf_a, nested, null, lvl);
+        const higher = try renderAtLimits(&buf_b, nested, null, lvl + 1);
+        try testing.expect(occurrences(higher, "#") <= occurrences(lower, "#"));
+    }
+    // Past the depth the value renders whole, with no cut at all.
+    const whole = try renderAtLimits(&buf_a, nested, null, 99);
+    try testing.expectEqual(@as(usize, 0), occurrences(whole, "#"));
+    try testing.expectEqualStrings("[[[[[[0]]]]]]", whole);
+}
 
 fn renderToBuf(buf: []u8, v: Value) ![]const u8 {
     var w: Writer = .fixed(buf);
