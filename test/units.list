@@ -117,3 +117,6 @@ check_runner_reach|-|yes|meta|bash scripts/check_runner_reach.sh
 # PostToolUse hook. Registered so the inventory is complete.
 gate_state_hash|-|no|internal|bash scripts/gate_state_hash.sh
 gate_continue_remind|-|no|hook|bash scripts/gate_continue_remind.sh
+# CI housekeeping: bounds the Zig build cache before the workflow saves it.
+# Not gated — it deletes build products, which a test run must never do.
+prune_zig_cache|-|no|internal|bash scripts/prune_zig_cache.sh

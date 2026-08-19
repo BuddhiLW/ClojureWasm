@@ -7,6 +7,93 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 
 ## [Unreleased]
 
+### Added
+
+- **`cljw.test` — a source-path test runner.** `cljw -m cljw.test [dirs…]`
+  discovers every `*_test.clj[c]` under the given roots (defaulting to the
+  classpath, then `test/`), requires each namespace, runs it, and prints one
+  totals line: `N namespaces, N tests, N assertions, N failures, N errors,
+  N unloadable.` A namespace that throws while loading ran no assertions at
+  all, so it is counted as **`:unloadable`** rather than folded into the error
+  count — an assertion total that includes tests which never ran is a lie
+  about coverage, and it is exactly the lie a compliance campaign cannot
+  afford. The exit code is non-zero if anything failed, errored, **or** failed
+  to load.
+
+- **`java.class.path`** is answered by `System/getProperty` and appears in
+  `System/getProperties`, joined from the runtime's load paths with the
+  platform separator. `cljw.test` uses it to default its roots.
+
+- **`clojure.test` gains the API that clj's `:test` model unlocks**:
+  `test-ns`, `test-vars`, `test-all-vars`, `test-var`, `run-test`,
+  `run-test-var`, `with-test`, `set-test`, `deftest-`, `successful?`,
+  `*load-tests*`, `assert-predicate`, `assert-any`,
+  `get-possibly-unbound-var`, plus `assert-expr` methods for `instance?` and
+  `:always-fail`. `run-all-tests` now walks `all-ns` and accepts a regex.
+
+### Fixed
+
+- **A macro that `throw`s while expanding now surfaces the exception it
+  threw** — catchable, with its message, its `ex-data` and its host class
+  intact. It used to become `Internal error: macro callFn raised foreign
+  error`, because `narrowCallFnError` folded `error.ThrownValue` into
+  `InternalError`. Argument validation in a macro — what `clojure.core`'s own
+  `assert-args` does, and what every macro rejecting a malformed binding
+  vector does — could therefore not tell its caller what was wrong.
+
+- **`clojure.test` reported something other than what ran**, in three ways
+  that all read as green (ADR-0191):
+
+  - `(run-tests *ns*)` — the call clj's own 0-arity makes — printed
+    `Ran 0 tests, 0 failures` because the registry was keyed by namespace
+    *symbol* and a `Namespace` object matched nothing. `run-tests` /
+    `test-ns` / `test-all-vars` now accept a symbol, a string or a
+    `Namespace`, and an unknown namespace raises instead of passing.
+  - Re-evaluating a `deftest` (any reload) registered the var a second time,
+    so one test counted as two. Registration is idempotent now.
+  - `(are [x y] (= x y) 1 1 2)` silently dropped the trailing partial group
+    and passed; it now throws `IllegalArgumentException`, as clj does.
+
+- **`use-fixtures` replaces rather than appends**, and stores into the
+  namespace's own metadata where clj keeps it — so reloading a namespace no
+  longer runs its fixtures once more per reload.
+
+- **`report`'s `:default` method prints an unrecognised event** instead of
+  swallowing it, which is what makes the explicit no-op methods for the
+  per-var events load-bearing rather than decorative.
+
+### Internal
+
+- **CI's Zig build cache now actually caches.** The cache key was
+  `hashFiles('build.zig.zon', 'build.zig')` — files that change a few times a
+  year — so it hit on nearly every run, and `actions/cache` only *writes* an
+  entry when its key *misses*. The restored `.zig-cache` was frozen at whatever
+  the first run with that `build.zig` produced; every run since rebuilt
+  everything that had changed after that snapshot and discarded the result,
+  while the step reported a cache hit. Measured on the Linux leg:
+  `zig_build_test_vm` 375 s and `zig_build_test_tree_walk` 371 s — 50% of a
+  1491 s gate — against ~5 s each warm. The key now carries the run id with
+  prefix `restore-keys`, and restore/save are split with `if: always()` so a
+  **failed** run still saves its build products, which is precisely when the
+  next run needs them. `scripts/prune_zig_cache.sh` bounds the saved tree so
+  "always save" cannot become unbounded growth.
+
+- **`scripts/run_gate.sh` no longer kills healthy gates.** Its timeout defaulted
+  to 900 s, sized against a "~350 s serial gate"; the suite has since grown to
+  1009 s (macOS) / 1491 s (Linux) cold, so the default could not complete a full
+  gate on any host. The kill presented as a log that simply stopped — no summary
+  line, nothing to distinguish it from a pass, which is the failure mode the
+  script's own header warns about. Default is now 2700 s, and a timeout prints
+  an explicit "KILLED, not failed" verdict instead of exiting quietly.
+
+### Changed
+
+- **`clojure.test` adopts clj's var model** (ADR-0191): a test's body lives in
+  the var's `:test` metadata and the var's value is a thunk routing through
+  `test-var`. `*test-registry*` is demoted to a pure definition-order index.
+  This is what makes cljw legible to any runner that enumerates `ns-interns`
+  filtering on `:test`, and what makes `(alter-meta! #'f assoc :test …)` work.
+
 ## [1.10.6] - 2026-08-14
 
 ### Internal
