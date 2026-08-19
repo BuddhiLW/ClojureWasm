@@ -21,9 +21,11 @@
 //!   `print-method` override consult (the pr/prn/print primitives).
 //! - `writeStrValue(rt, env, w, v)` — the `str` / `.toString` form:
 //!   top-level strings/chars bare, no reader suffixes.
-//! - `printValue(w, v)` — the pure `(w, v)` tag-switch renderer the
-//!   entries above funnel into; any heap kind without a dedicated
-//!   branch falls back to a `#<tag>` placeholder.
+//! - `printValue(ports, w, v)` — the tag-switch renderer the entries above
+//!   funnel into; any heap kind without a dedicated branch falls back to a
+//!   `#<tag>` placeholder. `ports` is null for a caller that cannot evaluate
+//!   (error rendering, a dying thread's uncaught report) and carries rt/env
+//!   for one that can.
 //!
 //! ### Why a Layer-0 module
 //!
@@ -86,20 +88,32 @@ pub fn printResult(rt: *Runtime, env: *env_mod.Env, w: *Writer, v: Value) anyerr
     // (resets depth to 0) so the recursive `printValue` honours a user binding
     // without a per-element Var deref. Re-snapshotting each call keeps a prior
     // binding from leaking into the next print.
-    snapshotPrintLimits();
-    // Arm the realize context (same shape as `active_consult` below) so
-    // nested dispatch-needing renders — an IPersistentMap-declaring deftype's
-    // map-style print — can reach rt/env from inside the pure `printValue`
-    // recursion. Saved/restored so a re-entrant print keeps its own ctx.
-    const saved = realize_ctx;
-    realize_ctx = .{ .rt = rt, .env = env };
-    defer realize_ctx = saved;
-    try printValue(w, try deepRealize(rt, env, v));
+    try printResultPorts(.{ .rt = rt, .env = env }, w, v);
 }
 
-/// rt/env for dispatch-needing renders inside the pure `printValue` recursion
-/// (armed by `printResult`; same save/restore pattern as `active_consult`).
-threadlocal var realize_ctx: ?struct { rt: *Runtime, env: *env_mod.Env } = null;
+/// `printResult` with the ports already built. `printConsult` enters here so a
+/// value whose own override did not fire still renders its ELEMENTS with the
+/// consult on.
+fn printResultPorts(ports: Ports, w: *Writer, v: Value) anyerror!void {
+    snapshotPrintLimits();
+    try printValue(ports, w, try deepRealize(ports.rt, ports.env, v));
+}
+
+/// What a render needs to re-enter the VM: a `print-method` override's user
+/// body, and the `-seq` dispatch behind an IPersistentMap-declaring deftype's
+/// map-style form. Threaded through the whole `printValue` recursion and null
+/// at any caller that cannot evaluate, so the parameter list — not an arming
+/// convention — says which callers can.
+pub const Ports = struct {
+    rt: *Runtime,
+    env: *env_mod.Env,
+    /// Consult `print-method` per value. True only while a non-default
+    /// override is registered (ADR-0127's dirty flag), so the common path
+    /// never dispatches. Crosses into user code on the writer handle
+    /// (`writer_value.mint`), the only channel that reaches the `:default`
+    /// body a user method calls back into.
+    consult: bool = false,
+};
 
 /// Write `v` in `str`-form (the unquoted `toString` rendering) to `w`. The
 /// single source for `clojure.core/str` (Layer 2) AND the `.toString`
@@ -155,7 +169,7 @@ pub fn writeStrValue(rt: *Runtime, env: *env_mod.Env, w: *Writer, v: Value) anye
             }
             if (cls == null) {
                 try w.writeByte(' ');
-                try printValue(w, ex_info_collection.data(v));
+                try printValue(.{ .rt = rt, .env = env }, w, ex_info_collection.data(v));
             }
         },
         // `str`/`.toString` of a BigInt/BigDecimal drops the `N`/`M` reader
@@ -699,17 +713,8 @@ fn printMethodOverride(rt: *Runtime, v: Value) ?Value {
     return m;
 }
 
-/// The active consult context for the current top-level print:
-/// set by `printConsult` ONLY when a non-default `print-method` override is
-/// registered (the dirty flag). While set, `printValue` consults `print-method`
-/// per value — so an override-typed value nested inside a NATIVE collection (e.g.
-/// `(pr [(->T)])`) renders via the user method, matching clj's per-element
-/// recursion. Null otherwise ⇒ the pure native path, zero overhead (the common +
-/// bootstrap case). Threadlocal so a concurrent print on another thread is unaffected.
-threadlocal var active_consult: ?struct { rt: *Runtime, env: *env_mod.Env } = null;
-
 /// Is ANY non-default `print-method` override registered? (The dirty flag — gates
-/// whether `active_consult` is armed at all, so the no-override path never consults.)
+/// whether `Ports.consult` is set at all, so the no-override path never consults.)
 fn anyPrintMethodOverride() bool {
     const varp = print_method_var orelse return false;
     const mfv = varp.deref();
@@ -719,18 +724,18 @@ fn anyPrintMethodOverride() bool {
 
 /// Fire `v`'s `print-method` override into `w` (mints a single-print-scoped writer
 /// handle, A2), or return false when `v` has no non-default override.
-fn fireOverride(rt: *Runtime, env: *env_mod.Env, w: *Writer, v: Value) anyerror!bool {
-    const method = printMethodOverride(rt, v) orelse return false;
-    const vt = rt.vtable orelse return false;
-    const wv = try writer_value.mint(rt, w);
+fn fireOverride(ports: Ports, w: *Writer, v: Value) anyerror!bool {
+    const method = printMethodOverride(ports.rt, v) orelse return false;
+    const vt = ports.rt.vtable orelse return false;
+    const wv = try writer_value.mint(ports.rt, w, ports.consult);
     defer writer_value.invalidate(wv);
-    _ = try vt.callFn(rt, env, method, &.{ v, wv }, .{});
+    _ = try vt.callFn(ports.rt, ports.env, method, &.{ v, wv }, .{});
     return true;
 }
 
 /// Print `v` to `w`, consulting `print-method` first. A type with a
 /// non-default override renders via the user method; every other value renders
-/// natively. The pr/prn/print entry points call this; it arms `active_consult` (so
+/// natively. The pr/prn/print entry points call this; it sets `Ports.consult` (so
 /// nested native-collection elements also consult) ONLY when an override
 /// exists. `printResult`/`printValueNative` stay native (they ARE the `:default`),
 /// the recursion guard against an override re-firing on its own value.
@@ -739,11 +744,9 @@ pub fn printConsult(rt: *Runtime, env: *env_mod.Env, w: *Writer, v: Value) anyer
         try printResult(rt, env, w, v); // no override anywhere → pure native fast path
         return;
     }
-    const saved = active_consult;
-    active_consult = .{ .rt = rt, .env = env };
-    defer active_consult = saved;
-    if (try fireOverride(rt, env, w, v)) return;
-    try printResult(rt, env, w, v);
+    const ports: Ports = .{ .rt = rt, .env = env, .consult = true };
+    if (try fireOverride(ports, w, v)) return;
+    try printResultPorts(ports, w, v);
 }
 
 /// `(rt/__print-method-default o w)` — the `print-method` `:default` body. Unwraps
@@ -759,7 +762,8 @@ pub fn printMethodDefaultFn(rt: *Runtime, env: *env_mod.Env, args: []const Value
     // printValueNative (NOT printValue): render `o` itself WITHOUT re-consulting its
     // own override (which just dispatched here), the recursion guard; its
     // child elements still consult via the printValue calls inside printValueNative.
-    try printValueNative(w, try deepRealize(rt, env, args[0]));
+    const ports: Ports = .{ .rt = rt, .env = env, .consult = writer_value.consultOf(args[1]) };
+    try printValueNative(ports, w, try deepRealize(rt, env, args[0]));
     return .nil_val;
 }
 
@@ -882,34 +886,34 @@ fn mapCommonNs(v: Value) ?[]const u8 {
 /// Print a map key, omitting its namespace when `strip` (the compact
 /// `#:ns{…}` form already carries the shared namespace). Non-symbolic keys
 /// are unaffected by `strip`.
-fn printMapKey(w: *Writer, key: Value, strip: bool) anyerror!void {
-    if (!strip) return printValue(w, key);
+fn printMapKey(ports: ?Ports, w: *Writer, key: Value, strip: bool) anyerror!void {
+    if (!strip) return printValue(ports, w, key);
     switch (key.tag()) {
         .keyword => {
             try w.writeByte(':');
             try w.writeAll(keyword.asKeyword(key).name);
         },
         .symbol => try w.writeAll(symbol.asSymbol(key).name),
-        else => try printValue(w, key),
+        else => try printValue(ports, w, key),
     }
 }
 
-/// Print `v`, consulting `print-method` first when `active_consult` is armed (an
+/// Print `v`, consulting `print-method` first when the ports say to (an
 /// override is registered) — so a nested override-typed value
 /// renders via the user method. Otherwise (the common case) a direct native render.
 /// Collection printers recurse through THIS fn, so every element consults uniformly.
-pub fn printValue(w: *Writer, v: Value) anyerror!void {
-    if (active_consult) |ctx| {
-        if (try fireOverride(ctx.rt, ctx.env, w, v)) return;
+pub fn printValue(ports: ?Ports, w: *Writer, v: Value) anyerror!void {
+    if (ports) |p| {
+        if (p.consult and try fireOverride(p, w, v)) return;
     }
-    try printValueNative(w, v);
+    try printValueNative(ports, w, v);
 }
 
 /// The native renderer (the `print-method` `:default`): the big tag `switch`, NO
 /// top-level consult on `v` itself (the recursion guard — `__print-method-default`
 /// and the no-override path land here). Child elements recurse via `printValue`,
 /// which re-arms the consult per element.
-fn printValueNative(w: *Writer, v: Value) anyerror!void {
+fn printValueNative(ports: ?Ports, w: *Writer, v: Value) anyerror!void {
     const vtag = v.tag();
     // *print-level*: a collection at nesting depth `d` (root = 0)
     // renders as a bare `#` when `d >= level`. The check + depth bookkeeping is
@@ -931,7 +935,7 @@ fn printValueNative(w: *Writer, v: Value) anyerror!void {
         const m = metaForPrint(v);
         if (!m.isNil() and map_collection.count(m) > 0) {
             try w.writeByte('^');
-            try printValue(w, m);
+            try printValue(ports, w, m);
             try w.writeByte(' ');
         }
     }
@@ -967,28 +971,28 @@ fn printValueNative(w: *Writer, v: Value) anyerror!void {
             try w.writeAll(s.name);
         },
         .string => if (print_readably) try printString(w, string_collection.asString(v)) else try w.writeAll(string_collection.asString(v)),
-        .list => try printList(w, v),
-        .range => try printRange(w, v),
-        .array_seq => try printArraySeq(w, v),
-        .vector => try printVector(w, v),
+        .list => try printList(ports, w, v),
+        .range => try printRange(ports, w, v),
+        .array_seq => try printArraySeq(ports, w, v),
+        .vector => try printVector(ports, w, v),
         // A MapEntry prints as the 2-vector `[k v]`.
         .map_entry => {
             try w.writeByte('[');
-            try printValue(w, map_entry_collection.keyOf(v));
+            try printValue(ports, w, map_entry_collection.keyOf(v));
             try w.writeByte(' ');
-            try printValue(w, map_entry_collection.valOf(v));
+            try printValue(ports, w, map_entry_collection.valOf(v));
             try w.writeByte(']');
         },
-        .persistent_queue => try printQueue(w, v),
-        .hash_set => try printSet(w, v),
-        .sorted_set => try printSortedSet(w, v),
-        .sorted_map => try printSortedMap(w, v),
-        .array_map, .hash_map => try printMap(w, v),
-        .ex_info => try printExInfo(w, v),
+        .persistent_queue => try printQueue(ports, w, v),
+        .hash_set => try printSet(ports, w, v),
+        .sorted_set => try printSortedSet(ports, w, v),
+        .sorted_map => try printSortedMap(ports, w, v),
+        .array_map, .hash_map => try printMap(ports, w, v),
+        .ex_info => try printExInfo(ports, w, v),
         .big_int => try printBigInt(w, v),
         .ratio => try printRatio(w, v),
         .big_decimal => try printBigDecimal(w, v),
-        .typed_instance => try printTypedInstance(w, v),
+        .typed_instance => try printTypedInstance(ports, w, v),
         .type_descriptor => try printTypeDescriptor(w, v),
         .var_ref => try printVarRef(w, v),
         .ns => try printNamespace(w, v),
@@ -1017,9 +1021,9 @@ fn printValueNative(w: *Writer, v: Value) anyerror!void {
             // form any value; both via the same readable printer.
             const tl = tagged_literal_mod.asTaggedLiteral(v);
             try w.writeByte('#');
-            try printValue(w, tl.tag);
+            try printValue(ports, w, tl.tag);
             try w.writeByte(' ');
-            try printValue(w, tl.form);
+            try printValue(ports, w, tl.form);
         },
         // AD-020: a stateful host object prints opaquely by its
         // surface fqcn (e.g. `#<java.util.Random>`) — clj prints an identity
@@ -1170,14 +1174,14 @@ pub fn writeBigDecimalDigits(w: *Writer, v: Value) anyerror!void {
 /// Render an IPersistentMap-declaring deftype map-style `{k v, …}` from its
 /// `-seq`, in SEQ ORDER (clj: core_print's defmethod on the clojure.lang
 /// interface class — data.priority-map prints in priority order). Needs
-/// `realize_ctx` (rt/env for the -seq dispatch + entry realization); without
-/// it the caller falls back to the default `#Name[…]` render. Returns false
+/// the ports (rt/env for the -seq dispatch + entry realization); a caller
+/// holding none falls back to the default `#Name[…]` render. Returns false
 /// when the type has no dispatchable `-seq`.
-fn printMapLikeTypedInstance(rt: *Runtime, env: *env_mod.Env, w: *Writer, v: Value) anyerror!bool {
+fn printMapLikeTypedInstance(ports: Ports, w: *Writer, v: Value) anyerror!bool {
     var cs: dispatch_mod.CallSite = .{};
     const noloc: SourceLocation = .{};
-    const s = (try dispatch_mod.dispatchOrNull(rt, env, &cs, v, "Seqable", "-seq", &.{v}, noloc)) orelse return false;
-    const entries = try realizeSeqWalk(rt, env, s);
+    const s = (try dispatch_mod.dispatchOrNull(ports.rt, ports.env, &cs, v, "Seqable", "-seq", &.{v}, noloc)) orelse return false;
+    const entries = try realizeSeqWalk(ports.rt, ports.env, s);
     try w.writeByte('{');
     var node = entries;
     var i: i64 = 0;
@@ -1187,9 +1191,9 @@ fn printMapLikeTypedInstance(rt: *Runtime, env: *env_mod.Env, w: *Writer, v: Val
         const e = list_collection.first(node);
         const k = if (e.tag() == .map_entry) map_entry_collection.keyOf(e) else vector_collection.nth(e, 0);
         const val = if (e.tag() == .map_entry) map_entry_collection.valOf(e) else vector_collection.nth(e, 1);
-        try printValue(w, try deepRealize(rt, env, k));
+        try printValue(ports, w, try deepRealize(ports.rt, ports.env, k));
         try w.writeByte(' ');
-        try printValue(w, try deepRealize(rt, env, val));
+        try printValue(ports, w, try deepRealize(ports.rt, ports.env, val));
         i += 1;
     }
     try w.writeByte('}');
@@ -1200,13 +1204,14 @@ fn printMapLikeTypedInstance(rt: *Runtime, env: *env_mod.Env, w: *Writer, v: Val
 /// `<k> <v>` after the declared fields, comma-separated. `printed` tracks how
 /// many entries (declared + prior extmap) are already out so the comma lands.
 const ExtmapPrintCtx = struct {
+    ports: ?Ports,
     w: *Writer,
     printed: usize,
     fn cb(ctx: *ExtmapPrintCtx, k: Value, val: Value) anyerror!void {
         if (ctx.printed > 0) try ctx.w.writeAll(", ");
-        try printValue(ctx.w, k);
+        try printValue(ctx.ports, ctx.w, k);
         try ctx.w.writeByte(' ');
-        try printValue(ctx.w, val);
+        try printValue(ctx.ports, ctx.w, val);
         ctx.printed += 1;
     }
 };
@@ -1235,14 +1240,14 @@ pub fn readerTagParts(v: Value, buf: []u8) ?struct { tag: []const u8, body: []co
     return .{ .tag = tag, .body = iso };
 }
 
-fn printTypedInstance(w: *Writer, v: Value) anyerror!void {
+fn printTypedInstance(ports: ?Ports, w: *Writer, v: Value) anyerror!void {
     const inst = v.decodePtr(*const td_mod.TypedInstance);
     // A deftype declaring clojure.lang.IPersistentMap prints map-style when a
     // realize context is available (printResult arms it; the pure printValue
     // paths keep the default render).
     if (inst.descriptor.kind != .defrecord and inst.descriptor.declaresProtocol("IPersistentMap")) {
-        if (realize_ctx) |ctx| {
-            if (try printMapLikeTypedInstance(ctx.rt, ctx.env, w, v)) return;
+        if (ports) |p| {
+            if (try printMapLikeTypedInstance(p, w, v)) return;
         }
     }
     // Bare-toString host time value: emit the value's ISO toString
@@ -1328,12 +1333,12 @@ fn printTypedInstance(w: *Writer, v: Value) anyerror!void {
             for (layout, 0..) |fe, i| {
                 if (i > 0) try w.writeAll(", ");
                 try w.print(":{s} ", .{fe.name});
-                try printValue(w, fs[fe.index]);
+                try printValue(ports, w, fs[fe.index]);
             }
             // Non-declared keys (extmap) print after the
             // declared fields — `#user.R{:x 1, :y 2, :z 9}`.
             if (!inst.extmap.isNil()) {
-                var ctx = ExtmapPrintCtx{ .w = w, .printed = layout.len };
+                var ctx = ExtmapPrintCtx{ .ports = ports, .w = w, .printed = layout.len };
                 try map_collection.forEachEntry(inst.extmap, &ctx, ExtmapPrintCtx.cb);
             }
             try w.writeByte('}');
@@ -1343,7 +1348,7 @@ fn printTypedInstance(w: *Writer, v: Value) anyerror!void {
     try w.print("#{s}[", .{fqcn});
     for (inst.fields(), 0..) |fv, i| {
         if (i > 0) try w.writeByte(' ');
-        try printValue(w, fv);
+        try printValue(ports, w, fv);
     }
     try w.writeByte(']');
 }
@@ -1383,15 +1388,15 @@ fn printNamespace(w: *Writer, v: Value) anyerror!void {
 /// Render an `ex-info` Value in `#error{ :message "..." :data ... }`
 /// form — the same shape Clojure JVM's pr-str emits, modulo ordering.
 /// The data field is any Value, rendered via `printValue`.
-pub fn printExInfo(w: *Writer, v: Value) anyerror!void {
+pub fn printExInfo(ports: ?Ports, w: *Writer, v: Value) anyerror!void {
     try w.writeAll("#error{:message ");
     try printString(w, ex_info_collection.message(v));
     try w.writeAll(" :data ");
-    try printValue(w, ex_info_collection.data(v));
+    try printValue(ports, w, ex_info_collection.data(v));
     const cause = ex_info_collection.cause(v);
     if (!cause.isNil()) {
         try w.writeAll(" :cause ");
-        try printValue(w, cause);
+        try printValue(ports, w, cause);
     }
     try w.writeByte('}');
 }
@@ -1399,7 +1404,7 @@ pub fn printExInfo(w: *Writer, v: Value) anyerror!void {
 /// `#queue (e1 e2 …)` — a reader-round-trippable form (ADR-0087). clj prints
 /// the opaque non-reproducible `#object[…@hash]`; cljw ships a readable form +
 /// a matching `queue` data-reader. Walks front (list) then rear (vector).
-pub fn printQueue(w: *Writer, v: Value) anyerror!void {
+pub fn printQueue(ports: ?Ports, w: *Writer, v: Value) anyerror!void {
     try w.writeAll("#queue (");
     var first_iter = true;
     var emitted: i64 = 0;
@@ -1412,7 +1417,7 @@ pub fn printQueue(w: *Writer, v: Value) anyerror!void {
         }
         if (!first_iter) try w.writeByte(' ');
         first_iter = false;
-        try printValue(w, list_collection.first(cur));
+        try printValue(ports, w, list_collection.first(cur));
         cur = list_collection.rest(cur);
         emitted += 1;
     }
@@ -1425,7 +1430,7 @@ pub fn printQueue(w: *Writer, v: Value) anyerror!void {
                 if (try lengthTruncated(w, emitted, " ")) break;
                 if (!first_iter) try w.writeByte(' ');
                 first_iter = false;
-                try printValue(w, vector_collection.nth(rear, i));
+                try printValue(ports, w, vector_collection.nth(rear, i));
                 emitted += 1;
             }
         }
@@ -1436,7 +1441,7 @@ pub fn printQueue(w: *Writer, v: Value) anyerror!void {
 /// Render a heap List in `(a b c)` form. Empty list (a List Value
 /// whose count is 0) prints as `()`. Walks via `list_collection`'s
 /// `first` / `rest` so this stays decoupled from the Cons internals.
-pub fn printList(w: *Writer, v: Value) anyerror!void {
+pub fn printList(ports: ?Ports, w: *Writer, v: Value) anyerror!void {
     try w.writeByte('(');
     var cur = v;
     var first_iter = true;
@@ -1445,7 +1450,7 @@ pub fn printList(w: *Writer, v: Value) anyerror!void {
         if (try lengthTruncated(w, emitted, " ")) break;
         if (!first_iter) try w.writeByte(' ');
         first_iter = false;
-        try printValue(w, list_collection.first(cur));
+        try printValue(ports, w, list_collection.first(cur));
         cur = list_collection.rest(cur);
         emitted += 1;
     }
@@ -1456,14 +1461,14 @@ pub fn printList(w: *Writer, v: Value) anyerror!void {
 /// each element with pure scalar math (`start + i*step`) so it needs no
 /// `rt` and allocates nothing — unlike a generic seq-walk. A huge range
 /// prints every element (same as realizing a lazy seq).
-pub fn printRange(w: *Writer, v: Value) anyerror!void {
+pub fn printRange(ports: ?Ports, w: *Writer, v: Value) anyerror!void {
     try w.writeByte('(');
     const n = range_collection.countOf(v);
     var i: i64 = 0;
     while (i < n) : (i += 1) {
         if (try lengthTruncated(w, i, " ")) break;
         if (i > 0) try w.writeByte(' ');
-        try printValue(w, range_collection.elementAt(v, i));
+        try printValue(ports, w, range_collection.elementAt(v, i));
     }
     try w.writeByte(')');
 }
@@ -1472,14 +1477,14 @@ pub fn printRange(w: *Writer, v: Value) anyerror!void {
 /// prints in seq form, not the `[…]` of the vector it views. Index-driven
 /// through the view like `printRange`, so it allocates nothing and never walks
 /// a cons chain.
-pub fn printArraySeq(w: *Writer, v: Value) anyerror!void {
+pub fn printArraySeq(ports: ?Ports, w: *Writer, v: Value) anyerror!void {
     try w.writeByte('(');
     const n = array_seq_collection.countOf(v);
     var i: u32 = 0;
     while (i < n) : (i += 1) {
         if (try lengthTruncated(w, @intCast(i), " ")) break;
         if (i > 0) try w.writeByte(' ');
-        try printValue(w, array_seq_collection.nth(v, i));
+        try printValue(ports, w, array_seq_collection.nth(v, i));
     }
     try w.writeByte(')');
 }
@@ -1487,14 +1492,14 @@ pub fn printArraySeq(w: *Writer, v: Value) anyerror!void {
 /// Render a heap Vector in `[a b c]` form. Indexes via
 /// `vector_collection.nth` so this stays decoupled from the HAMT
 /// internals.
-pub fn printVector(w: *Writer, v: Value) anyerror!void {
+pub fn printVector(ports: ?Ports, w: *Writer, v: Value) anyerror!void {
     try w.writeByte('[');
     const n = vector_collection.count(v);
     var i: u32 = 0;
     while (i < n) : (i += 1) {
         if (try lengthTruncated(w, @intCast(i), " ")) break;
         if (i > 0) try w.writeByte(' ');
-        try printValue(w, vector_collection.nth(v, i));
+        try printValue(ports, w, vector_collection.nth(v, i));
     }
     try w.writeByte(']');
 }
@@ -1505,7 +1510,7 @@ pub fn printVector(w: *Writer, v: Value) anyerror!void {
 /// separator across the recursion. Alloc-free — the printer has no
 /// allocator, so it reads `slots` directly rather than materialising a
 /// seq (front-loaded KV pairs, back-loaded children per map.zig).
-fn printHamtEntries(w: *Writer, node: *const map_collection.HamtMapNode, first: *bool, count: *i64, stop: *bool, comptime kv: bool) anyerror!void {
+fn printHamtEntries(ports: ?Ports, w: *Writer, node: *const map_collection.HamtMapNode, first: *bool, count: *i64, stop: *bool, comptime kv: bool) anyerror!void {
     const data_count = @popCount(node.data_map);
     var i: u32 = 0;
     while (i < data_count) : (i += 1) {
@@ -1520,10 +1525,10 @@ fn printHamtEntries(w: *Writer, node: *const map_collection.HamtMapNode, first: 
         };
         if (!first.*) try w.writeAll(if (kv) ", " else " ");
         first.* = false;
-        try printValue(w, node.slots[2 * i]);
+        try printValue(ports, w, node.slots[2 * i]);
         if (kv) {
             try w.writeByte(' ');
-            try printValue(w, node.slots[2 * i + 1]);
+            try printValue(ports, w, node.slots[2 * i + 1]);
         }
         count.* += 1;
     }
@@ -1531,11 +1536,11 @@ fn printHamtEntries(w: *Writer, node: *const map_collection.HamtMapNode, first: 
     var j: u32 = 0;
     while (j < child_count) : (j += 1) {
         if (stop.*) return;
-        try printHamtEntries(w, node.slots[63 - j].decodePtr(*const map_collection.HamtMapNode), first, count, stop, kv); // repr-decode-ok: printHamtEntries IS the HAMT walker (printer-side early-stop for *print-length*)
+        try printHamtEntries(ports, w, node.slots[63 - j].decodePtr(*const map_collection.HamtMapNode), first, count, stop, kv); // repr-decode-ok: printHamtEntries IS the HAMT walker (printer-side early-stop for *print-length*)
     }
 }
 
-pub fn printMap(w: *Writer, v: Value) anyerror!void {
+pub fn printMap(ports: ?Ports, w: *Writer, v: Value) anyerror!void {
     // Compact namespaced-map form `#:ns{:a 1, :b 2}` when enabled and
     // all keys share one namespace (array_map only — see `mapCommonNs`).
     const compact_ns: ?[]const u8 = if (print_namespace_maps) mapCommonNs(v) else null;
@@ -1551,9 +1556,9 @@ pub fn printMap(w: *Writer, v: Value) anyerror!void {
         while (i < am.count) : (i += 1) {
             if (try lengthTruncated(w, @intCast(i), ", ")) break;
             if (i > 0) try w.writeAll(", ");
-            try printMapKey(w, am.entries[2 * i], strip);
+            try printMapKey(ports, w, am.entries[2 * i], strip);
             try w.writeByte(' ');
-            try printValue(w, am.entries[2 * i + 1]);
+            try printValue(ports, w, am.entries[2 * i + 1]);
         }
     } else {
         const phm = v.decodePtr(*const map_collection.PersistentHashMap); // repr-decode-ok: printer dual-path, hash_map arm
@@ -1561,7 +1566,7 @@ pub fn printMap(w: *Writer, v: Value) anyerror!void {
             var first = true;
             var count: i64 = 0;
             var stop = false;
-            try printHamtEntries(w, root, &first, &count, &stop, true);
+            try printHamtEntries(ports, w, root, &first, &count, &stop, true);
         }
     }
     try w.writeByte('}');
@@ -1571,7 +1576,7 @@ pub fn printMap(w: *Writer, v: Value) anyerror!void {
 /// map's keys directly: an `array_map`'s `entries` array (≤ 8
 /// elements, insertion order) or the HAMT keys for a larger
 /// `hash_map`-backed set.
-pub fn printSet(w: *Writer, v: Value) anyerror!void {
+pub fn printSet(ports: ?Ports, w: *Writer, v: Value) anyerror!void {
     try w.writeAll("#{");
     const s = v.decodePtr(*const set_collection.PersistentHashSet); // repr-decode-ok: set printer reads the backing map value only to dual-path on its tag
     if (s.map.tag() == .array_map) {
@@ -1580,7 +1585,7 @@ pub fn printSet(w: *Writer, v: Value) anyerror!void {
         while (i < am.count) : (i += 1) {
             if (try lengthTruncated(w, @intCast(i), " ")) break;
             if (i > 0) try w.writeByte(' ');
-            try printValue(w, am.entries[2 * i]);
+            try printValue(ports, w, am.entries[2 * i]);
         }
     } else {
         // hash_map-backed set (> 8 elements): walk the backing map's HAMT
@@ -1590,7 +1595,7 @@ pub fn printSet(w: *Writer, v: Value) anyerror!void {
             var first = true;
             var count: i64 = 0;
             var stop = false;
-            try printHamtEntries(w, root, &first, &count, &stop, false);
+            try printHamtEntries(ports, w, root, &first, &count, &stop, false);
         }
     }
     try w.writeByte('}');
@@ -1598,11 +1603,11 @@ pub fn printSet(w: *Writer, v: Value) anyerror!void {
 
 /// In-order (ascending) walk of an LLRB tree, alloc-free (the printer has
 /// no allocator). `kv` true → "k v" pairs (map), false → bare keys (set).
-fn printSortedEntries(w: *Writer, root: Value, first: *bool, count: *i64, stop: *bool, comptime kv: bool) anyerror!void {
+fn printSortedEntries(ports: ?Ports, w: *Writer, root: Value, first: *bool, count: *i64, stop: *bool, comptime kv: bool) anyerror!void {
     if (root.tag() != .rb_node) return;
     if (stop.*) return;
     const n = root.decodePtr(*const sorted_collection.RbNode); // repr-decode-ok: sorted printer in-order walk; sorted_map/set have a single RB-tree backing
-    try printSortedEntries(w, n.left, first, count, stop, kv);
+    try printSortedEntries(ports, w, n.left, first, count, stop, kv);
     if (stop.*) return;
     // *print-length*: in ascending order, stop emitting once the
     // count reaches the limit (mark the cut with `...`).
@@ -1614,33 +1619,33 @@ fn printSortedEntries(w: *Writer, root: Value, first: *bool, count: *i64, stop: 
     };
     if (!first.*) try w.writeAll(if (kv) ", " else " ");
     first.* = false;
-    try printValue(w, n.key);
+    try printValue(ports, w, n.key);
     if (kv) {
         try w.writeByte(' ');
-        try printValue(w, n.val);
+        try printValue(ports, w, n.val);
     }
     count.* += 1;
-    try printSortedEntries(w, n.right, first, count, stop, kv);
+    try printSortedEntries(ports, w, n.right, first, count, stop, kv);
 }
 
-pub fn printSortedMap(w: *Writer, v: Value) anyerror!void {
+pub fn printSortedMap(ports: ?Ports, w: *Writer, v: Value) anyerror!void {
     try w.writeByte('{');
     const m = v.decodePtr(*const sorted_collection.SortedMap); // repr-decode-ok: single-backing tag (sorted_map)
     var first = true;
     var count: i64 = 0;
     var stop = false;
-    try printSortedEntries(w, m.root, &first, &count, &stop, true);
+    try printSortedEntries(ports, w, m.root, &first, &count, &stop, true);
     try w.writeByte('}');
 }
 
-pub fn printSortedSet(w: *Writer, v: Value) anyerror!void {
+pub fn printSortedSet(ports: ?Ports, w: *Writer, v: Value) anyerror!void {
     try w.writeAll("#{");
     const s = v.decodePtr(*const sorted_collection.SortedSet); // repr-decode-ok: single-backing tag (sorted_set)
     const m = s.map.decodePtr(*const sorted_collection.SortedMap); // repr-decode-ok: single-backing tag (sorted_set -> its SortedMap)
     var first = true;
     var count: i64 = 0;
     var stop = false;
-    try printSortedEntries(w, m.root, &first, &count, &stop, false);
+    try printSortedEntries(ports, w, m.root, &first, &count, &stop, false);
     try w.writeByte('}');
 }
 
@@ -1669,7 +1674,7 @@ const Runtime = @import("runtime.zig").Runtime;
 
 fn renderToBuf(buf: []u8, v: Value) ![]const u8 {
     var w: Writer = .fixed(buf);
-    try printValue(&w, v);
+    try printValue(null, &w, v);
     return w.buffered();
 }
 

@@ -107,7 +107,7 @@ fn buildThrownInfo(thrown: Value) error_mod.Info {
         return info;
     }
     var w: Writer = .fixed(&thrown_msg_buf);
-    print_value(&w, thrown) catch {};
+    print_value(null, &w, thrown) catch {};
     info.message = w.buffered();
     return info;
 }
@@ -201,7 +201,7 @@ fn formatErrorEdn(info: error_mod.Info, ctx: error_print.SourceContext, w: *Writ
     // canonical Value printer, same as the context entries below.
     if (info.data) |d| {
         try w.writeAll(" :data ");
-        try print_value(w, d);
+        try print_value(null, w, d);
     }
     // Trace: in lockstep with the text renderer (ADR-0119 Stage 2 / ADR-0055):
     // `:trace [{:ns "..":fn "..":file "..":line N} …]`, innermost-first (the
@@ -236,9 +236,9 @@ fn formatErrorEdn(info: error_mod.Info, ctx: error_print.SourceContext, w: *Writ
                 w: *Writer,
                 fn put(c: *@This(), k: Value, v: Value) anyerror!void {
                     try c.w.writeByte(' ');
-                    try print_value(c.w, k);
+                    try print_value(null, c.w, k);
                     try c.w.writeByte(' ');
-                    try print_value(c.w, v);
+                    try print_value(null, c.w, v);
                 }
             };
             var cctx: CtxEmit = .{ .w = w };
