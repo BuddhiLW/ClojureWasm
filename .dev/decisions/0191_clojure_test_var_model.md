@@ -1,6 +1,6 @@
 # 0191 — clojure.test adopts clj's `:test`-metadata var model
 
-- **Status**: Proposed
+- **Status**: Accepted
 - **Date**: 2026-08-18
 - **Author**: BuddhiLW
 - **Tags**: clojure.test, compliance, tooling, conformance
@@ -270,8 +270,12 @@ bug, not a divergence.
 
 ### Disposition
 
-The fork's B corrections are accepted and land as follow-ups on the staging
-branch; C is accepted as a **separate decision** rather than folded in here,
+The fork's B corrections are accepted and **have landed** — `are`'s guard is
+clj-exact (an empty `args` with a non-empty `argv` now throws, and the thrown
+class is `IllegalArgumentException`), `use-fixtures` is a multimethod again so
+the set of fixture kinds stays open, fixtures moved into namespace metadata,
+and `run-all-tests` walks `all-ns` and takes a regex. C is accepted as a
+**separate decision** rather than folded in here,
 because it changes a runtime data structure and the GC root walk and so earns
 its own ADR, its own gate, and its own AD row for the deliberate order
 divergence from clj. Until C lands, `*test-registry*` remains the order index
@@ -294,9 +298,15 @@ the open item.
   membership, registry for order). The rot risk is real and is why registration
   is idempotent and membership is filtered through `:test` on every read — the
   registry can only ever *lose* to the metadata, never contradict it.
-- **Neutral**: fixtures stay in `*fixture-registry*` keyed by namespace symbol
-  rather than moving to namespace metadata, since cljw namespaces carry no user
-  metadata. That adaptation predates this decision and is unchanged by it.
+- **Positive**: fixtures live in the namespace's own metadata, under
+  `::once-fixtures` / `::each-fixtures`, exactly where clj keeps them and where
+  `(meta (the-ns …))` can see them. The draft had kept them in a
+  `*fixture-registry*` side table on the belief that cljw namespaces carry no
+  user metadata; the Devil's-advocate fork challenged that, and a probe against
+  the built binary showed `alter-meta!` on a namespace works. A side table
+  keyed by namespace symbol is a leak by construction — nothing clears a row
+  when its namespace is removed — so the belief was not merely stale, it was
+  load-bearing for a defect.
 
 ## Affected files
 

@@ -26,8 +26,8 @@ summary:
   namespaces_required: 33
   total: 1393
   zig: 398
-  clj: 781
-  value: 208
+  clj: 782
+  value: 207
   unbound: 6
 vars:
   "cljw.error/*error-context*": { impl: value, flags: "dynamic" }
@@ -1309,7 +1309,6 @@ vars:
   "clojure.test.tap/print-tap-plan": { impl: clj, flags: "-" }
   "clojure.test.tap/tap-report": { impl: clj, flags: "dynamic" }
   "clojure.test.tap/with-tap-output": { impl: clj, flags: "macro" }
-  "clojure.test/*fixture-registry*": { impl: value, flags: "-" }
   "clojure.test/*initial-report-counters*": { impl: value, flags: "-" }
   "clojure.test/*load-tests*": { impl: value, flags: "dynamic" }
   "clojure.test/*report-counters*": { impl: value, flags: "dynamic" }
@@ -1318,6 +1317,7 @@ vars:
   "clojure.test/*test-registry*": { impl: value, flags: "-" }
   "clojure.test/*testing-contexts*": { impl: value, flags: "dynamic" }
   "clojure.test/*testing-vars*": { impl: value, flags: "dynamic" }
+  "clojure.test/add-ns-meta": { impl: clj, flags: "private" }
   "clojure.test/are": { impl: clj, flags: "macro" }
   "clojure.test/assert-any": { impl: clj, flags: "-" }
   "clojure.test/assert-expr": { impl: clj, flags: "-" }

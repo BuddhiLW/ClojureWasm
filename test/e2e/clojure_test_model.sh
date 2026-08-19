@@ -21,7 +21,7 @@ assert_has() { local n="$1" g="$2" w="$3"; [[ "$g" == *"$w"* ]] || fail "$n: '$g
 
 # last(prog) — the value the program prn'd. `-e` echoes each top-level form's
 # own value after it, so the prn line is the second-to-last, not the last.
-last() { "$BIN" -e "$1" 2>&1 | tail -2 | head -1; }
+last() { "$BIN" -e "$1" 2>&1 | tail -2 | sed -n 1p; }
 out()  { "$BIN" -e "$1" 2>&1; }
 
 C='(fn [s] [(:test s) (:pass s) (:fail s) (:error s)])'

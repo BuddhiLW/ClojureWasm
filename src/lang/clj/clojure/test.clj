@@ -46,11 +46,8 @@
 ;; ns-name-symbol -> vector of test Vars (deftest appends; run-tests reads).
 (def *test-registry* (atom {}))
 
-;; clj hangs these off the ns's metadata; cljw namespaces carry no user
-;; metadata, so the registry mirrors *test-registry* and is keyed the same way.
-(def *fixture-registry*
-  "Atom of ns-name-symbol -> {:once [fixture-fn …] :each [fixture-fn …]}."
-  (atom {}))
+;; Fixtures are NOT here: they live in the namespace's own metadata, under
+;; ::once-fixtures / ::each-fixtures, exactly as clj keeps them.
 
 ;; ---------------------------------------------------------------------------
 ;; report multimethod (keyed on :type) + do-report. `^:dynamic` so an
@@ -163,7 +160,12 @@
 
 ;; clj-compat: the Var, or nil when it is unbound — so `function?` can ask
 ;; "is this a fn?" about a `declare`d-but-not-yet-defined var without throwing.
-(defn get-possibly-unbound-var [v]
+(defn get-possibly-unbound-var
+  "The value of var `v`, or nil if it has no binding. Dereferencing an unbound
+  var throws, and this is called while deciding how to REPORT an expression —
+  so a var the author never bound must read as nil rather than replace the
+  assertion's own failure with one about the reporter."
+  [v]
   (try (deref v) (catch Throwable _ nil)))
 
 ;; clj-compat: is `x` a symbol naming a (non-macro) function — or a function
@@ -284,8 +286,10 @@
 ;; clean pass, so the assertion the author wrote would simply not exist.
 (defmacro are [argv expr & args]
   (when-not (or (and (empty? argv) (empty? args))
-                (and (seq argv) (zero? (mod (count args) (count argv)))))
-    (throw (ex-info "The number of args doesn't match are's argv." {:argv argv})))
+                (and (pos? (count argv))
+                     (pos? (count args))
+                     (zero? (mod (count args) (count argv)))))
+    (throw (IllegalArgumentException. "The number of args doesn't match are's argv.")))
   (cons (quote do)
         (map (fn [vals]
                (clojure.walk/postwalk-replace (zipmap argv vals)
@@ -385,22 +389,33 @@
   [fixtures]
   (reduce compose-fixtures default-fixture fixtures))
 
-(defn use-fixtures
-  "Register `fns` as the `:once` (per namespace) or `:each` (per test) fixtures
-  for the current namespace. Called at load time, like clj's.
+(defn- add-ns-meta [key value]
+  (alter-meta! *ns* assoc key value))
+
+(defmulti use-fixtures
+  "Register fixtures for the current namespace: `:once` wraps the whole
+  namespace's run, `:each` wraps every individual test. Called at load time.
 
   REPLACES the previously registered fixtures of that kind rather than adding
   to them — otherwise reloading a namespace would run its fixtures once more
-  per reload, which is how a leaky fixture turns into a mystery."
-  [fixture-type & fns]
-  (when-not (contains? #{:each :once} fixture-type)
-    (throw (ex-info (str "Unknown fixture type: " fixture-type) {:fixture-type fixture-type})))
-  (swap! *fixture-registry* update (ns-name *ns*)
-         (fn [m] (assoc (or m {}) fixture-type (vec fns))))
-  nil)
+  per reload, which is how a leaky fixture turns into a mystery.
 
-(defn- fixtures-for [ns-sym kind]
-  (join-fixtures (get (get (deref *fixture-registry*) ns-sym) kind)))
+  A multimethod, like clj's, so the set of fixture kinds stays open."
+  (fn [fixture-type & args] fixture-type))
+
+(defmethod use-fixtures :each [fixture-type & args]
+  (add-ns-meta ::each-fixtures args))
+
+(defmethod use-fixtures :once [fixture-type & args]
+  (add-ns-meta ::once-fixtures args))
+
+(defn- fixtures-for
+  "The composed fixture of `kind` (::once-fixtures / ::each-fixtures) for a
+  namespace. Fixtures live in the NAMESPACE's metadata, where clj keeps them
+  and where `(meta (the-ns …))` can see them — not in a side table keyed by
+  namespace symbol, which no namespace's death ever clears."
+  [ns-sym kind]
+  (join-fixtures (get (meta (the-ns ns-sym)) kind)))
 
 (defn test-var
   "Run the test attached to var `v` — the fn in its `:test` metadata — with
@@ -457,8 +472,8 @@
   the `:once` fixture wraps the whole group, the `:each` fixtures wrap every
   test individually."
   [ns-sym vars]
-  (let [each-fixture (fixtures-for ns-sym :each)]
-    ((fixtures-for ns-sym :once)
+  (let [each-fixture (fixtures-for ns-sym ::each-fixtures)]
+    ((fixtures-for ns-sym ::once-fixtures)
      (fn []
        (doseq [v vars]
          (each-fixture (fn [] (test-var v))))))))
@@ -523,8 +538,13 @@
         (do-report summary)
         summary))))
 
-(defn run-all-tests []
-  (apply run-tests (keys (deref *test-registry*))))
+(defn run-all-tests
+  "Run the tests of every loaded namespace, or of those whose name matches
+  `re`. Walks `all-ns` — NOT the order index, which would miss a namespace
+  whose tests were attached by `set-test` / `with-test` / `alter-meta!`."
+  ([] (apply run-tests (all-ns)))
+  ([re] (apply run-tests (filter (fn [ns] (re-matches re (name (ns-name ns))))
+                                 (all-ns)))))
 
 (defn run-test-var
   "Run the test of one var and report a summary."

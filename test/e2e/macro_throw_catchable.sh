@@ -16,7 +16,7 @@ fail() { echo "FAIL $1" >&2; exit 1; }
 assert_eq() { local n="$1" g="$2" w="$3"; [[ "$g" == "$w" ]] || fail "$n: got '$g' want '$w'"; echo "PASS $n -> $w"; }
 
 # `-e` echoes each form's value, so the printed line is second-to-last.
-line() { "$BIN" -e "$1" 2>&1 | tail -2 | head -1; }
+line() { "$BIN" -e "$1" 2>&1 | tail -2 | sed -n 1p; }
 
 # --- a macro throwing ex-info, expanded through eval -------------------------
 P='(defmacro m [] (throw (ex-info "boom" {:a 1})))
