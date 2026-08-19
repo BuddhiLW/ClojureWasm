@@ -889,6 +889,24 @@ pub fn dissocFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocatio
 
 // --- keys ---
 
+/// `keys`/`vals` on a non-entry element — clj raises ClassCastException here.
+fn entryCastError(fn_name: []const u8, entry: Value, loc: SourceLocation) anyerror {
+    return error_catalog.raise(.type_arg_invalid, loc, .{
+        .fn_name = fn_name,
+        .expected = "a seq of map entries",
+        .actual = @tagName(entry.tag()),
+    });
+}
+
+/// True for the tags whose `(seq coll)` clj walks as map entries (D-285): `keys`
+/// takes any seq of entries, not only an IPersistentMap.
+fn isEntrySeqTag(tag: Value.Tag) bool {
+    return switch (tag) {
+        .list, .lazy_seq, .cons, .chunked_cons, .array_seq, .vector => true,
+        else => false,
+    };
+}
+
 /// Implements clojure.core/keys.
 /// Spec: `(keys m)` returns a seq of map keys, or nil if empty.
 /// JVM reference: clojure.core/keys
@@ -898,7 +916,7 @@ pub fn dissocFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocatio
 /// 1 (val) of each entry (cljw's entries are 2-vectors). Walks `(seq coll)` via the
 /// seq protocol (firstFn/nextFn), mirroring apply's accumulator walk in
 /// higher_order.zig (same GC-safety). Returns a list in seq order, or nil if empty.
-fn seqDeriveEntryColumn(rt: *Runtime, env: *Env, coll: Value, col: u32, loc: SourceLocation) anyerror!Value {
+fn seqDeriveEntryColumn(rt: *Runtime, env: *Env, coll: Value, col: u32, fn_name: []const u8, loc: SourceLocation) anyerror!Value {
     var cells: std.ArrayList(Value) = .empty;
     defer cells.deinit(rt.gpa);
     var cur = try sequence.seqFn(rt, env, &.{coll}, loc);
@@ -908,7 +926,11 @@ fn seqDeriveEntryColumn(rt: *Runtime, env: *Env, coll: Value, col: u32, loc: Sou
         // `.map_entry` (when the deftype's seq delegates to a native map's seq).
         const cell = switch (entry.tag()) {
             .map_entry => map_entry.nth(entry, col),
-            else => vector.nth(entry, col),
+            .vector => if (vector.count(entry) == 2)
+                vector.nth(entry, col)
+            else
+                return entryCastError(fn_name, entry, loc),
+            else => return entryCastError(fn_name, entry, loc),
         };
         try cells.append(rt.gpa, cell);
         cur = try sequence.nextFn(rt, env, &.{cur}, loc);
@@ -962,7 +984,7 @@ pub fn keysFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation)
             if (desc.isPersistentMap()) {
                 var cs: dispatch.CallSite = .{};
                 if (try dispatch.dispatchOrNull(rt, env, &cs, coll, IPM_FQCN, "-keys", args, loc)) |v| break :blk v;
-                break :blk try seqDeriveEntryColumn(rt, env, coll, 0, loc);
+                break :blk try seqDeriveEntryColumn(rt, env, coll, 0, "keys", loc);
             }
             return error_catalog.raise(.protocol_no_satisfies, loc, .{
                 .protocol = IPM_FQCN,
@@ -971,6 +993,9 @@ pub fn keysFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation)
             });
         },
         else => blk: {
+            // D-285: clj's `keys` seqs the coll and reads `key` off each entry.
+            if (isEntrySeqTag(coll.tag()))
+                break :blk try seqDeriveEntryColumn(rt, env, coll, 0, "keys", loc);
             // D-089 row 8.6 cycle 3: IPersistentMap -keys slow-path.
             // DIVERGENCE D1 (survey §6): JVM has no -keys protocol
             // method (keys = seq over keyset); cw v1 surfaces it
@@ -1023,7 +1048,7 @@ pub fn valsFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation)
             if (desc.isPersistentMap()) {
                 var cs: dispatch.CallSite = .{};
                 if (try dispatch.dispatchOrNull(rt, env, &cs, coll, IPM_FQCN, "-vals", args, loc)) |v| break :blk v;
-                break :blk try seqDeriveEntryColumn(rt, env, coll, 1, loc);
+                break :blk try seqDeriveEntryColumn(rt, env, coll, 1, "vals", loc);
             }
             return error_catalog.raise(.protocol_no_satisfies, loc, .{
                 .protocol = IPM_FQCN,
@@ -1032,6 +1057,9 @@ pub fn valsFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation)
             });
         },
         else => blk: {
+            // D-285: clj's `vals` seqs the coll and reads `val` off each entry.
+            if (isEntrySeqTag(coll.tag()))
+                break :blk try seqDeriveEntryColumn(rt, env, coll, 1, "vals", loc);
             // D-089 row 8.6 cycle 3: IPersistentMap -vals slow-path
             // (DIVERGENCE D1 mirror of -keys above).
             var cs: dispatch.CallSite = .{};
