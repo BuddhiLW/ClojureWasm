@@ -76,7 +76,7 @@ proc_cwd() {
     if [ -r "/proc/$1/cwd" ]; then
         readlink -f "/proc/$1/cwd" 2>/dev/null
     else
-        lsof -a -p "$1" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p' | head -1
+        lsof -a -p "$1" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p' | sed -n 1p
     fi
 }
 
@@ -85,7 +85,7 @@ proc_exe() {
     if [ -r "/proc/$1/exe" ]; then
         readlink -f "/proc/$1/exe" 2>/dev/null
     else
-        lsof -a -p "$1" -d txt -Fn 2>/dev/null | sed -n 's/^n//p' | head -1
+        lsof -a -p "$1" -d txt -Fn 2>/dev/null | sed -n 's/^n//p' | sed -n 1p
     fi
 }
 

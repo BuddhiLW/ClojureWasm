@@ -16,8 +16,29 @@
 # Usage: bash scripts/check_corpus_regression.sh        # all corpora
 #        bash scripts/check_corpus_regression.sh seqfns # one corpus stem
 #        bash scripts/check_corpus_regression.sh String # one class corpus stem
+#        CORPUS_JOBS=1 bash scripts/check_corpus_regression.sh   # force serial
 #
 # Exit 0 = all golden outputs reproduced; 1 = at least one drift / error.
+#
+# CONCURRENCY — across FILES, never across expressions. Measured 2026-08-19:
+# 252 corpus files hold 4384 expressions, and every one of them spawns its own
+# `cljw`. That IS the step's cost (4384 × ~40 ms ≈ 175 s; the step measured
+# 147 s on the Linux CI leg and 137 s locally). Nothing else happens here.
+#
+# Each expression still gets its own process, so isolation is byte-for-byte
+# what it was. That is deliberate and it is the expensive choice: batching a
+# whole file into ONE `cljw` would cut the step to a few seconds, but the
+# goldens would then share a runtime, and a stray `def` or atom mutation could
+# leak from one expression into the next. A leak that turned a DRIFT into a
+# PASS is a gate that has quietly stopped checking — strictly worse than a slow
+# gate. Files, by contrast, are independent by construction (each is its own
+# golden set), so running N at once changes nothing observable.
+#
+# Workers write to their own temp file and the driver concatenates in the
+# original file order: a DRIFT report is multi-line and larger than PIPE_BUF,
+# so concurrent writers to one stream would interleave *within* a report. It
+# also keeps the log byte-identical between runs, which is most of what makes
+# CI output worth reading.
 
 set -uo pipefail
 cd "$(dirname "$0")/.."
@@ -53,11 +74,12 @@ if [ "${#files[@]}" -eq 0 ]; then
     exit 0
 fi
 
-total=0
-fails=0
-for f in "${files[@]}"; do
-    [ -f "$f" ] || continue
-    expr=""
+# Replay one corpus file. Prints DRIFT reports, then one machine-readable
+# tally line the driver sums. Factored out of the old inline loop unchanged.
+replay_file() {
+    local f="$1"
+    local total=0 fails=0 expr="" line want reqs ns got
+    [ -f "$f" ] || { printf '__TALLY\t0\t0\n'; return 0; }
     while IFS= read -r line || [ -n "$line" ]; do
         case "$line" in
             ''|';;'*'=> '*)
@@ -92,7 +114,61 @@ for f in "${files[@]}"; do
             *) expr="$line" ;;    # an expression line
         esac
     done < "$f"
-done
+    printf '__TALLY\t%s\t%s\n' "$total" "$fails"
+}
+
+# Worker mode: one file, output to stdout (the driver redirects it).
+if [ "${CORPUS_ONE:-}" = "1" ]; then
+    replay_file "$1"
+    exit 0
+fi
+
+# --- driver ----------------------------------------------------------------
+# Default job count: cores, capped at 8 — a 2-vCPU runner must not spawn 8.
+if [ -n "${CORPUS_JOBS:-}" ]; then
+    JOBS="$CORPUS_JOBS"
+else
+    JOBS=$( (nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 2) )
+    [ "$JOBS" -gt 8 ] && JOBS=8
+fi
+
+total=0
+fails=0
+
+if [ "$JOBS" -le 1 ]; then
+    for f in "${files[@]}"; do
+        while IFS= read -r out; do
+            case "$out" in
+                __TALLY*) total=$((total + $(printf '%s' "$out" | cut -f2)))
+                          fails=$((fails + $(printf '%s' "$out" | cut -f3))) ;;
+                *) printf '%s\n' "$out" ;;
+            esac
+        done < <(replay_file "$f")
+    done
+else
+    tmp=$(mktemp -d "${TMPDIR:-/tmp}/corpus_regression.XXXXXX")
+    trap 'rm -rf "$tmp"' EXIT INT TERM
+
+    # NUL-delimited through a pipe, not `xargs -a`: BSD/macOS xargs has no -a.
+    # Each worker names its own output file after its input path, so the
+    # fan-out needs no coordination with the ordered read-back below.
+    printf '%s\0' "${files[@]}" \
+        | CORPUS_ONE=1 CORPUS_OUT="$tmp" xargs -0 -P "$JOBS" -n 1 \
+          bash -c 'out="$CORPUS_OUT/$(printf "%s" "$1" | tr "/" "_")"; bash "$0" "$1" > "$out" 2>&1' \
+          "${BASH_SOURCE[0]}"
+
+    for f in "${files[@]}"; do
+        out="$tmp/$(printf '%s' "$f" | tr '/' '_')"
+        [ -f "$out" ] || continue
+        while IFS= read -r line; do
+            case "$line" in
+                __TALLY*) total=$((total + $(printf '%s' "$line" | cut -f2)))
+                          fails=$((fails + $(printf '%s' "$line" | cut -f3))) ;;
+                *) printf '%s\n' "$line" ;;
+            esac
+        done < "$out"
+    done
+fi
 
 echo "corpus regression: $((total - fails))/$total golden outputs reproduced"
 [ "$fails" -eq 0 ]
