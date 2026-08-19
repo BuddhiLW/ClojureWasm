@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: EPL-2.0
 //! cljw.net — a TCP client stream, bound thinly to `std.Io.net`.
 //!
+//! Backend: impl-only
+//! Impl deps: none
+//! Clojure peer: cljw.net/connect
+//!
 //! Surface: `(cljw.net/connect host port)` → a `.host_instance` socket, then
 //!          `(.write sock byte-array n)` → bytes written,
 //!          `(.read  sock byte-array)`   → bytes read, or -1 at end of stream,
@@ -18,10 +22,6 @@
 //!
 //! Byte arrays are Value-erased (F-004 / F-005), so transfers convert
 //! element-wise between the cljw array and a gpa scratch `[]u8`.
-//!
-//! Backend: impl-only
-//! Impl deps: none
-//! Clojure peer: cljw.net/connect
 const std = @import("std");
 const Runtime = @import("../../runtime.zig").Runtime;
 const Env = @import("../../env.zig").Env;
