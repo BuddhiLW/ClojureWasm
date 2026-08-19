@@ -499,7 +499,7 @@ pub fn parseBigDecimalLiteral(rt: *Runtime, digits: []const u8, loc: error_mod.S
     // mantissa below is the plain `[-]ddd[.ddd]` shape.
     var mantissa = digits;
     var exponent: i32 = 0;
-    if (std.mem.indexOfAny(u8, digits, "eE")) |e_pos| {
+    if (std.mem.findAny(u8, digits, "eE")) |e_pos| {
         mantissa = digits[0..e_pos];
         const exp_txt = digits[e_pos + 1 ..];
         if (exp_txt.len == 0) return error_catalog.raise(.big_decimal_literal_invalid, loc, .{ .text = digits });

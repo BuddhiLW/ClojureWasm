@@ -152,8 +152,8 @@ marker_refs_block() {
 }
 
 # Does `.dev/debt.yaml` define this row id? Exact match on the `- id:`
-# scalar (quoted or bare), not a substring grep — `D-12` must not resolve
-# via `D-125`.
+# scalar (quoted or bare), not a substring grep: a short id must not
+# resolve via a longer one that merely shares its prefix.
 debt_id_defined() {
   awk -v k="$1" '
     /^[[:space:]]*-[[:space:]]*id:[[:space:]]*/ {

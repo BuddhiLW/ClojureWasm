@@ -24,7 +24,6 @@ const Env = @import("../../env.zig").Env;
 const SourceLocation = @import("../../error/info.zig").SourceLocation;
 const error_catalog = @import("../../error/catalog.zig");
 const parse = @import("../../numeric/parse.zig");
-const promote = @import("../../numeric/promote.zig");
 const string_mod = @import("../../collection/string.zig");
 const print_mod = @import("../../print.zig");
 
