@@ -63,8 +63,7 @@ while [ $# -gt 0 ]; do
     esac
 done
 
-[ -x "$BIN" ] || { echo "building cljw…" >&2; zig build -Dwasm -Doptimize="${CLJW_OPT:-ReleaseSafe}" >/dev/null; }
-
+[ -n "${CLJW_SKIP_BUILD:-}" ] || zig build -Dwasm -Doptimize="${CLJW_OPT:-ReleaseSafe}" >/dev/null
 # Read non-blank, non-comment lines into an array.
 exprs=()
 while IFS= read -r line || [ -n "$line" ]; do

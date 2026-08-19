@@ -23,8 +23,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 BIN="zig-out/bin/cljw"
-[ -x "$BIN" ] || { echo "gen_placement: building cljw…" >&2; zig build -Dwasm -Doptimize="${CLJW_OPT:-ReleaseSafe}" >/dev/null; }
-
+[ -n "${CLJW_SKIP_BUILD:-}" ] || zig build -Dwasm -Doptimize="${CLJW_OPT:-ReleaseSafe}" >/dev/null
 # Bundled .clj → ns name (same munge inverse as check_lazy_ns_replay.sh:
 # '/'→'.', '_'→'-').
 mapfile -t NSES < <(

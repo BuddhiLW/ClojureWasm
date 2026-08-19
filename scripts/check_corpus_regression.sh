@@ -44,8 +44,10 @@ set -uo pipefail
 cd "$(dirname "$0")/.."
 
 BIN="zig-out/bin/cljw"
-[ -x "$BIN" ] || { echo "building cljw…" >&2; zig build -Dwasm -Doptimize="${CLJW_OPT:-ReleaseSafe}" >/dev/null; }
-
+# Build unless told not to. A worker (CORPUS_ONE=1) is re-entering this same
+# script, so it must NOT build: the driver already did, and 252 workers each
+# running even a no-op `zig build` would cost more than the whole step.
+[ -n "${CLJW_SKIP_BUILD:-}${CORPUS_ONE:-}" ] || zig build -Dwasm -Doptimize="${CLJW_OPT:-ReleaseSafe}" >/dev/null
 # Portable bounded run: GNU `timeout`, else macOS coreutils `gtimeout`, else
 # unbounded. The corpus exprs are all finite, so the fallback is safe — the
 # bound only defends against an accidental infinite-seq regression. (Written as

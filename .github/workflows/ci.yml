@@ -176,24 +176,69 @@ jobs:
             echo "::error::gate requires bash >= 4 on PATH (PATH bash is $(bash -c 'echo "$BASH_VERSION"'))"; exit 1
           fi
 
+      # Warm the build cache in a step that can RECOVER from a poisoned restore.
+      # A restored `.zig-cache` can reference a file it does not contain (a job
+      # cancelled mid-build used to save one — see the save step below), and
+      # Zig treats that as a hard compilation error rather than rebuilding:
+      #     error: failed to check cache: '…/bootstrap_sources_stub.zig' file_hash FileNotFound
+      # Left alone, `restore-keys` hands that same entry to every later run and
+      # CI stays red until a human deletes it through the API. Wiping a
+      # content-addressed cache is always safe — it costs a rebuild, nothing
+      # else — so recovery is simply: clear it and build again, once.
+      #
+      # This is not extra work: the gate's own first step is this same build,
+      # so a healthy run does it here and finds it warm there.
+      - name: Warm build (self-healing)
+        shell: bash
+        run: |
+          set -uo pipefail
+          log=$(mktemp)
+          if zig build -Dwasm -Doptimize=ReleaseSafe 2>&1 | tee "$log"; then
+            exit 0
+          fi
+          if grep -q "failed to check cache" "$log"; then
+            echo "::warning::restored .zig-cache is inconsistent — clearing and rebuilding"
+            rm -rf .zig-cache
+            zig build -Dwasm -Doptimize=ReleaseSafe
+          else
+            echo "::error::build failed for a reason unrelated to the cache"
+            exit 1
+          fi
+
       - name: ci_gate.sh
         shell: bash
         run: bash scripts/ci_gate.sh
 
-      # `always()`: save even when the gate went red. The next run is usually a
-      # fix for that red, minutes later, against nearly the same tree — so the
-      # build products of a failed run are the most valuable ones there are.
-      # The key carries the run id, so this never collides with another run's
-      # entry and never has to overwrite one. GitHub evicts the repo's caches
-      # LRU at the 10 GB ceiling, which is the behaviour we want: recent
-      # branches stay warm, abandoned ones age out on their own.
+      # Save on success OR failure, but NEVER on cancellation.
+      #
+      # Failure is the case worth saving for: the next run is usually a fix for
+      # that red, minutes later, against nearly the same tree, and a failed job
+      # ran its BUILD steps to completion — only a test or a check went red, so
+      # `.zig-cache` is internally consistent.
+      #
+      # A CANCELLED job is the opposite, and this condition was originally
+      # `always()`, which INCLUDES cancellation. Measured 2026-08-19: pushing a
+      # fix fired `cancel-in-progress`, killing the Linux job in the middle of
+      # `zig build`. The save captured `.zig-cache` half-written — an
+      # `o/<hash>` manifest present, `bootstrap_sources_stub.zig` inside it
+      # never flushed. The next run restored that and Zig refused to build:
+      #
+      #   error: failed to check cache: '.zig-cache/o/…/bootstrap_sources_stub.zig'
+      #          file_hash FileNotFound
+      #
+      # Zig does NOT recover from this on its own — it errors instead of
+      # rebuilding. And since `restore-keys` matches by PREFIX, a poisoned
+      # entry is the newest match for every later run, so one cancelled job
+      # wedges the whole lineage until someone deletes the entry by hand. That
+      # is a worse failure mode than the stale-cache bug this caching replaced,
+      # which is why the condition is narrowed rather than the symptom patched.
       - name: Bound the Zig cache before saving
-        if: always()
+        if: success() || failure()
         shell: bash
         run: bash scripts/prune_zig_cache.sh
 
       - name: Save Zig deps + build
-        if: always()
+        if: success() || failure()
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |

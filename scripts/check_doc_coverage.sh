@@ -30,8 +30,7 @@ cd "$(dirname "$0")/.."
 
 BIN="zig-out/bin/cljw"
 LEDGER="data/doc_coverage.txt"
-[ -x "$BIN" ] || { echo "check_doc_coverage: building cljw…" >&2; zig build -Dwasm -Doptimize="${CLJW_OPT:-ReleaseSafe}" >/dev/null; }
-
+[ -n "${CLJW_SKIP_BUILD:-}" ] || zig build -Dwasm -Doptimize="${CLJW_OPT:-ReleaseSafe}" >/dev/null
 # Every bundled namespace whose publics a user can reach. Kept here rather than
 # derived from `FILES` so that adding a namespace is a conscious decision about
 # whether its docs are gated.

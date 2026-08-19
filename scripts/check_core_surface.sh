@@ -32,8 +32,7 @@ BIN="zig-out/bin/cljw"
 EXPECTED="data/core_surface_extras.txt"
 UPSTREAM="data/core_surface_upstream.txt"
 
-[ -x "$BIN" ] || { echo "check_core_surface: building cljw…" >&2; zig build -Dwasm -Doptimize="${CLJW_OPT:-ReleaseSafe}" >/dev/null; }
-
+[ -n "${CLJW_SKIP_BUILD:-}" ] || zig build -Dwasm -Doptimize="${CLJW_OPT:-ReleaseSafe}" >/dev/null
 for f in "$EXPECTED" "$UPSTREAM"; do
     [ -f "$f" ] || { echo "check_core_surface: missing $f" >&2; exit 1; }
 done

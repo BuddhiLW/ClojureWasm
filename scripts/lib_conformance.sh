@@ -60,8 +60,7 @@ BIN="$ROOT/zig-out/bin/cljw"
 CLJ="${CLJ:-clj}"
 DIR="test/conformance"
 
-[ -x "$BIN" ] || { echo "building cljw…" >&2; zig build -Dwasm -Doptimize="${CLJW_OPT:-ReleaseSafe}" >/dev/null; }
-
+[ -n "${CLJW_SKIP_BUILD:-}" ] || zig build -Dwasm -Doptimize="${CLJW_OPT:-ReleaseSafe}" >/dev/null
 # ---------- lib context ----------
 # Sets: CTX_DIR (cwd for cljw), CLJ_DIR (cwd for clj) and SDEPS_ARGS.
 # cljw: test/conformance/verified_projects/<lib>/ when present (its deps.edn auto-loads), else
