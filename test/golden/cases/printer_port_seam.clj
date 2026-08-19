@@ -55,3 +55,14 @@
 ;; clj renders [{:a #}] and # respectively.
 (prn (binding [*print-level* 2] (pr-str [(Pm. {:a {:b 1}})])))
 (prn (binding [*print-level* 0] (pr-str (Pm. {:a 1}))))
+
+;; A record's `{…}` body is its own *print-level* nesting level, and the
+;; `#ns.Name` tag prints OUTSIDE the cut. clj renders, in order:
+;;   #user.R#   #user.R{:a #}   [#user.R{:a #}]   {:k #user.R#}
+(defrecord R [a])
+(prn (binding [*print-level* 0] (pr-str (R. {:x 1}))))
+(prn (binding [*print-level* 1] (pr-str (R. {:x 1}))))
+(prn (binding [*print-level* 2] (pr-str [(R. {:x 1})])))
+(prn (binding [*print-level* 1] (pr-str {:k (R. {:x 1})})))
+;; *print-length* still reaches a record's field values.
+(prn (binding [*print-length* 1] (pr-str (R. [1 2 3]))))

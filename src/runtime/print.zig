@@ -848,6 +848,16 @@ fn isCollectionTag(t: Value.Tag) bool {
     };
 }
 
+/// `*print-level*` guard for a map-style body the tag `switch` does not treat
+/// as a collection — a record's `{…}` and an IPersistentMap-declaring
+/// deftype's. True when the body is at or past the limit and must render `#`
+/// instead. The caller emits any prefix that belongs OUTSIDE the cut (a
+/// record's `#ns.Name` tag) before asking.
+fn levelCutHere() bool {
+    const lvl = print_level_limit orelse return false;
+    return print_depth >= lvl;
+}
+
 /// `*print-length*` guard for index-driven collection loops: when the limit is
 /// reached at element `i`, emit `sep` (only if not the first element) + `...`
 /// and return true so the loop breaks. Returns false (no truncation) when the
@@ -1186,6 +1196,14 @@ fn printMapLikeTypedInstance(ports: Ports, w: *Writer, v: Value) anyerror!bool {
     var cs: dispatch_mod.CallSite = .{};
     const noloc: SourceLocation = .{};
     const s = (try dispatch_mod.dispatchOrNull(ports.rt, ports.env, &cs, v, "Seqable", "-seq", &.{v}, noloc)) orelse return false;
+    // The `{…}` body nests for *print-level* exactly like a native map. The
+    // value carries no tag outside it, so at the cut the whole render is `#`.
+    if (levelCutHere()) {
+        try w.writeByte('#');
+        return true;
+    }
+    print_depth += 1;
+    defer print_depth -= 1;
     const entries = try realizeSeqWalk(ports.rt, ports.env, s);
     try w.writeByte('{');
     var node = entries;
@@ -1331,10 +1349,16 @@ fn printTypedInstance(ports: ?Ports, w: *Writer, v: Value) anyerror!void {
         if (inst.descriptor.field_layout) |layout| {
             const fs = inst.fields();
             if (inst.descriptor.defining_ns) |dns| {
-                try w.print("#{s}.{s}{{", .{ dns, fqcn });
+                try w.print("#{s}.{s}", .{ dns, fqcn });
             } else {
-                try w.print("#{s}{{", .{fqcn});
+                try w.print("#{s}", .{fqcn});
             }
+            // clj prints the tag and then treats the map body as its own
+            // nesting level, so the cut renders `#user.R#`, not a bare `#`.
+            if (levelCutHere()) return w.writeByte('#');
+            print_depth += 1;
+            defer print_depth -= 1;
+            try w.writeByte('{');
             for (layout, 0..) |fe, i| {
                 if (i > 0) try w.writeAll(", ");
                 try w.print(":{s} ", .{fe.name});
