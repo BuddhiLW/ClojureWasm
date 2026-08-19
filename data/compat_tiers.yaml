@@ -173,6 +173,17 @@ tiers:
         static_fields: ["BYTES", "MAX_EXPONENT", "MAX_VALUE", "MIN_EXPONENT", "MIN_NORMAL", "MIN_VALUE", "NEGATIVE_INFINITY", "NaN", "POSITIVE_INFINITY", "SIZE"]
         opaque_members: [TYPE, PRECISION, toHexString]
         clojure_peer_vars: [parse-double]
+      - fqn: java.lang.Float
+        cljw_ns: cljw.java.lang.Float
+        keyword: float
+        tier: A
+        phase: 14
+        files:
+          surface: runtime/java/lang/Float.zig
+        methods: [compare, floatToIntBits, floatToRawIntBits, hashCode, intBitsToFloat, isFinite, isInfinite, isNaN, max, min, parseFloat, sum, toString, valueOf]
+        static_fields: ["BYTES", "MAX_EXPONENT", "MAX_VALUE", "MIN_EXPONENT", "MIN_NORMAL", "MIN_VALUE", "NEGATIVE_INFINITY", "NaN", "POSITIVE_INFINITY", "SIZE"]
+        opaque_members: [TYPE, PRECISION, toHexString]
+        clojure_peer_vars: [float]
       - fqn: java.lang.Boolean
         cljw_ns: cljw.java.lang.Boolean
         keyword: boolean
@@ -676,7 +687,6 @@ tiers:
       # java.lang scalars / builders / supertypes
       - {fqn: "java.lang.StringBuilder", cljw_ns: "cljw.java.lang.StringBuilder", tier: A, phase: 14, status: "no surface; (StringBuilder.) -> name_error. cw-native runtime/string_builder.zig planned (libs use .append via interop)"}
       - {fqn: "java.lang.Number", cljw_ns: "cljw.java.lang.Number", tier: A, phase: 14, status: "abstract numeric supertype; (number? x) works, (instance? Number x) reservation"}
-      - {fqn: "java.lang.Float", cljw_ns: "cljw.java.lang.Float", tier: A, phase: 14, status: "no surface; paired with the EXISTS Double. float coercion via clojure.core/float"}
       - {fqn: "java.lang.Short", cljw_ns: "cljw.java.lang.Short", tier: A, phase: 14, status: "no surface; numeric coercion target (clojure.core/short)"}
       - {fqn: "java.lang.Byte", cljw_ns: "cljw.java.lang.Byte", tier: A, phase: 14, status: "no surface; numeric coercion target + byte-array element (clojure.core/byte)"}
       - {fqn: "java.lang.Comparable", cljw_ns: "cljw.java.lang.Comparable", tier: A, phase: 14, status: "compare contract; (instance? Comparable x) reservation; clojure.core/compare works"}

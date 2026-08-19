@@ -70,6 +70,7 @@ const java_surfaces = [_]type{
     @import("lang/Boolean.zig"),
     @import("lang/Character.zig"),
     @import("lang/Double.zig"),
+    @import("lang/Float.zig"), // D-295 sibling — Tier A "no surface" row backfilled
     @import("lang/Integer.zig"),
     @import("lang/Long.zig"),
     @import("lang/Short.zig"), // D-295 — MIN_VALUE/MAX_VALUE static fields

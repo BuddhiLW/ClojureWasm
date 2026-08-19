@@ -560,6 +560,7 @@ run_step "e2e_phase14_system_statics"        "bash test/e2e/phase14_system_stati
 run_step "e2e_phase14_integer_statics"       "bash test/e2e/phase14_integer_statics.sh"
 run_step "e2e_phase14_long_statics"          "bash test/e2e/phase14_long_statics.sh"
 run_step "e2e_phase14_double_statics"        "bash test/e2e/phase14_double_statics.sh"
+run_step "e2e_phase14_float_statics"        "bash test/e2e/phase14_float_statics.sh"
 run_step "e2e_phase14_character_statics"     "bash test/e2e/phase14_character_statics.sh"
 run_step "e2e_phase14_static_fields"         "bash test/e2e/phase14_static_fields.sh"
 run_step "e2e_phase14_bignum_compare"        "bash test/e2e/phase14_bignum_compare.sh"
