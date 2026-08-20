@@ -2878,6 +2878,74 @@ standing:
     category: "meta-reorg"
     barrier: "open after the D-440 arc completes (R4 + R5 must first rewrite the bulk of 'Phase N' citations to gap-area terms). Premature adoption = ~70 dangling citations with no 1:1 redirect. Trigger: D-440 R4/R5 done + a user nod to re-architect the planning axis (it is depth-4, the project's organizing metaphor)."
     last_reviewed: "2026-06-15"
+  - id: "D-578"
+    status: "open (2026-08-20). `counted?` answers true for `.chunked_cons` (COUNTED_TAGS, interface_membership.zig) but `count` on one now WALKS it — the chunked-prefix-only fast path was removed because it returned 32 for every seq longer than one chunk. So the O(1) promise `counted?` makes is no longer kept for that tag. Correctness is fixed; the remaining question is which side moves."
+    category: "clj-parity"
+    barrier: |-
+      Needs an oracle measurement before a decision, not a guess. clj has no
+      single answer to compare against: `(seq (range 40))` is a LongRange there
+      (Counted, genuinely O(1)) while in cljw it is a ChunkedSeq over a lazy
+      tail. Two candidate shapes:
+        (a) drop `.chunked_cons` from COUNTED_TAGS — honest, and matches clj for
+            the chunked-seq-over-lazy case, but changes an advertised predicate;
+        (b) make count O(1) again by carrying a total on the chunked cons — only
+            possible when the tail is already realized, so it does not generalise.
+      Measure what clj answers for each of cljw's chunked-producing forms first.
+      Do NOT re-add a fast path that reports a partial count.
+    last_reviewed: "2026-08-20"
+  - id: "D-579"
+    status: "open (2026-08-20, measured both sides). clojure.string's `.toString`-coercing fns raise a type error in cljw where clj accepts any non-nil value. MEASURED against clj: `upper-case`, `lower-case`, `capitalize`, `starts-with?`, `ends-with?`, `includes?`, `index-of`, `last-index-of` all coerce via `.toString` — `(upper-case :foo)` => \":FOO\", `(upper-case 42)` => \"42\", `(starts-with? 421 \"4\")` => true. cljw raises `upper-case: expected string, got keyword`."
+    category: "clj-parity"
+    barrier: |-
+      Ready — no blocker, just care about the boundary. The set is NOT all of
+      clojure.string: measured on clj, `trim`, `triml`, `trimr`, `trim-newline`,
+      `reverse`, `blank?`, `split`, `split-lines` DO throw ClassCastException on a
+      non-CharSequence, because they call CharSequence methods directly rather
+      than `.toString`. Coercing those too would be a divergence in the other
+      direction. `nil` must still raise (clj throws NPE), so `(str s)` is the
+      wrong coercion — it turns nil into "".
+    last_reviewed: "2026-08-20"
+  - id: "D-580"
+    status: "open (2026-08-20, measured). `(nth [1 2 3] -1)` raises Kind ClassCastException in cljw; clj raises IndexOutOfBoundsException. The POSITIVE out-of-range path is already right — `(nth [1 2 3] 99)` raises IndexOutOfBoundsException on both — so only the negative-index arm picked the wrong class."
+    category: "clj-parity"
+    barrier: "Ready. Note this is a Kind mismatch, and AD-007 accepts error-Kind divergence in general — but not here: the same function already answers IndexOutOfBoundsException for the sibling case, so the two arms disagree with each other, which no invariant defends. Check `(nth \"abc\" -1)` too (clj: StringIndexOutOfBoundsException)."
+    last_reviewed: "2026-08-20"
+  - id: "D-581"
+    status: "open (2026-08-20, measured — the kanban row stated this BACKWARDS). `(clojure.edn/read-string \"\")` THROWS `Unexpected EOF while reading form` in cljw; clj returns nil. Same for whitespace-only input. The kanban row [CLJW-EDN-EOF] recorded it as cljw returning nil, which is what clj does. Direction confirmed by running both."
+    category: "clj-parity"
+    barrier: "Ready. Do not conflate with `clojure.core/read-string`, which DOES throw `EOF while reading` on empty input in clj — measured. Only the edn reader returns nil. The 2-arity `(read-string {:eof :done} \"\")` => :done already works and must keep working."
+    last_reviewed: "2026-08-20"
+  - id: "D-582"
+    status: "open (2026-08-20, audited across all 171 ADRs). ADR governance has three gaps beyond the mechanical ones already swept: (1) 50 ADRs numbered >= 0020 carry NO `## Affected files` section, which ADR-0020 mandates; (2) 36 more cite a path that no longer exists; (3) ADR-0004's day-1 `SpecialFormTag` reservation has NO enforcing artifact — checked all 39 check_*.sh, zero reference it — and the real enum (`SpecialFormKind`, analyzer.zig) has diverged unamended: 10 reserved variants absent, 7 present variants never added to the ADR."
+    category: "governance"
+    barrier: |-
+      (1) and (2) need a GRANDFATHER DECISION before any sweep: from which ADR
+      number does the Affected-files mandate bind? Retrofitting 86 append-only
+      records by hand is not obviously right, and a sweep without the decision
+      just moves the inconsistency. (3) is ready to build: a
+      `check_special_form_enum_sync.sh` diffing the ADR's reserved list against
+      the enum. Note 9 of the 10 absent variants ARE implemented, via
+      macro-expansion or plain primitives rather than as analyzer tags — so the
+      fix is to strike the reservation, not to add the tags (Reservation-as-bias,
+      principle.md). `the` was never built as anything: a drafting error.
+      Full evidence: private/notes/adr-governance-audit.md.
+    last_reviewed: "2026-08-20"
+  - id: "D-583"
+    status: "open (2026-08-20, designed — USER-GATED). SubVector is still an eager copy (`vector.zig:368-378`, repeated conj), measured 7480x slower than the JVM view. Design settled: a new `.sub_vector` tag holding {start, end, parent, meta} modeled on array_seq.zig, with JVM APersistentVector.SubVector semantics. Blast radius measured at ~99 genuine Value.Tag references across 15 files; the GC tracer is NOT an exhaustive switch (tag_ops.zig uses registered fn-pointer tables), so it is one additive registration."
+    category: "perf"
+    barrier: |-
+      USER DECISION, per ADR-0179's own rule. The tag space is not full — 53 of
+      64 slots are live and 9 are named-but-unreferenced — but F-004 names those
+      9, and F-004 is user-amendable only (CLAUDE.md priority chain: the loop
+      never amends an F-NNN on its own). Of the 9, `.box` and `.tuple` carry no
+      stated rationale in F-004's text, unlike `.reader_conditional` and the wasm
+      family; `.box` is the recommended slot. The layout stays 64 slots, so this
+      is a slot repurpose, not a layout change.
+      Sibling row: CLJW-SEQVIEW is already DONE — commit 4a295706 (O-058) made
+      vector seq/rest/next an O(1) `.array_seq` view; only the class-name
+      divergence remains, accepted as AD-066.
+      Full design: private/notes/subvec-seqview-design.md.
+    last_reviewed: "2026-08-20"
 discharged:
   - id: "D-447"
     status: |-
