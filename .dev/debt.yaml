@@ -2904,6 +2904,14 @@ standing:
       than `.toString`. Coercing those too would be a divergence in the other
       direction. `nil` must still raise (clj throws NPE), so `(str s)` is the
       wrong coercion — it turns nil into "".
+      Mechanism is settled: render through `print.writeStrValue`, which
+      `core.zig:900`'s `str` already uses and whose own comment names it as
+      "the single source shared with the `.toString` Object-method fallback
+      (D-207 / ADR-0076 C3)" — i.e. it IS cljw's `.toString`. Each of the 8
+      fns currently does `if (args[0].tag() != .string) raise(.type_arg_not_string)`
+      (`src/lang/primitive/string.zig:40-41` and siblings); replace that guard
+      with a nil-check plus a writeStrValue render, leaving the other 8 fns'
+      guards untouched.
     last_reviewed: "2026-08-20"
   - id: "D-580"
     status: "open (2026-08-20, measured). `(nth [1 2 3] -1)` raises Kind ClassCastException in cljw; clj raises IndexOutOfBoundsException. The POSITIVE out-of-range path is already right — `(nth [1 2 3] 99)` raises IndexOutOfBoundsException on both — so only the negative-index arm picked the wrong class."
