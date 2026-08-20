@@ -21,6 +21,15 @@
 #                                     (or $HOOK_COMMAND). Returns 0 if
 #                                     so, else 1.
 #   hook_is_git_commit [CMD]       — same for `git commit`.
+#   hook_nested_worktree_paths     — print each git worktree nested
+#                                     INSIDE this checkout, one
+#                                     repo-relative path per line.
+#                                     Empty when there are none.
+#   hook_rg_exclude_worktrees      — print `--glob !<path>/**` argument
+#                                     pairs (one per line) for those
+#                                     worktrees; read into an array and
+#                                     pass to `rg` so a tree walk stays
+#                                     inside this checkout.
 #   hook_iter_unpushed CALLBACK    — for each commit in `@{u}..HEAD`
 #                                     (or `HEAD` if no upstream), call
 #                                     CALLBACK with the SHA. Fails
@@ -87,6 +96,26 @@ hook_is_git_push() {
 hook_is_git_commit() {
   local _cmd="${1:-${HOOK_COMMAND:-}}"
   printf '%s' "$_cmd" | grep -qE '(^|[ ;&|])git[[:space:]]+commit([[:space:]]|$)'
+}
+
+hook_nested_worktree_paths() {
+  local _root _wt
+  _root="$(git rev-parse --show-toplevel 2>/dev/null)" || return 0
+  git worktree list --porcelain 2>/dev/null \
+    | while read -r _key _wt; do
+        [[ "$_key" == "worktree" ]] || continue
+        [[ "$_wt" == "$_root" ]] && continue
+        [[ "$_wt" == "$_root"/* ]] || continue
+        printf '%s\n' "${_wt#"$_root"/}"
+      done
+}
+
+hook_rg_exclude_worktrees() {
+  local _rel
+  while IFS= read -r _rel; do
+    [[ -z "$_rel" ]] && continue
+    printf '%s\n%s\n' "--glob" "!${_rel}/**"
+  done < <(hook_nested_worktree_paths)
 }
 
 hook_iter_unpushed() {
