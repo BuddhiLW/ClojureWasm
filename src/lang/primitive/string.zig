@@ -151,13 +151,16 @@ pub fn trimNewline(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLoca
 
 const PrefixCheck = enum { starts, ends, contains };
 
-fn prefixImpl(fn_name: []const u8, check: PrefixCheck, args: []const Value, loc: SourceLocation) anyerror!Value {
+fn prefixImpl(rt: *Runtime, env: *Env, fn_name: []const u8, check: PrefixCheck, args: []const Value, loc: SourceLocation) anyerror!Value {
     try error_catalog.checkArity(fn_name, args, 2, loc);
-    if (args[0].tag() != .string)
-        return error_catalog.raise(.type_arg_not_string, loc, .{ .fn_name = fn_name, .actual = @tagName(args[0].tag()) });
+    // Only the FIRST argument coerces: clj `.toString`s `s` but types `substr`
+    // as String, so `(starts-with? 421 "4")` is true while a non-string needle
+    // is a ClassCastException there too.
+    var aw: std.Io.Writer.Allocating = .init(rt.gpa);
+    defer aw.deinit();
+    const haystack = try toStringArg(rt, env, args[0], fn_name, loc, &aw);
     if (args[1].tag() != .string)
         return error_catalog.raise(.type_arg_not_string, loc, .{ .fn_name = fn_name, .actual = @tagName(args[1].tag()) });
-    const haystack = string_collection.asString(args[0]);
     const needle = string_collection.asString(args[1]);
     const hit = switch (check) {
         // UTF-8 is self-synchronising — byte-equality is codepoint-
@@ -171,23 +174,17 @@ fn prefixImpl(fn_name: []const u8, check: PrefixCheck, args: []const Value, loc:
 
 /// `(clojure.string/starts-with? s substr)`.
 pub fn startsWith(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
-    _ = rt;
-    _ = env;
-    return prefixImpl("starts-with?", .starts, args, loc);
+    return prefixImpl(rt, env, "starts-with?", .starts, args, loc);
 }
 
 /// `(clojure.string/ends-with? s substr)`.
 pub fn endsWith(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
-    _ = rt;
-    _ = env;
-    return prefixImpl("ends-with?", .ends, args, loc);
+    return prefixImpl(rt, env, "ends-with?", .ends, args, loc);
 }
 
 /// `(clojure.string/includes? s substr)`.
 pub fn includes(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
-    _ = rt;
-    _ = env;
-    return prefixImpl("includes?", .contains, args, loc);
+    return prefixImpl(rt, env, "includes?", .contains, args, loc);
 }
 
 /// `(clojure.string/index-of s substr)` / `(… s substr from-index)` —
@@ -195,15 +192,13 @@ pub fn includes(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocatio
 /// Per DIVERGENCE D1 the index is in codepoint units (JVM is UTF-16). The
 /// 3-arity searches the codepoint tail `s[from..]` then re-bases the result.
 pub fn indexOf(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
-    _ = rt;
-    _ = env;
     if (args.len < 2 or args.len > 3)
         return error_catalog.raise(.arity_out_of_range, loc, .{ .fn_name = "index-of", .got = args.len, .min = 2, .max = 3 });
-    if (args[0].tag() != .string)
-        return error_catalog.raise(.type_arg_not_string, loc, .{ .fn_name = "index-of", .actual = @tagName(args[0].tag()) });
+    var aw: std.Io.Writer.Allocating = .init(rt.gpa);
+    defer aw.deinit();
+    const hay = try toStringArg(rt, env, args[0], "index-of", loc, &aw);
     if (args[1].tag() != .string)
         return error_catalog.raise(.type_arg_not_string, loc, .{ .fn_name = "index-of", .actual = @tagName(args[1].tag()) });
-    const hay = string_collection.asString(args[0]);
     const needle = string_collection.asString(args[1]);
     if (args.len == 3) {
         if (args[2].tag() != .integer)
@@ -225,15 +220,13 @@ pub fn indexOf(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation
 /// 3-arity searches the prefix `s[0 .. from+len(substr)]` so a match starting
 /// at from-index is still found, then takes its last occurrence.
 pub fn lastIndexOf(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
-    _ = rt;
-    _ = env;
     if (args.len < 2 or args.len > 3)
         return error_catalog.raise(.arity_out_of_range, loc, .{ .fn_name = "last-index-of", .got = args.len, .min = 2, .max = 3 });
-    if (args[0].tag() != .string)
-        return error_catalog.raise(.type_arg_not_string, loc, .{ .fn_name = "last-index-of", .actual = @tagName(args[0].tag()) });
+    var aw: std.Io.Writer.Allocating = .init(rt.gpa);
+    defer aw.deinit();
+    const hay = try toStringArg(rt, env, args[0], "last-index-of", loc, &aw);
     if (args[1].tag() != .string)
         return error_catalog.raise(.type_arg_not_string, loc, .{ .fn_name = "last-index-of", .actual = @tagName(args[1].tag()) });
-    const hay = string_collection.asString(args[0]);
     const needle = string_collection.asString(args[1]);
     if (args.len == 3) {
         if (args[2].tag() != .integer)

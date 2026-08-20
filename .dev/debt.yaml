@@ -2893,45 +2893,6 @@ standing:
       Measure what clj answers for each of cljw's chunked-producing forms first.
       Do NOT re-add a fast path that reports a partial count.
     last_reviewed: "2026-08-20"
-  - id: "D-579"
-    status: "PARTIAL (2026-08-20). DONE: `upper-case`, `lower-case`, `capitalize` now coerce via the new `toStringArg` helper (print.writeStrValue) and match clj exactly, verified: `(upper-case :foo)`=>\":FOO\", `(upper-case 42)`=>\"42\", `(lower-case 'SymBol)`=>\"symbol\", `(capitalize 42)`=>\"42\"; nil still raises; trim/reverse/blank?/split still throw as clj does. REMAINING: `starts-with?`, `ends-with?`, `includes?` (shared `prefixImpl`) and `index-of` / `last-index-of` — those take neither `rt` nor `env`, so coercing them needs those threaded through their signatures and call sites. Original finding: clojure.string's `.toString`-coercing fns raise a type error in cljw where clj accepts any non-nil value. MEASURED against clj: `upper-case`, `lower-case`, `capitalize`, `starts-with?`, `ends-with?`, `includes?`, `index-of`, `last-index-of` all coerce via `.toString` — `(upper-case :foo)` => \":FOO\", `(upper-case 42)` => \"42\", `(starts-with? 421 \"4\")` => true. cljw raises `upper-case: expected string, got keyword`."
-    category: "clj-parity"
-    barrier: |-
-      Ready — no blocker, just care about the boundary. The set is NOT all of
-      clojure.string: measured on clj, `trim`, `triml`, `trimr`, `trim-newline`,
-      `reverse`, `blank?`, `split`, `split-lines` DO throw ClassCastException on a
-      non-CharSequence, because they call CharSequence methods directly rather
-      than `.toString`. Coercing those too would be a divergence in the other
-      direction. `nil` must still raise (clj throws NPE), so `(str s)` is the
-      wrong coercion — it turns nil into "".
-      Mechanism is settled: render through `print.writeStrValue`, which
-      `core.zig:900`'s `str` already uses and whose own comment names it as
-      "the single source shared with the `.toString` Object-method fallback
-      (D-207 / ADR-0076 C3)" — i.e. it IS cljw's `.toString`. Each of the 8
-      fns currently does `if (args[0].tag() != .string) raise(.type_arg_not_string)`
-      (`src/lang/primitive/string.zig:40-41` and siblings); replace that guard
-      with a nil-check plus a writeStrValue render, leaving the other 8 fns'
-      guards untouched.
-    last_reviewed: "2026-08-20"
-  - id: "D-581"
-    status: "open (2026-08-20, measured — the kanban row stated this BACKWARDS). `(clojure.edn/read-string \"\")` THROWS `Unexpected EOF while reading form` in cljw; clj returns nil. Same for whitespace-only input. The kanban row [CLJW-EDN-EOF] recorded it as cljw returning nil, which is what clj does. Direction confirmed by running both."
-    category: "clj-parity"
-    barrier: |-
-      NOT a one-line flip — the two readers are ONE function in cljw.
-      `src/lang/primitive.zig:86` interns `edn_prim.readStringFn` directly into
-      `clojure.core` as `read-string`, so `clojure.core/read-string` and
-      `clojure.edn/read-string` share `src/lang/primitive/edn.zig:121-122`.
-      clj wants them to DIFFER on exactly this input: measured, core throws
-      `RuntimeException: EOF while reading` and edn returns nil. Returning nil
-      at the shared raise site would fix edn and break core in the same edit.
-      So the fix is to split the entry points (or thread a caller flag) — decide
-      which, then change the docstring at edn.zig:38-41, which currently ASSERTS
-      the wrong thing ("empty / whitespace-only / comment-only input THROWS EOF
-      (clj parity, D-269)"). That sentence is how D-269 came to be discharged
-      wrong: the claim was written down and never run against clj.
-      The 2-arity `(read-string {:eof :done} "")` => :done already works on both
-      and must keep working.
-    last_reviewed: "2026-08-20"
   - id: "D-582"
     status: "open (2026-08-20, audited across all 171 ADRs). ADR governance has three gaps beyond the mechanical ones already swept: (1) 50 ADRs numbered >= 0020 carry NO `## Affected files` section, which ADR-0020 mandates; (2) 36 more cite a path that no longer exists; (3) ADR-0004's day-1 `SpecialFormTag` reservation has NO enforcing artifact — checked all 39 check_*.sh, zero reference it — and the real enum (`SpecialFormKind`, analyzer.zig) has diverged unamended: 10 reserved variants absent, 7 present variants never added to the ADR."
     category: "governance"
@@ -2964,6 +2925,45 @@ standing:
       Full design: private/notes/subvec-seqview-design.md.
     last_reviewed: "2026-08-20"
 discharged:
+  - id: "D-581"
+    status: "DISCHARGED 2026-08-20 — split into two entry points (readStringFn raises, readStringEdnFn returns nil); verified empty/whitespace/comment-only => nil for edn and RuntimeException for core, with :eof still winning for both. Was: measured — the kanban row stated this BACKWARDS. `(clojure.edn/read-string \"\")` THROWS `Unexpected EOF while reading form` in cljw; clj returns nil. Same for whitespace-only input. The kanban row [CLJW-EDN-EOF] recorded it as cljw returning nil, which is what clj does. Direction confirmed by running both."
+    category: "clj-parity"
+    barrier: |-
+      NOT a one-line flip — the two readers are ONE function in cljw.
+      `src/lang/primitive.zig:86` interns `edn_prim.readStringFn` directly into
+      `clojure.core` as `read-string`, so `clojure.core/read-string` and
+      `clojure.edn/read-string` share `src/lang/primitive/edn.zig:121-122`.
+      clj wants them to DIFFER on exactly this input: measured, core throws
+      `RuntimeException: EOF while reading` and edn returns nil. Returning nil
+      at the shared raise site would fix edn and break core in the same edit.
+      So the fix is to split the entry points (or thread a caller flag) — decide
+      which, then change the docstring at edn.zig:38-41, which currently ASSERTS
+      the wrong thing ("empty / whitespace-only / comment-only input THROWS EOF
+      (clj parity, D-269)"). That sentence is how D-269 came to be discharged
+      wrong: the claim was written down and never run against clj.
+      The 2-arity `(read-string {:eof :done} "")` => :done already works on both
+      and must keep working.
+    last_reviewed: "2026-08-20"
+  - id: "D-579"
+    status: "DISCHARGED 2026-08-20 — all 8 coercing fns done. Was PARTIAL: `upper-case`, `lower-case`, `capitalize` now coerce via the new `toStringArg` helper (print.writeStrValue) and match clj exactly, verified: `(upper-case :foo)`=>\":FOO\", `(upper-case 42)`=>\"42\", `(lower-case 'SymBol)`=>\"symbol\", `(capitalize 42)`=>\"42\"; nil still raises; trim/reverse/blank?/split still throw as clj does. Then completed: `starts-with?`, `ends-with?`, `includes?`, `index-of`, `last-index-of` — `rt`/`env` threaded through `prefixImpl` and both index fns; first arg coerces, needle stays String-typed as in clj. Original finding: clojure.string's `.toString`-coercing fns raise a type error in cljw where clj accepts any non-nil value. MEASURED against clj: `upper-case`, `lower-case`, `capitalize`, `starts-with?`, `ends-with?`, `includes?`, `index-of`, `last-index-of` all coerce via `.toString` — `(upper-case :foo)` => \":FOO\", `(upper-case 42)` => \"42\", `(starts-with? 421 \"4\")` => true. cljw raises `upper-case: expected string, got keyword`."
+    category: "clj-parity"
+    barrier: |-
+      Ready — no blocker, just care about the boundary. The set is NOT all of
+      clojure.string: measured on clj, `trim`, `triml`, `trimr`, `trim-newline`,
+      `reverse`, `blank?`, `split`, `split-lines` DO throw ClassCastException on a
+      non-CharSequence, because they call CharSequence methods directly rather
+      than `.toString`. Coercing those too would be a divergence in the other
+      direction. `nil` must still raise (clj throws NPE), so `(str s)` is the
+      wrong coercion — it turns nil into "".
+      Mechanism is settled: render through `print.writeStrValue`, which
+      `core.zig:900`'s `str` already uses and whose own comment names it as
+      "the single source shared with the `.toString` Object-method fallback
+      (D-207 / ADR-0076 C3)" — i.e. it IS cljw's `.toString`. Each of the 8
+      fns currently does `if (args[0].tag() != .string) raise(.type_arg_not_string)`
+      (`src/lang/primitive/string.zig:40-41` and siblings); replace that guard
+      with a nil-check plus a writeStrValue render, leaving the other 8 fns'
+      guards untouched.
+    last_reviewed: "2026-08-20"
   - id: "D-580"
     status: "DISCHARGED 2026-08-20 — all three negative-index arms (vector, array_seq, transient_vector) now raise index_out_of_range; verified against clj for vector/list/string and the default-wins path. Was: open (2026-08-20, measured). `(nth [1 2 3] -1)` raises Kind ClassCastException in cljw; clj raises IndexOutOfBoundsException. The POSITIVE out-of-range path is already right — `(nth [1 2 3] 99)` raises IndexOutOfBoundsException on both — so only the negative-index arm picked the wrong class."
     category: "clj-parity"
