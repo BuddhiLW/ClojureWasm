@@ -95,3 +95,27 @@ becomes friction. At Phase 4 entry, 20-25 ADRs are scannable by
 ## Revision history
 
 - 2026-05-23: Status: Proposed -> Accepted (initial landing).
+- 2026-08-20: **The "Affected files" mandate is now enforced, and the existing
+  backlog is grandfathered rather than retrofitted.**
+
+  Measured: of the 172 ADRs numbered >= 0020, **51 carry no `## Affected files`
+  section at all**. The mandate had no enforcing artifact, so it bound nothing
+  for its whole life.
+
+  Retrofitting the 51 was considered and rejected. Reconstructing each
+  decision's affected-file list years after the fact means writing a record
+  from memory rather than keeping one — and this ADR's own point is that the
+  list is evidence, not decoration. A fabricated list is worse than an absent
+  one, because it reads as evidence.
+
+  So the mandate binds **prospectively**: `data/adr_affected_files_grandfathered.txt`
+  pins the 51 exempt files plus a high-water mark (currently 0191), and
+  `scripts/check_adr_affected_files.sh` fails any ADR above that mark with no
+  section. The ledger is checked in both directions — an ADR at or below the
+  mark that is missing the section and NOT listed also fails, so a deleted
+  section or a renumbered file cannot slip through, and a grandfathered ADR
+  that later GAINS a section must leave the ledger. The backlog can therefore
+  only shrink.
+
+  Adding the section to a grandfathered ADR is welcome at any time; drop its
+  line from the ledger in the same commit.
