@@ -27,10 +27,11 @@
 # appearing here is a decision, not a formality.
 set -euo pipefail
 cd "$(dirname "$0")/.."
+source "$(dirname "$0")/lib_cljw_bin.sh"
 
 BIN="zig-out/bin/cljw"
 LEDGER="data/doc_coverage.txt"
-[ -x "$BIN" ] || { echo "check_doc_coverage: building cljw…" >&2; zig build -Dwasm -Doptimize="${CLJW_OPT:-ReleaseSafe}" >/dev/null; }
+cljw_bin_ensure "$BIN" check_doc_coverage
 
 # Every bundled namespace whose publics a user can reach. Kept here rather than
 # derived from `FILES` so that adding a namespace is a conscious decision about

@@ -54,13 +54,14 @@
 
 set -uo pipefail
 cd "$(dirname "$0")/.."
+source "$(dirname "$0")/lib_cljw_bin.sh"
 ROOT="$PWD"
 
 BIN="$ROOT/zig-out/bin/cljw"
 CLJ="${CLJ:-clj}"
 DIR="test/conformance"
 
-[ -x "$BIN" ] || { echo "building cljw…" >&2; zig build -Dwasm -Doptimize="${CLJW_OPT:-ReleaseSafe}" >/dev/null; }
+cljw_bin_ensure "$BIN" lib_conformance
 
 # ---------- lib context ----------
 # Sets: CTX_DIR (cwd for cljw), CLJ_DIR (cwd for clj) and SDEPS_ARGS.

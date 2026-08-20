@@ -24,9 +24,10 @@
 
 set -uo pipefail
 cd "$(dirname "$0")/.."
+source "$(dirname "$0")/lib_cljw_bin.sh"
 
 BIN="zig-out/bin/cljw"
-[ -x "$BIN" ] || { echo "building cljw…" >&2; zig build -Dwasm -Doptimize="${CLJW_OPT:-ReleaseSafe}" >/dev/null; }
+cljw_bin_ensure "$BIN" check_compat_members
 command -v yq >/dev/null || { echo "check_compat_members: yq required" >&2; exit 1; }
 
 run_bounded() {

@@ -21,9 +21,10 @@
 # (ADR-0163), so a bare dump would only see the eager set and silently under-report.
 set -euo pipefail
 cd "$(dirname "$0")/.."
+source "$(dirname "$0")/lib_cljw_bin.sh"
 
 BIN="zig-out/bin/cljw"
-[ -x "$BIN" ] || { echo "gen_placement: building cljw…" >&2; zig build -Dwasm -Doptimize="${CLJW_OPT:-ReleaseSafe}" >/dev/null; }
+cljw_bin_ensure "$BIN" gen_placement
 
 # Bundled .clj → ns name (same munge inverse as check_lazy_ns_replay.sh:
 # '/'→'.', '_'→'-').

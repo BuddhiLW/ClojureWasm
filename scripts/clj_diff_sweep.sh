@@ -40,6 +40,7 @@
 
 set -uo pipefail
 cd "$(dirname "$0")/.."
+source "$(dirname "$0")/lib_cljw_bin.sh"
 
 BIN="zig-out/bin/cljw"
 CLJ="${CLJ:-clj}"
@@ -63,7 +64,7 @@ while [ $# -gt 0 ]; do
     esac
 done
 
-[ -x "$BIN" ] || { echo "building cljw…" >&2; zig build -Dwasm -Doptimize="${CLJW_OPT:-ReleaseSafe}" >/dev/null; }
+cljw_bin_ensure "$BIN" clj_diff_sweep
 
 # Read non-blank, non-comment lines into an array.
 exprs=()
