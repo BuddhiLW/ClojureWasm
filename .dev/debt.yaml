@@ -2894,18 +2894,29 @@ standing:
       path needs nothing.
     last_reviewed: "2026-08-20"
   - id: "D-582"
-    status: "open — NARROWED 2026-08-20. (3) DISCHARGED: ADR-0004's enum reservation now has an enforcing artifact (data/special_forms.txt + scripts/check_special_form_enum.sh, gated) and the ADR is amended to withdraw the reservation. (1) DISCHARGED: the Affected-files mandate is enforced prospectively — data/adr_affected_files_grandfathered.txt pins the 51 exempt ADRs + a high-water mark (0191), scripts/check_adr_affected_files.sh gates above it in both directions, ADR-0020 amended with the decision. REMAINING: (2) 36 ADRs cite a path that no longer exists; the `.dev/debt.md` sub-class (43 citations across 27 files) was swept, the rest are unswept."
+    status: "open — NARROWED 2026-08-20, residual (2) now MEASURED and classified. (3) DISCHARGED: ADR-0004's enum reservation has an enforcing artifact (data/special_forms.txt + check_special_form_enum.sh, gated) and the ADR withdraws the reservation. (1) DISCHARGED: the Affected-files mandate is enforced prospectively (data/adr_affected_files_grandfathered.txt + check_adr_affected_files.sh, mark 0191, 51 grandfathered; ADR-0020 amended). (2) MEASURED: 71 genuinely-dead paths across 39 ADRs — NOT the 36 the first audit reported, and not the 147 a naive extraction reports (stripping a leading `.` turns every `.dev/...` citation into a false positive; verify the extractor before trusting a count)."
     category: "governance"
     barrier: |-
-      Residual is (2) only, and it is a MEASUREMENT job before a sweep job:
-      enumerate the distinct dead paths first, because they are not one class.
-      A renamed file (like the swept `.dev/debt.md` -> `.dev/debt.yaml`) is a
-      mechanical fix; a DELETED module is not — the ADR's Affected-files entry
-      is then a true historical record of a file that existed when the decision
-      was made, and rewriting it would falsify history. Expect both kinds and
-      decide per path, not per file.
-      Do NOT extend the new adr_affected_files gate to path existence: it would
-      fail on exactly the legitimate historical case above.
+      The 71 are FOUR classes and only one is safe to sweep. Decide per path.
+        A. Bare filename, file EXISTS elsewhere — `heap_tag.zig` (4x, really
+           src/runtime/value/heap_tag.zig), `vm.zig` (4x, src/eval/backend/),
+           `agent.zig`, `mark_sweep.zig`. The ADR cites a basename without its
+           directory. Mechanically expandable and SAFE — the only sweepable
+           class. Confirm the file is the same one the ADR meant, not a
+           same-named newcomer.
+        B. TEMPLATE PLACEHOLDERS — `src/path/to/file.zig`, `scripts/bar.sh`,
+           `.claude/rules/foo.md`, from `.dev/decisions/0000_template.md` and
+           ADR-0020's own example block. These are illustrations, not
+           citations. Never "fix" them, and EXCLUDE 0000_template.md from any
+           future path check or it will fail forever.
+        C. Genuinely REMOVED files — `src/runtime/{gc,lock,stm}/stub.zig`
+           (ADR-0023's comptime-stub pattern). The entry is a true historical
+           record of a file that existed when the decision was made. Rewriting
+           it falsifies the ADR. Leave.
+        D. Gitignored scratch — `private/notes/...`. Correctly cited at the
+           time; never in the tree. Leave.
+      Do NOT extend check_adr_affected_files.sh to path existence: it would
+      fail on B, C and D, which are all correct as written.
     last_reviewed: "2026-08-20"
   - id: "D-583"
     status: "open (2026-08-20, designed — USER-GATED). SubVector is still an eager copy (`vector.zig:368-378`, repeated conj), measured 7480x slower than the JVM view. Design settled: a new `.sub_vector` tag holding {start, end, parent, meta} modeled on array_seq.zig, with JVM APersistentVector.SubVector semantics. Blast radius measured at ~99 genuine Value.Tag references across 15 files; the GC tracer is NOT an exhaustive switch (tag_ops.zig uses registered fn-pointer tables), so it is one additive registration."
