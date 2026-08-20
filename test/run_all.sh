@@ -351,6 +351,14 @@ run_step "runner_reach"         "bash scripts/check_runner_reach.sh"
 # .dev/tech_debt_consolidation.md. Gate-promotion tracked in D-175.
 run_step "debt_id_refs"         "bash scripts/check_debt_id_refs.sh --gate"
 
+# CHANGELOG.md is the release-history SSOT, so an `[Unreleased]` entry that
+# already shipped in the newest tag mis-states what a reader can get.
+run_step "changelog_reachability" "bash scripts/check_changelog_reachability.sh --gate"
+
+# ADR-0004 locked the analyzer's special-form enum on day one and nothing
+# enforced it; the ADR and the enum had diverged in both directions.
+run_step "special_form_enum"    "bash scripts/check_special_form_enum.sh"
+
 # Accepted clj-divergence ledger (.dev/accepted_divergences.yaml): every
 # AD-NNN cites a justifying invariant + a pinning test, and COVERAGE.md
 # points at the SSOT. Keeps the "NOT a bug" list a trust contract that

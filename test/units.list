@@ -63,6 +63,7 @@ check_core_surface|-|yes|via-gate|bash scripts/check_core_surface.sh
 check_corpus_regression|-|yes|via-gate|bash scripts/check_corpus_regression.sh
 check_debt_id_refs|-|yes|via-gate|bash scripts/check_debt_id_refs.sh --gate
 check_doc_coverage|-|yes|via-gate|bash scripts/check_doc_coverage.sh
+check_changelog_reachability|-|yes|via-gate|bash scripts/check_changelog_reachability.sh --gate
 check_e2e_dup|-|yes|via-gate|bash scripts/check_e2e_dup.sh
 check_e2e_reach|-|yes|via-gate|bash scripts/check_e2e_reach.sh --gate
 check_entrypoint_surface|-|yes|via-gate|bash scripts/check_entrypoint_surface.sh
@@ -77,6 +78,7 @@ check_provisional_sync|-|yes|via-gate|bash scripts/check_provisional_sync.sh --g
 check_placement_status|-|yes|via-gate|bash scripts/check_placement_status.sh
 check_portable_timeout|-|yes|via-gate|bash scripts/check_portable_timeout.sh
 check_reference_clones|-|yes|via-gate|bash scripts/check_reference_clones.sh
+check_special_form_enum|-|yes|via-gate|bash scripts/check_special_form_enum.sh
 check_repr_decode|-|yes|via-gate|bash scripts/check_repr_decode.sh --gate
 check_surface_marker|-|yes|via-gate|bash scripts/check_surface_marker.sh --gate
 check_test_reach|-|yes|via-gate|bash scripts/check_test_reach.sh --gate

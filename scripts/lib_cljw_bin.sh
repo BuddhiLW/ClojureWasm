@@ -43,7 +43,7 @@ cljw_bin_stale() {
   [ -n "$srcs" ] || return 1
   # shellcheck disable=SC2086
   local newer
-  newer="$(find $srcs -type f -newer "$bin" -print 2>/dev/null | head -1)"
+  newer="$(find $srcs -type f -newer "$bin" -print 2>/dev/null | sed -n 1p)"
   [ -n "$newer" ]
 }
 
