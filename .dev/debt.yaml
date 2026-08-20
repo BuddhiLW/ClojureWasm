@@ -2879,19 +2879,19 @@ standing:
     barrier: "open after the D-440 arc completes (R4 + R5 must first rewrite the bulk of 'Phase N' citations to gap-area terms). Premature adoption = ~70 dangling citations with no 1:1 redirect. Trigger: D-440 R4/R5 done + a user nod to re-architect the planning axis (it is depth-4, the project's organizing metaphor)."
     last_reviewed: "2026-06-15"
   - id: "D-578"
-    status: "open (2026-08-20). `counted?` answers true for `.chunked_cons` (COUNTED_TAGS, interface_membership.zig) but `count` on one now WALKS it — the chunked-prefix-only fast path was removed because it returned 32 for every seq longer than one chunk. So the O(1) promise `counted?` makes is no longer kept for that tag. Correctness is fixed; the remaining question is which side moves."
-    category: "clj-parity"
+    status: "open — NARROWED 2026-08-20 to a performance promise, no longer a correctness gap. Oracle measured, cljw now matches clj on every chunked-producing form: (seq (range 40)) true/40 both; (seq (vec (range 40))) true/40 both; (rest (seq (vec (range 40)))) true/39 both; (map inc (range 40)) false/40 both. So `counted?` answers correctly. What remains: for `.chunked_cons` cljw's `count` WALKS (O(chunks)) where clj's equivalent is O(1), because clj reaches these shapes as LongRange or as a vector-backed ChunkedSeq that knows its remaining total, while cljw's chunked_cons is a chunk plus a possibly-lazy tail. `counted?` therefore implies O(1) more weakly here than in clj."
+    category: "perf"
     barrier: |-
-      Needs an oracle measurement before a decision, not a guess. clj has no
-      single answer to compare against: `(seq (range 40))` is a LongRange there
-      (Counted, genuinely O(1)) while in cljw it is a ChunkedSeq over a lazy
-      tail. Two candidate shapes:
-        (a) drop `.chunked_cons` from COUNTED_TAGS — honest, and matches clj for
-            the chunked-seq-over-lazy case, but changes an advertised predicate;
-        (b) make count O(1) again by carrying a total on the chunked cons — only
-            possible when the tail is already realized, so it does not generalise.
-      Measure what clj answers for each of cljw's chunked-producing forms first.
-      Do NOT re-add a fast path that reports a partial count.
+      Not urgent and NOT a correctness fix — every observable answer already
+      matches clj (measured above), so do not "fix" this by flipping
+      `counted?` to false: that would introduce a divergence where none exists
+      now, and `counted?` is what callers use to pick an algorithm.
+      The real optimisation, when a consumer justifies it: when a chunked_cons'
+      tail is itself a `.range` (the common `(seq (range n))` shape), the total
+      is chunk-remaining + range count with no walk. The general lazy-tail case
+      cannot be O(1) and should stay a walk.
+      Note `.array_seq` is already O(1) via `array_seq.countOf` — the vector-seq
+      path needs nothing.
     last_reviewed: "2026-08-20"
   - id: "D-582"
     status: "open (2026-08-20, audited across all 171 ADRs). ADR governance has three gaps beyond the mechanical ones already swept: (1) 50 ADRs numbered >= 0020 carry NO `## Affected files` section, which ADR-0020 mandates; (2) 36 more cite a path that no longer exists; (3) ADR-0004's day-1 `SpecialFormTag` reservation has NO enforcing artifact — checked all 39 check_*.sh, zero reference it — and the real enum (`SpecialFormKind`, analyzer.zig) has diverged unamended: 10 reserved variants absent, 7 present variants never added to the ADR."
