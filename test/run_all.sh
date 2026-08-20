@@ -552,6 +552,7 @@ run_step "e2e_phase14_nrepl_completion"      "bash test/e2e/phase14_nrepl_comple
 run_step "e2e_phase14_nrepl_classpath"       "bash test/e2e/phase14_nrepl_classpath.sh"
 run_step "e2e_phase14_nrepl_toplevel_do"     "bash test/e2e/phase14_nrepl_toplevel_do.sh"
 run_step "e2e_entrypoint_eval_parity"        "bash test/e2e/entrypoint_eval_parity.sh"
+run_step "e2e_cljw_test_runner"              "bash test/e2e/cljw_test_runner.sh"
 run_step "e2e_phase14_error_format"          "bash test/e2e/phase14_error_format.sh"
 run_step "e2e_phase14_render_error"          "bash test/e2e/phase14_render_error.sh"
 run_step "e2e_phase14_callable_print"        "bash test/e2e/phase14_callable_print.sh"

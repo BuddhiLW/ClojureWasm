@@ -295,23 +295,43 @@
                       :actual e})))
       (do-report {:type :end-test-var :var v}))))
 
+(defn test-ns
+  "Run every test registered for one namespace, bracketed by the
+  :begin-test-ns / :end-test-ns report events and wrapped in the namespace's
+  fixtures. Accepts a namespace symbol or a namespace object. Binds report
+  counters when the caller has none, so it is callable on its own; returns the
+  counters map. Prints NO summary — that is `run-tests`' job, which is what
+  lets an external runner call this per namespace and keep one total."
+  [ns]
+  (let [ns-sym (if (symbol? ns) ns (ns-name ns))]
+    (binding [*report-counters* (or *report-counters* (atom *initial-report-counters*))]
+      (do-report {:type :begin-test-ns :ns ns-sym})
+      (let [each-fixture (fixtures-for ns-sym :each)]
+        ((fixtures-for ns-sym :once)
+         (fn []
+           (doseq [v (get (deref *test-registry*) ns-sym)]
+             (swap! *report-counters* update :test inc)
+             (each-fixture (fn [] (test-var v)))))))
+      ;; clj parity: emit :end-test-ns so a reporter that brackets a namespace
+      ;; (junit's </testsuite>, custom reporters) fires.
+      (do-report {:type :end-test-ns :ns ns-sym})
+      (deref *report-counters*))))
+
 (defn run-tests [& ns-syms]
   (let [targets (if (seq ns-syms) ns-syms (list (ns-name *ns*)))]
     (binding [*report-counters* (atom *initial-report-counters*)]
       (doseq [ns-sym targets]
-        (do-report {:type :begin-test-ns :ns ns-sym})
-        (let [each-fixture (fixtures-for ns-sym :each)]
-          ((fixtures-for ns-sym :once)
-           (fn []
-             (doseq [v (get (deref *test-registry*) ns-sym)]
-               (swap! *report-counters* update :test inc)
-               (each-fixture (fn [] (test-var v)))))))
-        ;; clj parity: emit :end-test-ns so a reporter that brackets a namespace
-        ;; (junit's </testsuite>, custom reporters) fires.
-        (do-report {:type :end-test-ns :ns ns-sym}))
+        (test-ns ns-sym))
       (let [summary (assoc (deref *report-counters*) :type :summary)]
         (do-report summary)
         summary))))
 
 (defn run-all-tests []
   (apply run-tests (keys (deref *test-registry*))))
+
+(defn successful?
+  "True when `summary` — a map as returned by `run-tests` — records neither a
+  failure nor an error. The verdict a runner turns into an exit code."
+  [summary]
+  (and (zero? (:fail summary 0))
+       (zero? (:error summary 0))))
