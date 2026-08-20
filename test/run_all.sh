@@ -363,11 +363,19 @@ run_step "accepted_divergences" "bash scripts/check_accepted_divergences.sh --ga
 # four pushes went red on a single stray blank line only CI checked).
 run_step "zig_fmt_check"        "zig fmt --check src/"
 
-# zlinter no_deprecated gate (ADR-0003) — Mac-host only. zlinter is
-# fetched via `zig fetch` against GitHub; OrbStack runs are network-
-# free per .dev/orbstack_setup.md.
-if [[ "$(uname -s)" == "Darwin" ]]; then
+# zlinter rule chain (ADR-0003). Gated on whether zlinter can be OBTAINED,
+# not on the host OS. It is fetched from GitHub, so a network-free host
+# (OrbStack, per .dev/orbstack_setup.md) genuinely cannot run it — but a
+# networked Linux host can, and keying the guard on `uname == Darwin` meant
+# Linux never ran the linter at all. A deprecated-stdlib call could then ride
+# a green Linux gate all the way to the macOS leg, which is exactly how
+# `std.mem.indexOfPos` reached CI: Linux green, macOS red, on one commit.
+# The dep resolves offline once it is in the global zig cache, so `zig fetch`
+# is the honest probe: it succeeds from cache OR from network.
+if zig build lint -Dwasm --help >/dev/null 2>&1; then
     run_step "zlinter"          "zig build lint -Dwasm -- --max-warnings 0"
+else
+    echo "run_all: SKIP zlinter — the zlinter dependency could not be resolved (no cache, no network)"
 fi
 
 # Build the default (vm — production, ADR-0070 flip) cljw binary ONCE here,
@@ -552,6 +560,7 @@ run_step "e2e_phase14_nrepl_completion"      "bash test/e2e/phase14_nrepl_comple
 run_step "e2e_phase14_nrepl_classpath"       "bash test/e2e/phase14_nrepl_classpath.sh"
 run_step "e2e_phase14_nrepl_toplevel_do"     "bash test/e2e/phase14_nrepl_toplevel_do.sh"
 run_step "e2e_entrypoint_eval_parity"        "bash test/e2e/entrypoint_eval_parity.sh"
+run_step "e2e_cljw_test_runner"              "bash test/e2e/cljw_test_runner.sh"
 run_step "e2e_phase14_error_format"          "bash test/e2e/phase14_error_format.sh"
 run_step "e2e_phase14_render_error"          "bash test/e2e/phase14_render_error.sh"
 run_step "e2e_phase14_callable_print"        "bash test/e2e/phase14_callable_print.sh"

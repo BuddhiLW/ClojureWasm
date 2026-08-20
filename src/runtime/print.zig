@@ -1732,7 +1732,7 @@ const Runtime = @import("runtime.zig").Runtime;
 fn occurrences(hay: []const u8, needle: []const u8) usize {
     var n: usize = 0;
     var i: usize = 0;
-    while (std.mem.indexOfPos(u8, hay, i, needle)) |at| : (i = at + needle.len) n += 1;
+    while (std.mem.findPos(u8, hay, i, needle)) |at| : (i = at + needle.len) n += 1;
     return n;
 }
 
