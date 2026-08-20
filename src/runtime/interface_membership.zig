@@ -273,6 +273,16 @@ pub fn tagsFor(name: []const u8) ?[]const Tag {
     return null;
 }
 
+/// True iff `t` is natively Sequential. `=` (equal.zig) and `sequential?`
+/// (core.zig) both read THIS, so the two answers cannot disagree; `isMember`
+/// would string-scan TABLE, which the `=` hot path cannot afford.
+pub fn isSequentialTag(t: Tag) bool {
+    inline for (SEQUENTIAL_TAGS) |x| {
+        if (x == t) return true;
+    }
+    return false;
+}
+
 /// True iff value-tag `t` is a native implementor of interface `name`.
 pub fn isMember(t: Tag, name: []const u8) bool {
     const tags = tagsFor(name) orelse return false;
