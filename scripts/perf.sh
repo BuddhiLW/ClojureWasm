@@ -25,6 +25,7 @@
 #   CLJW_PERF_MODE=ReleaseSafe bash scripts/perf.sh '...'  # match cw-v0's mode
 set -euo pipefail
 cd "$(dirname "$0")/.."
+source "$(dirname "$0")/lib_build_lock.sh"
 
 MODE="${CLJW_PERF_MODE:-ReleaseFast}"
 N=3
@@ -40,7 +41,7 @@ done
 
 PREFIX="${TMPDIR:-/tmp}/cljw-perf"
 echo "[perf] building $MODE into $PREFIX (dev zig-out/bin/cljw untouched)…" >&2
-zig build -Dwasm -Doptimize="$MODE" -p "$PREFIX" >/dev/null
+with_build_lock zig build -Dwasm -Doptimize="$MODE" -p "$PREFIX" >/dev/null
 BIN="$PREFIX/bin/cljw"
 [ -x "$BIN" ] || { echo "perf.sh: build produced no $BIN" >&2; exit 1; }
 echo "[perf] $MODE binary ready; timing $N run(s):" >&2

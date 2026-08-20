@@ -24,6 +24,7 @@ done
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+source "$PROJECT_ROOT/scripts/lib_build_lock.sh"
 CLJW="$PROJECT_ROOT/zig-out/bin/cljw"
 WASM_DIR="$SCRIPT_DIR/wasm"
 
@@ -99,7 +100,7 @@ fi
 # --- Build CW ---
 if ! $SKIP_BUILD; then
   echo -e "${CYAN}Building ClojureWasm (ReleaseSafe)...${RESET}"
-  (cd "$PROJECT_ROOT" && zig build -Dwasm -Doptimize=ReleaseSafe) || {
+  (cd "$PROJECT_ROOT" && with_build_lock zig build -Dwasm -Doptimize=ReleaseSafe) || {
     echo -e "${RED}Build failed${RESET}" >&2
     exit 1
   }
