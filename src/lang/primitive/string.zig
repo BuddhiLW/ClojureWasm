@@ -28,6 +28,7 @@ const regex_value = @import("../../runtime/regex/value.zig");
 const regex_match = @import("../../runtime/regex/match.zig");
 const regex_replace = @import("../../runtime/regex/replace.zig");
 const regex_prim = @import("regex.zig");
+const print_mod = @import("../../runtime/print.zig");
 
 /// `(clojure.string/upper-case s)` — ASCII upper-case fold.
 /// Non-ASCII codepoints pass through unchanged; full Unicode case
@@ -35,11 +36,10 @@ const regex_prim = @import("regex.zig");
 /// `String.toUpperCase()` which is locale + Unicode aware; cw v1
 /// will catch up as part of the broader charset.zig migration.
 pub fn upperCase(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
-    _ = env;
     try error_catalog.checkArity("upper-case", args, 1, loc);
-    if (args[0].tag() != .string)
-        return error_catalog.raise(.type_arg_not_string, loc, .{ .fn_name = "upper-case", .actual = @tagName(args[0].tag()) });
-    const s = string_collection.asString(args[0]);
+    var aw: std.Io.Writer.Allocating = .init(rt.gpa);
+    defer aw.deinit();
+    const s = try toStringArg(rt, env, args[0], "upper-case", loc, &aw);
     const buf = try charset.upperCaseAlloc(rt.gc.infra, s);
     defer rt.gc.infra.free(buf);
     return try string_collection.alloc(rt, buf);
@@ -48,11 +48,10 @@ pub fn upperCase(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocati
 /// `(clojure.string/lower-case s)` — mirror of `upperCase`. Same
 /// Unicode case-folding caveat (D-057).
 pub fn lowerCase(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
-    _ = env;
     try error_catalog.checkArity("lower-case", args, 1, loc);
-    if (args[0].tag() != .string)
-        return error_catalog.raise(.type_arg_not_string, loc, .{ .fn_name = "lower-case", .actual = @tagName(args[0].tag()) });
-    const s = string_collection.asString(args[0]);
+    var aw: std.Io.Writer.Allocating = .init(rt.gpa);
+    defer aw.deinit();
+    const s = try toStringArg(rt, env, args[0], "lower-case", loc, &aw);
     const buf = try charset.lowerCaseAlloc(rt.gc.infra, s);
     defer rt.gc.infra.free(buf);
     return try string_collection.alloc(rt, buf);
@@ -76,6 +75,35 @@ pub fn blank(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) 
     if (s.len == 0) return .true_val;
     const blank_all = charset.isAllWhitespace(s) catch return .false_val;
     return if (blank_all) .true_val else .false_val;
+}
+
+/// The first argument of clj's `.toString`-typed string fns, rendered.
+///
+/// clj hints those parameters `^CharSequence` but calls `.toString` on them,
+/// so ANY non-nil value is accepted: `(upper-case :foo)` => ":FOO",
+/// `(upper-case 42)` => "42". nil is NOT accepted (clj NPEs on `.toString`),
+/// so `(str v)` is the wrong coercion — it would turn nil into "".
+///
+/// Rendering goes through `print.writeStrValue`, the same one `str` and the
+/// `.toString` Object method use, so the three cannot answer differently.
+/// The returned slice is owned by `aw` and lives until the caller deinits it.
+///
+/// NOT for the CharSequence-METHOD fns (trim / reverse / blank? / split): clj
+/// calls CharSequence methods on those directly and throws ClassCastException
+/// for a non-CharSequence, so coercing them would diverge the other way.
+fn toStringArg(
+    rt: *Runtime,
+    env: *env_mod.Env,
+    v: Value,
+    fn_name: []const u8,
+    loc: error_mod.SourceLocation,
+    aw: *std.Io.Writer.Allocating,
+) anyerror![]const u8 {
+    if (v.tag() == .string) return string_collection.asString(v);
+    if (v.isNil())
+        return error_catalog.raise(.type_arg_not_string, loc, .{ .fn_name = fn_name, .actual = "nil" });
+    try print_mod.writeStrValue(rt, env, &aw.writer, v);
+    return aw.writer.buffered();
 }
 
 const TrimVariant = enum { both, left, right, newline_right };
@@ -462,11 +490,10 @@ pub fn escape(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation)
 /// split at the first codepoint's boundary (no extra allocation
 /// beyond the per-step buffers + the final heap string).
 pub fn capitalize(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
-    _ = env;
     try error_catalog.checkArity("capitalize", args, 1, loc);
-    if (args[0].tag() != .string)
-        return error_catalog.raise(.type_arg_not_string, loc, .{ .fn_name = "capitalize", .actual = @tagName(args[0].tag()) });
-    const s = string_collection.asString(args[0]);
+    var aw: std.Io.Writer.Allocating = .init(rt.gpa);
+    defer aw.deinit();
+    const s = try toStringArg(rt, env, args[0], "capitalize", loc, &aw);
     if (s.len == 0) return try string_collection.alloc(rt, "");
 
     var iter = std.unicode.Utf8Iterator{ .bytes = s, .i = 0 };

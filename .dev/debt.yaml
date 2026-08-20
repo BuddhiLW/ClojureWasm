@@ -2894,7 +2894,7 @@ standing:
       Do NOT re-add a fast path that reports a partial count.
     last_reviewed: "2026-08-20"
   - id: "D-579"
-    status: "open (2026-08-20, measured both sides). clojure.string's `.toString`-coercing fns raise a type error in cljw where clj accepts any non-nil value. MEASURED against clj: `upper-case`, `lower-case`, `capitalize`, `starts-with?`, `ends-with?`, `includes?`, `index-of`, `last-index-of` all coerce via `.toString` — `(upper-case :foo)` => \":FOO\", `(upper-case 42)` => \"42\", `(starts-with? 421 \"4\")` => true. cljw raises `upper-case: expected string, got keyword`."
+    status: "PARTIAL (2026-08-20). DONE: `upper-case`, `lower-case`, `capitalize` now coerce via the new `toStringArg` helper (print.writeStrValue) and match clj exactly, verified: `(upper-case :foo)`=>\":FOO\", `(upper-case 42)`=>\"42\", `(lower-case 'SymBol)`=>\"symbol\", `(capitalize 42)`=>\"42\"; nil still raises; trim/reverse/blank?/split still throw as clj does. REMAINING: `starts-with?`, `ends-with?`, `includes?` (shared `prefixImpl`) and `index-of` / `last-index-of` — those take neither `rt` nor `env`, so coercing them needs those threaded through their signatures and call sites. Original finding: clojure.string's `.toString`-coercing fns raise a type error in cljw where clj accepts any non-nil value. MEASURED against clj: `upper-case`, `lower-case`, `capitalize`, `starts-with?`, `ends-with?`, `includes?`, `index-of`, `last-index-of` all coerce via `.toString` — `(upper-case :foo)` => \":FOO\", `(upper-case 42)` => \"42\", `(starts-with? 421 \"4\")` => true. cljw raises `upper-case: expected string, got keyword`."
     category: "clj-parity"
     barrier: |-
       Ready — no blocker, just care about the boundary. The set is NOT all of
