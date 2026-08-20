@@ -193,7 +193,7 @@ forces user-visible divergence from JVM Clojure or hides it via a
   the cycle-7.1 truncation, emits full `(do (def P ...) (def m
   P ...))` shape.
 - `src/lang/diff_test.zig` — new differential test cases.
-- `.dev/debt.md` — D-084 row moves to `## Discharged` (or status
+- `.dev/debt.yaml` — D-084 row moves to `## Discharged` (or status
   flips to `landed`).
 - `test/e2e/phase7_protocol.sh` — added cases exercising
   per-method-Var binding (`(defprotocol IPing (ping [this])) (ping
@@ -211,7 +211,7 @@ forces user-visible divergence from JVM Clojure or hides it via a
   surfaced this issue).
 - `private/notes/phase7-7.3-cycle8.1-devils-advocate.md` — full
   Devil's-advocate output.
-- D-084 (`.dev/debt.md`) — the debt row this ADR discharges.
+- D-084 (`.dev/debt.yaml`) — the debt row this ADR discharges.
 
 ## Revision history
 

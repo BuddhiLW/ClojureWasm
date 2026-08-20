@@ -266,7 +266,7 @@ future synthesis cycle.
   `status:` flips from `provisional` to `landed` for the
   4 cluster sites; the 2 remaining sites (`require_libspec`,
   `ns_filter`) keep their open markers.
-- `.dev/debt.md` D-073 row — annotate the 4-site discharge.
+- `.dev/debt.yaml` D-073 row — annotate the 4-site discharge.
 
 ## References
 

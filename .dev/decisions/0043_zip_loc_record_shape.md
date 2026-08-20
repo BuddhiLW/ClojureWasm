@@ -254,7 +254,7 @@ F-003 breaks the tie cleanly in Alt 2's favour.
 ## Cross-references
 
 - ROADMAP §9.9 row 7.13 (this row's task table entry).
-- D-080 (`.dev/debt.md`) — `clojure.zip` 28 vars Pattern A
+- D-080 (`.dev/debt.yaml`) — `clojure.zip` 28 vars Pattern A
   landing. ADR-0043 carries the representation decision +
   expands the var count to 31 (4-predicate set per DA
   amendment B).

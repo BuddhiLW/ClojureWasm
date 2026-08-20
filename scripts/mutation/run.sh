@@ -29,6 +29,9 @@
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 REPO_ROOT=$(pwd)
+# A mutant rebuild shares this machine's `.zig-cache` with any gate running in
+# the main tree; take the same lock `test/cljw-test` takes.
+source "$REPO_ROOT/scripts/lib_build_lock.sh"
 
 TARGETS=""
 TARGETS_FILE=""
@@ -91,12 +94,12 @@ run_oracle() {
     local wt="$1"
     case "$ORACLE" in
         unit)
-            ( cd "$wt" && run_bounded "$PER_MUTANT_TIMEOUT" zig build test $BUILD_ARGS )
+            ( cd "$wt" && with_build_lock run_bounded "$PER_MUTANT_TIMEOUT" zig build test $BUILD_ARGS )
             ;;
         unit+golden)
             ( cd "$wt" \
-                && run_bounded "$PER_MUTANT_TIMEOUT" zig build test $BUILD_ARGS \
-                && run_bounded "$PER_MUTANT_TIMEOUT" zig build $BUILD_ARGS \
+                && with_build_lock run_bounded "$PER_MUTANT_TIMEOUT" zig build test $BUILD_ARGS \
+                && with_build_lock run_bounded "$PER_MUTANT_TIMEOUT" zig build $BUILD_ARGS \
                 && CLJW_SKIP_BUILD=1 CLJW_BIN="$wt/zig-out/bin/cljw" \
                    run_bounded "$PER_MUTANT_TIMEOUT" bash test/golden/run.sh )
             ;;

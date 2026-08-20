@@ -48,6 +48,7 @@ const class_name_mod = @import("class_name.zig");
 const ratio = @import("numeric/ratio.zig");
 const big_decimal = @import("numeric/big_decimal.zig");
 const td_mod = @import("type_descriptor.zig");
+const interface_membership = @import("interface_membership.zig");
 const date_mod = @import("time/date.zig");
 const timestamp_mod = @import("time/timestamp.zig");
 const instant_value_mod = @import("time/instant_value.zig");
@@ -74,10 +75,12 @@ fn numCat(v: Value) NumCat {
 
 fn isSequential(v: Value) bool {
     const t = v.tag();
-    // A MapEntry is a 2-vector (D-209), so `(= (first {:a 1}) [:a 1])`→true.
-    // A queue is Sequential, so `(= (conj EMPTY 1 2) [1 2])`→true (ADR-0087).
-    if (t == .vector or t == .list or t == .lazy_seq or t == .range or t == .array_seq or t == .map_entry or t == .persistent_queue)
-        return true;
+    // The native Sequential set is authored ONCE, in interface_membership —
+    // the same constant `sequential?` answers from. A restatement here had
+    // silently dropped `.cons`, `.chunked_cons` and `.string_seq`, so a value
+    // `sequential?` called true was `=` to nothing.
+    // (A MapEntry is a 2-vector, D-209; a queue is Sequential, ADR-0087.)
+    if (interface_membership.isSequentialTag(t)) return true;
     // A deftype/reify declaring clojure.lang.Sequential (e.g. data.finger-tree's
     // double-list) compares element-wise like clj's `=` (Util.pcequiv over the
     // sequential operand), NOT by its own (often stub) `equiv` (D-427). seqEqual

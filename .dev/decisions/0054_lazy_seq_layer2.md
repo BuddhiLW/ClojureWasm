@@ -168,7 +168,7 @@ prematurely couples perf chunking into a correctness ADR.
   `src/lang/clj/clojure/core.clj` (lazy rewrites + cluster) ·
   `src/runtime/print.zig` (rt/env + `.lazy_seq` arm) ·
   `src/runtime/equal.zig` (cycle 3) · `test/e2e/phase14_lazy_seq*.sh` ·
-  `.dev/ROADMAP.md` §9.16 (new row) · `.dev/debt.md` (chunking D-row).
+  `.dev/ROADMAP.md` §9.16 (new row) · `.dev/debt.yaml` (chunking D-row).
 
 ## Revision history
 

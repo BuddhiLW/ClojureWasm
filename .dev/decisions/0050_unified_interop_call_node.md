@@ -3,7 +3,7 @@
 Status: Accepted (2026-05-28, inline per CLAUDE.md § ADR-level designs
 are handled inline)
 
-Supersedes: none. Amends — D-073 parity cluster row in `.dev/debt.md`
+Supersedes: none. Amends — D-073 parity cluster row in `.dev/debt.yaml`
 collapses 3 existing VM-DEFER markers (`method_call_node`,
 `field_access_node`, `ctor_call_node`) into one consolidated
 `interop_call_node` VM-DEFER. ADR-0007 (TypeDescriptor) +
@@ -13,7 +13,7 @@ addressed by a single Node variant rather than four parallel ones.
 
 ## Context
 
-D-121 in `.dev/debt.md` is the v0.1.0 release blocker for Java
+D-121 in `.dev/debt.yaml` is the v0.1.0 release blocker for Java
 static method dispatch (`(java.util.UUID/randomUUID)`,
 `(java.lang.System/currentTimeMillis)`, etc.). The Step 0 survey
 at `private/notes/phase14-d121-survey.md` proposed adding a new
@@ -289,13 +289,13 @@ This ADR's Decision is fully implemented when:
   returns exactly one analyzer + one TreeWalk + one VM-DEFER arm.
 - `bash test/run_all.sh` passes on Mac with the new e2e + diff
   cases; ubuntunote re-verified at Phase boundary.
-- D-121 row in `.dev/debt.md` flips to `Discharged (<sha>)`.
+- D-121 row in `.dev/debt.yaml` flips to `Discharged (<sha>)`.
 - D-130 (VM lowering of `interop_call_node`) opens with the
   expected barrier predicate (Phase 7 mid VM lowering row).
 
 ## References
 
-- `.dev/debt.md` D-121, D-073, (new) D-130.
+- `.dev/debt.yaml` D-121, D-073, (new) D-130.
 - `.claude/rules/dual_backend_parity.md` (the VM-DEFER discipline
   this ADR consolidates 3 sites of).
 - `.dev/principle.md` (Progress-pressure smell, Smallest-diff
@@ -467,7 +467,7 @@ corrected the two premise errors above.)
   method_table population) + `src/runtime/java/lang/String.zig` (new)
 - `src/lang/diff_test.zig` (native-method / native-field / deftype-field)
 - `test/e2e/` (new: `(.toUpperCase "hi")` / `(.x deftype)` / `(.-x …)`)
-- `.dev/debt.md` (D-130 rides-or-follows)
+- `.dev/debt.yaml` (D-130 rides-or-follows)
 
 ### Consequences (amendment 1)
 
@@ -492,7 +492,7 @@ deftype `(.field rec)` regression (gate + targeted deftype field e2e).
 - `private/notes/interop-coverage-survey.md` (Step 0 output — root causes).
 - `private/notes/interop-DA-alt2.md` (Step 0.6 + the DA output verbatim
   above; locked design).
-- `.dev/debt.md` D-130 (`.static_method` VM arm).
+- `.dev/debt.yaml` D-130 (`.static_method` VM arm).
 - `.dev/principle.md` (Silent-default-shift, Smallest-diff bias, Cycle-
   budget defer — the smells this amendment's field-first + Alt-2 choices
   answer).
@@ -661,7 +661,7 @@ unification lean) are folded into the Decision above.
 - `feature_deps.yaml` (`runtime/vm/interop_call_static_method` →
   `landed`; notes corrected — am1 retired op_field_access / the
   `.instance_field`+`.instance_method` kinds the stale notes still name)
-- `.dev/debt.md` (D-130 → Discharged; D-150 opened — see below)
+- `.dev/debt.yaml` (D-130 → Discharged; D-150 opened — see below)
 
 ### Consequences (amendment 2)
 
@@ -681,7 +681,7 @@ unification lean) are folded into the Decision above.
 ### References (amendment 2)
 
 - `private/notes/phaseA26-d130-static-vm-survey.md` (Step 0 output).
-- `.dev/debt.md` D-130 (discharged here) + D-150 (opened here).
+- `.dev/debt.yaml` D-130 (discharged here) + D-150 (opened here).
 - `feature_deps.yaml#runtime/vm/interop_call_static_method`.
 - ADR-0008 (CallSite cache — why static skips it: Finding A) + ADR-0036
   (parity) + `.dev/principle.md` (Reservation-as-bias — the D-130 row

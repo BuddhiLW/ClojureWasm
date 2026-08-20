@@ -312,7 +312,7 @@ based on `f.tag() == .fn_val ∧ fn.variadic != null`.
 ## Cross-references
 
 - ROADMAP §9.9 row 7.9 (this row's task table entry).
-- D-072 (`.dev/debt.md`) — body amended in place per ROADMAP
+- D-072 (`.dev/debt.yaml`) — body amended in place per ROADMAP
   §17.4 to reflect the corrected "variadic peel-and-pass"
   scope (was framed as "IReduce aware path" pre-survey).
 - ADR-0036 — dual-backend parity contract (satisfied by

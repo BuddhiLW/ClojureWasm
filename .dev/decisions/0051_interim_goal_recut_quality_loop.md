@@ -175,7 +175,7 @@ more context).
   session).
 - `.dev/ROADMAP.md` — §9 re-sequencing note + §9.2 annotation + light
   pointers on the Phase 16/17/19/20 tracker context + §14.1 F-010 cross-ref.
-- `.dev/debt.md` — D-131 / D-132 / D-133 rows.
+- `.dev/debt.yaml` — D-131 / D-132 / D-133 rows.
 - `.dev/reference_clones.md` — Quality-elevation corpora section.
 - `private/notes/recut-goal-synthesis.md` + the 3 surveys — grounding.
 

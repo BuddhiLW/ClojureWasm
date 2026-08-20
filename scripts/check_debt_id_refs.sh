@@ -15,6 +15,7 @@
 # violation (for future wiring into test/run_all.sh).
 set -euo pipefail
 cd "$(dirname "$0")/.."
+source "$(dirname "$0")/hook_lib.sh"
 
 DEBT=.dev/debt.yaml
 gate=0
@@ -46,14 +47,23 @@ search_paths=(src .dev .claude scripts test data/feature_deps.yaml data/placemen
 # check guards LIVE trigger sites (src + live docs), not history.
 exclude='\.dev/debt\.ya?ml|\.dev/decisions/|tech_debt_consolidation\.md|audit-lens|check_debt_id_refs\.sh'
 
+# A git worktree nested inside this checkout (e.g. `.claude/worktrees/<branch>`)
+# is a DIFFERENT checkout: its `src` / `.dev` / `scripts` sit under a scan root
+# above, so an unguarded walk reports that branch's citations as this one's.
+# Excluded by path, derived from `git worktree list` — never hardcoded.
+wt_globs=()
+while IFS= read -r _arg; do
+  [[ -n "$_arg" ]] && wt_globs+=("$_arg")
+done < <(hook_rg_exclude_worktrees)
+
 # 1. Phantom placeholder IDs — never a real row.
-phantom=$(rg -n --no-heading 'D-NEW[A-Z0-9-]*' "${search_paths[@]}" 2>/dev/null \
+phantom=$(rg -n --no-heading ${wt_globs[@]+"${wt_globs[@]}"} 'D-NEW[A-Z0-9-]*' "${search_paths[@]}" 2>/dev/null \
   | rg -v "$exclude" || true)
 
 # 2. Real-looking D-NNN refs with no entry in debt.yaml.
 # `\b` so "PID-1" / "JDK-19"-style substrings don't masquerade as a debt ref.
 defined=$(rg -o '\bD-[0-9]+' "$DEBT" 2>/dev/null | sort -u || true)
-referenced=$(rg -o --no-heading '\bD-[0-9]+' "${search_paths[@]}" 2>/dev/null \
+referenced=$(rg -o --no-heading ${wt_globs[@]+"${wt_globs[@]}"} '\bD-[0-9]+' "${search_paths[@]}" 2>/dev/null \
   | rg -v "$exclude" | grep -o 'D-[0-9]\+' | sort -u || true)
 missing=""
 for id in $referenced; do

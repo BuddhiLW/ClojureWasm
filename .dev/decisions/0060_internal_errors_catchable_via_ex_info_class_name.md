@@ -295,4 +295,4 @@ not a cycle-budget defer.
 - `src/lang/diff_test.zig` — differential cases.
 - `test/e2e/` — catch-internal-error cases; `phase14_float_div.sh`
   re-point.
-- `.dev/debt.md` — D-048 host_instance arm note (related).
+- `.dev/debt.yaml` — D-048 host_instance arm note (related).

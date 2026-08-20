@@ -1,6 +1,6 @@
 # 0188 — `:cljw` joins the reader-conditional platform feature set
 
-- **Status**: Proposed
+- **Status**: Accepted
 - **Date**: 2026-08-13
 - **Author**: BuddhiLW
 - **Tags**: reader, cljc, conformance, dialects
@@ -123,3 +123,7 @@ short name, and matches how every other dialect keys itself (`:jank`,
   the failure mode this decision removes.
 - <https://github.com/jank-lang/clojure-test-suite> — the compliance suite;
   `test/clojure/core_test/portability.cljc` is its per-dialect dispatch point.
+
+## Revision history
+
+- **2026-08-20**: Status Proposed → Accepted. Verified shipped: `src/eval/reader.zig:864` accepts `"cljw"` as a platform feature, so the reader-conditional feature set ships as decided. The decision was implemented without the Status line being flipped; recorded here rather than left as a record that mis-teaches its own reader.

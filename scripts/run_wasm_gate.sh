@@ -13,6 +13,7 @@
 # clobbering it). On a host without the zwasm sibling it skips cleanly (exit 0).
 set -uo pipefail
 cd "$(dirname "$0")/.."
+source "$(dirname "$0")/lib_build_lock.sh"
 
 # No sibling-checkout guard: `build.zig.zon` pins zwasm by tag URL + hash, so
 # `zig build -Dwasm` fetches it on any host. The guard this replaces tested for
@@ -21,7 +22,7 @@ cd "$(dirname "$0")/.."
 # build below is the real predicate.
 
 echo "==> Building -Dwasm ReleaseSafe binary (once)"
-if ! zig build -Dwasm -Doptimize=ReleaseSafe -Dcpu=baseline >/dev/null 2>&1; then
+if ! with_build_lock zig build -Dwasm -Doptimize=ReleaseSafe -Dcpu=baseline >/dev/null 2>&1; then
     echo "FAIL: zig build -Dwasm failed (zwasm relative-path consume broken?)" >&2
     exit 1
 fi

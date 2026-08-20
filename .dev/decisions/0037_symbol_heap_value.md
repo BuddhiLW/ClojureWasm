@@ -196,7 +196,7 @@ Selected: Alt 2 as-is (verbatim Devil's-advocate recommendation).
   wrapper lives in `lang/primitive/core.zig`. No cross-surface
   import.
 - F-007: no chapter cadence touch.
-- D-075 verified present in `.dev/debt.md` at HEAD `df79a38`
+- D-075 verified present in `.dev/debt.yaml` at HEAD `df79a38`
   (row name "Phase 7+ (value metadata system)") — the
   metadata deferral has its tracked debt row.
 
@@ -291,7 +291,7 @@ D-075's shape pre-empts its own Devil's-advocate).
 - `.claude/rules/provisional_marker.md` — Skeleton vs
   PROVISIONAL discipline; T2's pointer-eq is **finished
   form** within current envelope, not PROVISIONAL.
-- `.dev/debt.md` D-075 — Phase 7+ metadata layer (the
+- `.dev/debt.yaml` D-075 — Phase 7+ metadata layer (the
   deferred concern D6 names).
 - `private/notes/phase7-T2-survey.md` — Step 0 survey (~808
   lines).

@@ -304,7 +304,7 @@ Alt 2 の Breaks (i)-(iv) は受容コストとして識別:
 - `compat_tiers.yaml` (schema 変更なし、 既存維持)
 - `.dev/ROADMAP.md` §9.8 (rows 6.16.a-0 から 6.16.e 追加) +
   §9.14/§9.16/§9.18/§9.19 (deliverable 拡張)
-- `.dev/debt.md` (D-062 cluster row + D-063 ADR-0035 起票 + D-065
+- `.dev/debt.yaml` (D-062 cluster row + D-063 ADR-0035 起票 + D-065
   env.intern 拡張 + D-067 Wasm FFI spec + D-068 ClojureScript spec +
   D-069 Phase 7 hybrid polymorphism + D-058 subsumed flip)
 - `.dev/handover.md` (Resume contract = ADR-0033 起票 → Phase 6.16.a-0

@@ -245,7 +245,7 @@ From the survey's design space (rejected before the DA pass):
 - `src/eval/bytecode/serialize.zig` — version/peephole identity in the
   blob header (D-103); possibly an env-level envelope wrapper.
 - `test/e2e/` — AOT-bootstrap parity + cold-start e2e.
-- `.dev/debt.md` — advance/discharge D-131; note D-139.
+- `.dev/debt.yaml` — advance/discharge D-131; note D-139.
 
 ## Revision history
 

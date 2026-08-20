@@ -211,4 +211,4 @@ The main loop adopts the DA's recommendation (Alt 2) unchanged.
 - `src/eval/driver.zig` — new typed `evalValue` verb.
 - `src/lang/primitive/core.zig` — `eval` primitive + registration.
 - `test/e2e/` — `(eval …)` surface tests.
-- `.dev/debt.md` — D-162 discharged.
+- `.dev/debt.yaml` — D-162 discharged.

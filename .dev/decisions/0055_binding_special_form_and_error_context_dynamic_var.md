@@ -246,7 +246,7 @@ be unwound by that finished form = smallest-diff bias, so it was rejected.
 - `src/lang/bootstrap.zig` (embed row + `error_context.register` in setupCore)
 - `src/lang/diff_test.zig` (+`binding` case)
 - `test/e2e/phase14_binding.sh` + `test/e2e/phase14_with_context.sh` (new)
-- `.dev/debt.md` (D-142 multi-Env nREPL slot; D-144 user-throw EDN context)
+- `.dev/debt.yaml` (D-142 multi-Env nREPL slot; D-144 user-throw EDN context)
 
 ## Revision history
 
@@ -443,7 +443,7 @@ cleared together so it is valid iff a thrown exception is pending.
   `renderError`; `formatErrorEdn` uses `kindLabel` + emits `:data`)
 - `docs/spec/error_format.md` (`:exception` kind + `:data` key)
 - `test/e2e/phase14_user_throw.sh` (new) + `test/run_all.sh` (register)
-- `.dev/debt.md` (D-144 discharged)
+- `.dev/debt.yaml` (D-144 discharged)
 
 ### Consequences (amendment 2)
 

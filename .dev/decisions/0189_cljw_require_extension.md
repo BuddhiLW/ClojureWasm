@@ -1,6 +1,6 @@
 # 0189 — `.cljw` is a source extension `require` resolves
 
-- **Status**: Proposed
+- **Status**: Accepted
 - **Date**: 2026-08-14
 - **Author**: BuddhiLW
 - **Tags**: require, classpath, dialects, cljc, conformance
@@ -156,3 +156,7 @@ existing project resolves the exact file it resolved before.
   this file-level decision. The backward-compatibility argument is the same.
 - ClojureScript's `.cljs` > `.cljc` resolution — the precedent for probing the
   dialect-native extension first.
+
+## Revision history
+
+- **2026-08-20**: Status Proposed → Accepted. Verified shipped: `src/lang/require_resolver.zig:65` defines `search_exts = { ".cljw", ".clj", ".cljc" }` with a test pinning the probe order, so the resolver ships as decided. The decision was implemented without the Status line being flipped; recorded here rather than left as a record that mis-teaches its own reader.

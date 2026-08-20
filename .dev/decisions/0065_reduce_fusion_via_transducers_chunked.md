@@ -297,7 +297,7 @@ output) before gating.
   `chunk-rest`/`chunked-seq?`) registered into `rt`.
 - `src/lang/clj/clojure/core.clj` (`map`/`filter`/`keep`/`remove` 2-arg
   bodies chunk-aware).
-- `.dev/optimizations.md` (new O-NNN row), `.dev/debt.md` (D-163 blueprint
+- `.dev/optimizations.md` (new O-NNN row), `.dev/debt.yaml` (D-163 blueprint
   re-laid), tests (e2e + diff oracle on lazy chains; bench on the headline
   benchmark).
 

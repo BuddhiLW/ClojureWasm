@@ -122,7 +122,7 @@ rows in there bloats its schema. A separate yaml is cleaner.
 - `test/clj/skip_taxonomy.yaml` (created at row 11.3 first
   skip-worthy port)
 - `test/run_all.sh` `test_clj` step (added at row 11.4)
-- `.dev/debt.md` D-NNN rows that the Tier A gate's
+- `.dev/debt.yaml` D-NNN rows that the Tier A gate's
   `recall_trigger` field references
 
 ## References
