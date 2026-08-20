@@ -2913,7 +2913,21 @@ standing:
   - id: "D-581"
     status: "open (2026-08-20, measured — the kanban row stated this BACKWARDS). `(clojure.edn/read-string \"\")` THROWS `Unexpected EOF while reading form` in cljw; clj returns nil. Same for whitespace-only input. The kanban row [CLJW-EDN-EOF] recorded it as cljw returning nil, which is what clj does. Direction confirmed by running both."
     category: "clj-parity"
-    barrier: "Ready. Do not conflate with `clojure.core/read-string`, which DOES throw `EOF while reading` on empty input in clj — measured. Only the edn reader returns nil. The 2-arity `(read-string {:eof :done} \"\")` => :done already works and must keep working."
+    barrier: |-
+      NOT a one-line flip — the two readers are ONE function in cljw.
+      `src/lang/primitive.zig:86` interns `edn_prim.readStringFn` directly into
+      `clojure.core` as `read-string`, so `clojure.core/read-string` and
+      `clojure.edn/read-string` share `src/lang/primitive/edn.zig:121-122`.
+      clj wants them to DIFFER on exactly this input: measured, core throws
+      `RuntimeException: EOF while reading` and edn returns nil. Returning nil
+      at the shared raise site would fix edn and break core in the same edit.
+      So the fix is to split the entry points (or thread a caller flag) — decide
+      which, then change the docstring at edn.zig:38-41, which currently ASSERTS
+      the wrong thing ("empty / whitespace-only / comment-only input THROWS EOF
+      (clj parity, D-269)"). That sentence is how D-269 came to be discharged
+      wrong: the claim was written down and never run against clj.
+      The 2-arity `(read-string {:eof :done} "")` => :done already works on both
+      and must keep working.
     last_reviewed: "2026-08-20"
   - id: "D-582"
     status: "open (2026-08-20, audited across all 171 ADRs). ADR governance has three gaps beyond the mechanical ones already swept: (1) 50 ADRs numbered >= 0020 carry NO `## Affected files` section, which ADR-0020 mandates; (2) 36 more cite a path that no longer exists; (3) ADR-0004's day-1 `SpecialFormTag` reservation has NO enforcing artifact — checked all 39 check_*.sh, zero reference it — and the real enum (`SpecialFormKind`, analyzer.zig) has diverged unamended: 10 reserved variants absent, 7 present variants never added to the ADR."
