@@ -2913,11 +2913,6 @@ standing:
       with a nil-check plus a writeStrValue render, leaving the other 8 fns'
       guards untouched.
     last_reviewed: "2026-08-20"
-  - id: "D-580"
-    status: "open (2026-08-20, measured). `(nth [1 2 3] -1)` raises Kind ClassCastException in cljw; clj raises IndexOutOfBoundsException. The POSITIVE out-of-range path is already right — `(nth [1 2 3] 99)` raises IndexOutOfBoundsException on both — so only the negative-index arm picked the wrong class."
-    category: "clj-parity"
-    barrier: "Ready. Note this is a Kind mismatch, and AD-007 accepts error-Kind divergence in general — but not here: the same function already answers IndexOutOfBoundsException for the sibling case, so the two arms disagree with each other, which no invariant defends. Check `(nth \"abc\" -1)` too (clj: StringIndexOutOfBoundsException)."
-    last_reviewed: "2026-08-20"
   - id: "D-581"
     status: "open (2026-08-20, measured — the kanban row stated this BACKWARDS). `(clojure.edn/read-string \"\")` THROWS `Unexpected EOF while reading form` in cljw; clj returns nil. Same for whitespace-only input. The kanban row [CLJW-EDN-EOF] recorded it as cljw returning nil, which is what clj does. Direction confirmed by running both."
     category: "clj-parity"
@@ -2969,6 +2964,11 @@ standing:
       Full design: private/notes/subvec-seqview-design.md.
     last_reviewed: "2026-08-20"
 discharged:
+  - id: "D-580"
+    status: "DISCHARGED 2026-08-20 — all three negative-index arms (vector, array_seq, transient_vector) now raise index_out_of_range; verified against clj for vector/list/string and the default-wins path. Was: open (2026-08-20, measured). `(nth [1 2 3] -1)` raises Kind ClassCastException in cljw; clj raises IndexOutOfBoundsException. The POSITIVE out-of-range path is already right — `(nth [1 2 3] 99)` raises IndexOutOfBoundsException on both — so only the negative-index arm picked the wrong class."
+    category: "clj-parity"
+    barrier: "Ready. Note this is a Kind mismatch, and AD-007 accepts error-Kind divergence in general — but not here: the same function already answers IndexOutOfBoundsException for the sibling case, so the two arms disagree with each other, which no invariant defends. Check `(nth \"abc\" -1)` too (clj: StringIndexOutOfBoundsException)."
+    last_reviewed: "2026-08-20"
   - id: "D-447"
     status: |-
       DISCHARGED 2026-08-05 — every named gap closed or settled, corpus-backed.
