@@ -140,7 +140,7 @@ Land 5.12.b with that narrow scope; defer 5.12.c (reify).
 - ROADMAP §9.9 Phase 7 entry placeholder gets 5.12.b + 5.12.c +
   5.12.d as three explicit task rows (the 4.21 / ADR-0007 Phase 5+
   migration note in §9.9 already foreshadows this).
-- `.dev/debt.md` D-041 (catalog Code cleanup) is unaffected.
+- `.dev/debt.yaml` D-041 (catalog Code cleanup) is unaffected.
 
 ## References
 

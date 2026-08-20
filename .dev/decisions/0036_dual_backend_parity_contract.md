@@ -37,7 +37,7 @@ Reality at HEAD `0cd92fa` (Phase 7.1 dispatch ABI landing):
   (RequireNode libspec + NsNode filter) and again at Phase 5.12.a
   (deftype-family triple stub).
 
-D-073 at `.dev/debt.md:98` recorded one symptom of this drift
+D-073 at `.dev/debt.yaml:98` recorded one symptom of this drift
 (`has_rest` VM gap) without naming the cluster.
 
 Source survey: `private/notes/phase7-T1-survey.md` (~440 lines,
@@ -79,7 +79,7 @@ The marker mirrors the `// PROVISIONAL:` shape in
 `.claude/rules/provisional_marker.md`:
 
 - Single line. Multi-line rationale belongs in the `feature_deps.yaml`
-  entry body or the `.dev/debt.md` row.
+  entry body or the `.dev/debt.yaml` row.
 - `[refs:` block mandatory; at least one `D-NNN` AND one
   `feature_deps.yaml#<key>` reference.
 - Placed directly above the affected statement; no blank line
@@ -270,7 +270,7 @@ survey §3.1).
 - `.dev/decisions/0036_dual_backend_parity_contract.md` — this ADR (new).
 - `.claude/rules/dual_backend_parity.md` — discipline rule (new).
 - `.dev/principle.md` — adds "Dual-backend drift" Bad Smell entry.
-- `.dev/debt.md` — amends D-073 in place from single-site
+- `.dev/debt.yaml` — amends D-073 in place from single-site
   `has_rest` to 5-site cluster + `has_rest`.
 - `feature_deps.yaml` — adds 3 entries:
   `runtime/vm/dispatch_family`, `runtime/vm/ns_filter`,

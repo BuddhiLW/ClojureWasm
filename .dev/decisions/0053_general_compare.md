@@ -136,7 +136,7 @@ List-raises mirrors JVM. Stable-sort mandated for the follow-up cycle.
 
 - `src/runtime/compare.zig` (new) · `src/lang/primitive/math.zig`
   (compare rewire) · `test/e2e/phase14_compare.sh` (new) ·
-  `.dev/debt.md` (D-137 discharge).
+  `.dev/debt.yaml` (D-137 discharge).
 
 ## Revision history
 

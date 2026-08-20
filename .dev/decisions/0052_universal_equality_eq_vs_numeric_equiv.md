@@ -158,7 +158,7 @@ correctness gain to `=`.
 - `src/runtime/equal.zig` (new) · `src/lang/primitive/math.zig`
   (= rewire + == add) · `test/e2e/phase14_equality.sh` (new) ·
   `src/main.zig` test aggregator (if equal.zig needs reachability) ·
-  `.dev/debt.md` (D-136 discharge, D-092 reference).
+  `.dev/debt.yaml` (D-136 discharge, D-092 reference).
 
 ## Revision history
 

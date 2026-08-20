@@ -242,7 +242,7 @@ Load-bearing concern #3 (Group A density vs Group D sparseness; `hash_set` displ
 - `.dev/decisions/0026_phase5_entry_scope.md` (verdict table + critical-path ordering; this ADR is row 5.1's deliverable).
 - `.dev/decisions/0020_adr_governance.md` (this ADR follows the ONE-decision rule; the load-bearing decision is the 64-slot envelope + slot map + Tag table — paired with ADR-0028 by §0).
 - `.dev/structure_plan.md` `runtime/value/` decreed split (F-004).
-- `.dev/debt.md` D-027 (this ADR satisfies the row), D-029 (paired structural surgery), D-040 (Phase 7 rename — untouched here).
+- `.dev/debt.yaml` D-027 (this ADR satisfies the row), D-029 (paired structural surgery), D-040 (Phase 7 rename — untouched here).
 - `private/notes/phase5-skeleton-audit.md` (5.1 input bullets — quoted verbatim above).
 - `private/notes/phase5-5.1-survey.md` (cw v0 archaeology — DIVERGENCE per F-002).
 - `.claude/rules/zig_tips.md` § Mutex (the Zig 0.16 constraint cited under bullet #2 / deferral to row 5.7).

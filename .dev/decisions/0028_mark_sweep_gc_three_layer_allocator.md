@@ -469,7 +469,7 @@ state — a future parallel marker (gap area III) replaces it.
 - `.dev/decisions/0026_phase5_entry_scope.md` (verdict table; this ADR is row 5.1's deliverable).
 - `.dev/decisions/0027_nan_box_second_generation.md` (paired — §1 §3 §4 reference its slot map + Tag widths).
 - `.dev/structure_plan.md` `runtime/gc/` decreed split (F-006).
-- `.dev/debt.md` D-011 (this ADR satisfies), D-020 (header bit helpers — 5.3 lands), D-016 (generational re-eval after bench), D-036 (zwasm Pod-vs-inline — Phase 16).
+- `.dev/debt.yaml` D-011 (this ADR satisfies), D-020 (header bit helpers — 5.3 lands), D-016 (generational re-eval after bench), D-036 (zwasm Pod-vs-inline — Phase 16).
 - `private/notes/phase5-skeleton-audit.md` (5.1 input bullets — quoted above).
 - `private/notes/phase5-5.1-survey.md` (cw v0 archaeology — §1-3 DIVERGENCE call-outs).
 - `.claude/rules/zig_tips.md` § Mutex (the constraint behind Block A's `io_default` pattern; deferral to row 5.7).

@@ -138,7 +138,7 @@ Alt 1 applied with one carve-out: §3 stays as a one-paragraph pointer (not dele
 
 - `private/notes/phase5-skeleton-audit.md` (the survey deliverable — gitignored, cited)
 - `.dev/ROADMAP.md` §9.7 task table (the activation owners cited above; row 5.0 will flip to `[x]` in the same commit as this ADR)
-- `.dev/debt.md` D-028 (this ADR satisfies the audit row; D-028 stays open until the surveyed skeletons all activate)
+- `.dev/debt.yaml` D-028 (this ADR satisfies the audit row; D-028 stays open until the surveyed skeletons all activate)
 - Future: `.dev/decisions/0027_*.md` + `.dev/decisions/0028_*.md` (the 5.1 ADR cluster)
 
 ## References
@@ -146,7 +146,7 @@ Alt 1 applied with one carve-out: §3 stays as a one-paragraph pointer (not dele
 - `.dev/project_facts.md` F-002 (finished-form wins), F-003 (decision-deferral), F-004 (NaN-box 64 slot), F-006 (mark-sweep GC + 3-layer allocator)
 - `.dev/principle.md` "Structural imagination phase" (the discipline the audit + this ADR jointly satisfy)
 - `.dev/decisions/0007_type_descriptor_option_beta.md`, `0008_protocol_dispatch_unify.md`, `0009_object_header_heap_only_lock.md`, `0012_nan_box_valuetag_day1.md`, `0017_allocator_strategy.md`, `0020_adr_governance.md` (the entry ADR set)
-- `.dev/debt.md` D-028 (this ADR's row of origin), D-040 (collision deferred to Phase 7)
+- `.dev/debt.yaml` D-028 (this ADR's row of origin), D-040 (collision deferred to Phase 7)
 - `private/notes/phase5-skeleton-audit.md` (the survey)
 
 ## Revision history

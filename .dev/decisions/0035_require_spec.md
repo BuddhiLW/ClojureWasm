@@ -181,7 +181,7 @@ slot swappable で F-001 future-proof を確保し、 chain は
   に書換、 4 PROVISIONAL marker lines 削除。
 - `special_form/ns_macro`: `planned → landed`。
 
-`.dev/debt.md`:
+`.dev/debt.yaml`:
 - D-058 → Discharged (sub-cycle c で per-file SourceContext registry
   着地)。
 - D-063 → Discharged (ADR-0035 全体着地)。
@@ -352,7 +352,7 @@ Devil's-advocate fork (depth-3、 mandatory)、 fresh-context
 >   `require` + per-file source context ARE one finished-form
 >   concern (both are "bootstrap loader knows about per-file
 >   identity").
-> - D-058's Barrier text in `.dev/debt.md:83` explicitly names
+> - D-058's Barrier text in `.dev/debt.yaml:83` explicitly names
 >   Phase 7 entry as the fix moment; deferring requires editing
 >   that row to push out, which is a Reservation-as-bias adjacent
 >   move.
@@ -503,7 +503,7 @@ violates-F-NNN finding: なし。
 - `feature_deps.yaml` — 3 ns-machinery entries flip `provisional
   → landed` + `special_form/ns_macro` flip `planned → landed` +
   11 PROVISIONAL marker line 削除。
-- `.dev/debt.md` — D-058 + D-063 を Discharged。
+- `.dev/debt.yaml` — D-058 + D-063 を Discharged。
 - `test/run_all.sh` — 新 e2e 登録。
 
 ## Sub-cycle decomposition
@@ -737,7 +737,7 @@ violates-F-NNN finding: なし。
   (new diff case exercising widened semantic); feature_deps.yaml
   (re-frame `runtime/eval/in_ns_auto_refer` notes; extend
   `special_form/ns_macro` notes; discharge `runtime/vm/ns_filter`
-  status flip); `.dev/debt.md` (D-073 (e) discharge note).
+  status flip); `.dev/debt.yaml` (D-073 (e) discharge note).
 
 - 2026-06-13 D9 third amendment — **clojure.core overrides rt on the
   auto-refer collision** (the refer-precedence revision).

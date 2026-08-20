@@ -222,7 +222,7 @@ comptime-vs-init asymmetry comment on `static_fields`.
   `static_fields` arrays + `.static_fields = &…` in the descriptor.
 - `test/e2e/phase14_static_fields.sh` — clj-parity cases (incl. the
   D-165 BigInt-N pin for `Long/MAX_VALUE`).
-- `.dev/debt.md` — D-165 cross-reference (Long/MAX_VALUE field inherits it).
+- `.dev/debt.yaml` — D-165 cross-reference (Long/MAX_VALUE field inherits it).
 
 ## Revision history
 

@@ -242,7 +242,7 @@ survey's A/B/C):
 >
 > **Recommendation**: B-extracted (the main agent's choice) is
 > the strongest finished-form fit. F is held as the documented
-> mitigation in `.dev/debt.md` if `bench/quick` later motivates
+> mitigation in `.dev/debt.yaml` if `bench/quick` later motivates
 > it; D and E recorded as "considered and rejected" so future
 > readers see why the symmetric-slice shape is load-bearing
 > rather than a default.

@@ -930,7 +930,7 @@ Alt 2 の Breaks 5 件は受容コストとして識別:
 
 - `.dev/ROADMAP.md` §9.14 / §9.16 — 既に v5 wiring (757a0b5) で
   expansion 済 (本 ADR は SSOT 化)
-- `.dev/debt.md` D-064 (decoder archive) / D-066 (env var spec) — 既に
+- `.dev/debt.yaml` D-064 (decoder archive) / D-066 (env var spec) — 既に
   起票済 (757a0b5)
 - `private/notes/clj_vs_zig_split_proposal_v5.md` §11-§14 + §16.1 + §19.2
   + App C (EDN schema 完全 spec) — 本 ADR の SSOT

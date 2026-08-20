@@ -294,4 +294,4 @@ question, never on diff size".
   map-style branch; `realizeSeqWalk`/`typedInstanceIsSequential` helpers.
 - `test/e2e/phase14_transducers.sh` + `test/e2e/phase7_defrecord.sh` — RED →
   green print-form cases.
-- `.dev/debt.md` — D-190 → Discharged.
+- `.dev/debt.yaml` — D-190 → Discharged.
