@@ -284,8 +284,11 @@ fn pairwise(
 ) !Value {
     // clj comparators are min-1-arity (D-446): `(<)` throws ArityException.
     try error_catalog.checkArityMin(name, args, 1, loc);
+    // The 1-arity body is `([x] true)` in clj — it never inspects `x`, so
+    // `(> "abc")` / `(== nil)` are `true`, NOT type errors. The numeric check
+    // must therefore run AFTER the arity-1 short-circuit, not before it.
+    if (args.len < 2) return Value.true_val;
     try ensureNumeric(args, name, loc);
-    if (args.len < 2) return Value.true_val; // (< 1) is true in Clojure
     var i: usize = 1;
     while (i < args.len) : (i += 1) {
         const a = args[i - 1];
@@ -810,6 +813,10 @@ pub fn uncheckedChar(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLo
 /// (Long / Float / BigInt / Ratio / BigDecimal) apply.
 pub fn min(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
     if (args.len == 0) return error_catalog.raise(.arity_below_min, loc, .{ .got = @as(usize, 0), .fn_name = "min", .min = @as(usize, 1) });
+    // clj's `min` propagates NaN: any NaN operand makes the whole call NaN
+    // (`(min 1 ##NaN)` → `##NaN`). The `<`-fold below drops it, because
+    // `(< NaN x)` is false, so NaN never wins — pre-scan and short-circuit.
+    for (args) |a| if (isNanFloat(a)) return a;
     var best = args[0];
     for (args[1..]) |a| {
         const pair = [_]Value{ a, best };
@@ -822,6 +829,8 @@ pub fn min(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) an
 /// `(max x & more)` — maximum across one or more numerics.
 pub fn max(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
     if (args.len == 0) return error_catalog.raise(.arity_below_min, loc, .{ .got = @as(usize, 0), .fn_name = "max", .min = @as(usize, 1) });
+    // clj's `max` propagates NaN (see `min` — same reason via the `>`-fold).
+    for (args) |a| if (isNanFloat(a)) return a;
     var best = args[0];
     for (args[1..]) |a| {
         const pair = [_]Value{ a, best };
@@ -1360,6 +1369,43 @@ test "equals / lt / gt / le / ge — numeric pairwise" {
     // (< 1) is true.
     try testing.expectError(error.ArityError, lt(&fix.rt, &fix.env, &.{}, .{}));
     try testing.expectEqual(Value.true_val, try lt(&fix.rt, &fix.env, &.{Value.initInteger(1)}, .{}));
+
+    // 1-arity is `([x] true)` in clj — it never type-checks `x`. `(> "abc")`,
+    // `(>= :k)`, `(== nil)` are all `true`, not type errors (g1 RC-1). Boolean
+    // and nil are non-numeric heap-free values, enough to exercise the path.
+    for ([_]Value{ Value.true_val, Value.nil_val }) |non_num| {
+        try testing.expectEqual(Value.true_val, try gt(&fix.rt, &fix.env, &.{non_num}, .{}));
+        try testing.expectEqual(Value.true_val, try ge(&fix.rt, &fix.env, &.{non_num}, .{}));
+        try testing.expectEqual(Value.true_val, try lt(&fix.rt, &fix.env, &.{non_num}, .{}));
+        try testing.expectEqual(Value.true_val, try le(&fix.rt, &fix.env, &.{non_num}, .{}));
+        try testing.expectEqual(Value.true_val, try equals(&fix.rt, &fix.env, &.{non_num}, .{}));
+    }
+    // ...but a 2-arity comparator still rejects a non-number.
+    try testing.expectError(error.TypeError, gt(&fix.rt, &fix.env, &.{ Value.initInteger(1), Value.true_val }, .{}));
+}
+
+test "min / max fold to the extreme and propagate NaN (clj parity)" {
+    var fix: TestFixture = undefined;
+    try fix.init(testing.allocator);
+    defer fix.deinit();
+
+    const nums = [_]Value{ Value.initInteger(3), Value.initInteger(1), Value.initInteger(2) };
+    try testing.expectEqual(Value.initInteger(1), try min(&fix.rt, &fix.env, &nums, .{}));
+    try testing.expectEqual(Value.initInteger(3), try max(&fix.rt, &fix.env, &nums, .{}));
+
+    // Any NaN operand ⇒ NaN, in any position — the `<`/`>`-fold alone drops it.
+    const nan = Value.initFloat(std.math.nan(f64));
+    const cases = [_][]const Value{
+        &.{ Value.initInteger(1), nan },
+        &.{ nan, Value.initInteger(1) },
+        &.{ Value.initInteger(1), Value.initInteger(2), nan, Value.initInteger(3) },
+    };
+    for (cases) |c| {
+        const rmin = try min(&fix.rt, &fix.env, c, .{});
+        const rmax = try max(&fix.rt, &fix.env, c, .{});
+        try testing.expect(rmin.tag() == .float and std.math.isNan(rmin.asFloat()));
+        try testing.expect(rmax.tag() == .float and std.math.isNan(rmax.asFloat()));
+    }
 }
 
 test "compare returns -1 / 0 / 1" {
