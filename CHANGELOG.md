@@ -33,6 +33,14 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 
 ### Fixed
 
+- **`clojure.edn/read-string` and `clojure.core/read-string` now differ on
+  empty input, matching clj.** `clojure.edn/read-string`'s 1-arity defaults
+  `{:eof nil}`, so empty / whitespace-only / comment-only input returns `nil`
+  (its docstring: "Returns nil when s is nil or empty"); `clojure.core/read-string`
+  throws `EOF while reading` on the same input. cljw previously threw for both —
+  the shared body had been reasoned about from `core`'s behaviour and never run
+  against `edn`. An explicit `:eof` opt still overrides for either reader.
+
 - **`*print-level*` was off by one for every record.** The depth bookkeeping
   keyed off `Value.tag()`, and `.typed_instance` is not a collection tag — but
   a record and a deftype declaring `clojure.lang.IPersistentMap` both render as
