@@ -9,7 +9,9 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/BuddhiLW/ClojureWasm/releases/latest"><img src="https://img.shields.io/github/v/release/BuddhiLW/ClojureWasm?sort=semver&display_name=tag&label=release&color=success" alt="Latest release" /></a>
   <a href="https://github.com/BuddhiLW/ClojureWasm/actions/workflows/ci.yml"><img src="https://github.com/BuddhiLW/ClojureWasm/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
+  <a href="https://github.com/BuddhiLW/homebrew-tap"><img src="https://img.shields.io/badge/brew-buddhilw%2Ftap%2Fcljw-F9A03C?logo=homebrew&logoColor=white" alt="Homebrew tap" /></a>
   <a href="https://ziglang.org/"><img src="https://img.shields.io/badge/Zig-0.16.0-f7a41d?logo=zig&logoColor=white" alt="Zig 0.16.0" /></a>
   <a href="https://clojure.org/"><img src="https://img.shields.io/badge/Clojure-runtime-5881d8?logo=clojure&logoColor=white" alt="Clojure runtime" /></a>
   <a href="./LICENSE"><img src="https://img.shields.io/badge/License-EPL_2.0-blue.svg" alt="License: EPL 2.0" /></a>
@@ -168,10 +170,20 @@ and should not be relied on. The source is the most complete example of what
 
 [`docs/`](./docs/README.md) is the index — start there.
 
+**Where things stand** (the state of affairs, for anyone who wants it):
+
+- [`CHANGELOG.md`](./CHANGELOG.md) — every release and what changed in it,
+  newest first. The badge above always points at the latest tag.
+- [`.dev/ROADMAP.md`](./.dev/ROADMAP.md) — the mission, the phase plan, and how
+  far each phase has got. The authoritative "what next".
+- [`docs/clojure_vs_clojurewasm.md`](./docs/clojure_vs_clojurewasm.md) — the live
+  parity picture: what matches JVM Clojure today, the intentional divergences,
+  and what is not there yet.
+
+Then the rest:
+
 - [`docs/architecture.md`](./docs/architecture.md) — a short orientation to how the
   runtime is put together.
-- [`docs/clojure_vs_clojurewasm.md`](./docs/clojure_vs_clojurewasm.md) — what
-  matches JVM Clojure, the intentional divergences, and what is not yet there.
 - [`docs/testing.md`](./docs/testing.md) — how to run the suite, what each of
   the eight test layers is for, and where a new test belongs. **Read this
   before sending a patch.**
