@@ -7,6 +7,8 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 
 ## [Unreleased]
 
+## [1.10.16] - 2026-08-21
+
 ### Fixed
 
 - **clojure.core parity — comparators, `min`/`max`, `min-key`/`max-key`,
