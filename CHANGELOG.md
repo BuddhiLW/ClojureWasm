@@ -7,6 +7,8 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 
 ## [Unreleased]
 
+## [1.10.14] - 2026-08-21
+
 ### Added
 
 - **`cljw.test` — a source-path test runner.** `cljw -m cljw.test [dirs…]`
