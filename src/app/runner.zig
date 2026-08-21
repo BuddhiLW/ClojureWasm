@@ -243,7 +243,7 @@ pub fn runSourceCompare(
     if (result.equal) {
         const value = result.tree_walk catch unreachable;
         try stdout.writeAll("OK ");
-        try print.printValue(stdout, value);
+        try print.printValue(null, stdout, value);
         try stdout.writeByte('\n');
         try stdout.flush();
         // Exit barrier (ADR-0176): compared source may have spawned workers;
@@ -254,13 +254,13 @@ pub fn runSourceCompare(
 
     try stdout.writeAll("MISMATCH\n  tree_walk: ");
     if (result.tree_walk) |v| {
-        try print.printValue(stdout, v);
+        try print.printValue(null, stdout, v);
     } else |err| {
         try stdout.print("ERROR {s}", .{@errorName(err)});
     }
     try stdout.writeAll("\n  vm:        ");
     if (result.vm) |v| {
-        try print.printValue(stdout, v);
+        try print.printValue(null, stdout, v);
     } else |err| {
         try stdout.print("ERROR {s}", .{@errorName(err)});
     }

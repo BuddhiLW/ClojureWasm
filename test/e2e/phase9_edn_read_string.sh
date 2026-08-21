@@ -72,13 +72,27 @@ EOF
 ) || fail "case7: non-zero exit ($got)"
 assert_eq 'edn_read_nil' "$(last_line "$got")" 'nil'
 
-# --- Case 8: empty input THROWS EOF (clj parity, D-269); :eof opt overrides ---
-if "$BIN" - <<'EOF' >/dev/null 2>&1
-(clojure.edn/read-string "")
+# --- Case 8: empty / whitespace-only / comment-only => nil for edn. clj's
+# clojure.edn/read-string 1-arity defaults {:eof nil}, so it returns nil
+# ("Returns nil when s is nil or empty" per its docstring); core/read-string
+# THROWS on the same input — they differ on exactly this. D-581 corrected the
+# earlier D-269 reading that made edn throw too. :eof opt still overrides. ---
+got=$("$BIN" - <<'EOF' 2>/dev/null
+(prn (clojure.edn/read-string ""))
 EOF
-then fail 'case8: empty read-string should throw EOF'; fi
-echo 'PASS edn_read_empty_throws -> errors'
-# `:eof` sentinel suppresses the throw and returns the given value.
+) || fail "case8: non-zero exit ($got)"
+assert_eq 'edn_read_empty_nil' "$(last_line "$got")" 'nil'
+got=$("$BIN" - <<'EOF' 2>/dev/null
+(prn (clojure.edn/read-string "   "))
+EOF
+) || fail "case8ws: non-zero exit ($got)"
+assert_eq 'edn_read_ws_nil' "$(last_line "$got")" 'nil'
+got=$("$BIN" - <<'EOF' 2>/dev/null
+(prn (clojure.edn/read-string "; comment only"))
+EOF
+) || fail "case8c: non-zero exit ($got)"
+assert_eq 'edn_read_comment_nil' "$(last_line "$got")" 'nil'
+# `:eof` sentinel returns the given value instead of nil.
 got=$("$BIN" - <<'EOF' 2>/dev/null
 (prn (clojure.edn/read-string {:eof :none} ""))
 EOF

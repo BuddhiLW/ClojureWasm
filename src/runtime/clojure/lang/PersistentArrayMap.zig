@@ -42,7 +42,7 @@ fn createWithCheck(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLoca
             var aw: std.Io.Writer.Allocating = .init(rt.gpa);
             defer aw.deinit();
             aw.writer.writeAll("Duplicate key: ") catch return error.OutOfMemory;
-            print_mod.printValue(&aw.writer, items[i]) catch return error.OutOfMemory;
+            print_mod.printValue(null, &aw.writer, items[i]) catch return error.OutOfMemory;
             dispatch.last_thrown_exception = try ex_info.allocException(rt, aw.written(), "IllegalArgumentException");
             return error.ThrownValue;
         }

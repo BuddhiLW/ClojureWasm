@@ -191,6 +191,11 @@ pub fn build(b: *std.Build) void {
     const lint_step = b.step("lint", "Lint source code (zlinter).");
     lint_step.dependOn(blk: {
         var builder = zlinter.builder(b, .{});
+        // Lint THIS checkout's sources only. With no paths set zlinter walks
+        // every `.zig` under the cwd, which sweeps in any nested git worktree
+        // (`.claude/worktrees/<branch>`, `.dev/wt-golden`) and reports another
+        // branch's warnings as this one's.
+        builder.addPaths(.{ .include = &.{ b.path("src"), b.path("build.zig") } });
         // Phase A.
         builder.addRule(.{ .builtin = .no_deprecated }, .{});
         // Phase B (added one at a time — see ADR-0003 Update).

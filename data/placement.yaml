@@ -24,9 +24,9 @@
 schema_version: "2.0"
 summary:
   namespaces_required: 33
-  total: 1377
+  total: 1393
   zig: 398
-  clj: 766
+  clj: 782
   value: 207
   unbound: 6
 vars:
@@ -1309,39 +1309,55 @@ vars:
   "clojure.test.tap/print-tap-plan": { impl: clj, flags: "-" }
   "clojure.test.tap/tap-report": { impl: clj, flags: "dynamic" }
   "clojure.test.tap/with-tap-output": { impl: clj, flags: "macro" }
-  "clojure.test/*fixture-registry*": { impl: value, flags: "-" }
   "clojure.test/*initial-report-counters*": { impl: value, flags: "-" }
+  "clojure.test/*load-tests*": { impl: value, flags: "dynamic" }
   "clojure.test/*report-counters*": { impl: value, flags: "dynamic" }
   "clojure.test/*stack-trace-depth*": { impl: value, flags: "dynamic" }
   "clojure.test/*test-out*": { impl: value, flags: "dynamic" }
   "clojure.test/*test-registry*": { impl: value, flags: "-" }
   "clojure.test/*testing-contexts*": { impl: value, flags: "dynamic" }
   "clojure.test/*testing-vars*": { impl: value, flags: "dynamic" }
+  "clojure.test/add-ns-meta": { impl: clj, flags: "private" }
   "clojure.test/are": { impl: clj, flags: "macro" }
+  "clojure.test/assert-any": { impl: clj, flags: "-" }
   "clojure.test/assert-expr": { impl: clj, flags: "-" }
+  "clojure.test/assert-predicate": { impl: clj, flags: "-" }
   "clojure.test/compose-fixtures": { impl: clj, flags: "-" }
   "clojure.test/default-fixture": { impl: clj, flags: "-" }
   "clojure.test/deftest": { impl: clj, flags: "macro" }
+  "clojure.test/deftest-": { impl: clj, flags: "macro" }
   "clojure.test/do-report": { impl: clj, flags: "-" }
   "clojure.test/file-position": { impl: clj, flags: "-" }
   "clojure.test/fixtures-for": { impl: clj, flags: "private" }
   "clojure.test/function?": { impl: clj, flags: "-" }
+  "clojure.test/get-possibly-unbound-var": { impl: clj, flags: "-" }
   "clojure.test/inc-report": { impl: clj, flags: "-" }
   "clojure.test/inc-report-counter": { impl: clj, flags: "-" }
   "clojure.test/is": { impl: clj, flags: "macro" }
   "clojure.test/join-fixtures": { impl: clj, flags: "-" }
+  "clojure.test/ns-sym-of": { impl: clj, flags: "private" }
   "clojure.test/print-contexts": { impl: clj, flags: "-" }
+  "clojure.test/register-test!": { impl: clj, flags: "-" }
   "clojure.test/report": { impl: clj, flags: "dynamic" }
   "clojure.test/run-all-tests": { impl: clj, flags: "-" }
+  "clojure.test/run-test": { impl: clj, flags: "macro" }
+  "clojure.test/run-test-var": { impl: clj, flags: "-" }
   "clojure.test/run-tests": { impl: clj, flags: "-" }
+  "clojure.test/set-test": { impl: clj, flags: "macro" }
   "clojure.test/successful?": { impl: clj, flags: "-" }
+  "clojure.test/test-all-vars": { impl: clj, flags: "-" }
   "clojure.test/test-ns": { impl: clj, flags: "-" }
   "clojure.test/test-var": { impl: clj, flags: "-" }
+  "clojure.test/test-vars": { impl: clj, flags: "-" }
+  "clojure.test/test-vars-of-ns": { impl: clj, flags: "private" }
   "clojure.test/testing": { impl: clj, flags: "macro" }
   "clojure.test/testing-contexts-str": { impl: clj, flags: "-" }
   "clojure.test/testing-vars-str": { impl: clj, flags: "-" }
+  "clojure.test/tests-in-ns": { impl: clj, flags: "private" }
   "clojure.test/try-expr": { impl: clj, flags: "macro" }
   "clojure.test/use-fixtures": { impl: clj, flags: "-" }
+  "clojure.test/var-ns-sym": { impl: clj, flags: "private" }
+  "clojure.test/with-test": { impl: clj, flags: "macro" }
   "clojure.test/with-test-out": { impl: clj, flags: "macro" }
   "clojure.tools.cli/apply-spec": { impl: clj, flags: "private" }
   "clojure.tools.cli/compile-spec": { impl: clj, flags: "private" }

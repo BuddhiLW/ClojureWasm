@@ -351,6 +351,18 @@ run_step "runner_reach"         "bash scripts/check_runner_reach.sh"
 # .dev/tech_debt_consolidation.md. Gate-promotion tracked in D-175.
 run_step "debt_id_refs"         "bash scripts/check_debt_id_refs.sh --gate"
 
+# CHANGELOG.md is the release-history SSOT, so an `[Unreleased]` entry that
+# already shipped in the newest tag mis-states what a reader can get.
+run_step "changelog_reachability" "bash scripts/check_changelog_reachability.sh --gate"
+
+# ADR-0004 locked the analyzer's special-form enum on day one and nothing
+# enforced it; the ADR and the enum had diverged in both directions.
+run_step "special_form_enum"    "bash scripts/check_special_form_enum.sh"
+
+# ADR-0020 mandates an "Affected files" section and nothing enforced it; 51
+# of 172 ADRs never got one. Enforced prospectively above a pinned mark.
+run_step "adr_affected_files"   "bash scripts/check_adr_affected_files.sh"
+
 # Accepted clj-divergence ledger (.dev/accepted_divergences.yaml): every
 # AD-NNN cites a justifying invariant + a pinning test, and COVERAGE.md
 # points at the SSOT. Keeps the "NOT a bug" list a trust contract that
@@ -363,11 +375,19 @@ run_step "accepted_divergences" "bash scripts/check_accepted_divergences.sh --ga
 # four pushes went red on a single stray blank line only CI checked).
 run_step "zig_fmt_check"        "zig fmt --check src/"
 
-# zlinter no_deprecated gate (ADR-0003) — Mac-host only. zlinter is
-# fetched via `zig fetch` against GitHub; OrbStack runs are network-
-# free per .dev/orbstack_setup.md.
-if [[ "$(uname -s)" == "Darwin" ]]; then
+# zlinter rule chain (ADR-0003). Gated on whether zlinter can be OBTAINED,
+# not on the host OS. It is fetched from GitHub, so a network-free host
+# (OrbStack, per .dev/orbstack_setup.md) genuinely cannot run it — but a
+# networked Linux host can, and keying the guard on `uname == Darwin` meant
+# Linux never ran the linter at all. A deprecated-stdlib call could then ride
+# a green Linux gate all the way to the macOS leg, which is exactly how
+# `std.mem.indexOfPos` reached CI: Linux green, macOS red, on one commit.
+# The dep resolves offline once it is in the global zig cache, so `zig fetch`
+# is the honest probe: it succeeds from cache OR from network.
+if zig build lint -Dwasm --help >/dev/null 2>&1; then
     run_step "zlinter"          "zig build lint -Dwasm -- --max-warnings 0"
+else
+    echo "run_all: SKIP zlinter — the zlinter dependency could not be resolved (no cache, no network)"
 fi
 
 # Build the default (vm — production, ADR-0070 flip) cljw binary ONCE here,
@@ -654,6 +674,9 @@ run_step "e2e_phase15_dynamic_var"          "bash test/e2e/phase15_dynamic_var.s
 run_step "e2e_phase15_watch_recursion"      "bash test/e2e/phase15_watch_recursion.sh"
 run_step "e2e_phase15_clojure_test"         "bash test/e2e/phase15_clojure_test.sh"
 run_step "e2e_phase15_clojure_test_output"  "bash test/e2e/phase15_clojure_test_output.sh"
+run_step "e2e_clojure_test_model"           "bash test/e2e/clojure_test_model.sh"
+run_step "e2e_cljw_test_runner"             "bash test/e2e/cljw_test_runner.sh"
+run_step "e2e_macro_throw_catchable"        "bash test/e2e/macro_throw_catchable.sh"
 run_step "e2e_phase15_test_junit"           "bash test/e2e/phase15_test_junit.sh"
 run_step "e2e_phase15_repl_discovery"       "bash test/e2e/phase15_repl_discovery.sh"
 run_step "e2e_phase15_spec"                 "bash test/e2e/phase15_spec.sh"

@@ -229,7 +229,7 @@ fn reportUncaught(st: *ThreadState) void {
     const w = &fw.interface;
     w.print("Exception in thread \"{s}\" ", .{st.name}) catch return;
     const print_mod = @import("print.zig");
-    print_mod.printValue(w, msg) catch {};
+    print_mod.printValue(null, w, msg) catch {};
     w.writeByte('\n') catch {};
     w.flush() catch {};
 }

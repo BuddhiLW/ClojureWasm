@@ -28,6 +28,7 @@ const regex_value = @import("../../runtime/regex/value.zig");
 const regex_match = @import("../../runtime/regex/match.zig");
 const regex_replace = @import("../../runtime/regex/replace.zig");
 const regex_prim = @import("regex.zig");
+const print_mod = @import("../../runtime/print.zig");
 
 /// `(clojure.string/upper-case s)` — ASCII upper-case fold.
 /// Non-ASCII codepoints pass through unchanged; full Unicode case
@@ -35,11 +36,10 @@ const regex_prim = @import("regex.zig");
 /// `String.toUpperCase()` which is locale + Unicode aware; cw v1
 /// will catch up as part of the broader charset.zig migration.
 pub fn upperCase(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
-    _ = env;
     try error_catalog.checkArity("upper-case", args, 1, loc);
-    if (args[0].tag() != .string)
-        return error_catalog.raise(.type_arg_not_string, loc, .{ .fn_name = "upper-case", .actual = @tagName(args[0].tag()) });
-    const s = string_collection.asString(args[0]);
+    var aw: std.Io.Writer.Allocating = .init(rt.gpa);
+    defer aw.deinit();
+    const s = try toStringArg(rt, env, args[0], "upper-case", loc, &aw);
     const buf = try charset.upperCaseAlloc(rt.gc.infra, s);
     defer rt.gc.infra.free(buf);
     return try string_collection.alloc(rt, buf);
@@ -48,11 +48,10 @@ pub fn upperCase(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocati
 /// `(clojure.string/lower-case s)` — mirror of `upperCase`. Same
 /// Unicode case-folding caveat (D-057).
 pub fn lowerCase(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
-    _ = env;
     try error_catalog.checkArity("lower-case", args, 1, loc);
-    if (args[0].tag() != .string)
-        return error_catalog.raise(.type_arg_not_string, loc, .{ .fn_name = "lower-case", .actual = @tagName(args[0].tag()) });
-    const s = string_collection.asString(args[0]);
+    var aw: std.Io.Writer.Allocating = .init(rt.gpa);
+    defer aw.deinit();
+    const s = try toStringArg(rt, env, args[0], "lower-case", loc, &aw);
     const buf = try charset.lowerCaseAlloc(rt.gc.infra, s);
     defer rt.gc.infra.free(buf);
     return try string_collection.alloc(rt, buf);
@@ -76,6 +75,35 @@ pub fn blank(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) 
     if (s.len == 0) return .true_val;
     const blank_all = charset.isAllWhitespace(s) catch return .false_val;
     return if (blank_all) .true_val else .false_val;
+}
+
+/// The first argument of clj's `.toString`-typed string fns, rendered.
+///
+/// clj hints those parameters `^CharSequence` but calls `.toString` on them,
+/// so ANY non-nil value is accepted: `(upper-case :foo)` => ":FOO",
+/// `(upper-case 42)` => "42". nil is NOT accepted (clj NPEs on `.toString`),
+/// so `(str v)` is the wrong coercion — it would turn nil into "".
+///
+/// Rendering goes through `print.writeStrValue`, the same one `str` and the
+/// `.toString` Object method use, so the three cannot answer differently.
+/// The returned slice is owned by `aw` and lives until the caller deinits it.
+///
+/// NOT for the CharSequence-METHOD fns (trim / reverse / blank? / split): clj
+/// calls CharSequence methods on those directly and throws ClassCastException
+/// for a non-CharSequence, so coercing them would diverge the other way.
+fn toStringArg(
+    rt: *Runtime,
+    env: *env_mod.Env,
+    v: Value,
+    fn_name: []const u8,
+    loc: error_mod.SourceLocation,
+    aw: *std.Io.Writer.Allocating,
+) anyerror![]const u8 {
+    if (v.tag() == .string) return string_collection.asString(v);
+    if (v.isNil())
+        return error_catalog.raise(.type_arg_not_string, loc, .{ .fn_name = fn_name, .actual = "nil" });
+    try print_mod.writeStrValue(rt, env, &aw.writer, v);
+    return aw.writer.buffered();
 }
 
 const TrimVariant = enum { both, left, right, newline_right };
@@ -123,13 +151,16 @@ pub fn trimNewline(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLoca
 
 const PrefixCheck = enum { starts, ends, contains };
 
-fn prefixImpl(fn_name: []const u8, check: PrefixCheck, args: []const Value, loc: SourceLocation) anyerror!Value {
+fn prefixImpl(rt: *Runtime, env: *Env, fn_name: []const u8, check: PrefixCheck, args: []const Value, loc: SourceLocation) anyerror!Value {
     try error_catalog.checkArity(fn_name, args, 2, loc);
-    if (args[0].tag() != .string)
-        return error_catalog.raise(.type_arg_not_string, loc, .{ .fn_name = fn_name, .actual = @tagName(args[0].tag()) });
+    // Only the FIRST argument coerces: clj `.toString`s `s` but types `substr`
+    // as String, so `(starts-with? 421 "4")` is true while a non-string needle
+    // is a ClassCastException there too.
+    var aw: std.Io.Writer.Allocating = .init(rt.gpa);
+    defer aw.deinit();
+    const haystack = try toStringArg(rt, env, args[0], fn_name, loc, &aw);
     if (args[1].tag() != .string)
         return error_catalog.raise(.type_arg_not_string, loc, .{ .fn_name = fn_name, .actual = @tagName(args[1].tag()) });
-    const haystack = string_collection.asString(args[0]);
     const needle = string_collection.asString(args[1]);
     const hit = switch (check) {
         // UTF-8 is self-synchronising — byte-equality is codepoint-
@@ -143,23 +174,17 @@ fn prefixImpl(fn_name: []const u8, check: PrefixCheck, args: []const Value, loc:
 
 /// `(clojure.string/starts-with? s substr)`.
 pub fn startsWith(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
-    _ = rt;
-    _ = env;
-    return prefixImpl("starts-with?", .starts, args, loc);
+    return prefixImpl(rt, env, "starts-with?", .starts, args, loc);
 }
 
 /// `(clojure.string/ends-with? s substr)`.
 pub fn endsWith(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
-    _ = rt;
-    _ = env;
-    return prefixImpl("ends-with?", .ends, args, loc);
+    return prefixImpl(rt, env, "ends-with?", .ends, args, loc);
 }
 
 /// `(clojure.string/includes? s substr)`.
 pub fn includes(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
-    _ = rt;
-    _ = env;
-    return prefixImpl("includes?", .contains, args, loc);
+    return prefixImpl(rt, env, "includes?", .contains, args, loc);
 }
 
 /// `(clojure.string/index-of s substr)` / `(… s substr from-index)` —
@@ -167,15 +192,13 @@ pub fn includes(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocatio
 /// Per DIVERGENCE D1 the index is in codepoint units (JVM is UTF-16). The
 /// 3-arity searches the codepoint tail `s[from..]` then re-bases the result.
 pub fn indexOf(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
-    _ = rt;
-    _ = env;
     if (args.len < 2 or args.len > 3)
         return error_catalog.raise(.arity_out_of_range, loc, .{ .fn_name = "index-of", .got = args.len, .min = 2, .max = 3 });
-    if (args[0].tag() != .string)
-        return error_catalog.raise(.type_arg_not_string, loc, .{ .fn_name = "index-of", .actual = @tagName(args[0].tag()) });
+    var aw: std.Io.Writer.Allocating = .init(rt.gpa);
+    defer aw.deinit();
+    const hay = try toStringArg(rt, env, args[0], "index-of", loc, &aw);
     if (args[1].tag() != .string)
         return error_catalog.raise(.type_arg_not_string, loc, .{ .fn_name = "index-of", .actual = @tagName(args[1].tag()) });
-    const hay = string_collection.asString(args[0]);
     const needle = string_collection.asString(args[1]);
     if (args.len == 3) {
         if (args[2].tag() != .integer)
@@ -197,15 +220,13 @@ pub fn indexOf(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation
 /// 3-arity searches the prefix `s[0 .. from+len(substr)]` so a match starting
 /// at from-index is still found, then takes its last occurrence.
 pub fn lastIndexOf(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
-    _ = rt;
-    _ = env;
     if (args.len < 2 or args.len > 3)
         return error_catalog.raise(.arity_out_of_range, loc, .{ .fn_name = "last-index-of", .got = args.len, .min = 2, .max = 3 });
-    if (args[0].tag() != .string)
-        return error_catalog.raise(.type_arg_not_string, loc, .{ .fn_name = "last-index-of", .actual = @tagName(args[0].tag()) });
+    var aw: std.Io.Writer.Allocating = .init(rt.gpa);
+    defer aw.deinit();
+    const hay = try toStringArg(rt, env, args[0], "last-index-of", loc, &aw);
     if (args[1].tag() != .string)
         return error_catalog.raise(.type_arg_not_string, loc, .{ .fn_name = "last-index-of", .actual = @tagName(args[1].tag()) });
-    const hay = string_collection.asString(args[0]);
     const needle = string_collection.asString(args[1]);
     if (args.len == 3) {
         if (args[2].tag() != .integer)
@@ -462,11 +483,10 @@ pub fn escape(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation)
 /// split at the first codepoint's boundary (no extra allocation
 /// beyond the per-step buffers + the final heap string).
 pub fn capitalize(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
-    _ = env;
     try error_catalog.checkArity("capitalize", args, 1, loc);
-    if (args[0].tag() != .string)
-        return error_catalog.raise(.type_arg_not_string, loc, .{ .fn_name = "capitalize", .actual = @tagName(args[0].tag()) });
-    const s = string_collection.asString(args[0]);
+    var aw: std.Io.Writer.Allocating = .init(rt.gpa);
+    defer aw.deinit();
+    const s = try toStringArg(rt, env, args[0], "capitalize", loc, &aw);
     if (s.len == 0) return try string_collection.alloc(rt, "");
 
     var iter = std.unicode.Utf8Iterator{ .bytes = s, .i = 0 };

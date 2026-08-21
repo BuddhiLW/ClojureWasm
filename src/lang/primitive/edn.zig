@@ -37,8 +37,9 @@ const Var = env_mod.Var;
 
 /// Implements clojure.edn/read-string.
 /// Spec: `(read-string s)` reads one EDN form from `s` and returns it as
-///   a Value; empty / whitespace-only / comment-only input THROWS EOF (clj
-///   parity, D-269) unless an `:eof` opt supplies a sentinel. `(read-string opts s)`
+///   a Value. Empty / whitespace-only / comment-only input: `clojure.edn`
+///   returns nil, `clojure.core` THROWS EOF — measured, they differ (D-581).
+///   An `:eof` opt supplies a sentinel for either. `(read-string opts s)`
 ///   honours an opts map: `:readers` (a `{tag-symbol reader-fn}` map bound
 ///   to `*data-readers*` for the read), `:default` (a `(fn [tag value])`
 ///   bound to `*default-data-reader-fn*`), `:eof` (value returned on empty
@@ -46,7 +47,25 @@ const Var = env_mod.Var;
 ///   `BindingFrame` (ADR-0073) so the `formToValue` `.tagged` arm sees them.
 /// JVM reference: clojure.edn/read-string (note: opts is the FIRST arg)
 /// cw v1 tier: A (Phase 9 row 9.2 + Phase 14 D-200 cycle 2)
+/// `clojure.core/read-string` — EOF on empty input is an ERROR (clj:
+/// `RuntimeException: EOF while reading`).
 pub fn readStringFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
+    return readStringImpl(rt, env, args, loc, .raise);
+}
+
+/// `clojure.edn/read-string` — EOF on empty input is nil, NOT an error.
+/// Measured against clj: `(edn/read-string "")` => nil while
+/// `(core/read-string "")` throws. The two readers differ on exactly this
+/// input, which is why they cannot share one entry point (D-581; D-269 was
+/// discharged against the core behaviour and made edn throw too).
+pub fn readStringEdnFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
+    return readStringImpl(rt, env, args, loc, .nil_on_eof);
+}
+
+/// What an empty / whitespace-only / comment-only source means to the caller.
+const EofPolicy = enum { raise, nil_on_eof };
+
+fn readStringImpl(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation, eof_policy: EofPolicy) anyerror!Value {
     try error_catalog.checkArityRange("read-string", args, 1, 2, loc);
     const opts: ?Value = if (args.len == 2) args[0] else null;
     const str_arg = args[args.len - 1];
@@ -119,6 +138,8 @@ pub fn readStringFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLoc
     };
     const form = form_opt orelse {
         if (eof_provided) return eof_val;
+        // An explicit `:eof` wins for both readers; absent it, the policy decides.
+        if (eof_policy == .nil_on_eof) return Value.nil_val;
         return error_catalog.raise(.eof_unexpected, loc, .{});
     };
     return try analyzer_mod.formToValue(rt, env, form);
@@ -143,7 +164,7 @@ const Entry = struct {
 };
 
 const ENTRIES = [_]Entry{
-    .{ .name = "read-string", .f = &readStringFn },
+    .{ .name = "read-string", .f = &readStringEdnFn },
 };
 
 /// Register `clojure.edn` primitives into the dedicated namespace.

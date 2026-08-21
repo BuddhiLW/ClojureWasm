@@ -60,6 +60,7 @@ const lazy_seq = @import("../../runtime/lazy_seq.zig");
 const charset = @import("../../runtime/charset.zig");
 const td_mod = @import("../../runtime/type_descriptor.zig");
 const root_set = @import("../../runtime/gc/root_set.zig");
+const equal_mod = @import("../../runtime/equal.zig");
 
 /// Protocol fqcns the hybrid slow-paths match against `MethodEntry.protocol_name`.
 /// Bootstrap declares each protocol in `lang/clj/clojure/core.clj` so the fqcn
@@ -118,7 +119,6 @@ pub fn countFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation
             try transient_hash_set.ensureLive(coll, "count", loc);
             break :blk Value.initInteger(@intCast(transient_hash_set.count(coll)));
         },
-        .chunked_cons => Value.initInteger(@intCast(chunked_cons.count(coll))),
         // PERF: O(1) precomputed range length, no element walk [refs: O-001]
         .range => Value.initInteger(range.countOf(coll)),
         // PERF: a vector view counts by subtraction — backing count minus the
@@ -166,7 +166,11 @@ pub fn countFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation
                 .type_name = desc.fqcn orelse "<anonymous>",
             });
         },
-        .list, .cons, .lazy_seq => {
+        // `.chunked_cons` shares this arm: its tail is frequently an
+        // unrealized lazy seq, so counting only the chunked prefix answers the
+        // first chunk's size (32) for every longer seq. The walk below skips
+        // whole chunks and realizes the tail, so it is chunk-fast AND total.
+        .list, .cons, .lazy_seq, .chunked_cons => {
             // PERF: a PURE `.list` chain carries an exact O(1) count, so
             // return it without walking. The walk below stays for the mixed
             // chain a `.list` cell can head — a "Cons over a seq"
@@ -899,6 +903,45 @@ test "count: string returns codepoint count (not byte count) — DIVERGENCE D1" 
     const s = try string_collection.alloc(&fix.rt, "café");
     const r = try countFn(&fix.rt, &fix.env, &.{s}, .{ .line = 0, .column = 0 });
     try testing.expectEqual(@as(i64, 4), r.asInteger()); // 4 codepoints (NOT 5 bytes)
+}
+
+test "=: a chunked seq is equal to the vector holding the same elements" {
+    var fix: TestFixture = undefined;
+    try fix.init(testing.allocator);
+    defer fix.deinit();
+    const loc: SourceLocation = .{ .line = 0, .column = 0 };
+    // `sequential?` answers true for a `.chunked_cons`; if `=` disagrees, the
+    // value is Sequential that is equal to nothing — the two answers must come
+    // from ONE definition (interface_membership.isSequentialTag).
+    const r = try range.make(&fix.rt, 0, 1, 40);
+    const s = try seqFn(&fix.rt, &fix.env, &.{r}, loc);
+    try testing.expectEqual(Value.Tag.chunked_cons, s.tag());
+    var v = vector.empty();
+    var i: i64 = 0;
+    while (i < 40) : (i += 1) v = try vector.conj(&fix.rt, v, Value.initInteger(i));
+    try testing.expect(try equal_mod.valueEqual(&fix.rt, &fix.env, s, v));
+    try testing.expect(try equal_mod.valueEqual(&fix.rt, &fix.env, v, s));
+}
+
+test "count: a chunked seq counts EVERY element, not just its realized chunk" {
+    var fix: TestFixture = undefined;
+    try fix.init(testing.allocator);
+    defer fix.deinit();
+    const loc: SourceLocation = .{ .line = 0, .column = 0 };
+    // `(seq (range 40))` heads a 32-element chunk over an unrealized tail.
+    // Counting the chunk alone answers 32 for every n >= 32 — a wrong number,
+    // returned without an error.
+    const r40 = try range.make(&fix.rt, 0, 1, 40);
+    const s40 = try seqFn(&fix.rt, &fix.env, &.{r40}, loc);
+    try testing.expectEqual(Value.Tag.chunked_cons, s40.tag());
+    const c40 = try countFn(&fix.rt, &fix.env, &.{s40}, loc);
+    try testing.expectEqual(@as(i64, 40), c40.asInteger());
+
+    // Two chunk boundaries out, so a single-chunk-plus-one answer cannot pass.
+    const r100 = try range.make(&fix.rt, 0, 1, 100);
+    const s100 = try seqFn(&fix.rt, &fix.env, &.{r100}, loc);
+    const c100 = try countFn(&fix.rt, &fix.env, &.{s100}, loc);
+    try testing.expectEqual(@as(i64, 100), c100.asInteger());
 }
 
 test "seq: empty vector returns nil" {

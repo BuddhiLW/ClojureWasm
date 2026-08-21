@@ -54,15 +54,13 @@
 
 set -uo pipefail
 cd "$(dirname "$0")/.."
-source "$(dirname "$0")/lib_cljw_bin.sh"
 ROOT="$PWD"
 
 BIN="$ROOT/zig-out/bin/cljw"
 CLJ="${CLJ:-clj}"
 DIR="test/conformance"
 
-cljw_bin_ensure "$BIN" lib_conformance
-
+[ -n "${CLJW_SKIP_BUILD:-}" ] || zig build -Dwasm -Doptimize="${CLJW_OPT:-ReleaseSafe}" >/dev/null
 # ---------- lib context ----------
 # Sets: CTX_DIR (cwd for cljw), CLJ_DIR (cwd for clj) and SDEPS_ARGS.
 # cljw: test/conformance/verified_projects/<lib>/ when present (its deps.edn auto-loads), else

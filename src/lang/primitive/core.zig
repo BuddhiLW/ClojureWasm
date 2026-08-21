@@ -35,6 +35,7 @@ const charset_mod = @import("../../runtime/charset.zig");
 const writer_value_mod = @import("../../runtime/writer_value.zig");
 const text_io = @import("../../runtime/io/text_io.zig");
 const td_mod = @import("../../runtime/type_descriptor.zig");
+const interface_membership = @import("../../runtime/interface_membership.zig");
 const protocol_mod = @import("../../runtime/protocol.zig");
 const class_name = @import("../../runtime/class_name.zig");
 const driver = @import("../../eval/driver.zig");
@@ -485,10 +486,9 @@ pub fn sequentialQ(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLoca
         const inst = args[0].decodePtr(*const td_mod.TypedInstance);
         return if (inst.descriptor.declaresProtocol("Sequential")) .true_val else .false_val;
     }
-    return switch (t) {
-        .list, .vector, .cons, .lazy_seq, .chunked_cons, .range, .string_seq, .array_seq, .persistent_queue, .map_entry => .true_val,
-        else => .false_val,
-    };
+    // Same constant `=` reads (interface_membership.SEQUENTIAL_TAGS) — the two
+    // must never be able to answer differently for one value.
+    return if (interface_membership.isSequentialTag(t)) .true_val else .false_val;
 }
 
 /// `(associative? x)` — true iff `x` implements Associative

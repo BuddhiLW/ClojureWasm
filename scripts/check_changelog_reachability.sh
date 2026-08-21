@@ -41,7 +41,7 @@ if [ -z "$head_body" ]; then
 fi
 
 newest_tag="$(git tag --sort=-v:refname --merged HEAD 2>/dev/null \
-  | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -1 || true)"
+  | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sed -n 1p || true)"
 
 if [ -z "$newest_tag" ]; then
   echo "check_changelog_reachability: ok — no release tag reachable from HEAD to compare against"
@@ -64,7 +64,7 @@ shipped="$(comm -12 \
 if [ -n "$shipped" ]; then
   count="$(printf '%s\n' "$shipped" | grep -c . || true)"
   echo "check_changelog_reachability: VIOLATION -- $count [Unreleased] line(s) already shipped in $newest_tag:" >&2
-  printf '%s\n' "$shipped" | head -20 | sed 's/^/    /' >&2
+  printf '%s\n' "$shipped" | sed -n 1,20p | sed 's/^/    /' >&2
   echo "  Move them under a '## [$( echo "$newest_tag" | tr -d v )]' heading (or the release they belong to)." >&2
   [ "$gate" -eq 1 ] && exit 1
   exit 0

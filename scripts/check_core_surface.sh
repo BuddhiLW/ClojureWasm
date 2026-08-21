@@ -27,14 +27,12 @@ set -uo pipefail
 # machine and a regen under a different locale is not spurious drift.
 export LC_ALL=C
 cd "${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}"
-source "$(dirname "$0")/lib_cljw_bin.sh"
 
 BIN="zig-out/bin/cljw"
 EXPECTED="data/core_surface_extras.txt"
 UPSTREAM="data/core_surface_upstream.txt"
 
-cljw_bin_ensure "$BIN" check_core_surface
-
+[ -n "${CLJW_SKIP_BUILD:-}" ] || zig build -Dwasm -Doptimize="${CLJW_OPT:-ReleaseSafe}" >/dev/null
 for f in "$EXPECTED" "$UPSTREAM"; do
     [ -f "$f" ] || { echo "check_core_surface: missing $f" >&2; exit 1; }
 done

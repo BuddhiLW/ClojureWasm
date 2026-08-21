@@ -498,11 +498,10 @@ pub fn nthFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) 
         .vector => blk: {
             if (idx < 0) {
                 if (has_default) break :blk default;
-                break :blk error_catalog.raise(.type_arg_invalid, loc, .{
-                    .fn_name = "nth",
-                    .expected = "non-negative integer index",
-                    .actual = "negative",
-                });
+                // clj raises IndexOutOfBoundsException at BOTH ends; the
+                // catalog entry for index_out_of_range says as much. A type
+                // error here made one function answer two classes.
+                break :blk error_catalog.raise(.index_out_of_range, loc, .{ .fn_name = "nth" });
             }
             const n = vector.count(coll);
             if (idx >= n) {
@@ -518,11 +517,10 @@ pub fn nthFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) 
         .array_seq => blk: {
             if (idx < 0) {
                 if (has_default) break :blk default;
-                break :blk error_catalog.raise(.type_arg_invalid, loc, .{
-                    .fn_name = "nth",
-                    .expected = "non-negative integer index",
-                    .actual = "negative",
-                });
+                // clj raises IndexOutOfBoundsException at BOTH ends; the
+                // catalog entry for index_out_of_range says as much. A type
+                // error here made one function answer two classes.
+                break :blk error_catalog.raise(.index_out_of_range, loc, .{ .fn_name = "nth" });
             }
             if (idx >= array_seq.countOf(coll)) {
                 if (has_default) break :blk default;
@@ -551,11 +549,10 @@ pub fn nthFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) 
             try transient_vector.ensureLive(coll, "nth", loc);
             if (idx < 0) {
                 if (has_default) break :blk default;
-                break :blk error_catalog.raise(.type_arg_invalid, loc, .{
-                    .fn_name = "nth",
-                    .expected = "non-negative integer index",
-                    .actual = "negative",
-                });
+                // clj raises IndexOutOfBoundsException at BOTH ends; the
+                // catalog entry for index_out_of_range says as much. A type
+                // error here made one function answer two classes.
+                break :blk error_catalog.raise(.index_out_of_range, loc, .{ .fn_name = "nth" });
             }
             if (idx >= transient_vector.count(coll)) {
                 if (has_default) break :blk default;
@@ -1292,6 +1289,25 @@ test "nth vector returns indexed element" {
     v = try vector.conj(&fix.rt, v, Value.initInteger(20));
     const r = try nthFn(&fix.rt, &fix.env, &.{ v, Value.initInteger(1) }, .{ .line = 0, .column = 0 });
     try testing.expectEqual(@as(i64, 20), r.asInteger());
+}
+
+test "nth: a negative index is an index error, like its out-of-range sibling" {
+    var fix: TestFixture = undefined;
+    try fix.init(testing.allocator);
+    defer fix.deinit();
+    const loc: SourceLocation = .{ .line = 0, .column = 0 };
+    var v = vector.empty();
+    v = try vector.conj(&fix.rt, v, Value.initInteger(10));
+
+    // clj raises IndexOutOfBoundsException for BOTH ends. cljw's positive arm
+    // already did; the negative arm raised a type error, so one function
+    // answered two different classes for the same kind of mistake.
+    try testing.expectError(error_mod.ClojureWasmError.IndexError, nthFn(&fix.rt, &fix.env, &.{ v, Value.initInteger(-1) }, loc));
+    try testing.expectError(error_mod.ClojureWasmError.IndexError, nthFn(&fix.rt, &fix.env, &.{ v, Value.initInteger(99) }, loc));
+
+    // A supplied default still wins over either bound (clj: `(nth [1] -1 :d)` => :d).
+    const d = try nthFn(&fix.rt, &fix.env, &.{ v, Value.initInteger(-1), Value.initInteger(7) }, loc);
+    try testing.expectEqual(@as(i64, 7), d.asInteger());
 }
 
 test "assoc nil :a 1 → {:a 1}" {

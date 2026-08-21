@@ -90,3 +90,35 @@ fallback), boolean / nil, collection ops (Phase 5+), exception (Phase
 ## Revision history
 
 - 2026-05-23: Status: Proposed -> Accepted (initial landing).
+- 2026-08-20: **The `SpecialFormTag` reservation is struck, and the enum is
+  now gated.** Audited against the code: the reservation and the analyzer had
+  not agreed for a long time and nothing said so.
+
+  Ten reserved names never became enum variants — `the`, `catch`, `finally`,
+  `deftype`, `defrecord`, `reify`, `definterface`, `monitor_enter`,
+  `monitor_exit`, `dosync`. Nine of them are nevertheless **fully built**, by
+  a mechanism this ADR did not anticipate: `deftype` / `defrecord` / `reify` /
+  `definterface` / `dosync` expand as macros (`src/lang/macro_transforms.zig`),
+  `monitor_enter` / `monitor_exit` are ordinary primitives
+  (`src/lang/primitive/locking.zig`), and `catch` / `finally` are parsed as
+  clauses of `try` (`src/eval/analyzer/try_form.zig`) rather than as
+  independent forms. `the` was never built as anything, anywhere — a drafting
+  error in this ADR.
+
+  Seven variants exist in code that this ADR never mentioned:
+  `defmacro_form`, `letfn_star`, `binding_form`, `in_ns_form`, `require_form`,
+  `ns_form`, `mut_fields`. The enum is also named `SpecialFormKind`, not
+  `SpecialFormTag`.
+
+  So the reservation is withdrawn rather than back-filled: obeying it now
+  would mean adding analyzer tags for nine forms that already work, which is
+  the Reservation-as-bias smell (`.dev/principle.md`) — a reservation is a
+  memo, not a contract. The **shape-lock intent survives** and is now
+  mechanical instead of aspirational: `data/special_forms.txt` pins the
+  enum's 21 variants and `scripts/check_special_form_enum.sh` fails when code
+  and ledger disagree, in either direction. Adding a slot means updating the
+  ledger, which is the moment this ADR gets its next Revision history entry.
+
+  The `ValueTag` and `Opcode` reservations in this ADR are untouched here;
+  `ValueTag` is governed by F-004 + ADR-0179 (which measured the slot space by
+  use, not by name) and is user-amendable only.

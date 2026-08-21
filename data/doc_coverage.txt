@@ -177,9 +177,6 @@ clojure.test/inc-report-counter
 clojure.test/is
 clojure.test/print-contexts
 clojure.test/report
-clojure.test/run-all-tests
-clojure.test/run-tests
-clojure.test/test-var
 clojure.test/testing
 clojure.test/testing-contexts-str
 clojure.test/testing-vars-str

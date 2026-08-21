@@ -35,7 +35,7 @@ EOF
 # --- java.class.path is the resolved source path -----------------------------
 # (`-e` prints each form's value, so the assertion reads the first line only.)
 assert_eq 'class-path' \
-  "$("$BIN" -cp "$WORK/test" -e '(println (System/getProperty "java.class.path"))' | head -1)" \
+  "$("$BIN" -cp "$WORK/test" -e '(println (System/getProperty "java.class.path"))' | sed -n 1p)" \
   "$WORK/test"
 
 # --- discovery + run: two namespaces, three assertions, exit 0 ---------------
@@ -86,7 +86,7 @@ assert_has 'load-error-counted' "$out" '1 unloadable'
 assert_has 'load-error-others-ran' "$out" '3 assertions'
 
 # --- clojure.test/successful? is the clj-compat verdict the runner uses ------
-verdict() { "$BIN" -e "(require (quote clojure.test)) (println (clojure.test/successful? $1))" | tail -2 | head -1; }
+verdict() { "$BIN" -e "(require (quote clojure.test)) (println (clojure.test/successful? $1))" | tail -2 | sed -n 1p; }
 assert_eq 'successful-true'  "$(verdict '{:test 1 :pass 2 :fail 0 :error 0}')" 'true'
 assert_eq 'successful-false' "$(verdict '{:test 1 :pass 2 :fail 1 :error 0}')" 'false'
 

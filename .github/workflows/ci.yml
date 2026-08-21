@@ -105,19 +105,37 @@ jobs:
         run: echo "ZIG_GLOBAL_CACHE_DIR=$HOME/.cache/zig" >> "$GITHUB_ENV"
 
       # Cache the fetched deps (zwasm git dep + zlinter, under the global cache's
-      # p/) AND the build artifacts (global cache + the repo-local .zig-cache),
-      # keyed on the manifests. A same-manifest run restores everything; a
-      # manifest change falls back via restore-keys to the newest prior cache and
-      # rebuilds incrementally (Zig's cache is content-addressed, so a stale
-      # restore is safe — it only ever causes a rebuild, never a wrong build).
-      - name: Cache Zig deps + build
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      # p/) AND the build artifacts (global cache + the repo-local .zig-cache).
+      # Zig's cache is content-addressed, so a stale restore is always SAFE — it
+      # can only cause a rebuild, never a wrong build. That makes "restore the
+      # newest thing available, always save what this run produced" the correct
+      # policy, and it is why the key carries the run id.
+      #
+      # It did not used to. The key was `hashFiles('build.zig.zon','build.zig')`
+      # — files that change a few times a year — so it HIT on essentially every
+      # run, and `actions/cache` only WRITES a cache when its key MISSES. The
+      # restored `.zig-cache` was therefore frozen at whatever the first run
+      # with that build.zig produced, and every run since rebuilt everything
+      # that had changed after that snapshot and then threw the result away.
+      # Measured 2026-08-19: `zig_build_test_vm` 375 s + `zig_build_test_tree_walk`
+      # 371 s on the Linux leg, against ~1 s warm locally (D-487) — i.e. cold
+      # builds, every run, while the step reported a cache hit every time.
+      # A cache that reports a hit and saves nothing is worse than no cache:
+      # it makes the waste invisible.
+      #
+      # restore/save are split so a FAILED run still saves its build products.
+      # A red gate is exactly when the next run is a fix for it, seconds later,
+      # against nearly the same tree — the moment the cache is worth the most.
+      - name: Restore Zig deps + build
+        id: zigcache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.cache/zig
             .zig-cache
-          key: ${{ matrix.name }}-zigbuild-${{ hashFiles('build.zig.zon', 'build.zig') }}
+          key: ${{ matrix.name }}-zigbuild-${{ hashFiles('build.zig.zon', 'build.zig') }}-${{ github.run_id }}
           restore-keys: |
+            ${{ matrix.name }}-zigbuild-${{ hashFiles('build.zig.zon', 'build.zig') }}-
             ${{ matrix.name }}-zigbuild-
 
       # Gate deps not universally preinstalled: ripgrep (check_debt_id_refs.sh)
@@ -158,6 +176,72 @@ jobs:
             echo "::error::gate requires bash >= 4 on PATH (PATH bash is $(bash -c 'echo "$BASH_VERSION"'))"; exit 1
           fi
 
+      # Warm the build cache in a step that can RECOVER from a poisoned restore.
+      # A restored `.zig-cache` can reference a file it does not contain (a job
+      # cancelled mid-build used to save one — see the save step below), and
+      # Zig treats that as a hard compilation error rather than rebuilding:
+      #     error: failed to check cache: '…/bootstrap_sources_stub.zig' file_hash FileNotFound
+      # Left alone, `restore-keys` hands that same entry to every later run and
+      # CI stays red until a human deletes it through the API. Wiping a
+      # content-addressed cache is always safe — it costs a rebuild, nothing
+      # else — so recovery is simply: clear it and build again, once.
+      #
+      # This is not extra work: the gate's own first step is this same build,
+      # so a healthy run does it here and finds it warm there.
+      - name: Warm build (self-healing)
+        shell: bash
+        run: |
+          set -uo pipefail
+          log=$(mktemp)
+          if zig build -Dwasm -Doptimize=ReleaseSafe 2>&1 | tee "$log"; then
+            exit 0
+          fi
+          if grep -q "failed to check cache" "$log"; then
+            echo "::warning::restored .zig-cache is inconsistent — clearing and rebuilding"
+            rm -rf .zig-cache
+            zig build -Dwasm -Doptimize=ReleaseSafe
+          else
+            echo "::error::build failed for a reason unrelated to the cache"
+            exit 1
+          fi
+
       - name: ci_gate.sh
         shell: bash
         run: bash scripts/ci_gate.sh
+
+      # Save on success OR failure, but NEVER on cancellation.
+      #
+      # Failure is the case worth saving for: the next run is usually a fix for
+      # that red, minutes later, against nearly the same tree, and a failed job
+      # ran its BUILD steps to completion — only a test or a check went red, so
+      # `.zig-cache` is internally consistent.
+      #
+      # A CANCELLED job is the opposite, and this condition was originally
+      # `always()`, which INCLUDES cancellation. Measured 2026-08-19: pushing a
+      # fix fired `cancel-in-progress`, killing the Linux job in the middle of
+      # `zig build`. The save captured `.zig-cache` half-written — an
+      # `o/<hash>` manifest present, `bootstrap_sources_stub.zig` inside it
+      # never flushed. The next run restored that and Zig refused to build:
+      #
+      #   error: failed to check cache: '.zig-cache/o/…/bootstrap_sources_stub.zig'
+      #          file_hash FileNotFound
+      #
+      # Zig does NOT recover from this on its own — it errors instead of
+      # rebuilding. And since `restore-keys` matches by PREFIX, a poisoned
+      # entry is the newest match for every later run, so one cancelled job
+      # wedges the whole lineage until someone deletes the entry by hand. That
+      # is a worse failure mode than the stale-cache bug this caching replaced,
+      # which is why the condition is narrowed rather than the symptom patched.
+      - name: Bound the Zig cache before saving
+        if: success() || failure()
+        shell: bash
+        run: bash scripts/prune_zig_cache.sh
+
+      - name: Save Zig deps + build
+        if: success() || failure()
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cache/zig
+            .zig-cache
+          key: ${{ steps.zigcache.outputs.cache-primary-key }}

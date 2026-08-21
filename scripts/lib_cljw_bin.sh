@@ -11,18 +11,20 @@
 #   cljw_bin_stale BIN        — exit 0 when BIN is missing, or older than any
 #                               file under `src/` / `build.zig` /
 #                               `build.zig.zon`. Exit 1 when it is current.
-#   cljw_bin_ensure BIN LABEL — rebuild when stale. LABEL names the caller in
-#                               the "building cljw…" notice.
 #   cljw_bin_require BIN LABEL— for callers that must NOT build: exit 1 with a
 #                               build instruction when BIN is missing or stale.
+#
+# Callers that MAY build do not belong here: they run `zig build` unconditionally
+# (guarded by `CLJW_SKIP_BUILD` for the gate, which builds once up front), which
+# is simpler than an mtime test and cannot be fooled by a checkout that rewrites
+# timestamps. This file serves the callers for which building is WRONG — a bench
+# harness or a project-verification run must measure the binary it was handed and
+# say so when that binary does not match the tree.
 #
 # `find -newer` rather than `stat`: BSD and GNU `stat` disagree on the format
 # flag, and the gate's primary host is macOS.
 [[ -n "${LIB_CLJW_BIN_LOADED:-}" ]] && return 0
 LIB_CLJW_BIN_LOADED=1
-
-# shellcheck source=scripts/lib_build_lock.sh
-source "${BASH_SOURCE[0]%/*}/lib_build_lock.sh"
 
 # Sources whose change invalidates a built binary. `src/` covers the Zig
 # runtime AND the bundled `.clj` (they are embedded at build time).
@@ -41,17 +43,8 @@ cljw_bin_stale() {
   [ -n "$srcs" ] || return 1
   # shellcheck disable=SC2086
   local newer
-  newer="$(find $srcs -type f -newer "$bin" -print 2>/dev/null | head -1)"
+  newer="$(find $srcs -type f -newer "$bin" -print 2>/dev/null | sed -n 1p)"
   [ -n "$newer" ]
-}
-
-cljw_bin_ensure() {
-  local bin="${1:-zig-out/bin/cljw}"
-  local label="${2:-cljw}"
-  if cljw_bin_stale "$bin"; then
-    echo "${label}: building cljw (binary missing or older than src/)…" >&2
-    with_build_lock zig build -Dwasm -Doptimize="${CLJW_OPT:-ReleaseSafe}" >/dev/null
-  fi
 }
 
 cljw_bin_require() {

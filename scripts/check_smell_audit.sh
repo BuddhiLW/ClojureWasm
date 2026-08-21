@@ -38,22 +38,11 @@ hook_is_git_push || exit 0
 hook_cd_project_root
 
 # --- 3. Identify unpushed commits --------------------------------------------
-UPSTREAM="$(git rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null || echo '')"
-if [[ -n "$UPSTREAM" ]]; then
-  RANGE="$UPSTREAM..HEAD"
-else
-  RANGE="HEAD"
-fi
-
-# Fail-closed on git error (Wave-16 review-fix block#4 — previous
-# `|| true` swallowed any git failure as "no unpushed commits",
-# bypassing the gate). Use the same approach as hook_iter_unpushed.
-if ! UNPUSHED="$(git log --format='%H' "$RANGE" 2>&1)"; then
-  echo "internal: git log $RANGE failed — failing closed" >&2
-  echo "$UNPUSHED" >&2
-  exit 1
-fi
-[[ -z "$UNPUSHED" ]] && exit 0
+# Commits not yet on any remote branch (hook_unpushed_shas fails closed on a
+# git error). Replaces the old `@{u}..HEAD`, which mis-fired on a cross-branch
+# push by measuring against origin/main only ([CLJW-SMELLHOOK]).
+UNPUSHED="$(hook_unpushed_shas)"
+[[ -z "${UNPUSHED//[$'\n']/}" ]] && exit 0
 
 # --- 4. Helpers --------------------------------------------------------------
 is_source_path() {
