@@ -362,17 +362,10 @@ fi
 
 case "$MODE" in
   hook)
-    UPSTREAM="$(git rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null || echo '')"
-    if [[ -n "$UPSTREAM" ]]; then
-      REV_RANGE="$UPSTREAM..HEAD"
-    else
-      REV_RANGE="HEAD"
-    fi
-    REV_OUT="$(git rev-list "$REV_RANGE" 2>&1)" || {
-      echo "internal: git rev-list $REV_RANGE failed — failing closed" >&2
-      echo "$REV_OUT" >&2
-      exit 1
-    }
+    # Commits not yet on any remote branch. Replaces `@{u}..HEAD`, which
+    # re-flagged already-published commits on a cross-branch push
+    # ([CLJW-SMELLHOOK]); hook_unpushed_shas fails closed on a git error.
+    REV_OUT="$(hook_unpushed_shas)"
     RANGES=()
     while IFS= read -r sha; do
       [[ -z "$sha" ]] && continue
