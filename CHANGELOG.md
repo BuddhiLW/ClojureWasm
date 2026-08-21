@@ -7,6 +7,22 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 
 ## [Unreleased]
 
+### Fixed
+
+- **clojure.core parity — comparators, `min`/`max`, `min-key`/`max-key`,
+  `some-fn`/`every-pred`, `seqable?`** (from the clojure-test-suite drain):
+  - `<` `>` `<=` `>=` `==` are `([x] true)` at 1-arity and no longer inspect the
+    operand, so `(> "abc")` and `(== nil)` return `true` instead of raising a
+    type error.
+  - `min`/`max` propagate NaN like JVM Clojure: any NaN operand yields `##NaN`
+    (`(max 1 ##NaN)` => `##NaN`) rather than dropping it.
+  - `min-key`/`max-key` keep the later element on a tie and reproduce clj's
+    IEEE-NaN behaviour.
+  - `some-fn`/`every-pred` apply each predicate to each argument
+    (`((some-fn even?) 1 2)` is `true`), where before they passed all arguments
+    to one predicate and raised an arity error.
+  - `seqable?` is now true for arrays.
+
 ## [1.10.14] - 2026-08-21
 
 ### Added

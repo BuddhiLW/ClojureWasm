@@ -571,26 +571,40 @@
 ;; → true iff every `(pi & args)` is logical-true, else false (D-134).
 ;; clj some-fn is min-1-arity (D-446): `(some-fn)` throws. `[p & preds]`
 ;; enforces ≥1; rebind preds to the full list so the body is unchanged.
+;; clj applies EACH predicate to EACH arg (arg-outer, pred-inner), not all
+;; args to each predicate: `((some-fn p1 p2) x y)` is `(or (p1 x) (p2 x)
+;; (p1 y) (p2 y))`. It returns the first truthy value (some-fn's actual
+;; value, not a boolean), else the last one evaluated (nil when no args).
 (def some-fn
   (fn* [p & preds]
     (let* [preds (cons p preds)]
       (fn* [& args]
-        (if (seq preds)
-          (loop [ps preds]
-            (let* [r (apply (first ps) args)]
-              (if r
-                r
-                (if (seq (rest ps)) (recur (rest ps)) r))))
-          nil)))))
+        (loop [as args last-v nil]
+          (if (seq as)
+            (let* [x (first as)
+                   v (loop [ps preds seen nil]
+                       (if (seq ps)
+                         (let* [r ((first ps) x)]
+                           (if r r (recur (rest ps) r)))
+                         seen))]
+              (if v v (recur (rest as) v)))
+            last-v))))))
 
+;; The `every-pred` mirror: `(and (p1 x) (p2 x) (p1 y) (p2 y))`, short-circuit
+;; to a boolean false on the first falsey, true when all pass (or no args).
 ;; clj every-pred is min-1-arity (D-446): `(every-pred)` throws.
 (def every-pred
   (fn* [p & preds]
     (let* [preds (cons p preds)]
       (fn* [& args]
-        (loop [ps preds]
-          (if (seq ps)
-            (if (apply (first ps) args) (recur (rest ps)) false)
+        (loop [as args]
+          (if (seq as)
+            (let* [x (first as)
+                   ok (loop [ps preds]
+                        (if (seq ps)
+                          (if ((first ps) x) (recur (rest ps)) false)
+                          true))]
+              (if ok (recur (rest as)) false))
             true))))))
 
 ;; `(trampoline f & args)` — call f; while the result is a fn, call it
@@ -1285,16 +1299,40 @@
 ;; D-134 cluster 5 — reduce-shaped helpers (Pattern A).
 ;; ----------------------------------------------------------------
 
-;; `(max-key f & xs)` — the x with the greatest (f x); ties keep the
-;; earlier-seen. `(min-key …)` is the mirror. reduce uses (first xs)
-;; as the seed (≥1 arg required, matching JVM).
+;; `(max-key f & xs)` — the x with the greatest (f x); ties keep the LATER-seen.
+;; `(min-key …)` is the mirror. This reproduces clj's exact algorithm, which is
+;; NOT a uniform reduce: the seed of the first two uses a STRICT compare while
+;; the fold of the rest uses a NON-strict one. The two disagree only on IEEE
+;; NaN keys — the seed picks the second operand, the fold keeps the accumulator —
+;; and the suite pins those cases (e.g. `(min-key identity [##-Inf ##NaN 1])`
+;; => ##NaN but `[##-Inf 1 ##NaN]` => ##-Inf). ≥1 x required, matching JVM.
 (def max-key
-  (fn* [f & xs]
-    (reduce (fn* [a b] (if (>= (f a) (f b)) a b)) xs)))
+  (fn* [f x & xs]
+    (if (seq xs)
+      (let* [y (first xs)
+             kx (f x) ky (f y)
+             gt (> kx ky)
+             v0 (if gt x y) kv0 (if gt kx ky)]
+        (loop [v v0 kv kv0 more (rest xs)]
+          (if (seq more)
+            (let* [w (first more) kw (f w)]
+              (if (>= kw kv) (recur w kw (rest more)) (recur v kv (rest more))))
+            v)))
+      x)))
 
 (def min-key
-  (fn* [f & xs]
-    (reduce (fn* [a b] (if (<= (f a) (f b)) a b)) xs)))
+  (fn* [f x & xs]
+    (if (seq xs)
+      (let* [y (first xs)
+             kx (f x) ky (f y)
+             lt (< kx ky)
+             v0 (if lt x y) kv0 (if lt kx ky)]
+        (loop [v v0 kv kv0 more (rest xs)]
+          (if (seq more)
+            (let* [w (first more) kw (f w)]
+              (if (<= kw kv) (recur w kw (rest more)) (recur v kv (rest more))))
+            v)))
+      x)))
 
 ;; `(flatten coll)` — the contents of any nested sequential as a single
 ;; flat SEQUENCE (matches JVM: a lazy seq, not a vector). Non-sequential
@@ -1652,7 +1690,9 @@
 ;; O(1) nth (vector in cw v1); the ident family keys on keyword/symbol +
 ;; `namespace` for the qualified/simple split.
 (def rational? (fn* [x] (or (integer? x) (ratio? x) (decimal? x))))
-(def seqable? (fn* [x] (or (nil? x) (seq? x) (coll? x) (string? x))))
+;; clj is seqable on nil, ISeq, Seqable, Iterable, CharSequence, Map, and any
+;; array (`(-> x class .isArray)`). `array?` is the arm cljw was missing.
+(def seqable? (fn* [x] (or (nil? x) (seq? x) (coll? x) (string? x) (array? x))))
 (def indexed? (fn* [x] (vector? x)))
 (def ident? (fn* [x] (or (keyword? x) (symbol? x))))
 (def simple-ident? (fn* [x] (and (ident? x) (not (namespace x)))))
