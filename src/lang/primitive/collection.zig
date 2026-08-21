@@ -485,14 +485,10 @@ pub fn nthFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) 
     const has_default = args.len == 3;
     const default: Value = if (has_default) args[2] else .nil_val;
 
-    if (coll.isNil()) {
-        if (has_default) return default;
-        return error_catalog.raise(.type_arg_invalid, loc, .{
-            .fn_name = "nth",
-            .expected = "indexed collection",
-            .actual = "nil",
-        });
-    }
+    // clj's `RT.nth(nil, i)` returns nil for ANY index (and the notFound for the
+    // 3-arg form) — `(nth nil 0)` is nil, not an error. This is also what makes
+    // `(rand-nth nil)` nil rather than throw.
+    if (coll.isNil()) return default;
 
     return switch (coll.tag()) {
         .vector => blk: {

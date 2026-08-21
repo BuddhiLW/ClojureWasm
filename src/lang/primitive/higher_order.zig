@@ -486,8 +486,13 @@ pub fn takeEagerFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLoca
     var collected: std.ArrayList(Value) = .empty;
     defer collected.deinit(rt.gpa);
     var remaining: i64 = n;
-    while (!cur.isNil() and remaining > 0) : (remaining -= 1) {
+    while (!cur.isNil() and remaining > 0) {
         try collected.append(rt.gpa, try sequence.firstFn(rt, env, &.{cur}, loc));
+        remaining -= 1;
+        // Don't force `next` on the element just taken as the last: clj's `take`
+        // realizes exactly n, and `(next s)` here would realize the (n+1)th
+        // (the `when-let` `@calls` count that read n+1 before this).
+        if (remaining == 0) break;
         cur = try sequence.nextFn(rt, env, &.{cur}, loc);
     }
     return try buildListFromSlice(rt, collected.items);

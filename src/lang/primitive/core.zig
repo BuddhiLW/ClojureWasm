@@ -651,9 +651,9 @@ pub fn symbolFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocatio
             const var_ptr = x.decodePtr(*const env_mod.Var);
             return symbol_mod.intern(rt, var_ptr.ns.name, var_ptr.name);
         }
-        if (x.isNil()) return .nil_val;
         // Unlike `keyword` (which returns nil), clj's `symbol` THROWS on a
-        // non-convertible value — a catchable IllegalArgumentException.
+        // non-convertible value — a catchable IllegalArgumentException — and
+        // `nil` is non-convertible: `(symbol nil)` throws, it does not return nil.
         return error_catalog.raise(.symbol_conversion_invalid, loc, .{ .actual = @tagName(x.tag()) });
     } else if (args.len == 2) {
         if (args[1].tag() != .string)

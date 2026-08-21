@@ -172,6 +172,14 @@ pub fn invoke(rt: *Runtime, env: *Env, callee: Value, args: []const Value, loc: 
             // is a native-map fast-path with no rt/env, so it cannot dispatch -lookup.
             if (args[0].tag() == .host_instance)
                 return lookupDispatch(rt, env, args[0], callee, args.len == 2, default, loc);
+            // A set is associative by membership: `(:a #{:a})` ≡ `(get #{:a} :a)`
+            // → the element if present, else default. The rt/env-free
+            // lookupWithDefault fast-path (map.get) cannot see sets, so route
+            // set receivers to the same membership test the set-as-fn arm uses.
+            if (args[0].tag() == .hash_set)
+                return if (try set.contains(args[0], callee)) callee else default;
+            if (args[0].tag() == .sorted_set)
+                return if (try sorted.setContains(rt, env, args[0], callee, loc)) callee else default;
             return lookupWithDefault(args[0], callee, args.len == 2, default);
         },
         .array_map, .hash_map => {
