@@ -53,6 +53,7 @@ const chunk_transform = @import("chunk_transform.zig");
 const range = @import("../../runtime/collection/range.zig");
 const array_seq = @import("../../runtime/collection/array_seq.zig");
 const sub_vector = @import("../../runtime/collection/sub_vector.zig");
+const string_seq = @import("../../runtime/collection/string_seq.zig");
 const java_array = @import("../../runtime/collection/java_array.zig");
 const transient_vector = @import("../../runtime/collection/transient/transient_vector.zig");
 const transient_array_map = @import("../../runtime/collection/transient/transient_array_map.zig");
@@ -127,6 +128,10 @@ pub fn countFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation
         // read cursor — where the eager list copy it replaced had to allocate
         // n cells before it could answer. [refs: O-058]
         .array_seq => Value.initInteger(@intCast(array_seq.countOf(coll))),
+        // A string view counts by scanning its remaining bytes: UTF-8 gives no
+        // length/element identity to subtract, so this is a walk where the
+        // vector view is arithmetic. It still allocates nothing. [refs: D-179]
+        .string_seq => Value.initInteger(@intCast(string_seq.countOf(coll))),
         // deftype/reify share one arm (rseq's pattern): clj RT.count routes BOTH
         // by the same rules, so a reify must not bypass the deftype logic (D-422
         // twin). A defrecord counts by field_count (with a -count override honoured
@@ -294,12 +299,15 @@ pub fn seqFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) 
     const coll = args[0];
     if (coll.isNil()) return .nil_val;
     return switch (coll.tag()) {
-        .string => {
-            // Empty string → nil; non-empty → codepoint seq (eager list build).
-            const s = string_collection.asString(coll);
-            if (s.len == 0) return .nil_val;
-            return try stringToList(rt, s);
-        },
+        // PERF: a VIEW, not a copy. `(seq s)` is two words holding
+        // `(string, byte offset)` like the JVM StringSeq, where this used to
+        // build an eager n-cell chain by asking `codepointAt(s, i)` for each
+        // element -- a walk from byte 0 per call, so O(n^2) overall: 89,910 ms
+        // for a 146,670-character string. `make` answers nil for an empty
+        // string, so no length guard is needed. [refs: O-060, D-179]
+        .string => try string_seq.make(rt, coll, 0),
+        // A StringSeq is already a seq; `seq` on one is identity.
+        .string_seq => coll,
         .list, .cons => list.seq(coll),
         // PERF: a VIEW, not a copy — `(seq v)` is two words holding
         // `(vector, index)` like the JVM's PersistentVector$ChunkedSeq, where
@@ -424,6 +432,8 @@ pub fn firstFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation
         .range => range.first(coll),
         // PERF: O(1) indexed read through the view [refs: O-058]
         .array_seq => array_seq.first(coll),
+        // PERF: O(1) decode in place through the view [refs: D-179]
+        .string_seq => string_seq.first(coll),
         .lazy_seq => try lazy_seq.first(rt, env, coll),
         .string => firstStringCodepoint(coll),
         .array_map, .hash_map, .hash_set => blk: {
@@ -468,6 +478,7 @@ pub fn restFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation)
         // PERF: advance the view instead of copying the tail [refs: O-058]
         .vector, .sub_vector => try array_seq.make(rt, coll, 1),
         .array_seq => try array_seq.rest(rt, coll),
+        .string_seq => try string_seq.rest(rt, coll),
         .map_entry => try list.consHeap(rt, map_entry.valOf(coll), .nil_val), // (rest [k v]) → (v)
         .persistent_queue => blk: {
             const s = try persistent_queue.seqOf(rt, coll);
@@ -475,11 +486,11 @@ pub fn restFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation)
         },
         .chunked_cons => try chunked_cons.rest(rt, coll),
         .lazy_seq => try lazy_seq.rest(rt, env, coll),
-        // A string seqs to a char list (codepoints, not a substring): D-174
+        // A string seqs to a char seq (codepoints, not a substring): D-174
         // `(rest "abc")` is a char-seq, not a String. Route through seqFn so
-        // `(string? (rest s))` is false and `(seq? …)` is true (one mechanism
-        // with the map/set/range arm; the lazy `.string_seq` substrate is the
-        // F-004 finished form, D-179).
+        // `(string? (rest s))` is false and `(seq? ...)` is true (one mechanism
+        // with the map/set/range arm). seqFn now answers a `.string_seq` view,
+        // so this costs one cell rather than a copy of the tail. [refs: D-179]
         .string, .array_map, .hash_map, .hash_set, .range => blk: {
             const sv = try seqFn(rt, env, args, loc);
             if (sv.isNil()) break :blk .nil_val;
@@ -525,6 +536,7 @@ pub fn nextFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation)
         // lifts that nil to the empty list at its own exit). [refs: O-058]
         .vector, .sub_vector => try array_seq.make(rt, coll, 1),
         .array_seq => try array_seq.rest(rt, coll),
+        .string_seq => try string_seq.rest(rt, coll),
         .map_entry => try list.consHeap(rt, map_entry.valOf(coll), .nil_val), // (next [k v]) → (v)
         .persistent_queue => blk: {
             const s = try persistent_queue.seqOf(rt, coll);
@@ -635,7 +647,7 @@ pub fn emptyFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation
         // vector view alike. `.range`, `.lazy_seq` and `.chunked_cons` were
         // reaching the `else` dispatch and raising, which is a pre-existing gap
         // this arm closes alongside `.array_seq`. (D-164)
-        .list, .cons, .range, .lazy_seq, .chunked_cons, .array_seq => try list.emptyList(rt),
+        .list, .cons, .range, .lazy_seq, .chunked_cons, .array_seq, .string_seq => try list.emptyList(rt),
         // JVM Clojure: (empty "hi") → nil (String is not a Clojure
         // collection per IPersistentCollection contract). cw v1
         // follows the same semantic; a 0-length string is not what
@@ -673,19 +685,6 @@ fn arrayToList(rt: *Runtime, arr: Value) !Value {
 
 /// string → eager char list build. Elements are `.char` Values (JVM
 /// parity: `(seq "abc")` → `(\a \b \c)`, chars not 1-char strings).
-fn stringToList(rt: *Runtime, s: []const u8) !Value {
-    const cp_count = try charset.codepointCount(s);
-    if (cp_count == 0) return .nil_val;
-    var i: usize = cp_count;
-    var acc: Value = .nil_val;
-    while (i > 0) {
-        i -= 1;
-        const cp = charset.codepointAt(s, i) catch return error.InvalidUtf8;
-        acc = try list.consHeap(rt, Value.initChar(@intCast(cp)), acc);
-    }
-    return acc;
-}
-
 /// Helper: first codepoint of a string as a `.char` Value (JVM parity:
 /// `(first "abc")` → `\a`, a Character, not a 1-char String).
 fn firstStringCodepoint(s: Value) Value {
@@ -721,6 +720,7 @@ fn firstOfSeq(rt: *Runtime, env: *Env, sv: Value, loc: SourceLocation) anyerror!
         .chunked_cons => chunked_cons.first(sv),
         .range => range.first(sv),
         .array_seq => array_seq.first(sv),
+        .string_seq => string_seq.first(sv),
         .lazy_seq => try lazy_seq.first(rt, env, sv),
         else => return error_catalog.raise(.type_arg_invalid, loc, .{
             .fn_name = "first",
@@ -737,6 +737,7 @@ fn restOfSeq(rt: *Runtime, env: *Env, sv: Value, loc: SourceLocation) anyerror!V
         .chunked_cons => try chunked_cons.rest(rt, sv),
         .range => try chunked_cons.rest(rt, try range.seqChunk(rt, sv)),
         .array_seq => try array_seq.rest(rt, sv),
+        .string_seq => try string_seq.rest(rt, sv),
         .lazy_seq => try lazy_seq.rest(rt, env, sv),
         else => return error_catalog.raise(.type_arg_invalid, loc, .{
             .fn_name = "rest",
@@ -764,6 +765,8 @@ fn seqNext(rt: *Runtime, env: *Env, cur: Value) anyerror!Value {
         // No lazy tail is possible over an immutable vector, so the view's
         // own nil-past-the-end is already the walk-terminating answer.
         .array_seq => try array_seq.rest(rt, cur),
+        // No lazy tail is possible over an immutable string either.
+        .string_seq => try string_seq.rest(rt, cur),
         .lazy_seq => try lazy_seq.next(rt, env, cur),
         else => .nil_val,
     };

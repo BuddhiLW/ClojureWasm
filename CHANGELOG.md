@@ -7,6 +7,21 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 
 ## [Unreleased]
 
+### Performance
+
+- **`(seq s)` over a string is now an O(1)-per-step byte-offset view**
+  (the JVM `StringSeq` model), replacing the eager n-cell codepoint cons
+  chain. The old path asked `codepointAt(s, i)` per element, restarting a
+  UTF-8 walk from byte 0 each time — **O(n²)** overall (measured 89,910 ms
+  for a 146,670-character string; downstream, bb-mcp paid ~79 s/boot asking
+  `(seq value)` as a truthiness test on a large nREPL response). Now O(n):
+  `first` decodes in place at the byte offset, `rest` advances by the width
+  read, `count` is a single forward scan. A `StringSeq` is an ordinary seq of
+  characters — `seq?`, `sequential?`, `=`/`hash` with the equal char list
+  **and** char vector (incl. as a map key), UTF-8-correct `count`/`nth`.
+  (O-060, D-179; `.string_seq` heap tag — a day-1 F-004 reservation, no slot
+  spent.)
+
 ## [1.10.18] - 2026-08-22
 
 ### Performance
