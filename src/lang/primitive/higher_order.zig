@@ -36,6 +36,23 @@ const dispatch = @import("../../runtime/dispatch.zig");
 const reduced = @import("../../runtime/collection/reduced.zig");
 const range_mod = @import("../../runtime/collection/range.zig");
 const vector_mod = @import("../../runtime/collection/vector.zig");
+const sub_vector_mod = @import("../../runtime/collection/sub_vector.zig");
+
+/// Count of a `.vector` OR `.sub_vector` — the reduce fast path index-walks both.
+fn vsCount(v: Value) u32 {
+    return switch (v.tag()) {
+        .sub_vector => sub_vector_mod.count(v),
+        else => vector_mod.count(v),
+    };
+}
+
+/// `nth` into a `.vector` OR `.sub_vector`.
+fn vsNth(v: Value, i: u32) Value {
+    return switch (v.tag()) {
+        .sub_vector => sub_vector_mod.nth(v, i),
+        else => vector_mod.nth(v, i),
+    };
+}
 const compare_mod = @import("../../runtime/compare.zig");
 const chunked_cons = @import("../../runtime/collection/chunked_cons.zig");
 const lazy_seq_mod = @import("../../runtime/lazy_seq.zig");
@@ -126,7 +143,7 @@ fn fuseBaseKind(coll: Value) FuseBaseKind {
         // without forcing anything, which is the property this enum is really
         // sorting on (only `.unchunked` is acted upon — it alone delegates to
         // `-fused-reduce`). [refs: O-058]
-        .range, .vector, .chunked_cons, .array_seq => .chunked,
+        .range, .vector, .sub_vector, .chunked_cons, .array_seq => .chunked,
         .list, .cons, .nil => .unchunked,
         else => .unknown,
     };
@@ -253,20 +270,20 @@ pub fn reduceFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocatio
     // builds an N-element eager cons list before the walk). `(reduce f
     // bigvec)` / `(into to bigvec)` (into = reduce conj) went O(n)
     // intermediate alloc → O(1). [refs: O-002, D-163]
-    if (coll.tag() == .vector) {
-        const n = vector_mod.count(coll);
+    if (coll.tag() == .vector or coll.tag() == .sub_vector) {
+        const n = vsCount(coll);
         var racc: Value = undefined;
         var ri: u32 = 0;
         if (args.len == 3) {
             racc = args[1];
         } else {
             if (n == 0) return try invokeCallable(rt, env, f, &.{}, loc);
-            racc = vector_mod.nth(coll, 0);
+            racc = vsNth(coll, 0);
             ri = 1;
         }
         while (ri < n) : (ri += 1) {
             gc_roots[1] = racc; // root across the reducing-fn eval
-            const rstep = try invokeCallable(rt, env, f, &.{ racc, vector_mod.nth(coll, ri) }, loc);
+            const rstep = try invokeCallable(rt, env, f, &.{ racc, vsNth(coll, ri) }, loc);
             if (reduced.isReduced(rstep)) return reduced.unreduce(rstep);
             racc = rstep;
         }

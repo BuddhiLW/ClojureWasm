@@ -1283,7 +1283,7 @@ pub fn treeWalkCall(
         // (#{…} x) / ([…] i) / (entry i). Routes through the same dispatch so
         // the VM, `apply`, and `(map :k coll)` all get it for free. A
         // `.map_entry` is clj's 2-vector AMapEntry, callable like a vector.
-        .keyword, .symbol, .array_map, .hash_map, .hash_set, .vector, .sorted_map, .sorted_set, .map_entry => lookup_mod.invoke(rt, env, callee, args, loc),
+        .keyword, .symbol, .array_map, .hash_map, .hash_set, .vector, .sub_vector, .sorted_map, .sorted_set, .map_entry => lookup_mod.invoke(rt, env, callee, args, loc),
         // Var-as-IFn (D-231): a runtime `.var_ref` Value (from `#'f` /
         // `(var f)` / `(resolve 'f)`) in call position derefs to its current
         // value (thread binding else root) and re-dispatches — clj's Var IFn

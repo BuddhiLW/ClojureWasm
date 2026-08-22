@@ -703,8 +703,9 @@
   (fn* [m k] (if (contains? m k) [k (get m k)] nil)))
 
 ;; `(subvec v start [end])` — the elements of v in [start, end) (end
-;; defaults to (count v)) as a vector. cw v1 builds a fresh vector (O(n))
-;; via take/drop rather than JVM's O(1) shared-structure view (D-134).
+;; defaults to (count v)) as a vector. For a vector this is JVM's O(1)
+;; shared-structure VIEW (the `.sub_vector` tag; D-583); a non-vector
+;; seqable falls back to the eager take/drop build.
 (def subvec
   (fn* ([v start] (subvec v start (count v)))
        ([v start end]
@@ -717,7 +718,12 @@
           (when (or (< start 0) (< end start) (< c end))
             (throw (IndexOutOfBoundsException.
                      (str "subvec index out of bounds: start=" start ", end=" end ", count=" c))))
-          (into [] (take (- end start) (drop start v)))))))
+          ;; O(1) shared-structure VIEW for vectors (the common case); the eager
+          ;; take/drop fallback preserves cljw's leniency on non-vector seqables.
+          ;; PERF: O(1) `.sub_vector` view vs eager take/drop rebuild [refs: O-059, D-583]
+          (if (vector? v)
+            (cljw.internal/__subvec v start end)
+            (into [] (take (- end start) (drop start v))))))))
 
 ;; `(bounded-count n coll)` — for a `counted?` coll return its FULL count (clj:
 ;; `(bounded-count 3 (range 100))` → 100, range is O(1) counted); otherwise walk

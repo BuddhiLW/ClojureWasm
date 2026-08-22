@@ -107,7 +107,7 @@ fn isNativeTransient(tag: Value.Tag) bool {
 /// still raises the caller's `<.member>` error, not a spurious core-fn coercion.
 fn isNativeCollection(tag: Value.Tag) bool {
     return switch (tag) {
-        .list, .vector, .array_map, .hash_map, .hash_set, .sorted_map, .sorted_set, .persistent_queue, .range, .array_seq, .map_entry, .cons, .lazy_seq => true,
+        .list, .vector, .sub_vector, .array_map, .hash_map, .hash_set, .sorted_map, .sorted_set, .persistent_queue, .range, .array_seq, .map_entry, .cons, .lazy_seq => true,
         else => false,
     };
 }
@@ -118,7 +118,7 @@ fn isNativeCollection(tag: Value.Tag) bool {
 /// caller's `<.member>` error here.
 fn isSequentialCollection(tag: Value.Tag) bool {
     return switch (tag) {
-        .list, .vector, .persistent_queue, .range, .array_seq, .map_entry, .cons, .lazy_seq => true,
+        .list, .vector, .sub_vector, .persistent_queue, .range, .array_seq, .map_entry, .cons, .lazy_seq => true,
         else => false,
     };
 }

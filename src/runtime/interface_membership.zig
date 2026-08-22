@@ -46,28 +46,28 @@ const Tag = Value.Tag;
 
 /// IPersistentCollection / Seqable / Iterable — every persistent collection + seq
 /// (clj-verified across all collection/seq tags).
-const COLL_AND_SEQ = [_]Tag{ .list, .cons, .lazy_seq, .chunked_cons, .vector, .array_map, .hash_map, .sorted_map, .hash_set, .sorted_set, .persistent_queue, .range, .string_seq, .array_seq, .map_entry };
+const COLL_AND_SEQ = [_]Tag{ .list, .cons, .lazy_seq, .chunked_cons, .vector, .sub_vector, .array_map, .hash_map, .sorted_map, .hash_set, .sorted_set, .persistent_queue, .range, .string_seq, .array_seq, .map_entry };
 /// IPersistentMap / java.util.Map.
 const MAP_TAGS = [_]Tag{ .array_map, .hash_map, .sorted_map };
 /// IPersistentSet / java.util.Set.
 const SET_TAGS = [_]Tag{ .hash_set, .sorted_set };
 /// Associative / ILookup — key→value lookup colls (maps + indexed vector +
 /// map_entry; sets are NOT Associative).
-const ASSOC_TAGS = [_]Tag{ .vector, .map_entry, .array_map, .hash_map, .sorted_map };
+const ASSOC_TAGS = [_]Tag{ .vector, .sub_vector, .map_entry, .array_map, .hash_map, .sorted_map };
 /// Indexed / IPersistentVector — vector + map_entry (a MapEntry is a [k v]
 /// IPersistentVector). Both the instance? membership AND the extend-protocol-TARGET
 /// set (host_interface.nativeExtendTags via INDEXED_NAMES) now derive from this one
 /// list (D-317): clj distributes an IPV-extended protocol to
 /// MapEntry, so the two sets are unified here. ADR-0116 Decision C.
-const INDEXED_TAGS = [_]Tag{ .vector, .map_entry };
+const INDEXED_TAGS = [_]Tag{ .vector, .sub_vector, .map_entry };
 /// ISeq — the seq views + list (a PersistentList is a seq); NOT vector/maps/sets.
 const ISEQ_TAGS = [_]Tag{ .list, .cons, .lazy_seq, .chunked_cons, .range, .string_seq, .array_seq };
 /// Sequential — ordered colls + seqs (NOT maps/sets); kept in sync with
 /// `sequential?` (lang/primitive/core.zig).
-const SEQUENTIAL_TAGS = [_]Tag{ .vector, .map_entry, .list, .cons, .lazy_seq, .chunked_cons, .range, .string_seq, .array_seq, .persistent_queue };
+const SEQUENTIAL_TAGS = [_]Tag{ .vector, .sub_vector, .map_entry, .list, .cons, .lazy_seq, .chunked_cons, .range, .string_seq, .array_seq, .persistent_queue };
 /// IFn — every callable (mirrors core.ifnQ): fns + keyword/symbol/var + the
 /// persistent colls (all invocable as lookups).
-const IFN_TAGS = [_]Tag{ .fn_val, .builtin_fn, .multi_fn, .protocol_fn, .keyword, .symbol, .var_ref, .vector, .array_map, .hash_map, .hash_set, .sorted_map, .sorted_set };
+const IFN_TAGS = [_]Tag{ .fn_val, .builtin_fn, .multi_fn, .protocol_fn, .keyword, .symbol, .var_ref, .vector, .sub_vector, .array_map, .hash_map, .hash_set, .sorted_map, .sorted_set };
 /// Number — the full numeric tower (mirrors `number?` / `(instance? Number x)`):
 /// inline Long/Double + heap BigInt/Ratio/BigDecimal. (Was `{integer, float}`;
 /// widened with ADR-0128 so `isInstance("Number")` IS `number?` and the macro's
@@ -76,38 +76,38 @@ const NUMBER_TAGS = [_]Tag{ .integer, .float, .big_int, .ratio, .big_decimal };
 /// IPersistentList — a PersistentQueue is an IPersistentList in clj.
 const IPLIST_TAGS = [_]Tag{ .list, .cons, .persistent_queue };
 /// IPersistentStack — peek/pop: list, vector, queue, cons, map_entry.
-const ISTACK_TAGS = [_]Tag{ .vector, .list, .cons, .map_entry, .persistent_queue };
+const ISTACK_TAGS = [_]Tag{ .vector, .sub_vector, .list, .cons, .map_entry, .persistent_queue };
 const NAMED_TAGS = [_]Tag{ .keyword, .symbol };
 /// Reversible — rseq-able: vector + sorted colls + map_entry.
-const REVERSIBLE_TAGS = [_]Tag{ .vector, .map_entry, .sorted_map, .sorted_set };
+const REVERSIBLE_TAGS = [_]Tag{ .vector, .sub_vector, .map_entry, .sorted_map, .sorted_set };
 const SORTED_TAGS = [_]Tag{ .sorted_map, .sorted_set };
 /// IEditableCollection — `transient`-able: vector + unsorted maps/sets.
 const EDITABLE_TAGS = [_]Tag{ .vector, .array_map, .hash_map, .hash_set };
 /// java.util.List — clj-verified membership (a MapEntry IS a 2-vector List).
-const JLIST_TAGS = [_]Tag{ .list, .cons, .lazy_seq, .chunked_cons, .vector, .range, .string_seq, .array_seq, .map_entry };
+const JLIST_TAGS = [_]Tag{ .list, .cons, .lazy_seq, .chunked_cons, .vector, .sub_vector, .range, .string_seq, .array_seq, .map_entry };
 /// java.util.Collection — maps excluded (JVM: Map does not extend Collection).
-const JCOLLECTION_TAGS = [_]Tag{ .list, .cons, .lazy_seq, .chunked_cons, .vector, .hash_set, .sorted_set, .persistent_queue, .range, .string_seq, .array_seq, .map_entry };
+const JCOLLECTION_TAGS = [_]Tag{ .list, .cons, .lazy_seq, .chunked_cons, .vector, .sub_vector, .hash_set, .sorted_set, .persistent_queue, .range, .string_seq, .array_seq, .map_entry };
 
 /// Counted — `(instance? Counted x)` MUST equal `counted?` (the core fn). Kept in
 /// exact sync with `core.countedQ`'s tag set (core.zig): the persistent colls +
 /// range + map_entry + queue + the seq views (cons/chunked_cons/string_seq/
 /// array_seq — cljw's cons IS counted, a pre-existing `counted?` divergence from
 /// clj where a Cons is not Counted). lazy_seq is NOT counted.
-const COUNTED_TAGS = [_]Tag{ .list, .cons, .chunked_cons, .vector, .array_map, .hash_map, .sorted_map, .hash_set, .sorted_set, .persistent_queue, .range, .string_seq, .array_seq, .map_entry };
+const COUNTED_TAGS = [_]Tag{ .list, .cons, .chunked_cons, .vector, .sub_vector, .array_map, .hash_map, .sorted_map, .hash_set, .sorted_set, .persistent_queue, .range, .string_seq, .array_seq, .map_entry };
 /// MapEquivalence — the map marker used by `=`-on-maps (clj: only the maps).
 const MAPEQUIV_TAGS = [_]Tag{ .array_map, .hash_map, .sorted_map };
 /// IKVReduce — `reduce-kv`-able: maps + vector.
-const IKVREDUCE_TAGS = [_]Tag{ .array_map, .hash_map, .sorted_map, .vector };
+const IKVREDUCE_TAGS = [_]Tag{ .array_map, .hash_map, .sorted_map, .vector, .sub_vector };
 /// CharSequence — strings only (cljw has no StringBuilder/CharBuffer native tag).
 const CHARSEQ_TAGS = [_]Tag{.string};
 /// Comparable: ordered scalars + vector/map_entry. NOTE
 /// clj's `BigInt` is NOT Comparable (only Integer/Ratio/BigDecimal/Double are) —
 /// `.big_int` is deliberately absent; `.char`/`.boolean` ARE Comparable.
-const COMPARABLE_TAGS = [_]Tag{ .integer, .float, .ratio, .big_decimal, .string, .keyword, .symbol, .char, .boolean, .vector, .map_entry };
+const COMPARABLE_TAGS = [_]Tag{ .integer, .float, .ratio, .big_decimal, .string, .keyword, .symbol, .char, .boolean, .vector, .sub_vector, .map_entry };
 /// IHashEq — `hasheq`-able: every persistent coll + seq (incl. lazy_seq, unlike
 /// Counted) + keyword/symbol + BigInt (clj: BigInt IS IHashEq though NOT
 /// Comparable — the inverse of the other numbers; plain Long/Double are neither).
-const IHASHEQ_TAGS = [_]Tag{ .list, .cons, .lazy_seq, .chunked_cons, .vector, .array_map, .hash_map, .sorted_map, .hash_set, .sorted_set, .persistent_queue, .range, .string_seq, .array_seq, .map_entry, .keyword, .symbol, .big_int };
+const IHASHEQ_TAGS = [_]Tag{ .list, .cons, .lazy_seq, .chunked_cons, .vector, .sub_vector, .array_map, .hash_map, .sorted_map, .hash_set, .sorted_set, .persistent_queue, .range, .string_seq, .array_seq, .map_entry, .keyword, .symbol, .big_int };
 /// IReduceInit — directly reducible (NOT via seq): vector / list / range. A bare
 /// Cons / LazySeq is an ASeq and is NOT IReduceInit.
 const IREDUCEINIT_TAGS = [_]Tag{ .vector, .list, .range };
@@ -131,20 +131,22 @@ const TSET_TAGS = [_]Tag{.transient_set};
 /// matchUserType / host_supertypes, not this static table.
 const SERIALIZABLE_TAGS = [_]Tag{
     // collections + seqs
-    .list,      .vector,     .array_map,        .hash_map,        .hash_set,
-    .lazy_seq,  .cons,       .chunked_cons,     .range,           .string_seq,
-    .array_seq, .map_entry,  .persistent_queue, .sorted_map,      .sorted_set,
+    .list,      .vector,           .sub_vector,   .array_map,  .hash_map,        .hash_set,
+    .lazy_seq,  .cons,             .chunked_cons, .range,      .string_seq,      .array_seq,
+    .map_entry, .persistent_queue, .sorted_map,   .sorted_set,
     // scalars (full numeric tower + the rest)
-    .string,    .symbol,     .keyword,          .char,            .boolean,
-    .integer,   .float,      .big_int,          .ratio,           .big_decimal,
+    .string,          .symbol,
+    .keyword,   .char,             .boolean,      .integer,    .float,           .big_int,
+    .ratio,     .big_decimal,
     // callables — fn_val/builtin_fn/protocol_fn are AFunction (Serializable);
     // multi_fn (MultiFn) is deliberately ABSENT (clj-verified false).
-    .fn_val,    .builtin_fn, .protocol_fn,
+         .fn_val,       .builtin_fn, .protocol_fn,
     // Var + Namespace ARE Serializable (clj true); the other refs are not.
-         .var_ref,         .ns,
+        .var_ref,
+    .ns,
     // host-ish values with a Serializable clj counterpart (regex Pattern, UUID,
     // Throwable, Class, and Java arrays are all Serializable on the JVM).
-    .regex,     .uuid,       .ex_info,          .type_descriptor, .array,
+           .regex,            .uuid,         .ex_info,    .type_descriptor, .array,
 };
 
 // --- deref / pending / ref family (ADR-0116) ---
@@ -171,9 +173,9 @@ const IBLOCKING_TAGS = [_]Tag{ .future, .promise };
 /// `.reified_instance` is included (ADR-0134; needed by clojure.spec.alpha):
 /// clj reify ALWAYS implements IObj + carries a meta slot,
 /// so EVERY reify is metable (plain deftype = `.typed_instance`, NOT here).
-const IOBJ_TAGS = [_]Tag{ .vector, .list, .lazy_seq, .hash_set, .array_map, .hash_map, .symbol, .reified_instance };
+const IOBJ_TAGS = [_]Tag{ .vector, .sub_vector, .list, .lazy_seq, .hash_set, .array_map, .hash_map, .symbol, .reified_instance };
 /// IMeta — meta-READABLE: the metable IObj set ∪ the reference family.
-const IMETA_TAGS = [_]Tag{ .vector, .list, .lazy_seq, .hash_set, .array_map, .hash_map, .symbol, .reified_instance, .atom, .agent, .ref, .var_ref, .ns };
+const IMETA_TAGS = [_]Tag{ .vector, .sub_vector, .list, .lazy_seq, .hash_set, .array_map, .hash_map, .symbol, .reified_instance, .atom, .agent, .ref, .var_ref, .ns };
 
 /// Empty native-tag set: a recognised interface with no native cljw
 /// implementor — it matches only host descriptors via host_supertypes.

@@ -19,6 +19,7 @@ const SourceLocation = @import("error/info.zig").SourceLocation;
 const dispatch = @import("dispatch.zig");
 const protocol_mod = @import("protocol.zig");
 const vector = @import("collection/vector.zig");
+const sub_vector = @import("collection/sub_vector.zig");
 const map = @import("collection/map.zig");
 const set = @import("collection/set.zig");
 const list = @import("collection/list.zig");
@@ -39,6 +40,7 @@ const array_seq = @import("collection/array_seq.zig");
 pub fn metaOf(rt: *Runtime, env: *Env, v: Value, loc: SourceLocation) anyerror!Value {
     return switch (v.tag()) {
         .vector => vector.metaOf(v),
+        .sub_vector => sub_vector.metaOf(v),
         .array_map, .hash_map => map.metaOf(v),
         .hash_set => set.metaOf(v),
         .list => list.metaOf(v),

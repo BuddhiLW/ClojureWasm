@@ -12,13 +12,14 @@
 //! state[2] = head index, state[3] = the spin lock guarding a read-modify-
 //! write of the other three.
 //!
-//! The head INDEX is what makes the queue a queue. `vector.subvec` is an O(n)
-//! eager copy (D-044 — cljw has no SubVector view), so dequeuing by rebuilding
-//! from index 1 would make draining a 256-slot work queue quadratic, on the
-//! hottest path a thread pool has. Instead `.poll` hands back `nth(v, head)`
-//! and bumps the head; the vector is COMPACTED (one subvec) only once the dead
-//! prefix is at least half of it, which amortises to O(1) per element and
-//! bounds the garbage the prefix retains.
+//! The head INDEX is what makes the queue a queue. `vector.copyRange` is an
+//! O(n) eager copy (a materializing slice, deliberately NOT the `subvec` view —
+//! compaction must DROP the drained prefix, and a view would retain it), so
+//! dequeuing by rebuilding from index 1 would make draining a 256-slot work
+//! queue quadratic, on the hottest path a thread pool has. Instead `.poll`
+//! hands back `nth(v, head)` and bumps the head; the vector is COMPACTED (one
+//! copyRange) only once the dead prefix is at least half of it, which amortises
+//! to O(1) per element and bounds the garbage the prefix retains.
 //!
 //! Surface: `<init>` ([capacity]), `.offer` ([x] | [x timeout unit]), `.put`,
 //! `.poll` ([] | [timeout unit]), `.take`, `.peek`, `.size`, `.isEmpty`,
@@ -124,7 +125,7 @@ fn tryPoll(rt: *Runtime, recv: Value) !?Value {
         setVec(recv, vector_mod.empty());
         setHead(recv, 0);
     } else if (next >= COMPACT_MIN and next * 2 >= n) {
-        setVec(recv, try vector_mod.subvec(rt, v, next, n));
+        setVec(recv, try vector_mod.copyRange(rt, v, next, n));
         setHead(recv, 0);
     } else {
         setHead(recv, next);
@@ -273,7 +274,7 @@ fn snapshotLocked(rt: *Runtime, recv: Value) !Value {
     const n = vector_mod.count(v);
     const head = headOf(recv);
     if (head >= n) return vector_mod.empty();
-    return vector_mod.subvec(rt, v, head, n);
+    return vector_mod.copyRange(rt, v, head, n);
 }
 
 /// `(.toArray q)` — a snapshot vector of the live elements, head first.

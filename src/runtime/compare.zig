@@ -24,6 +24,7 @@ const SourceLocation = @import("error/info.zig").SourceLocation;
 const error_catalog = @import("error/catalog.zig");
 const string_mod = @import("collection/string.zig");
 const vector = @import("collection/vector.zig");
+const sub_vector = @import("collection/sub_vector.zig");
 const map_entry_mod = @import("collection/map_entry.zig");
 const keyword = @import("keyword.zig");
 const symbol = @import("symbol.zig");
@@ -211,12 +212,20 @@ fn nsNameOrder(ns_a: ?[]const u8, name_a: []const u8, ns_b: ?[]const u8, name_b:
 
 /// Vector-like length (a MapEntry is a 2-vector, D-209).
 fn vecLikeCount(v: Value) u32 {
-    return if (v.tag() == .map_entry) 2 else vector.count(v);
+    return switch (v.tag()) {
+        .map_entry => 2,
+        .sub_vector => sub_vector.count(v),
+        else => vector.count(v),
+    };
 }
 
 /// Vector-like positional access (a MapEntry: 0→key, 1→val).
 fn vecLikeNth(v: Value, i: u32) Value {
-    return if (v.tag() == .map_entry) map_entry_mod.nth(v, i) else vector.nth(v, @intCast(i));
+    return switch (v.tag()) {
+        .map_entry => map_entry_mod.nth(v, i),
+        .sub_vector => sub_vector.nth(v, i),
+        else => vector.nth(v, @intCast(i)),
+    };
 }
 
 /// Compare two vector-like values (vector / MapEntry, any pairing)
@@ -280,7 +289,7 @@ pub fn valueCompare(rt: *Runtime, a: Value, b: Value, loc: SourceLocation) anyer
     // Vector-like family (D-209): a MapEntry IS-A vector, so any
     // vector/map_entry pairing compares element-wise (`(compare (first {:a
     // 1}) [:a 1])`→0) — handled before the same-tag gate below.
-    if ((ta == .vector or ta == .map_entry) and (tb == .vector or tb == .map_entry)) {
+    if ((ta == .vector or ta == .sub_vector or ta == .map_entry) and (tb == .vector or tb == .sub_vector or tb == .map_entry)) {
         return vecOrder(rt, a, b, loc);
     }
 

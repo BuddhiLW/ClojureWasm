@@ -23,6 +23,7 @@ const error_catalog = @import("../../runtime/error/catalog.zig");
 const dispatch = @import("../../runtime/dispatch.zig");
 
 const vector_collection = @import("../../runtime/collection/vector.zig");
+const sub_vector = @import("../../runtime/collection/sub_vector.zig");
 const list_collection = @import("../../runtime/collection/list.zig");
 const map_collection = @import("../../runtime/collection/map.zig");
 const set_collection = @import("../../runtime/collection/set.zig");
@@ -103,7 +104,10 @@ fn rebuildVector(
     comptime transform_child: fn (rt: *Runtime, env: *Env, ctx: anytype, child: Value, loc: SourceLocation) anyerror!Value,
     ctx: anytype,
 ) anyerror!Value {
-    const n = vector_collection.count(form);
+    // A subvec walks like a vector and rebuilds to a plain vector (clj:
+    // `(into (empty (subvec …)) …)` → `[]`-based build); only the read differs.
+    const is_sub = form.tag() == .sub_vector;
+    const n = if (is_sub) sub_vector.count(form) else vector_collection.count(form);
     var result = vector_collection.empty();
     // GC-ROOT: C6 — root the source + the in-progress accumulator across the
     // reentrant transform_child (vt.callFn re-enters the VM) [ref: .dev/gc_rooting.md §C].
@@ -117,7 +121,7 @@ fn rebuildVector(
     var i: u32 = 0;
     while (i < n) : (i += 1) {
         gc_roots[1] = result;
-        const child = vector_collection.nth(form, i);
+        const child = if (is_sub) sub_vector.nth(form, i) else vector_collection.nth(form, i);
         const t = try transform_child(rt, env, ctx, child, loc);
         result = try vector_collection.conj(rt, result, t);
     }
@@ -256,7 +260,7 @@ fn walkRebuild(rt: *Runtime, env: *Env, inner: Value, form: Value, loc: SourceLo
     const ctx = WalkCtx{ .inner = inner };
     return switch (form.tag()) {
         .list, .cons => rebuildList(rt, env, loc, form, walkInnerCallback, ctx),
-        .vector => rebuildVector(rt, env, loc, form, walkInnerCallback, ctx),
+        .vector, .sub_vector => rebuildVector(rt, env, loc, form, walkInnerCallback, ctx),
         .hash_set => rebuildSet(rt, env, loc, form, walkInnerCallback, ctx),
         .array_map => rebuildArrayMap(rt, env, loc, form, walkInnerCallback, ctx),
         .hash_map => rebuildHashMap(rt, env, loc, form, walkInnerCallback, ctx),
@@ -287,7 +291,7 @@ fn prewalkRec(rt: *Runtime, env: *Env, f: Value, form: Value, loc: SourceLocatio
     const ctx = PrewalkCtx{ .f = f };
     return switch (transformed.tag()) {
         .list, .cons => rebuildList(rt, env, loc, transformed, prewalkChildCallback, ctx),
-        .vector => rebuildVector(rt, env, loc, transformed, prewalkChildCallback, ctx),
+        .vector, .sub_vector => rebuildVector(rt, env, loc, transformed, prewalkChildCallback, ctx),
         .hash_set => rebuildSet(rt, env, loc, transformed, prewalkChildCallback, ctx),
         .array_map => rebuildArrayMap(rt, env, loc, transformed, prewalkChildCallback, ctx),
         .hash_map => rebuildHashMap(rt, env, loc, transformed, prewalkChildCallback, ctx),
@@ -312,7 +316,7 @@ fn postwalkRec(rt: *Runtime, env: *Env, f: Value, form: Value, loc: SourceLocati
     const ctx = PostwalkCtx{ .f = f };
     const rebuilt = switch (form.tag()) {
         .list, .cons => try rebuildList(rt, env, loc, form, postwalkChildCallback, ctx),
-        .vector => try rebuildVector(rt, env, loc, form, postwalkChildCallback, ctx),
+        .vector, .sub_vector => try rebuildVector(rt, env, loc, form, postwalkChildCallback, ctx),
         .hash_set => try rebuildSet(rt, env, loc, form, postwalkChildCallback, ctx),
         .array_map => try rebuildArrayMap(rt, env, loc, form, postwalkChildCallback, ctx),
         .hash_map => try rebuildHashMap(rt, env, loc, form, postwalkChildCallback, ctx),

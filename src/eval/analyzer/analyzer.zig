@@ -58,6 +58,7 @@ const list_collection = @import("../../runtime/collection/list.zig");
 const lazy_seq_mod = @import("../../runtime/lazy_seq.zig");
 const root_set = @import("../../runtime/gc/root_set.zig");
 const vector_collection = @import("../../runtime/collection/vector.zig");
+const sub_vector_collection = @import("../../runtime/collection/sub_vector.zig");
 const map_collection = @import("../../runtime/collection/map.zig");
 const set_collection = @import("../../runtime/collection/set.zig");
 const big_int = @import("../../runtime/numeric/big_int.zig");
@@ -1636,7 +1637,7 @@ pub fn valueToForm(
         // list Form. A plain `list_collection.rest` would not force the lazy
         // tail → dropped/`nil` elements (ADR-0082).
         .list, .cons, .lazy_seq, .chunked_cons, .range => try valueSeqToForm(arena, rt, env, v, call_loc),
-        .vector => try valueVectorToForm(arena, rt, env, v, call_loc),
+        .vector, .sub_vector => try valueVectorToForm(arena, rt, env, v, call_loc),
         .array_map, .hash_map => try valueMapToForm(arena, rt, env, v, call_loc),
         .hash_set => try valueSetToForm(arena, rt, env, v, call_loc),
         else => error_catalog.raise(.macro_return_not_data, call_loc, .{ .tag = @tagName(v.tag()) }),
@@ -1670,7 +1671,8 @@ fn valueSeqToForm(arena: std.mem.Allocator, rt: *Runtime, env: *Env, seq_val: Va
 }
 
 fn valueVectorToForm(arena: std.mem.Allocator, rt: *Runtime, env: *Env, vec_val: Value, call_loc: SourceLocation) anyerror!Form {
-    const n = vector_collection.count(vec_val);
+    const is_sub = vec_val.tag() == .sub_vector;
+    const n = if (is_sub) sub_vector_collection.count(vec_val) else vector_collection.count(vec_val);
     var items = try arena.alloc(Form, n);
     // GC-ROOT: D-253 — root the source across the recursive valueToForm (a nested
     // seq/map element re-enters the VM) [ref: .dev/gc_rooting.md §C].
@@ -1681,7 +1683,7 @@ fn valueVectorToForm(arena: std.mem.Allocator, rt: *Runtime, env: *Env, vec_val:
     defer root_set.eval_frame_head = vframe.parent;
     var i: u32 = 0;
     while (i < n) : (i += 1) {
-        items[i] = try valueToForm(arena, rt, env, vector_collection.nth(vec_val, i), call_loc);
+        items[i] = try valueToForm(arena, rt, env, if (is_sub) sub_vector_collection.nth(vec_val, i) else vector_collection.nth(vec_val, i), call_loc);
     }
     return .{ .data = .{ .vector = items }, .location = call_loc };
 }
