@@ -9,6 +9,8 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 
 ### Added
 
+- **cljw compiles and runs on wasm32-wasi** — `zig build -Dtarget=wasm32-wasi` produces a module that runs full Clojure under wasmtime, Chicory (in-JVM) and zwasm. The precise root set already covers the vm backend, so no GC rewrite was needed. (ADR-0193.)
+
 - **A guest's linear memory is readable and writable from Clojure** —
   `(wasm/mem-size m)`, `(wasm/mem-read m :f64 offset n)` and
   `(wasm/mem-write! m :f64 offset data)`. `wasm/call` marshals scalars, which
@@ -25,6 +27,8 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
   past the immediate-integer window rather than degrading to a float, and every
   bad offset, count or element is a catchable exception naming the fn and the
   element index, never a host panic. (ADR-0192.)
+
+## [1.10.19] - 2026-08-22
 
 ### Performance
 
