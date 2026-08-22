@@ -1164,12 +1164,6 @@ active:
     category: "clj-parity"
     barrier: "Cancellation arc DONE (state machine + precise CancellationException + Thread/sleep cooperative abort). The legacy/executor surface (ii) is now DONE (ADR-0155 parts 1+2, 8/8; AD-045 + AD-046). ONE residual remains: (i) deref-WAIT abort — a worker blocked on a NESTED (deref future/promise) is not aborted promptly; land when a real workload needs a deref-deadlocked future cancelled promptly (then ripple future/promise.deref to anyerror!?Value + poll the cancel flag in the wait loop, instead of pure condWait, only on a cancellable worker). LOW-value (resource-release only, un-observable via state, inert with auto-collect OFF); re-evaluate when a real workload or auto-collect-on makes it observable."
     last_reviewed: "2026-06-20"
-  - id: "D-044"
-    status: "Phase 7+ target"
-    category: "perf"
-    barrier: |-
-      Lazy SubVector wrapper for `subvec` per clojure JVM's structural-sharing pattern. Current 5.4.d implementation is eager copy (O(n)); a lazy wrapper holding `parent: *Vector + start: u32 + end: u32` would be O(1) view + share root + tail with the parent. Requires a new SubVector Tag slot (D13 / D14 / D15 from D-043 reserves) + polymorphic op dispatch (`.vector` vs `.subvec` arms in nth / count / conj / pop / assoc) + trace fn that walks the parent pointer. Land when the structural-sharing benefit is measurable (perf campaign §9.2.S; Phase 7 passed — phase-queue retired, ADR-0142 — and the benefit is still un-measured).
-    last_reviewed: "2026-05-24"
   - id: "D-266"
     status: "RE-MEASURED 2026-07-02 (audit): the motivating measurement is ~1000x stale (50k claimed ~3s; measured 5k=10ms). ALSO: the (count (repeat 1000000 1)) segfault found here was FIXED via ADR-0028 amendment 3 (gray-worklist mark). Native Repeat remains a value-judgement, not a hot gap. ORIGINAL: open (found 2026-06-06; PREMISE CORRECTED 2026-06-16 during the sweep). Per-element cost of realizing `(repeat …)` is high (~0.4ms/elem) — the lazy-seq thunk+cons+closure overhead per `rest`. PREMISE FIX: 'chunk repeat like range' is the WRONG fix — clj's `repeat` is NOT a chunked-seq (`(chunked-seq? (seq (repeat 3 :x)))` → FALSE in clj, FALSE in cljw today); clj uses a lightweight native `Repeat` type optimized via `IReduce`/`internal-reduce`, keeping chunked-seq? false. Chunking cljw's repeat would FLIP chunked-seq? to true = a NEW divergence (verified vs clj 2026-06-16). The clj-faithful fix is a native lightweight `Repeat` seq type in Zig (O(1) `next()` like `LongRange`, + an internal-reduce fast path), NOT a `.clj` chunk-buffer producer. Substantial (a new native seq type w/ GC + seq-protocol + reduce integration) — fresh-context unit."
     category: "perf"
@@ -2918,23 +2912,22 @@ standing:
       Do NOT extend check_adr_affected_files.sh to path existence: it would
       fail on B, C and D, which are all correct as written.
     last_reviewed: "2026-08-20"
+discharged:
   - id: "D-583"
-    status: "open (2026-08-20, designed — USER-GATED). SubVector is still an eager copy (`vector.zig:368-378`, repeated conj), measured 7480x slower than the JVM view. Design settled: a new `.sub_vector` tag holding {start, end, parent, meta} modeled on array_seq.zig, with JVM APersistentVector.SubVector semantics. Blast radius measured at ~99 genuine Value.Tag references across 15 files; the GC tracer is NOT an exhaustive switch (tag_ops.zig uses registered fn-pointer tables), so it is one additive registration."
+    status: "DISCHARGED 2026-08-21 (O-059) — `.sub_vector` (slot 59, F-004 amend) SubVector VIEW landed: `runtime/collection/sub_vector.zig` {start,end,parent,meta} with JVM APersistentVector$SubVector semantics (flatten-on-nest, never-empty→EMPTY, write ops via parent.assocN stay SubVectors). `clojure.core/subvec` fast-paths vectors through `cljw.internal/__subvec`; `vector.subvec` renamed `copyRange` (LBQ compaction still needs a materializing copy). ~30 consumer sites carry `.sub_vector` arms (interface_membership 16 arrays skip EDITABLE/IREDUCEINIT per JVM ground truth; count/nth/conj/assoc/pop/seq/rseq/first/rest/next/empty/print/equal+hash/compare/meta/with-meta/lookup-IFn/reduce/walk/json/serialize/lazy-realize/class-name=SubVector). MEASURED ReleaseSafe: 2000 subvec ops @ n=16000 **9215 → 0.77 ms (~11967x)**, now at clj parity (1.06 ms). 52-assertion e2e `subvec_view.sh` + corpus `subvec.txt` (31 exprs) green vs clj; F-012 diff oracle green. Was: open USER-GATED, design at private/notes/subvec-seqview-design.md."
     category: "perf"
     barrier: |-
-      USER DECISION, per ADR-0179's own rule. The tag space is not full — 53 of
-      64 slots are live and 9 are named-but-unreferenced — but F-004 names those
-      9, and F-004 is user-amendable only (CLAUDE.md priority chain: the loop
-      never amends an F-NNN on its own). Of the 9, `.box` and `.tuple` carry no
-      stated rationale in F-004's text, unlike `.reader_conditional` and the wasm
-      family; `.box` is the recommended slot. The layout stays 64 slots, so this
-      is a slot repurpose, not a layout change.
-      Sibling row: CLJW-SEQVIEW is already DONE — commit 4a295706 (O-058) made
-      vector seq/rest/next an O(1) `.array_seq` view; only the class-name
-      divergence remains, accepted as AD-066.
-      Full design: private/notes/subvec-seqview-design.md.
-    last_reviewed: "2026-08-20"
-discharged:
+      DISCHARGED. Was USER-GATED on the slot pick (ADR-0179): the user selected
+      `box`→`sub_vector` (F-004 amendment 2026-08-20), lifting the gate. Landed
+      2026-08-21 as O-059.
+    last_reviewed: "2026-08-21"
+  - id: "D-044"
+    status: "DISCHARGED 2026-08-21 (O-059, with D-583) — the lazy SubVector wrapper this row asked for. `subvec` was an eager O(n) copy; now the O(1) `.sub_vector` VIEW sharing the parent's structure. Superseded the reasoning that a new tag needed a D13/D14/D15 reserve — the slot came from `box`→`sub_vector` (F-004 amend). See D-583 for the full landing + measurement (~11967x)."
+    category: "perf"
+    barrier: |-
+      DISCHARGED — the structural-sharing benefit this row gated on is now
+      measured (9215 → 0.77 ms, clj parity). Landed with D-583 as O-059.
+    last_reviewed: "2026-08-21"
   - id: "D-581"
     status: "DISCHARGED 2026-08-20 — split into two entry points (readStringFn raises, readStringEdnFn returns nil); verified empty/whitespace/comment-only => nil for edn and RuntimeException for core, with :eof still winning for both. Was: measured — the kanban row stated this BACKWARDS. `(clojure.edn/read-string \"\")` THROWS `Unexpected EOF while reading form` in cljw; clj returns nil. Same for whitespace-only input. The kanban row [CLJW-EDN-EOF] recorded it as cljw returning nil, which is what clj does. Direction confirmed by running both."
     category: "clj-parity"

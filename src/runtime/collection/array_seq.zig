@@ -52,6 +52,7 @@ const tag_ops = @import("../gc/tag_ops.zig");
 const gc_heap_mod = @import("../gc/gc_heap.zig");
 const mark_sweep = @import("../gc/mark_sweep.zig");
 const vector = @import("vector.zig");
+const sub_vector = @import("sub_vector.zig");
 
 /// ArraySeq (A14) — `backing` viewed from `index` to its end.
 pub const ArraySeq = extern struct {
@@ -59,7 +60,8 @@ pub const ArraySeq = extern struct {
     _pad: [2]u8 = .{ 0, 0 },
     /// Read cursor into `backing`. Invariant: `index < backingCount(backing)`.
     index: u32 = 0,
-    /// The viewed collection — a `.vector` (see the "vectors only" note).
+    /// The viewed collection — a `.vector` or `.sub_vector` (both immutable
+    /// indexed persistent vectors; see the "vectors only" note).
     backing: Value = Value.nil_val,
     /// Optional metadata map. A seq is IObj on the JVM (`ASeq` implements it),
     /// so `(with-meta (seq v) m)` must round-trip; dropping it would regress
@@ -78,6 +80,7 @@ pub const ArraySeq = extern struct {
 fn backingCount(backing: Value) u32 {
     return switch (backing.tag()) {
         .vector => vector.count(backing),
+        .sub_vector => sub_vector.count(backing),
         else => 0,
     };
 }
@@ -87,6 +90,7 @@ fn backingCount(backing: Value) u32 {
 fn elementAt(backing: Value, i: u32) Value {
     return switch (backing.tag()) {
         .vector => vector.nth(backing, i),
+        .sub_vector => sub_vector.nth(backing, i),
         else => Value.nil_val,
     };
 }
@@ -95,7 +99,7 @@ fn elementAt(backing: Value, i: u32) Value {
 /// copy. The one predicate producers consult, so adding a backing type is a
 /// single arm in `backingCount`/`elementAt` plus this.
 pub fn viewable(backing: Value) bool {
-    return backing.tag() == .vector;
+    return backing.tag() == .vector or backing.tag() == .sub_vector;
 }
 
 /// View `backing` from `index`. nil when the view would be empty — an ArraySeq

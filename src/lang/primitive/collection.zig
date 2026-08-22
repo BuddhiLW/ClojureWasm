@@ -45,6 +45,7 @@ const IPS_FQCN: []const u8 = "IPersistentSet";
 const sequence = @import("sequence.zig");
 const range_mod = @import("../../runtime/collection/range.zig");
 const vector = @import("../../runtime/collection/vector.zig");
+const sub_vector = @import("../../runtime/collection/sub_vector.zig");
 const array_seq = @import("../../runtime/collection/array_seq.zig");
 const java_array = @import("../../runtime/collection/java_array.zig");
 const list = @import("../../runtime/collection/list.zig");
@@ -88,10 +89,36 @@ pub fn conjFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation)
     return acc;
 }
 
+/// Count of a `.vector` OR `.sub_vector` — the two indexed persistent-vector
+/// representations share these Indexed/Associative op arms.
+fn vecCount(v: Value) u32 {
+    return switch (v.tag()) {
+        .sub_vector => sub_vector.count(v),
+        else => vector.count(v),
+    };
+}
+
+/// `nth` into a `.vector` OR `.sub_vector`.
+fn vecNth(v: Value, i: u32) Value {
+    return switch (v.tag()) {
+        .sub_vector => sub_vector.nth(v, i),
+        else => vector.nth(v, i),
+    };
+}
+
+/// `assoc` on a `.vector` OR `.sub_vector` (a subvec assoc stays a subvec).
+fn vecAssoc(rt: *Runtime, v: Value, i: u32, x: Value) !Value {
+    return switch (v.tag()) {
+        .sub_vector => sub_vector.assoc(rt, v, i, x),
+        else => vector.assoc(rt, v, i, x),
+    };
+}
+
 fn conjOne(rt: *Runtime, env: *Env, coll: Value, x: Value, loc: SourceLocation) anyerror!Value {
     if (coll.isNil()) return try list.consHeap(rt, x, .nil_val);
     return switch (coll.tag()) {
         .vector => try vector.conj(rt, coll, x),
+        .sub_vector => try sub_vector.conj(rt, coll, x),
         // conj on a MapEntry DROPS the map-entry nature → a plain vector
         // `[k v x]` (clj `AMapEntry.cons` routes through `asVector()`, D-209).
         .map_entry => blk: {
@@ -295,10 +322,10 @@ pub fn containsQFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLoca
         // A vector is Indexed: `contains?` tests index validity, NOT element
         // membership. A non-integer key is simply absent (false), not an error
         // (matches clj `(contains? [1 2 3] :x)` → false).
-        .vector => blk: {
+        .vector, .sub_vector => blk: {
             if (k.tag() != .integer) break :blk .false_val;
             const idx: i64 = k.asInteger();
-            break :blk if (idx >= 0 and idx < @as(i64, vector.count(coll))) .true_val else .false_val;
+            break :blk if (idx >= 0 and idx < @as(i64, vecCount(coll))) .true_val else .false_val;
         },
         // A MapEntry is a 2-vector: indices 0 and 1 are valid (D-209).
         .map_entry => blk: {
@@ -400,13 +427,13 @@ pub fn getFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) 
             break :blk default;
         },
         .hash_set => if (try set.contains(coll, k)) k else default,
-        .vector => blk: {
+        .vector, .sub_vector => blk: {
             if (k.tag() != .integer) break :blk default;
             const idx = k.asInteger();
             if (idx < 0) break :blk default;
-            const n = vector.count(coll);
+            const n = vecCount(coll);
             if (idx >= n) break :blk default;
-            break :blk vector.nth(coll, @intCast(idx));
+            break :blk vecNth(coll, @intCast(idx));
         },
         // A MapEntry is a 2-vector: `(get entry 0/1)` → key/val (D-209).
         .map_entry => blk: {
@@ -491,7 +518,7 @@ pub fn nthFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) 
     if (coll.isNil()) return default;
 
     return switch (coll.tag()) {
-        .vector => blk: {
+        .vector, .sub_vector => blk: {
             if (idx < 0) {
                 if (has_default) break :blk default;
                 // clj raises IndexOutOfBoundsException at BOTH ends; the
@@ -499,12 +526,12 @@ pub fn nthFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) 
                 // error here made one function answer two classes.
                 break :blk error_catalog.raise(.index_out_of_range, loc, .{ .fn_name = "nth" });
             }
-            const n = vector.count(coll);
+            const n = vecCount(coll);
             if (idx >= n) {
                 if (has_default) break :blk default;
                 break :blk error_catalog.raise(.index_out_of_range, loc, .{ .fn_name = "nth" });
             }
-            break :blk vector.nth(coll, @intCast(idx));
+            break :blk vecNth(coll, @intCast(idx));
         },
         // PERF: clj reaches `nth` on a vector's seq through `RT.nthFrom`, which
         // WALKS (PersistentVector$ChunkedSeq is Counted, not Indexed). The view
@@ -698,7 +725,7 @@ pub fn assocFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation
             }
             break :blk acc;
         },
-        .vector => blk: {
+        .vector, .sub_vector => blk: {
             var acc: Value = coll;
             var i: usize = 1;
             while (i + 1 < args.len) : (i += 2) {
@@ -717,11 +744,11 @@ pub fn assocFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation
                 if (idx < 0) {
                     break :blk error_catalog.raise(.index_out_of_range, loc, .{ .fn_name = "assoc" });
                 }
-                const n = vector.count(acc);
+                const n = vecCount(acc);
                 if (idx > n) {
                     break :blk error_catalog.raise(.index_out_of_range, loc, .{ .fn_name = "assoc" });
                 }
-                acc = try vector.assoc(rt, acc, @intCast(idx), args[i + 1]);
+                acc = try vecAssoc(rt, acc, @intCast(idx), args[i + 1]);
             }
             break :blk acc;
         },
@@ -895,7 +922,7 @@ fn entryCastError(fn_name: []const u8, entry: Value, loc: SourceLocation) anyerr
 /// takes any seq of entries, not only an IPersistentMap.
 fn isEntrySeqTag(tag: Value.Tag) bool {
     return switch (tag) {
-        .list, .lazy_seq, .cons, .chunked_cons, .array_seq, .vector => true,
+        .list, .lazy_seq, .cons, .chunked_cons, .array_seq, .vector, .sub_vector => true,
         else => false,
     };
 }
@@ -1100,12 +1127,31 @@ pub fn queuePopFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocat
 pub fn vectorPopFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
     _ = env;
     try error_catalog.checkArity("__vector-pop", args, 1, loc);
-    if (args[0].tag() != .vector)
-        return error_catalog.raise(.type_arg_invalid, loc, .{ .fn_name = "__vector-pop", .expected = "a vector", .actual = @tagName(args[0].tag()) });
-    return vector.pop(rt, args[0]) catch |e| switch (e) {
+    const popped = switch (args[0].tag()) {
+        .vector => vector.pop(rt, args[0]),
+        .sub_vector => sub_vector.pop(rt, args[0]),
+        else => return error_catalog.raise(.type_arg_invalid, loc, .{ .fn_name = "__vector-pop", .expected = "a vector", .actual = @tagName(args[0].tag()) }),
+    };
+    return popped catch |e| switch (e) {
         error.PopEmpty => error_catalog.raise(.type_arg_invalid, loc, .{ .fn_name = "__vector-pop", .expected = "a non-empty vector", .actual = "an empty vector" }),
         else => e,
     };
+}
+
+/// `(__subvec v start end)` — the O(1) `subvec` VIEW over a vector's index range
+/// `[start, end)`. `start`/`end` are pre-validated by the `clojure.core/subvec`
+/// wrapper (which bounds-checks + throws IndexOutOfBoundsException); this prim
+/// just builds the view (flattening a nested subvec, returning `[]` for an empty
+/// range). Accepts `.vector` and `.sub_vector` (nested subvec).
+pub fn subvecFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
+    _ = env;
+    try error_catalog.checkArity("__subvec", args, 3, loc);
+    const v = args[0];
+    if (v.tag() != .vector and v.tag() != .sub_vector)
+        return error_catalog.raise(.type_arg_invalid, loc, .{ .fn_name = "__subvec", .expected = "a vector", .actual = @tagName(v.tag()) });
+    const start: u32 = @intCast(args[1].asInteger());
+    const end: u32 = @intCast(args[2].asInteger());
+    return sub_vector.make(rt, v, start, end);
 }
 
 /// `#queue (e1 e2 …)` data-reader (ADR-0087): build a queue by conj-ing the
@@ -1182,6 +1228,7 @@ const ENTRIES = [_]Entry{
     .{ .name = "queue?", .f = &queueQFn },
     .{ .name = "__queue-pop", .f = &queuePopFn },
     .{ .name = "__vector-pop", .f = &vectorPopFn },
+    .{ .name = "__subvec", .f = &subvecFn },
     .{ .name = "disj", .f = &disjFn },
     .{ .name = "contains?", .f = &containsQFn },
     .{ .name = "get", .f = &getFn },

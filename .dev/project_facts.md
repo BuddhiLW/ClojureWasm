@@ -401,7 +401,7 @@ the Devil's-advocate subagent):
 - **Group D — Numeric + wasm + extension** (16 slots):
   big_int / ratio / big_decimal / array (Java-array compat) +
   wasm_module / wasm_fn / wasm_funcref (inline) /
-  wasm_externref (inline) + matcher / tuple / box +
+  wasm_externref (inline) + matcher / tuple / sub_vector +
   5 reserved.
 
 **Cross-references**: debt D-027 (the surgery row); D-029
@@ -433,6 +433,31 @@ the smallest-diff landing, not the finished form).
   records the considered-and-deferred expansion, not an amendment.
   Detail: `private/notes/layout-gc-decisions-2026-06-05.md`; debt
   D-247.
+
+- **2026-08-20 (user chat — Group D `box` slot repurposed to
+  `sub_vector`)**: the `box` slot was named in this fact from day one
+  and never referenced by any production code. Measured before asking:
+  53 of the 64 slots are live, 2 are heap-only, and **9 are
+  named-but-unreferenced** (`reader_conditional`, `class`,
+  `array_chunk`, `matcher`, `tuple`, `box`, `wasm_fn`,
+  `wasm_funcref`, `wasm_externref`). Of those, `box` and `tuple` are
+  the only two carrying no stated rationale anywhere in this fact's
+  text — the wasm family and `reader_conditional` have live or
+  deferred intent behind them.
+
+  User selected **`box`** when asked, so Group D slot 59 becomes
+  `sub_vector`, backing a real `subvec` VIEW (`{start, end, parent,
+  meta}`, JVM `APersistentVector$SubVector` semantics) in place of
+  today's eager copy — measured 7480x slower than the JVM. This is a
+  **slot repurpose, not a layout amendment**: the 4×16 = 64 shape and
+  the 44-bit pointer are unchanged, so the 2026-06-05 entry above
+  still stands in full.
+
+  Recorded here because F-004 names the slot, and per CLAUDE.md's
+  priority chain the loop may not amend an F-NNN on its own — this
+  entry exists because the user gave the direction in chat, not
+  because the loop judged it correct. Design + blast radius:
+  `private/notes/subvec-seqview-design.md`; debt D-583.
 
 ---
 

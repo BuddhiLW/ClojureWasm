@@ -55,6 +55,7 @@ const gc_heap_mod = @import("../../gc/gc_heap.zig");
 const mark_sweep = @import("../../gc/mark_sweep.zig");
 const map_mod = @import("../map.zig");
 const vector_mod = @import("../vector.zig");
+const sub_vector_mod = @import("../sub_vector.zig");
 const map_entry_mod = @import("../map_entry.zig");
 const equal = @import("../../equal.zig");
 
@@ -249,7 +250,9 @@ pub fn conjEntry(rt: *Runtime, tm_val: Value, entry: Value, loc: SourceLocation)
     if (entry.tag() == .map_entry) {
         return try assoc(rt, tm_val, map_entry_mod.keyOf(entry), map_entry_mod.valOf(entry), loc);
     }
-    if (entry.tag() != .vector or vector_mod.count(entry) != 2) {
+    const entry_is_sub = entry.tag() == .sub_vector;
+    const entry_cnt = if (entry_is_sub) sub_vector_mod.count(entry) else vector_mod.count(entry);
+    if ((entry.tag() != .vector and !entry_is_sub) or entry_cnt != 2) {
         // A non-[k v] entry conj!-ed into a transient map → IllegalArgumentException
         // in clj (mirrors the persistent `(conj {} 1)` path), NOT the
         // ClassCastException of a wrong-transient-KIND mismatch. D-459 (this is the
@@ -260,8 +263,8 @@ pub fn conjEntry(rt: *Runtime, tm_val: Value, entry: Value, loc: SourceLocation)
             .actual = @tagName(entry.tag()),
         });
     }
-    const k = vector_mod.nth(entry, 0);
-    const v = vector_mod.nth(entry, 1);
+    const k = if (entry_is_sub) sub_vector_mod.nth(entry, 0) else vector_mod.nth(entry, 0);
+    const v = if (entry_is_sub) sub_vector_mod.nth(entry, 1) else vector_mod.nth(entry, 1);
     return try assoc(rt, tm_val, k, v, loc);
 }
 

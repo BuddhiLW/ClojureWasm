@@ -7,6 +7,18 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 
 ## [Unreleased]
 
+### Performance
+
+- **`subvec` is now an O(1) shared-structure view** (the JVM
+  `APersistentVector$SubVector` model), replacing the eager `(into [] (take …
+  (drop …)))` rebuild — the last catastrophic collection gap. Measured 2000
+  slices on a 16,000-element vector: **9215 ms → 0.77 ms (~11,967×)**, now at
+  parity with Clojure/JVM. A subvec is a first-class `IPersistentVector`
+  (`vector?`, `=`/`hash`/`compare` with an equal vector, `nth`/`conj`/`assoc`/
+  `pop`/`peek`/`seq`/`rseq`/`reduce`, metadata, nested-subvec flattening); its
+  `conj`/`assoc`/`pop` share structure with the parent instead of copying.
+  (O-059, D-583/D-044; new `.sub_vector` heap tag from the F-004 `box` slot.)
+
 ## [1.10.16] - 2026-08-21
 
 ### Fixed

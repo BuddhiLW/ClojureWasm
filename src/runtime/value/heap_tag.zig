@@ -37,7 +37,7 @@
 //!     D0 big_int        D4 hamt_node                  D8 tval     D12 wasm_module
 //!     D1 ratio          D5 tail_node                  D9 matcher  D13 wasm_fn
 //!     D2 big_decimal    D6 hamt_map_node              D10 tuple   D14 wasm_funcref
-//!     D3 array          D7 hash_collision_map_node    D11 box     D15 wasm_externref
+//!     D3 array          D7 hash_collision_map_node    D11 sub_vector D15 wasm_externref
 
 /// Heap object discriminant — 64 entries (4 group × 16 sub-type) per
 /// F-004 + ADR-0027 §2. Each entry's integer value is the contiguous
@@ -117,7 +117,7 @@ pub const HeapTag = enum(u8) {
     tval = 56, // D8 — STM Ref history-ring node (ADR-0010 amendment 4)
     matcher = 57,
     tuple = 58,
-    box = 59,
+    sub_vector = 59,
     wasm_module = 60, // D12 — wasm surfaces at the tail (Phase 16+)
     wasm_fn = 61,
     wasm_funcref = 62,
@@ -211,11 +211,12 @@ pub const heap_only = [_]HeapTag{ .tail_node, .tval };
 /// D-259's open deferred decision about how they become first-class Values.
 ///
 /// Publishing the list is the point: when a new type needs an address, the
-/// question is "may `box` become `chan`", not "may we amend the 64-slot
-/// layout". No layout amendment is needed.
+/// question is "may `tuple` become `chan`", not "may we amend the 64-slot
+/// layout". No layout amendment is needed. (Precedent: slot 59 `box` became
+/// `sub_vector` on the user's 2026-08-20 F-004 amendment — D-583 / O-059.)
 pub const unallocated = [_]HeapTag{
-    .reader_conditional, .class,   .array_chunk,  .matcher,        .tuple,
-    .box,                .wasm_fn, .wasm_funcref, .wasm_externref,
+    .reader_conditional, .class,        .array_chunk,    .matcher, .tuple,
+    .wasm_fn,            .wasm_funcref, .wasm_externref,
 };
 
 fn inList(comptime list: []const HeapTag, tag: HeapTag) bool {
@@ -267,13 +268,18 @@ test "slot census closes and reports the measured headroom" {
     const fields = @typeInfo(HeapTag).@"enum".fields;
     try std.testing.expectEqual(@as(usize, 64), fields.len);
     try std.testing.expectEqual(@as(usize, 2), heap_only.len);
-    try std.testing.expectEqual(@as(usize, 9), unallocated.len);
-    // 11 addresses are not doing NaN-box work — the correction to the
+    // 8, not 9: F-004's 2026-08-20 amendment gave `box` (slot 59) to
+    // `sub_vector`, so it has a producer and left the unallocated list.
+    try std.testing.expectEqual(@as(usize, 8), unallocated.len);
+    // 10 addresses are not doing NaN-box work — the correction to the
     // 2026-08-04 audit's "100% full".
-    try std.testing.expectEqual(@as(usize, 11), heap_only.len + unallocated.len);
+    try std.testing.expectEqual(@as(usize, 10), heap_only.len + unallocated.len);
     try std.testing.expect(boxable(.string));
     try std.testing.expect(!boxable(.tval));
     try std.testing.expect(!boxable(.tail_node));
     // An unallocated slot is boxable — it has no producer, not a prohibition.
-    try std.testing.expect(boxable(.box));
+    try std.testing.expect(boxable(.tuple));
+    // Slot 59 was `box` (named, never referenced) until F-004's 2026-08-20
+    // amendment gave it to subvec's view; it is a producer-backed slot now.
+    try std.testing.expect(boxable(.sub_vector));
 }

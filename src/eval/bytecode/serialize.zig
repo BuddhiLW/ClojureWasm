@@ -70,6 +70,7 @@ const keyword_mod = @import("../../runtime/keyword.zig");
 const symbol_mod = @import("../../runtime/symbol.zig");
 const list_mod = @import("../../runtime/collection/list.zig");
 const vector_mod = @import("../../runtime/collection/vector.zig");
+const sub_vector_mod = @import("../../runtime/collection/sub_vector.zig");
 const map_mod = @import("../../runtime/collection/map.zig");
 const set_mod = @import("../../runtime/collection/set.zig");
 const tree_walk = @import("../backend/tree_walk.zig");
@@ -382,6 +383,15 @@ fn writeValueRaw(ctx: *WriteCtx, w: *std.Io.Writer, v: Value) SerializeError!voi
             try writeU32(w, n);
             var i: u32 = 0;
             while (i < n) : (i += 1) try writeValue(ctx, w, vector_mod.nth(v, i));
+        },
+        // A subvec is a runtime VIEW; the view offset has no meaning to persist,
+        // so it materializes as a plain vector on the wire (reads back as one).
+        .sub_vector => {
+            try writeU8(w, @intFromEnum(ValueTag.vector));
+            const n = sub_vector_mod.count(v);
+            try writeU32(w, n);
+            var i: u32 = 0;
+            while (i < n) : (i += 1) try writeValue(ctx, w, sub_vector_mod.nth(v, i));
         },
         .array_map => {
             try writeU8(w, @intFromEnum(ValueTag.array_map));

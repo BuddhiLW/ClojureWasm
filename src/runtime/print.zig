@@ -46,6 +46,7 @@ const protocol = @import("protocol.zig");
 const string_collection = @import("collection/string.zig");
 const list_collection = @import("collection/list.zig");
 const vector_collection = @import("collection/vector.zig");
+const sub_vector = @import("collection/sub_vector.zig");
 const set_collection = @import("collection/set.zig");
 const map_collection = @import("collection/map.zig");
 const map_entry_collection = @import("collection/map_entry.zig");
@@ -312,6 +313,30 @@ fn deepRealizeAt(rt: *Runtime, env: *env_mod.Env, v: Value, depth: i64) anyerror
             // Carry metadata through the rebuild so `*print-meta*` sees it
             // (the realize pass must not strip `^meta`).
             const m = vector_collection.metaOf(v);
+            return if (m.isNil()) rebuilt else try vector_collection.withMeta(rt, rebuilt, m);
+        },
+        .sub_vector => {
+            // A subvec's elements may be lazy; realize them like the vector arm.
+            // Structure is not preserved (print only needs the `[..]` form), so
+            // a realize rebuilds a plain vector; an all-strict subvec is returned
+            // as-is. Meta is carried through for `*print-meta*`.
+            const n = sub_vector.count(v);
+            var out: ?Value = null;
+            var i: u32 = 0;
+            while (i < n) : (i += 1) {
+                const e = sub_vector.nth(v, i);
+                const re = try deepRealizeAt(rt, env, e, depth + 1);
+                if (out) |acc| {
+                    out = try vector_collection.conj(rt, acc, re);
+                } else if (@intFromEnum(re) != @intFromEnum(e)) {
+                    var acc = vector_collection.empty();
+                    var j: u32 = 0;
+                    while (j < i) : (j += 1) acc = try vector_collection.conj(rt, acc, sub_vector.nth(v, j));
+                    out = try vector_collection.conj(rt, acc, re);
+                }
+            }
+            const rebuilt = out orelse return v;
+            const m = sub_vector.metaOf(v);
             return if (m.isNil()) rebuilt else try vector_collection.withMeta(rt, rebuilt, m);
         },
         // A MapEntry realizes its key/val (which may hold lazy seqs) while
@@ -805,6 +830,7 @@ threadlocal var print_meta: bool = false;
 fn metaForPrint(v: Value) Value {
     return switch (v.tag()) {
         .vector => vector_collection.metaOf(v),
+        .sub_vector => sub_vector.metaOf(v),
         .array_map, .hash_map => map_collection.metaOf(v),
         .hash_set => set_collection.metaOf(v),
         .list => list_collection.metaOf(v),
@@ -867,7 +893,7 @@ fn snapshotPrintLimits() void {
 /// collection, including a `.map_entry` which renders as the 2-vector `[k v]`).
 fn isCollectionTag(t: Value.Tag) bool {
     return switch (t) {
-        .list, .range, .array_seq, .vector, .map_entry, .persistent_queue, .hash_set, .sorted_set, .sorted_map, .array_map, .hash_map => true,
+        .list, .range, .array_seq, .vector, .sub_vector, .map_entry, .persistent_queue, .hash_set, .sorted_set, .sorted_map, .array_map, .hash_map => true,
         // Reachable only unrealized: a null-ports render, or below the cut
         // where the realize is skipped. Both must still print `#`.
         .lazy_seq, .chunked_cons => true,
@@ -1016,7 +1042,7 @@ fn printValueNative(ports: ?Ports, w: *Writer, v: Value) anyerror!void {
         .list => try printList(ports, w, v),
         .range => try printRange(ports, w, v),
         .array_seq => try printArraySeq(ports, w, v),
-        .vector => try printVector(ports, w, v),
+        .vector, .sub_vector => try printVector(ports, w, v),
         // A MapEntry prints as the 2-vector `[k v]`.
         .map_entry => {
             try w.writeByte('[');
@@ -1550,12 +1576,14 @@ pub fn printArraySeq(ports: ?Ports, w: *Writer, v: Value) anyerror!void {
 /// internals.
 pub fn printVector(ports: ?Ports, w: *Writer, v: Value) anyerror!void {
     try w.writeByte('[');
-    const n = vector_collection.count(v);
+    // A subvec prints identically to a vector; read its count/nth polymorphically.
+    const is_sub = v.tag() == .sub_vector;
+    const n = if (is_sub) sub_vector.count(v) else vector_collection.count(v);
     var i: u32 = 0;
     while (i < n) : (i += 1) {
         if (try lengthTruncated(w, @intCast(i), " ")) break;
         if (i > 0) try w.writeByte(' ');
-        try printValue(ports, w, vector_collection.nth(v, i));
+        try printValue(ports, w, if (is_sub) sub_vector.nth(v, i) else vector_collection.nth(v, i));
     }
     try w.writeByte(']');
 }

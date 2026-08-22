@@ -104,7 +104,7 @@ pub fn ifnQ(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) a
     _ = env;
     try error_catalog.checkArity("ifn?", args, 1, loc);
     return switch (args[0].tag()) {
-        .fn_val, .builtin_fn, .multi_fn, .protocol_fn, .keyword, .symbol, .var_ref, .vector, .array_map, .hash_map, .hash_set, .sorted_map, .sorted_set => .true_val,
+        .fn_val, .builtin_fn, .multi_fn, .protocol_fn, .keyword, .symbol, .var_ref, .vector, .sub_vector, .array_map, .hash_map, .hash_set, .sorted_map, .sorted_set => .true_val,
         else => .false_val,
     };
 }
@@ -239,7 +239,7 @@ pub fn vectorQ(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation
     // A MapEntry IS-A vector (clj `MapEntry extends APersistentVector`,
     // D-209 / ADR-0078).
     const t = args[0].tag();
-    return if (t == .vector or t == .map_entry) .true_val else .false_val;
+    return if (t == .vector or t == .sub_vector or t == .map_entry) .true_val else .false_val;
 }
 
 /// Implements clojure.core/map-entry? — true only for a distinct MapEntry
@@ -437,7 +437,7 @@ pub fn collQ(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) 
     try error_catalog.checkArity("coll?", args, 1, loc);
     const t = args[0].tag();
     return switch (t) {
-        .list, .cons, .lazy_seq, .chunked_cons, .vector, .array_map, .hash_map, .sorted_map, .hash_set, .sorted_set, .persistent_queue, .range, .string_seq, .array_seq, .map_entry => .true_val,
+        .list, .cons, .lazy_seq, .chunked_cons, .vector, .sub_vector, .array_map, .hash_map, .sorted_map, .hash_set, .sorted_set, .persistent_queue, .range, .string_seq, .array_seq, .map_entry => .true_val,
         else => .false_val,
     };
 }
@@ -451,7 +451,7 @@ pub fn countedQ(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocatio
     _ = env;
     try error_catalog.checkArity("counted?", args, 1, loc);
     return switch (args[0].tag()) {
-        .list, .cons, .chunked_cons, .vector, .array_map, .hash_map, .sorted_map, .hash_set, .sorted_set, .persistent_queue, .range, .string_seq, .array_seq, .map_entry => .true_val,
+        .list, .cons, .chunked_cons, .vector, .sub_vector, .array_map, .hash_map, .sorted_map, .hash_set, .sorted_set, .persistent_queue, .range, .string_seq, .array_seq, .map_entry => .true_val,
         else => .false_val,
     };
 }
@@ -499,7 +499,7 @@ pub fn associativeQ(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLoc
     try error_catalog.checkArity("associative?", args, 1, loc);
     const t = args[0].tag();
     return switch (t) {
-        .vector, .array_map, .hash_map, .sorted_map, .map_entry => .true_val,
+        .vector, .sub_vector, .array_map, .hash_map, .sorted_map, .map_entry => .true_val,
         else => .false_val,
     };
 }

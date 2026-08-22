@@ -76,6 +76,9 @@ const NATIVE_ENTRIES = [_]NativeEntry{
     .{ .name = "Symbol", .tag = .symbol },
     .{ .name = "PersistentList", .tag = .list },
     .{ .name = "PersistentVector", .tag = .vector },
+    // clj's `(class (subvec …))` is APersistentVector$SubVector; the simple name
+    // "SubVector" per AD-003 (ADR-0059 simple-name policy).
+    .{ .name = "SubVector", .tag = .sub_vector },
     .{ .name = "MapEntry", .tag = .map_entry },
     .{ .name = "PersistentArrayMap", .tag = .array_map },
     .{ .name = "PersistentHashMap", .tag = .hash_map },

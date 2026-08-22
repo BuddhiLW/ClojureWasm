@@ -38,6 +38,7 @@ const SourceLocation = error_mod.SourceLocation;
 const dispatch = @import("../../runtime/dispatch.zig");
 const string_collection = @import("../../runtime/collection/string.zig");
 const vector_collection = @import("../../runtime/collection/vector.zig");
+const sub_vector = @import("../../runtime/collection/sub_vector.zig");
 const map_collection = @import("../../runtime/collection/map.zig");
 const sorted_collection = @import("../../runtime/collection/sorted.zig");
 const print = @import("../../runtime/print.zig");
@@ -254,13 +255,14 @@ fn cwToJson(v: Value, w: *std.Io.Writer, opts: WriteOpts) anyerror!void {
         // Keywords serialise as their name string (JVM data.json
         // default: `:keyword-fn` keyword? → str).
         .keyword => try writeJsonString(w, keyword_mod.asKeyword(v).name, opts),
-        .vector => {
+        .vector, .sub_vector => {
             try w.writeAll("[");
-            const n = vector_collection.count(v);
+            const is_sub = v.tag() == .sub_vector;
+            const n = if (is_sub) sub_vector.count(v) else vector_collection.count(v);
             var i: u32 = 0;
             while (i < n) : (i += 1) {
                 if (i > 0) try w.writeAll(",");
-                try cwToJson(vector_collection.nth(v, i), w, opts);
+                try cwToJson(if (is_sub) sub_vector.nth(v, i) else vector_collection.nth(v, i), w, opts);
             }
             try w.writeAll("]");
         },

@@ -52,6 +52,7 @@ const chunked_cons = @import("../../runtime/collection/chunked_cons.zig");
 const chunk_transform = @import("chunk_transform.zig");
 const range = @import("../../runtime/collection/range.zig");
 const array_seq = @import("../../runtime/collection/array_seq.zig");
+const sub_vector = @import("../../runtime/collection/sub_vector.zig");
 const java_array = @import("../../runtime/collection/java_array.zig");
 const transient_vector = @import("../../runtime/collection/transient/transient_vector.zig");
 const transient_array_map = @import("../../runtime/collection/transient/transient_array_map.zig");
@@ -99,6 +100,7 @@ pub fn countFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation
             break :blk Value.initInteger(@intCast(n));
         },
         .vector => Value.initInteger(@intCast(vector.count(coll))),
+        .sub_vector => Value.initInteger(@intCast(sub_vector.count(coll))),
         .array => Value.initInteger(@intCast(java_array.alength(coll))), // ADR-0105
         .map_entry => Value.initInteger(2), // a MapEntry is a 2-vector (D-209)
         .array_map, .hash_map => Value.initInteger(@intCast(map.count(coll))),
@@ -303,7 +305,9 @@ pub fn seqFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) 
         // `(vector, index)` like the JVM's PersistentVector$ChunkedSeq, where
         // this used to build an eager n-cell PersistentList. `make` answers nil
         // for an empty vector, so no count guard is needed. [refs: O-058]
-        .vector => try array_seq.make(rt, coll, 0),
+        // A subvec is an immutable indexed vector too, so `array_seq` views it
+        // the same way (its backing switches carry a `.sub_vector` arm).
+        .vector, .sub_vector => try array_seq.make(rt, coll, 0),
         // An ArraySeq is already a seq; `seq` on one is identity.
         .array_seq => coll,
         // ADR-0105: a Java array is Seqable (clj parity), eager element seq.
@@ -360,6 +364,9 @@ pub fn rseqFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation)
     const coll = args[0];
     return switch (coll.tag()) {
         .vector => if (vector.count(coll) > 0) try vectorToRevList(rt, coll) else .nil_val,
+        // A subvec is never empty (`make` returns [] for an empty range), so it
+        // always has a reverse seq; `vectorToRevList` handles the `.sub_vector` tag.
+        .sub_vector => try vectorToRevList(rt, coll),
         .sorted_map, .sorted_set => if (sorted.count(coll) > 0) try sorted.rseq(rt, coll) else .nil_val,
         // A deftype/reify implementing Reversible `-rseq` (D-280d3; clojure.lang.Reversible
         // host-interface remap) — consult its impl before erroring.
@@ -381,11 +388,12 @@ pub fn rseqFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation)
 }
 
 fn vectorToRevList(rt: *Runtime, vec: Value) !Value {
-    const n = vector.count(vec);
+    const is_sub = vec.tag() == .sub_vector;
+    const n = if (is_sub) sub_vector.count(vec) else vector.count(vec);
     var acc: Value = .nil_val;
     var i: u32 = 0;
     while (i < n) : (i += 1) {
-        const elt = try vector_nth_safe(vec, i, .{ .line = 0, .column = 0 });
+        const elt = if (is_sub) sub_vector.nth(vec, i) else try vector_nth_safe(vec, i, .{ .line = 0, .column = 0 });
         acc = try list.consHeap(rt, elt, acc);
     }
     return acc;
@@ -407,6 +415,8 @@ pub fn firstFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation
             try vector_nth_safe(coll, 0, loc)
         else
             .nil_val,
+        // A subvec is never empty, so first is total (O(1) into the parent).
+        .sub_vector => sub_vector.first(coll),
         .map_entry => map_entry.keyOf(coll), // first of `[k v]` is k (D-209)
         .persistent_queue => persistent_queue.peek(coll), // first = oldest = peek
         .chunked_cons => chunked_cons.first(coll),
@@ -456,7 +466,7 @@ pub fn restFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation)
     const raw: Value = if (coll.isNil()) .nil_val else switch (coll.tag()) {
         .list, .cons => list.rest(coll),
         // PERF: advance the view instead of copying the tail [refs: O-058]
-        .vector => try array_seq.make(rt, coll, 1),
+        .vector, .sub_vector => try array_seq.make(rt, coll, 1),
         .array_seq => try array_seq.rest(rt, coll),
         .map_entry => try list.consHeap(rt, map_entry.valOf(coll), .nil_val), // (rest [k v]) → (v)
         .persistent_queue => blk: {
@@ -513,7 +523,7 @@ pub fn nextFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation)
         // PERF: advance the view instead of copying the tail. `make` answers
         // nil past the end, which is exactly `next`'s empty-tail rule (`rest`
         // lifts that nil to the empty list at its own exit). [refs: O-058]
-        .vector => try array_seq.make(rt, coll, 1),
+        .vector, .sub_vector => try array_seq.make(rt, coll, 1),
         .array_seq => try array_seq.rest(rt, coll),
         .map_entry => try list.consHeap(rt, map_entry.valOf(coll), .nil_val), // (next [k v]) → (v)
         .persistent_queue => blk: {
@@ -611,7 +621,7 @@ pub fn emptyFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation
     const coll = args[0];
     if (coll.isNil()) return .nil_val;
     return switch (coll.tag()) {
-        .vector => vector.empty(),
+        .vector, .sub_vector => vector.empty(),
         .array_map, .hash_map => map.empty(),
         .hash_set => set.empty(),
         // Sorted variants keep their comparator (clj PersistentTreeMap.empty()

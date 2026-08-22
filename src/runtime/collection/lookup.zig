@@ -23,6 +23,7 @@ const Value = value_mod.Value;
 const map = @import("map.zig");
 const set = @import("set.zig");
 const vector = @import("vector.zig");
+const sub_vector = @import("sub_vector.zig");
 const sorted = @import("sorted.zig");
 const map_entry = @import("map_entry.zig");
 const Runtime = @import("../runtime.zig").Runtime;
@@ -65,10 +66,12 @@ fn vectorIndex(v: Value, i_val: Value, loc: SourceLocation) !Value {
     if (idx < 0) {
         return error_catalog.raise(.index_out_of_range, loc, .{ .fn_name = "nth" });
     }
-    if (idx >= vector.count(v)) {
+    const is_sub = v.tag() == .sub_vector;
+    const cnt = if (is_sub) sub_vector.count(v) else vector.count(v);
+    if (idx >= cnt) {
         return error_catalog.raise(.index_out_of_range, loc, .{ .fn_name = "nth" });
     }
-    return vector.nth(v, @intCast(idx));
+    return if (is_sub) sub_vector.nth(v, @intCast(idx)) else vector.nth(v, @intCast(idx));
 }
 
 /// MapEntry index access as IFn — `(entry i)` with `nth` semantics (0→key,
@@ -202,7 +205,7 @@ pub fn invoke(rt: *Runtime, env: *Env, callee: Value, args: []const Value, loc: 
             if (args.len != 1) return arityError("sorted-set", args.len, 1, 1, loc);
             return if (try sorted.setContains(rt, env, callee, args[0], loc)) args[0] else Value.nil_val;
         },
-        .vector => {
+        .vector, .sub_vector => {
             if (args.len != 1) return arityError("vector", args.len, 1, 1, loc);
             return vectorIndex(callee, args[0], loc);
         },

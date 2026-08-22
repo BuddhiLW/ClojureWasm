@@ -41,6 +41,28 @@ const dispatch_mod = @import("dispatch.zig");
 const td_mod = @import("type_descriptor.zig");
 const class_name_mod = @import("class_name.zig");
 const vector_mod = @import("collection/vector.zig");
+const sub_vector_mod = @import("collection/sub_vector.zig");
+
+/// Count of a vector-like dispatch value (`.vector` or `.sub_vector`).
+fn vmCount(v: Value) u32 {
+    return switch (v.tag()) {
+        .sub_vector => sub_vector_mod.count(v),
+        else => vector_mod.count(v),
+    };
+}
+
+/// `nth` into a vector-like dispatch value.
+fn vmNth(v: Value, i: u32) Value {
+    return switch (v.tag()) {
+        .sub_vector => sub_vector_mod.nth(v, i),
+        else => vector_mod.nth(v, i),
+    };
+}
+
+/// A `.vector` or `.sub_vector` — both are element-wise-dispatchable vectors.
+fn isVecLike(t: Value.Tag) bool {
+    return t == .vector or t == .sub_vector;
+}
 const gc_heap_mod = @import("gc/gc_heap.zig");
 const mark_sweep = @import("gc/mark_sweep.zig");
 const tag_ops = @import("gc/tag_ops.zig");
@@ -152,12 +174,12 @@ pub fn isaCheck(hierarchy_ancestors: Value, child: Value, parent: Value) !bool {
     // is what `(defmethod g [::a ::b] …)` / `[Number Number]` dispatch needs.
     // Terminal: equal-length vectors yield the element-wise verdict, mismatched
     // lengths are not `isa?` (clj parity). A non-vector pair falls through.
-    if (child.tag() == .vector and parent.tag() == .vector) {
-        const n = vector_mod.count(child);
-        if (n != vector_mod.count(parent)) return false;
+    if (isVecLike(child.tag()) and isVecLike(parent.tag())) {
+        const n = vmCount(child);
+        if (n != vmCount(parent)) return false;
         var i: u32 = 0;
         while (i < n) : (i += 1) {
-            if (!(try isaCheck(hierarchy_ancestors, vector_mod.nth(child, i), vector_mod.nth(parent, i)))) return false;
+            if (!(try isaCheck(hierarchy_ancestors, vmNth(child, i), vmNth(parent, i)))) return false;
         }
         return true;
     }

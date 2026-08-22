@@ -58,6 +58,7 @@ const chunked_cons_mod = @import("collection/chunked_cons.zig");
 const range_mod = @import("collection/range.zig");
 const array_seq_mod = @import("collection/array_seq.zig");
 const vector_mod = @import("collection/vector.zig");
+const sub_vector_mod = @import("collection/sub_vector.zig");
 const set_mod = @import("collection/set.zig");
 const map_mod = @import("collection/map.zig");
 const sorted_mod = @import("collection/sorted.zig");
@@ -196,6 +197,15 @@ pub fn force(rt: *Runtime, env: *env_mod.Env, v: Value) !Value {
 /// collections become a list/seq; already-walkable values pass through.
 fn coerceRealized(rt: *Runtime, v: Value) !Value {
     return switch (v.tag()) {
+        .sub_vector => blk: {
+            var acc = try list_mod.emptyList(rt);
+            var i = sub_vector_mod.count(v);
+            while (i > 0) {
+                i -= 1;
+                acc = try list_mod.consHeap(rt, sub_vector_mod.nth(v, i), acc);
+            }
+            break :blk acc;
+        },
         .vector => blk: {
             var acc = try list_mod.emptyList(rt);
             var i = vector_mod.count(v);

@@ -35,6 +35,7 @@ const hash = @import("hash.zig");
 const uuid_mod = @import("uuid.zig");
 const tagged_literal_mod = @import("tagged_literal.zig");
 const vector = @import("collection/vector.zig");
+const sub_vector = @import("collection/sub_vector.zig");
 const list = @import("collection/list.zig");
 const range = @import("collection/range.zig");
 const array_seq = @import("collection/array_seq.zig");
@@ -104,12 +105,13 @@ fn isCountable(v: Value) bool {
     // length mismatch anyway. Vector / map_entry / queue counts ARE reliable.
     // `.array_seq` IS countable: it views an IMMUTABLE vector, so its
     // `backing count - index` is exact and no lazy tail can extend it.
-    return t == .vector or t == .map_entry or t == .persistent_queue or t == .array_seq;
+    return t == .vector or t == .sub_vector or t == .map_entry or t == .persistent_queue or t == .array_seq;
 }
 
 fn seqLen(v: Value) u32 {
     return switch (v.tag()) {
         .vector => vector.count(v),
+        .sub_vector => sub_vector.count(v),
         .array_seq => array_seq.countOf(v),
         .list => list.countOf(v),
         .map_entry => 2,
@@ -141,6 +143,9 @@ const Cursor = union(enum) {
     fn init(v: Value) Cursor {
         return switch (v.tag()) {
             .vector => .{ .vec = .{ .v = v, .i = 0, .n = vector.count(v) } },
+            // A subvec is `parent[start, end)`; the `.vec` cursor walks absolute
+            // parent indices, so it needs no new variant.
+            .sub_vector => .{ .vec = .{ .v = sub_vector.parentOf(v), .i = sub_vector.startOf(v), .n = sub_vector.endOf(v) } },
             .range => .{ .rng = .{ .v = v, .i = 0, .n = range.countOf(v) } },
             .array_seq => .{ .aseq = .{ .v = v, .i = 0, .n = array_seq.countOf(v) } },
             .map_entry => .{ .ment = .{ .v = v, .i = 0 } },
@@ -591,7 +596,7 @@ inline fn isSeqKeyTag(t: Value.Tag) bool {
     // `.array_seq` qualifies for the rt-FREE path because `SeqKeyCursor` walks
     // it by index with no forcing — the reason `.lazy_seq`/`.range` are absent
     // does not apply to a view over an immutable vector.
-    return t == .vector or t == .list or t == .map_entry or t == .array_seq;
+    return t == .vector or t == .sub_vector or t == .list or t == .map_entry or t == .array_seq;
 }
 
 /// Symbol equality (ADR-0110): ns+name structural, metadata IGNORED — symbol
@@ -754,7 +759,7 @@ pub fn valueHash(v: Value) u32 {
         // recursive, via the SAME formula so an equal vector and list
         // collide into one bucket (Clojure's sequential =). Partner of
         // seqKeyEq (D-092).
-        .vector, .list, .map_entry, .persistent_queue, .array_seq => seqHash(v),
+        .vector, .sub_vector, .list, .map_entry, .persistent_queue, .array_seq => seqHash(v),
         // Map / set keys hash by content (order-independent), rt-free via
         // the collection module's structure walk (D-092). Partner of
         // map.contentEq / set.contentEq.
@@ -916,6 +921,7 @@ const SeqKeyCursor = struct {
     fn init(v: Value) SeqKeyCursor {
         return .{ .inner = switch (v.tag()) {
             .vector => .{ .vec = .{ .v = v, .i = 0, .n = vector.count(v) } },
+            .sub_vector => .{ .vec = .{ .v = sub_vector.parentOf(v), .i = sub_vector.startOf(v), .n = sub_vector.endOf(v) } },
             .array_seq => .{ .aseq = .{ .v = v, .i = 0, .n = array_seq.countOf(v) } },
             .map_entry => .{ .ment = .{ .v = v, .i = 0 } },
             .persistent_queue => .{ .q = .{ .front = persistent_queue.frontOf(v), .rear = persistent_queue.rearOf(v), .ri = 0 } },
@@ -1205,7 +1211,7 @@ pub fn hashConsult(v: Value) ClojureWasmError!u32 {
 /// `.persistent_queue => seqHash` arm — closes a hash/eq inconsistency).
 fn isSeqKeyValue(v: Value) bool {
     return switch (v.tag()) {
-        .vector, .list, .map_entry, .persistent_queue, .lazy_seq, .range, .chunked_cons, .array_seq => true,
+        .vector, .sub_vector, .list, .map_entry, .persistent_queue, .lazy_seq, .range, .chunked_cons, .array_seq => true,
         .typed_instance, .reified_instance => isSequential(v),
         else => false,
     };

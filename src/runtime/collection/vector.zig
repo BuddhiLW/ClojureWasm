@@ -23,7 +23,8 @@
 //! then `leaf.slots[i & 0x1F]`.
 //!
 //! Supports nth / count read-side ops, conj + pop (pushTail / popTail
-//! patterns), assoc, and subvec. Per-tag trace fns are registered at
+//! patterns), assoc, and copyRange (a materializing slice; the O(1)
+//! `subvec` VIEW lives in `sub_vector.zig`). Per-tag trace fns are registered at
 //! Runtime.init; EMPTY is a comptime const singleton (no GC trace
 //! needed because it never lives on the GC heap).
 
@@ -353,19 +354,14 @@ fn assocInRoot(rt: *Runtime, level: u32, node: *const HamtNode, i: u32, x: Value
     return dup;
 }
 
-/// Slice a vector to `[start, end)`. Per clojure JVM `subvec`:
-///   - 0 ≤ start ≤ end ≤ count v (else error.SubvecOutOfBounds)
-///   - subvec v 0 (count v) is equivalent to v (we copy structurally
-///     anyway for simplicity; the result is a fresh Vector)
-///
-/// Implementation choice: eager copy via repeated `conj`. The lazy
-/// SubVector wrapper (clojure JVM's actual approach with structural
-/// sharing of the parent) requires a new SubVector type + Tag slot +
-/// polymorphic op dispatch; it is tracked as D-044, gated on a
-/// measured structural-sharing benefit. Eager copy is O(n) where
-/// n = end - start; typical subvec call sites (small ranges over
-/// large vectors) keep the cost bounded.
-pub fn subvec(rt: *Runtime, v: Value, start: u32, end: u32) !Value {
+/// Materialize `[start, end)` as a FRESH standalone vector (eager O(n) copy
+/// via repeated `conj`). This is NOT `clojure.core/subvec` — that is the O(1)
+/// shared-structure VIEW in `sub_vector.zig`. `copyRange` exists for callers
+/// that must DROP the elements outside the range (e.g. `LinkedBlockingQueue`
+/// compaction, which frees the drained head), where a view would retain the
+/// whole parent. Bounds: `0 ≤ start ≤ end ≤ count v` (else
+/// `error.SubvecOutOfBounds`).
+pub fn copyRange(rt: *Runtime, v: Value, start: u32, end: u32) !Value {
     std.debug.assert(v.tag() == .vector);
     const old = v.decodePtr(*const Vector);
     if (start > end or end > old.count) return error.SubvecOutOfBounds;
@@ -837,13 +833,13 @@ test "assoc out-of-bounds: returns error.AssocOutOfBounds" {
     try testing.expectError(error.AssocOutOfBounds, assoc(&fix.rt, v, 5, Value.nil_val));
 }
 
-test "subvec inner range: preserves slice values + new count" {
+test "copyRange inner range: preserves slice values + new count" {
     var fix = RuntimeFixture.init();
     defer fix.deinit();
 
     var v = empty();
     for (0..10) |i| v = try conj(&fix.rt, v, Value.initInteger(@intCast(i)));
-    const sv = try subvec(&fix.rt, v, 2, 7);
+    const sv = try copyRange(&fix.rt, v, 2, 7);
 
     try testing.expectEqual(@as(u32, 5), count(sv));
     try testing.expectEqual(@as(i48, 2), nth(sv, 0).asInteger());
@@ -853,13 +849,13 @@ test "subvec inner range: preserves slice values + new count" {
     try testing.expectEqual(@as(u32, 10), count(v));
 }
 
-test "subvec full range: equivalent to original vector" {
+test "copyRange full range: equivalent to original vector" {
     var fix = RuntimeFixture.init();
     defer fix.deinit();
 
     var v = empty();
     for (0..5) |i| v = try conj(&fix.rt, v, Value.initInteger(@intCast(i)));
-    const sv = try subvec(&fix.rt, v, 0, count(v));
+    const sv = try copyRange(&fix.rt, v, 0, count(v));
 
     try testing.expectEqual(@as(u32, 5), count(sv));
     for (0..5) |i| {
@@ -867,24 +863,24 @@ test "subvec full range: equivalent to original vector" {
     }
 }
 
-test "subvec empty range: returns empty vector" {
+test "copyRange empty range: returns empty vector" {
     var fix = RuntimeFixture.init();
     defer fix.deinit();
 
     var v = empty();
     for (0..5) |i| v = try conj(&fix.rt, v, Value.initInteger(@intCast(i)));
-    const sv = try subvec(&fix.rt, v, 3, 3);
+    const sv = try copyRange(&fix.rt, v, 3, 3);
 
     try testing.expectEqual(@as(u32, 0), count(sv));
 }
 
-test "subvec out-of-bounds: errors" {
+test "copyRange out-of-bounds: errors" {
     var fix = RuntimeFixture.init();
     defer fix.deinit();
 
     const v = try conj(&fix.rt, empty(), Value.initInteger(1));
-    try testing.expectError(error.SubvecOutOfBounds, subvec(&fix.rt, v, 0, 5));
-    try testing.expectError(error.SubvecOutOfBounds, subvec(&fix.rt, v, 5, 0));
+    try testing.expectError(error.SubvecOutOfBounds, copyRange(&fix.rt, v, 0, 5));
+    try testing.expectError(error.SubvecOutOfBounds, copyRange(&fix.rt, v, 5, 0));
 }
 
 test "fromSlice matches conj-built vector at all boundary sizes" {
