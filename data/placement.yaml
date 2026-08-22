@@ -24,8 +24,8 @@
 schema_version: "2.0"
 summary:
   namespaces_required: 33
-  total: 1393
-  zig: 398
+  total: 1394
+  zig: 399
   clj: 782
   value: 207
   unbound: 6
@@ -108,6 +108,7 @@ vars:
   "cljw.internal/__stream-slurp": { impl: zig, flags: "-" }
   "cljw.internal/__string-reader": { impl: zig, flags: "-" }
   "cljw.internal/__string-writer": { impl: zig, flags: "-" }
+  "cljw.internal/__subvec": { impl: zig, flags: "-" }
   "cljw.internal/__unsupported-host-ref": { impl: zig, flags: "-" }
   "cljw.internal/__update-in": { impl: zig, flags: "-" }
   "cljw.internal/__vector-pop": { impl: zig, flags: "-" }
