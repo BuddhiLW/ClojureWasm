@@ -395,7 +395,9 @@ const ConservativeScan = if (build_options.backend == .tree_walk) struct {
         }
     }
 } else struct {
-    fn run(_: *GcHeap) void {}
+    fn run(_: *GcHeap) void {
+        // vm backend: precise root_set only; no conservative native-stack scan.
+    }
 };
 
 /// Stop-the-world collect (ADR-0090 Alt B / D-244 #4): pause every other

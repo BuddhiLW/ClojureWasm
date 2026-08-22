@@ -64,3 +64,55 @@ instructions on non-shared memory ever becomes a target.
 The single-threaded wasm build has no futures/agents/OS-threads and no
 sockets/http; a wasm kernel is a synchronous line-oriented program (stdin ->
 stdout), which is exactly the kernel-bridge use case.
+
+## Affected files
+
+- `build.zig` — a wasm32 target auto-adds the `atomics` + `bulk_memory` CPU
+  features.
+- `src/runtime/gc/mark_sweep.zig` — the D-556 conservative native-stack scan
+  (`extern setjmp` + `@frameAddress`) compiles only under `-Dbackend=tree_walk`;
+  the vm backend gets an empty `run`.
+- `src/runtime/value/value.zig` — width-portable heap-pointer decode
+  (`@intCast` at the `u64`↔`usize` boundary).
+- `src/runtime/value/heap_header.zig` — `HeapHeader` forced `align(8)` so the
+  NaN-box low-3-bits-zero invariant holds when field types are 4-byte.
+- `src/runtime/atomics.zig` — new. Width-aware atomic ops that degrade to plain
+  load/store on single-threaded builds; the 64-bit `std.atomic.Value` cells move
+  here.
+- `src/runtime/concurrency/spawn.zig` — new. OS-thread spawn gated to error on
+  single-threaded builds.
+- `src/runtime/io/stdin.zig` — new. One portable stdin-chunk read via
+  `std.Io.File`, shared by `io/text_io.zig` and `io/host_stream.zig`.
+- `src/runtime/{agent,atom,future,volatile,thread,type_descriptor}.zig`,
+  `src/runtime/concurrency/{eval_budget,lock_tx,safepoint}.zig`,
+  `src/runtime/stm/ref.zig`, `src/runtime/java/lang/Thread.zig`,
+  `src/runtime/java/util/ArrayList.zig`,
+  `src/runtime/java/util/concurrent/{LinkedBlockingQueue,Semaphore,atomic/_atomic}.zig`
+  — the 64-bit atomic cells move to `atomics.Value`.
+- `src/runtime/java/net/URI.zig`, `src/runtime/numeric/ratio.zig`,
+  `src/runtime/java/util/regex/Matcher.zig`,
+  `src/runtime/java/io/StringWriter.zig`,
+  `src/runtime/java/lang/StringBuilder.zig` — `@intCast` at the `u64`↔`usize`
+  width boundary.
+- `src/runtime/cljw/_host_api.zig`, `src/runtime/cljw/net/socket.zig` — net /
+  socket / http-server host surfaces compile out on wasi.
+- `src/app/cli.zig` — allocator-based argv iterator on wasi; the self-exe
+  embedded-artifact probe is skipped.
+- `src/app/repl.zig` — the raw-mode line editor (termios) compiles out on wasi;
+  the REPL uses its piped loop.
+- `src/eval/bytecode/serialize.zig` — forward-declare a not-yet-created
+  namespace so a bootstrap `var_ref` into a compiled-out host surface resolves.
+- `.github/workflows/ci.yml` — a Linux-leg step builds `-Dtarget=wasm32-wasi`
+  as a regression guard.
+- `CHANGELOG.md`, `README.md` — the target.
+
+## References
+
+- Related ADRs: 0028, 0090 (STW GC / D-244), 0099 (the wasm FFI surface).
+- F-004 (the NaN-box `u64` value), F-006 (the precise mark-sweep GC), D-556
+  (the tree_walk conservative safety net).
+- Chicory 1.7.5, wasmtime 48.0.0, zwasm 2.5.0 — the three runtimes verified.
+
+## Revision history
+
+- 2026-08-22: Status: Proposed -> Accepted (initial landing).

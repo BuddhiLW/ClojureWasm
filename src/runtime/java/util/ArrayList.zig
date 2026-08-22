@@ -23,7 +23,6 @@
 //! `.addAll` takes a vector or another ArrayList (Layer-0 walkable).
 
 const std = @import("std");
-const atomics = @import("../../atomics.zig");
 const host_api = @import("../_host_api.zig");
 const type_descriptor = @import("../../type_descriptor.zig");
 const Value = @import("../../value/value.zig").Value;

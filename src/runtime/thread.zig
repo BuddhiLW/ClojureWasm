@@ -27,7 +27,6 @@
 //! (`runtime/java/lang/Thread.zig`) wires it from above.
 
 const std = @import("std");
-const atomics = @import("atomics.zig");
 const spawn = @import("concurrency/spawn.zig");
 const value_mod = @import("value/value.zig");
 const Value = value_mod.Value;
