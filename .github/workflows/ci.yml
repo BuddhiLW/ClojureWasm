@@ -209,6 +209,14 @@ jobs:
         shell: bash
         run: bash scripts/ci_gate.sh
 
+      # Regression guard: the wasm32-wasi target must keep compiling (ADR-0193).
+      # Compile-only — a runtime smoke needs a wasm engine the runners do not
+      # ship. Linux leg only; the wasm target is host-arch independent.
+      - name: Build wasm32-wasi target (ADR-0193)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: zig build -Dtarget=wasm32-wasi
+
       # Save on success OR failure, but NEVER on cancellation.
       #
       # Failure is the case worth saving for: the next run is usually a fix for
