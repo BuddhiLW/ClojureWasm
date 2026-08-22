@@ -5,7 +5,17 @@ const std = @import("std");
 const zlinter = @import("zlinter");
 
 pub fn build(b: *std.Build) void {
-    const target = b.standardTargetOptions(.{});
+    // wasm32 needs the atomics + bulk_memory features (rationale: kanban
+    // CLJW-WASM32-PORT / hive memory). Added automatically so the target is
+    // just `-Dtarget=wasm32-wasi`, no hand-passed `-Dcpu`.
+    const target = blk: {
+        const t = b.standardTargetOptions(.{});
+        if (t.result.cpu.arch != .wasm32) break :blk t;
+        var q = t.query;
+        q.cpu_features_add.addFeature(@intFromEnum(std.Target.wasm.Feature.atomics));
+        q.cpu_features_add.addFeature(@intFromEnum(std.Target.wasm.Feature.bulk_memory));
+        break :blk b.resolveTargetQuery(q);
+    };
     const optimize = b.standardOptimizeOption(.{});
 
     // `-Dprofile` (D-450 perf campaign): keep the symbol table on an OPTIMISED

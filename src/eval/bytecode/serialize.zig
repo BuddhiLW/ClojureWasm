@@ -623,13 +623,9 @@ fn readValue(ctx: *ReadCtx, r: *ByteReader) DeserializeError!Value {
         .var_ref => {
             const ns_bytes = try r.readLenPrefixed();
             const name_bytes = try r.readLenPrefixed();
-            const ns = env.findNs(ns_bytes) orelse {
-                // ns missing at deserialize time — a var_ref into a
-                // namespace no chunk has created yet. Lazy-require /
-                // cross-ns forward refs are a later cycle (ADR-0056 D3);
-                // a present-ns forward ref is handled below.
-                return DeserializeError.UnknownValueTag;
-            };
+            // Forward-declare a not-yet-created namespace, as the var is below.
+            const ns = env.findNs(ns_bytes) orelse
+                (env.findOrCreateNs(ns_bytes) catch return DeserializeError.OutOfMemory);
             // A var_ref may target a var the SAME chunk `def`s later — a
             // self-recursive `(def map (fn … (map …)))` whose constant
             // pool is read before the chunk's `op_def` runs — or a

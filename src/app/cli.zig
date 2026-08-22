@@ -34,7 +34,16 @@ const deps_resolve = @import("deps/resolve.zig");
 const deps_run_mode = @import("deps/run_mode.zig");
 const error_print = @import("../runtime/error/print.zig");
 const build_options = @import("build_options");
+const builtin = @import("builtin");
 const startup_profile = @import("../runtime/startup_profile.zig");
+
+/// Cross-platform argv iterator.
+fn argIter(init: std.process.Init, gpa: std.mem.Allocator) !std.process.Args.Iterator {
+    return if (comptime builtin.os.tag == .wasi)
+        try std.process.Args.Iterator.initAllocator(init.minimal.args, gpa)
+    else
+        init.minimal.args.iterate();
+}
 
 /// Top-level CLI dispatcher. Called from `src/main.zig::main` with
 /// the Juicy-Main `std.process.Init` bundle. Parses argv, decides
@@ -102,15 +111,17 @@ pub fn dispatch(init: std.process.Init) !void {
     // dispatch proceeds.
     var embedded_args: std.ArrayList([]const u8) = .empty;
     {
-        var ait = init.minimal.args.iterate();
+        var ait = try argIter(init, gpa);
         _ = ait.skip(); // argv[0]
         while (ait.next()) |a| try embedded_args.append(arena, a);
     }
     var cli_prof = startup_profile.Profiler.start(io);
-    if (try builder.tryRunEmbedded(io, gpa, arena, stdout, embedded_args.items)) return;
+    if (comptime builtin.os.tag != .wasi) {
+        if (try builder.tryRunEmbedded(io, gpa, arena, stdout, embedded_args.items)) return;
+    }
     cli_prof.mark("tryRunEmbedded(self-exe read)");
 
-    var args = init.minimal.args.iterate();
+    var args = try argIter(init, gpa);
     _ = args.skip(); // argv[0]
 
     // Env-derived run config, hoisted so every dispatch path (REPL entries +

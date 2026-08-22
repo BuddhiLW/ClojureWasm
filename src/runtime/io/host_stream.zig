@@ -29,6 +29,7 @@
 //! D-051 (packed byte-array deferred to Phase 16) is untouched.
 
 const std = @import("std");
+const stdin = @import("stdin.zig");
 const Runtime = @import("../runtime.zig").Runtime;
 const Env = @import("../env.zig").Env;
 const Value = @import("../value/value.zig").Value;
@@ -76,7 +77,7 @@ pub const StreamState = struct {
 };
 
 fn stateOf(recv: Value) *StreamState {
-    return @ptrFromInt(host_instance.asHostInstance(recv).state[0]);
+    return @ptrFromInt(@as(usize, @intCast(host_instance.asHostInstance(recv).state[0])));
 }
 
 /// Allocate a stream host_instance of `kind` over `data` (taken by value — the
@@ -115,7 +116,7 @@ fn readByte(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) a
 /// A zero-byte read (or error) latches EOF. Mirrors text_io's `*in*` fill.
 fn stdinFill(rt: *Runtime, st: *StreamState) !void {
     var chunk: [4096]u8 = undefined;
-    const n = std.posix.read(std.Io.File.stdin().handle, &chunk) catch {
+    const n = stdin.readChunk(rt.io, &chunk) catch {
         st.stdin_eof = true;
         return;
     };
@@ -404,7 +405,7 @@ fn isStreamFqcn(fqcn: ?[]const u8) bool {
 /// happened in `.close`/`.flush`; an unflushed writer simply loses its buffer
 /// (matching "you must close to persist").
 fn finaliseState(infra: std.mem.Allocator, state: *[host_instance.STATE_WORDS]u64) void {
-    const st: *StreamState = @ptrFromInt(state[0]);
+    const st: *StreamState = @ptrFromInt(@as(usize, @intCast(state[0])));
     st.deinit(infra);
     infra.destroy(st);
 }
