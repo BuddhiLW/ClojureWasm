@@ -47,6 +47,7 @@ const range_mod = @import("../../runtime/collection/range.zig");
 const vector = @import("../../runtime/collection/vector.zig");
 const sub_vector = @import("../../runtime/collection/sub_vector.zig");
 const array_seq = @import("../../runtime/collection/array_seq.zig");
+const string_seq = @import("../../runtime/collection/string_seq.zig");
 const java_array = @import("../../runtime/collection/java_array.zig");
 const list = @import("../../runtime/collection/list.zig");
 const map = @import("../../runtime/collection/map.zig");
@@ -550,6 +551,27 @@ pub fn nthFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) 
                 break :blk error_catalog.raise(.index_out_of_range, loc, .{ .fn_name = "nth" });
             }
             break :blk array_seq.nth(coll, @intCast(idx));
+        },
+        // `nth` into UTF-8 is a forward walk by nature, so this arm is O(idx)
+        // rather than the vector view's O(1). The bounds check rides on that
+        // same walk — `string_seq.nth` answers nil past the end — instead of
+        // calling `countOf`, which would scan the whole remainder first and
+        // make every indexed read O(n). [refs: D-179]
+        .string_seq => blk: {
+            if (idx < 0) {
+                if (has_default) break :blk default;
+                break :blk error_catalog.raise(.type_arg_invalid, loc, .{
+                    .fn_name = "nth",
+                    .expected = "non-negative integer index",
+                    .actual = "negative",
+                });
+            }
+            const e = string_seq.nth(coll, @intCast(idx));
+            if (e.isNil()) {
+                if (has_default) break :blk default;
+                break :blk error_catalog.raise(.index_out_of_range, loc, .{ .fn_name = "nth" });
+            }
+            break :blk e;
         },
         // A MapEntry is a 2-vector: index 0→key, 1→val (D-209 / ADR-0078).
         .map_entry => blk: {

@@ -57,6 +57,7 @@ const list_mod = @import("collection/list.zig");
 const chunked_cons_mod = @import("collection/chunked_cons.zig");
 const range_mod = @import("collection/range.zig");
 const array_seq_mod = @import("collection/array_seq.zig");
+const string_seq_mod = @import("collection/string_seq.zig");
 const vector_mod = @import("collection/vector.zig");
 const sub_vector_mod = @import("collection/sub_vector.zig");
 const set_mod = @import("collection/set.zig");
@@ -263,6 +264,7 @@ pub fn first(rt: *Runtime, env: *env_mod.Env, v: Value) !Value {
         .chunked_cons => chunked_cons_mod.first(current),
         .range => range_mod.first(current),
         .array_seq => array_seq_mod.first(current),
+        .string_seq => string_seq_mod.first(current),
         .nil => Value.nil_val,
         else => Value.nil_val,
     };
@@ -281,6 +283,7 @@ pub fn rest(rt: *Runtime, env: *env_mod.Env, v: Value) !Value {
         .chunked_cons => try chunked_cons_mod.rest(rt, current),
         .range => try chunked_cons_mod.rest(rt, try range_mod.seqChunk(rt, current)),
         .array_seq => try array_seq_mod.rest(rt, current),
+        .string_seq => try string_seq_mod.rest(rt, current),
         .nil => Value.nil_val,
         else => Value.nil_val,
     };

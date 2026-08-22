@@ -143,7 +143,7 @@ fn fuseBaseKind(coll: Value) FuseBaseKind {
         // without forcing anything, which is the property this enum is really
         // sorting on (only `.unchunked` is acted upon — it alone delegates to
         // `-fused-reduce`). [refs: O-058]
-        .range, .vector, .sub_vector, .chunked_cons, .array_seq => .chunked,
+        .range, .vector, .sub_vector, .chunked_cons, .array_seq, .string_seq => .chunked,
         .list, .cons, .nil => .unchunked,
         else => .unknown,
     };
