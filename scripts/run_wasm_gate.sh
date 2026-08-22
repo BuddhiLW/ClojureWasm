@@ -40,7 +40,7 @@ zig-out/bin/cljw --version | grep -q 'wasm' || {
 
 export CLJW_SKIP_BUILD=1 CLJW_OPT=ReleaseSafe
 rc=0
-for s in phase16_wasm_ffi phase16_wasm_run; do
+for s in phase16_wasm_ffi phase16_wasm_memory phase16_wasm_run; do
     echo "==> $s"
     if bash "test/e2e/$s.sh"; then
         echo "    [pass] $s"

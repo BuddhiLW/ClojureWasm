@@ -7,6 +7,25 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 
 ## [Unreleased]
 
+### Added
+
+- **A guest's linear memory is readable and writable from Clojure** —
+  `(wasm/mem-size m)`, `(wasm/mem-read m :f64 offset n)` and
+  `(wasm/mem-write! m :f64 offset data)`. `wasm/call` marshals scalars, which
+  reaches every guest whose whole interface fits in numbers; the dominant
+  convention for a *numeric* guest does not — it passes an array as a
+  `(pointer, length)` pair into linear memory, so the host has to fill the
+  buffer before the call and read it after. Until now `wasm/call` could pass
+  the pointer and nothing could put anything at the other end of it.
+
+  Element types are the nine wasm widths (`:i8 :u8 :i16 :u16 :i32 :u32 :i64
+  :f32 :f64`), offsets are in bytes, encoding is little-endian (the wasm memory
+  model), and unaligned access works — a `(ptr,len)` ABI hands the host
+  whatever offset the guest's allocator produced. `:i64` round-trips exactly
+  past the immediate-integer window rather than degrading to a float, and every
+  bad offset, count or element is a catchable exception naming the fn and the
+  element index, never a host panic. (ADR-0192.)
+
 ### Performance
 
 - **`(seq s)` over a string is now an O(1)-per-step byte-offset view**

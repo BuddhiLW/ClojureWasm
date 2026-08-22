@@ -468,7 +468,8 @@ pub const Code = enum {
     /// args: `.{}` — `wasm/load`'s bytes did not compile / instantiate as a
     /// valid WebAssembly module.
     wasm_load_failed,
-    /// args: `.{}` — `wasm/call`'s first argument was not a loaded handle.
+    /// args: `.{ .fn_name = "..." }` — the first argument of `wasm/call` or a
+    /// `wasm/mem-*` fn was not a loaded module handle.
     wasm_handle_invalid,
     /// args: `.{}` — a Wasm component resource handle was used after it was dropped
     /// (`wasm/resource-drop` / a `with-resource` scope already released it).
@@ -509,6 +510,35 @@ pub const Code = enum {
     /// args: `.{}` — a `wasm/run` module failed to compile / instantiate, or its
     /// preopen directory could not be opened.
     wasm_run_failed,
+    /// args: `.{ .fn_name = "..." }` — a `wasm/mem-*` fn was given a handle whose
+    /// module exports no linear memory (ADR-0192). Distinct from an empty
+    /// memory: "this module exports none" is a program error, "this one holds
+    /// nothing yet" is not, so this raises rather than answering nil / 0.
+    wasm_memory_absent,
+    /// args: `.{ .fn_name = "..." }` — a `wasm/mem-*` element-type argument was
+    /// not one of the nine width keywords. The element type is the guest's ABI,
+    /// so it is stated by the caller, never inferred from the data (ADR-0192).
+    wasm_memory_dtype_invalid,
+    /// args: `.{ .fn_name = "..." }` — a `wasm/mem-*` byte offset or element
+    /// count was not an integer. Separate from `wasm_memory_range_invalid`
+    /// because "that is not an index" and "that index is out of bounds" send
+    /// the user to different mistakes.
+    wasm_memory_index_invalid,
+    /// args: `.{ .fn_name = "...", .offset = N, .count = N, .size = N }` — a
+    /// `wasm/mem-*` byte offset / element count addressed outside the module's
+    /// memory, or was negative, or overflowed. Checked before any access: in
+    /// ReleaseSafe an unchecked cast on caller data is a process-killing safety
+    /// panic, and this surface takes three caller-controlled integers per call.
+    wasm_memory_range_invalid,
+    /// args: `.{ .fn_name = "..." }` — `wasm/mem-write!`'s data argument was not
+    /// a vector. Zone 0 has no seq protocol, so the write path takes the same
+    /// shape `wasm/run`'s `:args` takes; a caller holding a seq calls `vec`.
+    wasm_memory_data_invalid,
+    /// args: `.{ .fn_name = "...", .index = N, .detail = "..." }` — one element
+    /// of `wasm/mem-write!`'s data could not be encoded as the requested element
+    /// type. Names the INDEX, because "some element is not a number" sends the
+    /// user back to a vector they have to scan by hand.
+    wasm_memory_element_invalid,
     /// args: `.{}` — an `cljw.http.client` call's URL argument was not a string.
     http_url_invalid,
     /// args: `.{ .detail = "..." }` — an `cljw.http.client` opts argument was
@@ -1674,7 +1704,7 @@ pub fn entry(comptime code: Code) Entry {
         .wasm_handle_invalid => .{
             .kind = .type_error,
             .phase = .eval,
-            .template = "wasm/call: the first argument must be a loaded wasm module",
+            .template = "{[fn_name]s}: the first argument must be a loaded wasm module",
         },
         .wasm_resource_dropped => .{
             .kind = .value_error,
@@ -1740,6 +1770,36 @@ pub fn entry(comptime code: Code) Entry {
             .kind = .value_error,
             .phase = .eval,
             .template = "wasm/run: the module failed to compile, instantiate, or open its directory",
+        },
+        .wasm_memory_absent => .{
+            .kind = .value_error,
+            .phase = .eval,
+            .template = "{[fn_name]s}: this module exports no linear memory",
+        },
+        .wasm_memory_dtype_invalid => .{
+            .kind = .type_error,
+            .phase = .eval,
+            .template = "{[fn_name]s}: the element type must be one of :i8, :u8, :i16, :u16, :i32, :u32, :i64, :f32, :f64",
+        },
+        .wasm_memory_index_invalid => .{
+            .kind = .type_error,
+            .phase = .eval,
+            .template = "{[fn_name]s}: the byte offset and the element count must both be integers",
+        },
+        .wasm_memory_range_invalid => .{
+            .kind = .index_error,
+            .phase = .eval,
+            .template = "{[fn_name]s}: {[count]d} element(s) at byte offset {[offset]d} do not fit in this module's {[size]d}-byte memory",
+        },
+        .wasm_memory_data_invalid => .{
+            .kind = .type_error,
+            .phase = .eval,
+            .template = "{[fn_name]s}: the data argument must be a vector of numbers",
+        },
+        .wasm_memory_element_invalid => .{
+            .kind = .value_error,
+            .phase = .eval,
+            .template = "{[fn_name]s}: element {[index]d} {[detail]s}",
         },
         .http_url_invalid => .{
             .kind = .type_error,

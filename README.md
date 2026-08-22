@@ -147,6 +147,27 @@ JVM Clojure calls Java and ClojureScript calls JavaScript; here the host is a
 language-neutral `.wasm`, so a function from Rust, Go, or C is indistinguishable
 from a Clojure one.
 
+## Pass an array to a Wasm guest
+
+`wasm/call` marshals numbers, which is the whole interface of some guests. A
+numeric guest is usually not one of them: it takes an array as a *pointer and a
+length* into its linear memory, so the host has to fill the buffer before the
+call and read it after.
+
+```clojure
+(def m (wasm/load "kernel.wasm"))
+
+(wasm/mem-size m)                          ;=> 65536   (bytes, not pages)
+(wasm/mem-write! m :f64 0 [1.0 2.0 3.0 4.0])
+(wasm/call m "sum_f64" 0 4)                ;=> 10.0    (the guest read it)
+(wasm/call m "scale_f64" 0 4 2.5)          ;=> 25.0    (scaled in place)
+(wasm/mem-read m :f64 0 4)                 ;=> [2.5 5.0 7.5 10.0]
+```
+
+The element type is the guest's layout, so you state it: `:i8 :u8 :i16 :u16
+:i32 :u32 :i64 :f32 :f64`. Offsets are byte offsets, and unaligned ones are
+fine — whatever the guest's allocator handed you is a valid address.
+
 ## The demos (source only)
 
 Two demos ran on Fly until August 2026. They belong to the upstream project,

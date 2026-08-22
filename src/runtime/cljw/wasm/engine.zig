@@ -24,6 +24,7 @@ const zwasm = @import("zwasm");
 pub const Value = zwasm.Value;
 pub const FuncType = zwasm.ir.zir.FuncType;
 pub const ValType = zwasm.ir.zir.ValType;
+pub const Memory = zwasm.Memory;
 
 /// Per-axis runtime budget for a loaded module (re-exported from zwasm's
 /// `Module.Budget`, ADR-0179). `.unmetered` lifts the cap (trusted modules
@@ -80,6 +81,15 @@ pub const Loaded = struct {
     /// Invoke an export by name on caller-allocated arg/result slices.
     pub fn invoke(self: *Loaded, name: []const u8, args: []const Value, results: []Value) !void {
         return self.instance.invoke(name, args, results);
+    }
+
+    /// The module's exported linear memory, `null` when it exports none
+    /// (ADR-0192). The returned view borrows the instance's backing store, so
+    /// it is valid only while `self` is — the `.wasm_module` handle owns that
+    /// lifetime, which is why the cljw surface takes the handle per call
+    /// rather than minting a separate memory handle.
+    pub fn memory(self: *Loaded) ?Memory {
+        return self.instance.memory();
     }
 
     /// Free the zwasm triple (instance→module→engine). Does NOT free the box
@@ -330,6 +340,110 @@ fn invokeDivmod(loaded: *Loaded, a: i32, b: i32) ![2]i32 {
     var out = [_]Value{ Value.fromI32(0), Value.fromI32(0) };
     try loaded.invoke("divmod", &in, &out);
     return .{ out[0].i32, out[1].i32 };
+}
+
+// (module
+//   (func (export "nop_void") (param i32 f64))
+//   (func (export "nop_ret")  (param i32 f64) (result f64) local.get 1)
+//   (func (export "gpr4_void") (param i32 i32 i32 i32))
+//   (func (export "gpr4_ret")  (param i32 i32 i32 i32) (result i32) i32.const 0))
+// The minimal discriminators for D-585, with EMPTY bodies that touch no memory,
+// so any difference is the signature alone:
+//   nop_void  vs nop_ret  — identical params, only the result arity differs.
+//   gpr4_void vs gpr4_ret — the same, with NO floating-point param anywhere.
+// The second pair is the half that surprises: a void export traps from arity 4
+// upward whatever its parameter types are.
+const void_arity_wasm = [_]u8{
+    0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+    0x01, 0x1b, 0x04, 0x60, 0x02, 0x7f, 0x7c, 0x00,
+    0x60, 0x02, 0x7f, 0x7c, 0x01, 0x7c, 0x60, 0x04,
+    0x7f, 0x7f, 0x7f, 0x7f, 0x00, 0x60, 0x04, 0x7f,
+    0x7f, 0x7f, 0x7f, 0x01, 0x7f, 0x03, 0x05, 0x04,
+    0x00, 0x01, 0x02, 0x03, 0x07, 0x2d, 0x04, 0x08,
+    0x6e, 0x6f, 0x70, 0x5f, 0x76, 0x6f, 0x69, 0x64,
+    0x00, 0x00, 0x07, 0x6e, 0x6f, 0x70, 0x5f, 0x72,
+    0x65, 0x74, 0x00, 0x01, 0x09, 0x67, 0x70, 0x72,
+    0x34, 0x5f, 0x76, 0x6f, 0x69, 0x64, 0x00, 0x02,
+    0x08, 0x67, 0x70, 0x72, 0x34, 0x5f, 0x72, 0x65,
+    0x74, 0x00, 0x03, 0x0a, 0x11, 0x04, 0x02, 0x00,
+    0x0b, 0x04, 0x00, 0x20, 0x01, 0x0b, 0x02, 0x00,
+    0x0b, 0x04, 0x00, 0x41, 0x00, 0x0b,
+};
+
+test "dual-engine: a zero-result export traps on the JIT beyond a narrow window (D-585 gap lock)" {
+    const alloc = std.testing.allocator;
+
+    const interp = try load(alloc, &void_arity_wasm, .{ .engine = .interp });
+    defer {
+        interp.deinit();
+        alloc.destroy(interp);
+    }
+    const jit = try load(alloc, &void_arity_wasm, .{ .engine = .jit });
+    defer {
+        jit.deinit();
+        alloc.destroy(jit);
+    }
+
+    var in = [_]Value{ Value.fromI32(0), Value.fromF64Bits(@bitCast(@as(f64, 1.5))) };
+
+    // The interpreter runs both shapes.
+    try interp.invoke("nop_void", &in, &.{});
+    var out = [_]Value{Value.fromF64Bits(0)};
+    try interp.invoke("nop_ret", &in, &out);
+    try std.testing.expectEqual(@as(f64, 1.5), @as(f64, @bitCast(out[0].f64)));
+
+    // The JIT runs the NON-void one with the same parameters...
+    var jout = [_]Value{Value.fromF64Bits(0)};
+    try jit.invoke("nop_ret", &in, &jout);
+    try std.testing.expectEqual(@as(f64, 1.5), @as(f64, @bitCast(jout[0].f64)));
+
+    // ...and traps the void one. Same params, empty body, only the result arity
+    // differs, so the discriminator is the SIGNATURE.
+    if (jit.invoke("nop_void", &in, &.{})) |_| {
+        return error.TestExpectedVoidFpTrapOnJit;
+    } else |_| {
+        // Expected while D-585 stands.
+    }
+
+    // The second half, and the one that surprises: NO floating-point parameter
+    // is needed. An all-GPR export traps too once its arity reaches 4, while
+    // the same four parameters with one i32 result are fine.
+    var g4 = [_]Value{ Value.fromI32(0), Value.fromI32(0), Value.fromI32(0), Value.fromI32(4) };
+    var gout = [_]Value{Value.fromI32(-1)};
+    try interp.invoke("gpr4_void", &g4, &.{});
+    try jit.invoke("gpr4_ret", &g4, &gout);
+    try std.testing.expectEqual(@as(i32, 0), gout[0].i32);
+    if (jit.invoke("gpr4_void", &g4, &.{})) |_| {
+        return error.TestExpectedVoidArity4TrapOnJit;
+    } else |_| {
+        // Expected while D-585 stands.
+    }
+
+    // Measured window (empty bodies, arities 1..5, every i32/f64 mix): a
+    // zero-result export runs on the JIT only at arity <= 1, or at arity 2-3
+    // with no FP parameter. Everything else void traps. NON-void was clean at
+    // every arity and mix tested.
+    //
+    // That is not a curiosity, it is most in-place numeric kernels: raster's
+    // `residual-add!` is (i32,i32,i32,i32) -> void and traps here, as does any
+    // scale/axpy/SGD-step taking a pointer, a length and a scalar. Lock the
+    // gap: if zwasm later wires the dispatch this test flips and forces a
+    // conscious update, and the `.auto` note below can go with it.
+
+    // `.auto` does NOT save the caller here. Its contract is a transparent
+    // downgrade when the JIT cannot BUILD the module; this module builds, then
+    // traps at invoke, so the fallback never fires. A caller who needs a void
+    // FP-param export today passes `:engine :interp` explicitly.
+    const auto = try load(alloc, &void_arity_wasm, .{ .engine = .auto });
+    defer {
+        auto.deinit();
+        alloc.destroy(auto);
+    }
+    if (auto.invoke("nop_void", &in, &.{})) |_| {
+        return error.TestExpectedVoidFpTrapOnAuto;
+    } else |_| {
+        // Expected: `.auto` builds this module, so it never downgrades.
+    }
 }
 
 test "dual-engine: multi-value + 2-arg f64 FP-bank agree jit==interp" {
