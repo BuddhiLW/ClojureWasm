@@ -219,6 +219,13 @@ pub const Runtime = struct {
     coll_vars: [2]?*anyopaque = .{ null, null },
     core_coll_pristine: bool = true,
 
+    /// Cached `clojure.core/*unchecked-math*` Var (D-298 sibling / CLJW-UNCHECKED-MATH).
+    /// The analyzer reads its CURRENT value at analyze time: while truthy (JVM's
+    /// `true`/`:warn-on-boxed`), a call to a pristine core +/-/*/inc/dec is
+    /// rewritten to nested WRAPPING unchecked-* ops, so 64-bit arithmetic wraps
+    /// instead of promoting to BigInt. null until bootstrap caches it.
+    unchecked_math_var: ?*anyopaque = null,
+
     /// Monotonic counter for `gensym` / auto-gensym (`foo#`). Lives on
     /// the Runtime so multiple macros within one analyse pass share a
     /// single sequence; per-Runtime so parallel tests don't collide.

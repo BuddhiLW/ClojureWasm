@@ -575,6 +575,12 @@ pub fn cacheArithIntrinsics(rt: *Runtime, env: *Env) void {
         if (v) |p| rt.coll_vars[@intFromEnum(op)] = p;
     }
     rt.core_coll_pristine = true;
+
+    // *unchecked-math* (CLJW-UNCHECKED-MATH): cache the Var so the analyzer can
+    // read its current value and rewrite pristine core arith to wrapping
+    // unchecked-* ops while it is truthy. Resolved from clojure.core (interned
+    // in core.clj); null if absent (the rewrite then never fires).
+    if (core) |c| rt.unchecked_math_var = c.resolve("*unchecked-math*");
 }
 
 /// Intern `clojure.core/*print-length*` and `*print-level*` as `^:dynamic`
