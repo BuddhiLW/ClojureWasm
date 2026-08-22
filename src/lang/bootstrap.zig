@@ -214,6 +214,11 @@ pub const FILES: []const FileEntry = &.{
     // (`cljw -m cljw.test`). Loads after clojure.test (FILES[10]) and cljw.fs;
     // require-on-demand. Appended last so earlier FILES[N] indices stay stable.
     f("cljw.test", "clj/cljw/test.clj"),
+    // cljw.proxy (D-298) — runtime support for `clojure.core/proxy` over the
+    // registered proxyable base classes (ThreadLocal is entry 1). deftype +
+    // protocol, no JVM class extension; require-on-demand (the proxy macro
+    // requiring-resolves it). Appended last so earlier FILES[N] indices stay stable.
+    f("cljw.proxy", "clj/cljw/proxy.clj"),
 };
 
 /// The build-active subset of `FILES`. **Every walk that compiles, emits, or

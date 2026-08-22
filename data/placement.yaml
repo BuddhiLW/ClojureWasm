@@ -23,11 +23,11 @@
 
 schema_version: "2.0"
 summary:
-  namespaces_required: 33
-  total: 1397
+  namespaces_required: 34
+  total: 1407
   zig: 402
-  clj: 782
-  value: 207
+  clj: 786
+  value: 213
   unbound: 6
 vars:
   "cljw.error/*error-context*": { impl: value, flags: "dynamic" }
@@ -119,6 +119,13 @@ vars:
   "cljw.json/read-str": { impl: clj, flags: "-" }
   "cljw.json/write-str": { impl: clj, flags: "-" }
   "cljw.net/connect": { impl: zig, flags: "-" }
+  "cljw.proxy/->ThreadLocalCell": { impl: clj, flags: "-" }
+  "cljw.proxy/IThreadLocalCell": { impl: value, flags: "-" }
+  "cljw.proxy/ThreadLocalCell": { impl: value, flags: "-" }
+  "cljw.proxy/get": { impl: value, flags: "-" }
+  "cljw.proxy/remove": { impl: value, flags: "-" }
+  "cljw.proxy/set": { impl: value, flags: "-" }
+  "cljw.proxy/threadlocal-cell": { impl: clj, flags: "-" }
   "cljw.test/-main": { impl: clj, flags: "-" }
   "cljw.test/files-under": { impl: clj, flags: "private" }
   "cljw.test/namespaces": { impl: clj, flags: "-" }
@@ -675,6 +682,9 @@ vars:
   "clojure.core/prn": { impl: zig, flags: "-" }
   "clojure.core/prn-str": { impl: clj, flags: "-" }
   "clojure.core/promise": { impl: zig, flags: "-" }
+  "clojure.core/proxy": { impl: clj, flags: "macro" }
+  "clojure.core/proxy-base-registry": { impl: value, flags: "private" }
+  "clojure.core/proxy-threadlocal-expansion": { impl: clj, flags: "private" }
   "clojure.core/push-thread-bindings": { impl: zig, flags: "-" }
   "clojure.core/pvalues": { impl: clj, flags: "macro" }
   "clojure.core/qualified-ident?": { impl: clj, flags: "-" }
