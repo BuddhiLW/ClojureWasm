@@ -7,6 +7,8 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 
 ## [Unreleased]
 
+## [1.10.18] - 2026-08-22
+
 ### Performance
 
 - **`subvec` is now an O(1) shared-structure view** (the JVM
