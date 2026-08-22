@@ -7,6 +7,8 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 
 ## [Unreleased]
 
+## [1.10.19] - 2026-08-22
+
 ### Performance
 
 - **`(seq s)` over a string is now an O(1)-per-step byte-offset view**
