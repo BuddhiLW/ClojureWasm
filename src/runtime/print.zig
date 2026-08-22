@@ -67,6 +67,7 @@ const local_date_time_value_mod = @import("time/local_date_time_value.zig");
 const lazy_seq_mod = @import("lazy_seq.zig");
 const range_collection = @import("collection/range.zig");
 const array_seq_collection = @import("collection/array_seq.zig");
+const string_seq_collection = @import("collection/string_seq.zig");
 const env_mod = @import("env.zig");
 const dispatch_mod = @import("dispatch.zig");
 const writer_value = @import("writer_value.zig");
@@ -893,7 +894,7 @@ fn snapshotPrintLimits() void {
 /// collection, including a `.map_entry` which renders as the 2-vector `[k v]`).
 fn isCollectionTag(t: Value.Tag) bool {
     return switch (t) {
-        .list, .range, .array_seq, .vector, .sub_vector, .map_entry, .persistent_queue, .hash_set, .sorted_set, .sorted_map, .array_map, .hash_map => true,
+        .list, .range, .array_seq, .string_seq, .vector, .sub_vector, .map_entry, .persistent_queue, .hash_set, .sorted_set, .sorted_map, .array_map, .hash_map => true,
         // Reachable only unrealized: a null-ports render, or below the cut
         // where the realize is skipped. Both must still print `#`.
         .lazy_seq, .chunked_cons => true,
@@ -1042,6 +1043,7 @@ fn printValueNative(ports: ?Ports, w: *Writer, v: Value) anyerror!void {
         .list => try printList(ports, w, v),
         .range => try printRange(ports, w, v),
         .array_seq => try printArraySeq(ports, w, v),
+        .string_seq => try printStringSeq(ports, w, v),
         .vector, .sub_vector => try printVector(ports, w, v),
         // A MapEntry prints as the 2-vector `[k v]`.
         .map_entry => {
@@ -1567,6 +1569,28 @@ pub fn printArraySeq(ports: ?Ports, w: *Writer, v: Value) anyerror!void {
         if (try lengthTruncated(w, @intCast(i), " ")) break;
         if (i > 0) try w.writeByte(' ');
         try printValue(ports, w, array_seq_collection.nth(v, i));
+    }
+    try w.writeByte(')');
+}
+
+/// Render a `.string_seq` as a list of characters `(\a \b)` — it is a seq, so
+/// it prints in seq form, not as the string it views.
+///
+/// Walks the remaining BYTES once and decodes in place. Index-driven printing
+/// (the `printArraySeq` shape) would call `nth` per element, and `nth` on
+/// UTF-8 is O(i) — printing would be quadratic, which is the defect the view
+/// exists to remove. [refs: D-179]
+pub fn printStringSeq(ports: ?Ports, w: *Writer, v: Value) anyerror!void {
+    try w.writeByte('(');
+    const bytes = string_seq_collection.remainingBytes(v);
+    var off: usize = 0;
+    var i: usize = 0;
+    while (off < bytes.len) : (i += 1) {
+        if (try lengthTruncated(w, @intCast(i), " ")) break;
+        if (i > 0) try w.writeByte(' ');
+        const step = string_seq_collection.decodeAt(bytes, off);
+        try printValue(ports, w, Value.initChar(@intCast(step.cp)));
+        off += step.len;
     }
     try w.writeByte(')');
 }

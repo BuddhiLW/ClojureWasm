@@ -602,6 +602,7 @@ pub const Runtime = struct {
         @import("collection/set.zig").registerGcHooks();
         @import("lazy_seq.zig").registerGcHooks();
         @import("collection/array_seq.zig").registerGcHooks();
+        @import("collection/string_seq.zig").registerGcHooks();
         @import("collection/chunked_cons.zig").registerGcHooks();
         @import("collection/reduced.zig").registerGcHooks();
         @import("collection/sorted.zig").registerGcHooks();
