@@ -12,10 +12,11 @@
 //!
 //! Backend: impl-only
 //! Impl deps: none
-//! Clojure peer: wasm/load, wasm/call
+//! Clojure peer: wasm/load, wasm/call, wasm/mem-size, wasm/mem-read, wasm/mem-write!
 const std = @import("std");
 const engine = @import("engine.zig");
 const marshal = @import("marshal.zig");
+const wasm_memory = @import("memory.zig");
 const wasm_handle = @import("wasm_handle.zig");
 const Runtime = @import("../../runtime.zig").Runtime;
 const Env = @import("../../env.zig").Env;
@@ -118,7 +119,7 @@ pub fn wasmCallFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocat
     _ = env;
     try error_catalog.checkArityMin("wasm/call", args, 2, loc);
     if (!wasm_handle.isHandle(args[0]))
-        return error_catalog.raise(.wasm_handle_invalid, loc, .{});
+        return error_catalog.raise(.wasm_handle_invalid, loc, .{ .fn_name = "wasm/call" });
     if (!args[1].isString())
         return error_catalog.raise(.wasm_export_name_invalid, loc, .{});
 
@@ -331,6 +332,143 @@ pub fn wasmRunFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocati
     return result;
 }
 
+// --- linear memory (ADR-0192) -----------------------------------------------
+//
+// `wasm/call` marshals scalars, which reaches every guest whose whole interface
+// fits in numbers. The dominant convention for a NUMERIC guest does not: it
+// passes an array as a (ptr,len) pair into linear memory. These three fns are
+// the other end of that pointer.
+
+/// Resolve arg 0 to the module's exported linear memory. Raises when the value
+/// is not a loaded handle, or when the module exports no memory — "exports
+/// none" is a program error, distinct from "holds nothing yet".
+fn memoryArg(comptime fn_name: []const u8, arg: Value, loc: SourceLocation) anyerror!engine.Memory {
+    if (!wasm_handle.isHandle(arg))
+        return error_catalog.raise(.wasm_handle_invalid, loc, .{ .fn_name = fn_name });
+    return wasm_handle.unwrap(arg).memory() orelse
+        error_catalog.raise(.wasm_memory_absent, loc, .{ .fn_name = fn_name });
+}
+
+/// Resolve an element-type keyword (`:f64`) to a `Dtype`. The element type is
+/// the GUEST's layout, so it is stated by the caller and never inferred from
+/// the data — `[1 2]` and `[1.0 2.0]` denote the same `:f64` buffer.
+fn dtypeArg(comptime fn_name: []const u8, arg: Value, loc: SourceLocation) anyerror!wasm_memory.Dtype {
+    if (arg.tag() != .keyword)
+        return error_catalog.raise(.wasm_memory_dtype_invalid, loc, .{ .fn_name = fn_name });
+    return wasm_memory.dtypeFromName(keyword_mod.asKeyword(arg).name) orelse
+        error_catalog.raise(.wasm_memory_dtype_invalid, loc, .{ .fn_name = fn_name });
+}
+
+/// Resolve a byte-offset / element-count argument to an exact i64.
+fn indexArg(comptime fn_name: []const u8, arg: Value, loc: SourceLocation) anyerror!i64 {
+    return wasm_memory.indexArg(arg) orelse
+        error_catalog.raise(.wasm_memory_index_invalid, loc, .{ .fn_name = fn_name });
+}
+
+/// `(wasm/mem-size handle)` — the byte length of the module's exported linear
+/// memory. BYTES, not 64 KiB pages: every caller of this surface is doing
+/// arithmetic against a byte offset it is about to hand to `wasm/call`, so
+/// answering in pages would make the unit of the answer differ from the unit
+/// of every other number in the same expression.
+pub fn wasmMemSizeFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
+    _ = rt;
+    _ = env;
+    try error_catalog.checkArity("wasm/mem-size", args, 1, loc);
+    const mem = try memoryArg("wasm/mem-size", args[0], loc);
+    // Not caller data: a wasm32 linear memory is bounded by the 4 GiB address
+    // space and by the `:max-memory-pages` budget, so it cannot exceed i64.
+    return Value.initInteger(@as(i64, @intCast(mem.slice().len)));
+}
+
+/// `(wasm/mem-read handle :f64 offset n)` — read `n` elements of the given
+/// element type starting at BYTE `offset`, as a vector. Little-endian (the
+/// wasm memory model) and alignment-tolerant, because a (ptr,len) ABI hands
+/// the host whatever offset the guest's allocator produced.
+pub fn wasmMemReadFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
+    _ = env;
+    try error_catalog.checkArity("wasm/mem-read", args, 4, loc);
+    const mem = try memoryArg("wasm/mem-read", args[0], loc);
+    const dt = try dtypeArg("wasm/mem-read", args[1], loc);
+    const offset = try indexArg("wasm/mem-read", args[2], loc);
+    const count = try indexArg("wasm/mem-read", args[3], loc);
+
+    const bytes = mem.slice();
+    const range = wasm_memory.byteRange(offset, count, dt, bytes.len) orelse
+        return error_catalog.raise(.wasm_memory_range_invalid, loc, .{
+            .fn_name = "wasm/mem-read",
+            .offset = offset,
+            .count = count,
+            .size = bytes.len,
+        });
+
+    const n: usize = @intCast(count);
+    const items = try rt.gpa.alloc(Value, n);
+    defer rt.gpa.free(items);
+
+    // GC-ROOT: `items` is a gpa slice the collector does NOT trace, and an
+    // `:i64` element outside the i48 immediate window is a HEAP Long — so a
+    // collect during a later element's alloc would sweep the ones already
+    // decoded. Bracket the bounded build in the fabrication no-collect region,
+    // like the other multi-alloc builders. [ref: .dev/gc_rooting.md]
+    rt.gc.enterFabrication();
+    defer rt.gc.exitFabrication();
+
+    const w: usize = dt.width();
+    for (items, 0..) |*slot, i| {
+        const at = range.start + i * w;
+        slot.* = try wasm_memory.readElem(rt, dt, bytes[at .. at + w]);
+    }
+    return vector_mod.fromSlice(rt, items);
+}
+
+/// `(wasm/mem-write! handle :f64 offset data)` — write vector `data` as the
+/// given element type starting at BYTE `offset`; returns the number of
+/// elements written, so a caller can thread it.
+///
+/// `data` is a VECTOR, the same shape `wasm/run`'s `:args` takes: this module
+/// is zone 0 and the seq protocol lives in zone 2, so a caller holding a lazy
+/// seq calls `vec` first. Nothing is written unless the whole range is in
+/// bounds, but an element that fails to encode leaves the ones before it
+/// written — the buffer is the guest's, and rolling back would need a copy of
+/// it.
+pub fn wasmMemWriteFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
+    _ = rt;
+    _ = env;
+    try error_catalog.checkArity("wasm/mem-write!", args, 4, loc);
+    const mem = try memoryArg("wasm/mem-write!", args[0], loc);
+    const dt = try dtypeArg("wasm/mem-write!", args[1], loc);
+    const offset = try indexArg("wasm/mem-write!", args[2], loc);
+
+    const n = wasm_memory.indexedCount(args[3]) orelse
+        return error_catalog.raise(.wasm_memory_data_invalid, loc, .{ .fn_name = "wasm/mem-write!" });
+
+    const bytes = mem.slice();
+    const range = wasm_memory.byteRange(offset, @as(i64, n), dt, bytes.len) orelse
+        return error_catalog.raise(.wasm_memory_range_invalid, loc, .{
+            .fn_name = "wasm/mem-write!",
+            .offset = offset,
+            .count = @as(i64, n),
+            .size = bytes.len,
+        });
+
+    const w: usize = dt.width();
+    var i: u32 = 0;
+    while (i < n) : (i += 1) {
+        const at = range.start + @as(usize, i) * w;
+        wasm_memory.writeElem(wasm_memory.indexedNth(args[3], i), dt, bytes[at .. at + w]) catch |e|
+            return error_catalog.raise(.wasm_memory_element_invalid, loc, .{
+                .fn_name = "wasm/mem-write!",
+                .index = i,
+                .detail = switch (e) {
+                    error.NotANumber => "is not a number",
+                    error.NotAnInteger => "is not an integer",
+                    error.OutOfRange => "is outside this element type's range",
+                },
+            });
+    }
+    return Value.initInteger(n);
+}
+
 /// Create the `wasm` host namespace. Called by
 /// `runtime/cljw/_host_api.zig::installAll` under `build_options.wasm`.
 pub fn register(env: *Env) !void {
@@ -341,6 +479,11 @@ pub fn register(env: *Env) !void {
     _ = try env.intern(ns, "load", Value.initBuiltinFn(&wasmLoadFn), null);
     _ = try env.intern(ns, "call", Value.initBuiltinFn(&wasmCallFn), null);
     _ = try env.intern(ns, "run", Value.initBuiltinFn(&wasmRunFn), null);
+    // ADR-0192: the (ptr,len) half of the FFI — `wasm/call` passes the pointer,
+    // these three put something at the other end of it.
+    _ = try env.intern(ns, "mem-size", Value.initBuiltinFn(&wasmMemSizeFn), null);
+    _ = try env.intern(ns, "mem-read", Value.initBuiltinFn(&wasmMemReadFn), null);
+    _ = try env.intern(ns, "mem-write!", Value.initBuiltinFn(&wasmMemWriteFn), null);
     // EXPERIMENT (D-404 / ADR-0135, push-suppressed): component introspection +
     // typed invoke probes — the require-a-component substrate.
     const component = @import("component.zig");

@@ -21,6 +21,7 @@
 //! instance, and the three model genuinely different lifetimes (ADR-0138).
 
 const std = @import("std");
+const stdin = @import("stdin.zig");
 const Runtime = @import("../runtime.zig").Runtime;
 const Env = @import("../env.zig").Env;
 const Value = @import("../value/value.zig").Value;
@@ -46,7 +47,7 @@ const WriterState = struct {
 };
 
 fn stateOf(recv: Value) *WriterState {
-    return @ptrFromInt(host_instance.asHostInstance(recv).state[0]);
+    return @ptrFromInt(@as(usize, @intCast(host_instance.asHostInstance(recv).state[0])));
 }
 
 /// True iff `v` is a text_io Writer value (descriptor identity, not fqcn — the
@@ -139,7 +140,7 @@ fn closeMethod(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation
 /// Free the WriterState buffer + the struct. No `io` (per the host_instance
 /// finaliser contract); a `.string` writer holds only bytes.
 fn finaliseWriter(infra: std.mem.Allocator, state: *[host_instance.STATE_WORDS]u64) void {
-    const st: *WriterState = @ptrFromInt(state[0]);
+    const st: *WriterState = @ptrFromInt(@as(usize, @intCast(state[0])));
     st.buf.deinit(infra);
     infra.destroy(st);
 }
@@ -174,7 +175,7 @@ const ReaderState = struct {
 fn fillFromStdin(rt: *Runtime, st: *ReaderState) bool {
     if (st.stdin_eof) return false;
     var chunk: [4096]u8 = undefined;
-    const n = std.posix.read(std.Io.File.stdin().handle, &chunk) catch {
+    const n = stdin.readChunk(rt.io, &chunk) catch {
         st.stdin_eof = true;
         return false;
     };
@@ -208,7 +209,7 @@ fn ensureCodepointBuffered(rt: *Runtime, st: *ReaderState) void {
 }
 
 fn readerStateOf(recv: Value) *ReaderState {
-    return @ptrFromInt(host_instance.asHostInstance(recv).state[0]);
+    return @ptrFromInt(@as(usize, @intCast(host_instance.asHostInstance(recv).state[0])));
 }
 
 /// True iff `v` is a text_io Reader value (descriptor identity).
@@ -372,7 +373,7 @@ pub fn mintReader(rt: *Runtime, bytes: []const u8) !Value {
 
 /// Free the ReaderState buffer + the struct (GC finaliser hook).
 fn finaliseReader(infra: std.mem.Allocator, state: *[host_instance.STATE_WORDS]u64) void {
-    const st: *ReaderState = @ptrFromInt(state[0]);
+    const st: *ReaderState = @ptrFromInt(@as(usize, @intCast(state[0])));
     st.data.deinit(infra);
     infra.destroy(st);
 }

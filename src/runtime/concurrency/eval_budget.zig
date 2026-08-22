@@ -31,6 +31,7 @@
 //! Clojure peer: none (armed via CLJW_EVAL_MAX_STEPS / CLJW_EVAL_DEADLINE_MS
 //!   or scoped via `cljw.eval/with-budget`)
 const std = @import("std");
+const atomics = @import("../atomics.zig");
 const error_catalog = @import("../error/catalog.zig");
 const clock = @import("../clock.zig");
 const io_default = @import("io_default.zig");
@@ -91,26 +92,26 @@ pub const EvalBudget = struct {
 
     /// Take a reference (a spawner capturing the budget for its worker).
     pub fn ref(self: *EvalBudget) *EvalBudget {
-        _ = @atomicRmw(usize, &self.refs, .Add, 1, .monotonic);
+        _ = atomics.rmw(usize, &self.refs, .Add, 1, .monotonic);
         return self;
     }
 
     /// Drop a reference; frees at zero. `.acq_rel` so the freeing thread
     /// observes every other holder's writes before destroy.
     pub fn unref(self: *EvalBudget) void {
-        if (@atomicRmw(usize, &self.refs, .Sub, 1, .acq_rel) == 1) {
+        if (atomics.rmw(usize, &self.refs, .Sub, 1, .acq_rel) == 1) {
             self.gpa.destroy(self);
         }
     }
 
     pub fn trippedAxis(self: *const EvalBudget) Axis {
-        return @atomicLoad(Axis, &self.tripped, .monotonic);
+        return atomics.load(Axis, &self.tripped, .monotonic);
     }
 
     /// Latch `axis` as the trip reason; the first tripper wins so every
     /// thread reports the same axis.
     fn trip(self: *EvalBudget, axis: Axis) void {
-        _ = @cmpxchgStrong(Axis, &self.tripped, .none, axis, .monotonic, .monotonic);
+        _ = atomics.cmpxchgStrong(Axis, &self.tripped, .none, axis, .monotonic, .monotonic);
     }
 
     /// Charge one back-edge crossing. Raises (uncatchable) on expiry; the
@@ -121,7 +122,7 @@ pub const EvalBudget = struct {
             .steps => return self.raiseSteps(),
             .deadline => return self.raiseDeadline(),
         }
-        const n = @atomicRmw(u64, &self.steps, .Add, 1, .monotonic) + 1;
+        const n = atomics.rmw(u64, &self.steps, .Add, 1, .monotonic) + 1;
         if (self.step_ceiling) |ceiling| {
             if (n > ceiling) {
                 self.trip(.steps);
@@ -171,7 +172,7 @@ pub const EvalBudget = struct {
     }
 
     fn raiseSteps(self: *const EvalBudget) ClojureWasmError {
-        return error_catalog.raise(.eval_steps_exceeded, .{}, .{ .steps = self.step_ceiling orelse @atomicLoad(u64, &self.steps, .monotonic) });
+        return error_catalog.raise(.eval_steps_exceeded, .{}, .{ .steps = self.step_ceiling orelse atomics.load(u64, &self.steps, .monotonic) });
     }
     fn raiseDeadline(self: *const EvalBudget) ClojureWasmError {
         return error_catalog.raise(.eval_deadline_exceeded, .{}, .{ .ms = self.deadline_ms });
@@ -349,7 +350,7 @@ test "the step counter is shared: concurrent tickers trip one ceiling exactly" {
             var i: u32 = 0;
             while (i < 110_000) : (i += 1) {
                 bud.tick(io) catch {
-                    _ = @atomicRmw(usize, tripped_count, .Add, 1, .monotonic);
+                    _ = atomics.rmw(usize, tripped_count, .Add, 1, .monotonic);
                     return;
                 };
             }

@@ -27,6 +27,7 @@
 //! (`runtime/java/lang/Thread.zig`) wires it from above.
 
 const std = @import("std");
+const spawn = @import("concurrency/spawn.zig");
 const value_mod = @import("value/value.zig");
 const Value = value_mod.Value;
 const Runtime = @import("runtime.zig").Runtime;
@@ -82,12 +83,12 @@ pub threadlocal var current_thread_val: Value = .nil_val;
 var auto_name_counter: std.atomic.Value(u32) = .init(0);
 
 fn stateOf(v: Value) *ThreadState {
-    return @ptrFromInt(host_instance.asHostInstance(v).state[0]);
+    return @ptrFromInt(@as(usize, @intCast(host_instance.asHostInstance(v).state[0])));
 }
 
 /// `host_trace` hook: the thunk is a live edge until the worker clears it.
 pub fn traceState(gc_ptr: *anyopaque, state: *[4]u64) void {
-    const st: *ThreadState = @ptrFromInt(state[0]);
+    const st: *ThreadState = @ptrFromInt(@as(usize, @intCast(state[0])));
     const gc: *@import("gc/gc_heap.zig").GcHeap = @ptrCast(@alignCast(gc_ptr));
     const mark_sweep = @import("gc/mark_sweep.zig");
     if (st.thunk.heapHeader()) |hdr| mark_sweep.mark(gc, hdr);
@@ -96,7 +97,7 @@ pub fn traceState(gc_ptr: *anyopaque, state: *[4]u64) void {
 /// `host_finalise` hook: free the state + name + cell. A running thread's
 /// value is pinned, so finalisation only reaches unstarted/done Threads.
 pub fn finaliseState(infra: std.mem.Allocator, state: *[4]u64) void {
-    const st: *ThreadState = @ptrFromInt(state[0]);
+    const st: *ThreadState = @ptrFromInt(@as(usize, @intCast(state[0])));
     infra.free(st.name);
     // The cell is gpa-allocated; infra == gpa backing per F-006 (the same
     // equivalence runtime.zig's deinit relies on for rt.types tables).
@@ -153,7 +154,7 @@ pub fn start(rt: *Runtime, thread_val: Value, loc: SourceLocation) !Value {
     // returns at the done-broadcast, BEFORE the worker's unpin epilogue, so
     // even a joined Thread needs the exit boundary to see its live count.
     root_set.noteWorkerSpawned();
-    var t = std.Thread.spawn(.{}, worker, .{thread_val}) catch |e| {
+    var t = spawn.spawn(worker, .{thread_val}) catch |e| {
         root_set.noteWorkerExited();
         if (st.budget) |b| b.unref();
         st.budget = null;

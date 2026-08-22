@@ -727,6 +727,7 @@ run_step "e2e_phase16_tokenizer_long_input" "bash test/e2e/phase16_tokenizer_lon
 # (CLJW_SKIP_BUILD), so no per-step rebuild. On a host where `zig build -Dwasm`
 # cannot resolve zwasm, build_cljw fails first — wasm is a gate prerequisite now.
 run_step "e2e_phase16_wasm_ffi"             "bash test/e2e/phase16_wasm_ffi.sh"
+run_step "e2e_phase16_wasm_memory"          "bash test/e2e/phase16_wasm_memory.sh"
 run_step "e2e_phase16_wasm_engine_select"   "bash test/e2e/phase16_wasm_engine_select.sh"
 run_step "e2e_phase16_wasm_run"             "bash test/e2e/phase16_wasm_run.sh"
 # D-349: the third budget axis. Fuel bounds instructions; how many bytes an

@@ -24,6 +24,70 @@
 # md-table-align no longer pads it to ~800 KB of whitespace.
 
 active:
+  - id: "D-585"
+    status: |-
+      open (2026-08-22, found landing ADR-0192). zwasm's JIT MISCOMPILES a
+      ZERO-RESULT export outside a narrow window. It does not fail to build and
+      it does not downgrade — it traps at invoke.
+
+      Measured over empty-body exports, arities 1-5, every i32/f64 parameter
+      mix (40 shapes). A void export runs on `:jit` only when:
+        - its arity is <= 1, OR
+        - its arity is 2-3 AND no parameter is floating-point.
+      Every other void shape traps, including all-GPR `(i32,i32,i32,i32) -> ()`.
+      NON-void was clean at every arity and mix tested. All 40 run on `:interp`.
+
+      Minimal discriminators, identical parameters and empty bodies, differing
+      only in result arity:
+        (func (export "nop_void")  (param i32 f64))                -> TRAPS
+        (func (export "nop_ret")   (param i32 f64) (result f64) …)  -> ok
+        (func (export "gpr4_void") (param i32 i32 i32 i32))         -> TRAPS
+        (func (export "gpr4_ret")  (param i32 i32 i32 i32) (result i32) …) -> ok
+      Neither body touches memory, so the discriminator is the signature alone:
+      the JIT's invoke dispatch has no entry for these (params -> no result)
+      combinations.
+
+      Three things make this worse than a niche gap.
+
+      First, the shape is not niche, it is what an in-place numeric kernel IS.
+      Verified against real raster (org.replikativ/raster) kernels compiled to
+      wasm: `residual-add!` is `(i32,i32,i32,i32) -> ()` and traps;
+      `scale-inplace!` is `(i32,f64,i32) -> ()` and traps. Both return exactly
+      the JVM values on `:interp`. Any scale / axpy / SGD-step taking a pointer,
+      a length and a scalar lands in the trapping region.
+
+      Second, the all-GPR half needs no floating point at all, so "avoid FP
+      params" is not a workaround — arity 4 alone is enough.
+
+      Third, `.auto` does not save the caller. Its documented contract is a
+      transparent downgrade when the JIT cannot BUILD a module; these modules
+      build and then trap at invoke, so the fallback never fires and `.auto`
+      behaves exactly like `.jit`. Worth stating plainly: `.auto` protects
+      against build failure, not against miscompilation.
+    category: "correctness"
+    barrier: |-
+      Upstream. The `from_cljw_NN` / `to_cljw_NN` co-dev channel with zwasm has
+      ended (`.dev/zwasm_capabilities.md`), so this cannot be handed over the
+      way the 2026-06 JIT gaps were; it needs either a zwasm patch carried on
+      the pin or a cljw-side signature-shaped `.interp` route, and the second is
+      the shim the capabilities doc says cljw deliberately does not build.
+
+      Workarounds for a caller today, in preference order: give the export a
+      result (the same parameters with any result run on the JIT), or load that
+      module with `{:engine :interp}`.
+
+      Not blocking ADR-0192: the memory surface itself is engine-independent,
+      and `test/e2e/fixtures/wasm/mem_kernel.wat` documents why its `scale_f64`
+      returns the new sum instead of being void.
+      Pinned by the gap-lock test in `src/runtime/cljw/wasm/engine.zig`
+      ("a zero-result export traps on the JIT beyond a narrow window"), which
+      FAILS if zwasm ever fixes it — so the row cannot rot unnoticed.
+    first_raised: "2026-08-22"
+    last_reviewed: "2026-08-22"
+    refs: |-
+      ADR-0192 (the memory surface that surfaced it); ADR-0200 (`.auto` /
+      `:engine`); engine.zig's sibling SIMD gap-lock test; to_cljw_04 (the
+      2026-06 residual FP-shape gaps, of which this is the un-reported tail).
   - id: "D-577"
     status: "open (2026-08-12, ADR-0186 residual). The three new layers are OPEN but shallow: golden covers 22 programs, property covers map/set/vector only, and only ONE file has been swept for mutants (vector.zig, 8 of 141 candidates), so the mutation score of this suite is still unmeasured. 120 of 265 src files carry no inline test at all."
     category: "test"

@@ -62,11 +62,11 @@ pub const Ratio = extern struct {
     }
     /// Big-ratio numerator BigInt (caller guarantees `is_small == 0`).
     pub inline fn bigNum(self: *const Ratio) *BigInt {
-        return @ptrFromInt(self.a);
+        return @ptrFromInt(@as(usize, @intCast(self.a)));
     }
     /// Big-ratio denominator BigInt (caller guarantees `is_small == 0`).
     pub inline fn bigDen(self: *const Ratio) *BigInt {
-        return @ptrFromInt(self.b);
+        return @ptrFromInt(@as(usize, @intCast(self.b)));
     }
 };
 

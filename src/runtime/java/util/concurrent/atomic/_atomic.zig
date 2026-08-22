@@ -20,6 +20,7 @@
 //! width, so both store an `i64` and neither truncates. Divergence AD-062.
 
 const std = @import("std");
+const atomics = @import("../../../../atomics.zig");
 const type_descriptor = @import("../../../../type_descriptor.zig");
 const Value = @import("../../../../value/value.zig").Value;
 const Runtime = @import("../../../../runtime.zig").Runtime;
@@ -51,7 +52,7 @@ pub fn Impl(
         }
 
         fn load(recv: Value) i64 {
-            return @bitCast(@atomicLoad(u64, wordPtr(recv), .seq_cst));
+            return @bitCast(atomics.load(u64, wordPtr(recv), .seq_cst));
         }
 
         /// The Clojure value the stored word denotes.
@@ -93,7 +94,7 @@ pub fn Impl(
             _ = rt;
             _ = env;
             try error_catalog.checkArity(".set", args, 2, loc);
-            @atomicStore(u64, wordPtr(args[0]), @bitCast(try in(args[1], loc)), .seq_cst);
+            atomics.store(u64, wordPtr(args[0]), @bitCast(try in(args[1], loc)), .seq_cst);
             return Value.nil_val;
         }
 
@@ -107,7 +108,7 @@ pub fn Impl(
             _ = env;
             try error_catalog.checkArity(".getAndSet", args, 2, loc);
             const next: u64 = @bitCast(try in(args[1], loc));
-            const prev = @atomicRmw(u64, wordPtr(args[0]), .Xchg, next, .seq_cst);
+            const prev = atomics.rmw(u64, wordPtr(args[0]), .Xchg, next, .seq_cst);
             return out(@bitCast(prev));
         }
 
@@ -117,7 +118,7 @@ pub fn Impl(
             try error_catalog.checkArity(".compareAndSet", args, 3, loc);
             const expect: u64 = @bitCast(try in(args[1], loc));
             const next: u64 = @bitCast(try in(args[2], loc));
-            return Value.initBoolean(@cmpxchgStrong(u64, wordPtr(args[0]), expect, next, .seq_cst, .seq_cst) == null);
+            return Value.initBoolean(atomics.cmpxchgStrong(u64, wordPtr(args[0]), expect, next, .seq_cst, .seq_cst) == null);
         }
 
         /// Add `delta` and hand back one of the two sides. Saturating, so a
@@ -125,10 +126,10 @@ pub fn Impl(
         fn addBy(recv: Value, delta: i64, comptime want: enum { before, after }) Value {
             const ptr = wordPtr(recv);
             while (true) {
-                const cur_bits = @atomicLoad(u64, ptr, .seq_cst);
+                const cur_bits = atomics.load(u64, ptr, .seq_cst);
                 const cur: i64 = @bitCast(cur_bits);
                 const next = cur +| delta;
-                if (@cmpxchgWeak(u64, ptr, cur_bits, @as(u64, @bitCast(next)), .seq_cst, .seq_cst) == null)
+                if (atomics.cmpxchgWeak(u64, ptr, cur_bits, @as(u64, @bitCast(next)), .seq_cst, .seq_cst) == null)
                     return out(switch (want) {
                         .before => cur,
                         .after => next,

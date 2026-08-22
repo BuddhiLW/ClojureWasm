@@ -16,6 +16,7 @@
 //! thread — a semantic lie); the D3 member diagnostic renders it.
 
 const std = @import("std");
+const builtin = @import("builtin");
 const host_api = @import("../_host_api.zig");
 const type_descriptor = @import("../../type_descriptor.zig");
 const Value = @import("../../value/value.zig").Value;
@@ -78,7 +79,7 @@ fn currentThread(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocati
     // running) so getName/isAlive/host_trace treat it uniformly. A nil thunk
     // means nothing to trace; it is never started/joined.
     const v = try thread_impl.make(rt, env, Value.nil_val, "main", td);
-    const st: *thread_impl.ThreadState = @ptrFromInt(host_instance.asHostInstance(v).state[0]);
+    const st: *thread_impl.ThreadState = @ptrFromInt(@as(usize, @intCast(host_instance.asHostInstance(v).state[0])));
     st.run_state = .running;
     try rt.gc.pin(v);
     rt.thread_current = v;
@@ -182,10 +183,7 @@ fn yieldFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) an
     _ = rt;
     _ = env;
     try error_catalog.checkArity("Thread/yield", args, 0, loc);
-    std.Thread.yield() catch {
-        // Unsupported platform → the hint is a no-op, matching the JVM spec
-        // ("a hint to the scheduler ... free to ignore").
-    };
+    if (comptime !builtin.single_threaded) std.Thread.yield() catch {};
     return Value.nil_val;
 }
 

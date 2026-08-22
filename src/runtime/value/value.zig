@@ -170,7 +170,8 @@ pub const Value = enum(u64) {
     /// Extract the heap pointer from a heap-tagged Value.
     pub fn decodePtr(self: Value, comptime T: type) T {
         const shifted = @intFromEnum(self) & nb.NB_ADDR_SHIFTED_MASK;
-        return @ptrFromInt(@as(usize, shifted) << nb.NB_ADDR_ALIGN_SHIFT);
+        const addr: u64 = shifted << nb.NB_ADDR_ALIGN_SHIFT;
+        return @ptrFromInt(@as(usize, @intCast(addr)));
     }
 
     /// Map a HeapTag integer to its parallel Tag entry. Per ADR-0027 §2 +
@@ -251,7 +252,7 @@ pub const Value = enum(u64) {
     /// supplies the concrete pointer type via `FnPtr`.
     pub fn asBuiltinFn(self: Value, comptime FnPtr: type) FnPtr {
         const raw = @intFromEnum(self) & nb.NB_PAYLOAD_MASK;
-        return @ptrFromInt(raw);
+        return @ptrFromInt(@as(usize, @intCast(raw)));
     }
 
     /// The raw builtin_fn function-pointer address as a `usize`, type-erased —
