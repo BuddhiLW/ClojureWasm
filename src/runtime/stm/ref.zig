@@ -29,6 +29,7 @@
 //! `LockingTransaction`.
 
 const std = @import("std");
+const atomics = @import("../atomics.zig");
 const value = @import("../value/value.zig");
 const Value = value.Value;
 const HeapHeader = value.HeapHeader;
@@ -85,7 +86,7 @@ pub const Ref = extern struct {
 /// initial 1-node self-loop ring (`tvals.prior == tvals == tvals.next`).
 /// Phase B takes the lock + splices a new TVal on each commit.
 /// Monotonic Ref-id source for the STM lock-ordering (see `Ref.id`).
-var next_ref_id: std.atomic.Value(u64) = .init(0);
+var next_ref_id: atomics.Value(u64) = .init(0);
 
 pub fn alloc(rt: *Runtime, init: Value) !Value {
     const seed = try tval_mod.allocSelfLoop(rt, init, 0, 0);

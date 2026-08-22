@@ -51,7 +51,7 @@ const SocketBox = struct {
 };
 
 fn boxOf(recv: Value) *SocketBox {
-    return @ptrFromInt(host_instance.asHostInstance(recv).state[0]);
+    return @ptrFromInt(@as(usize, @intCast(host_instance.asHostInstance(recv).state[0])));
 }
 
 fn isSocket(v: Value) bool {
@@ -185,7 +185,7 @@ fn closeMethod(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation
 /// ADR-0106 finaliser: close a socket the program dropped, then free the box.
 fn finaliseSocket(infra: std.mem.Allocator, state: *[host_instance.STATE_WORDS]u64) void {
     if (state[0] == 0) return;
-    const box: *SocketBox = @ptrFromInt(state[0]);
+    const box: *SocketBox = @ptrFromInt(@as(usize, @intCast(state[0])));
     if (!box.closed) {
         box.stream.close(box.io);
         box.closed = true;

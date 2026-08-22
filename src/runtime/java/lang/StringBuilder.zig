@@ -36,7 +36,7 @@ const ByteList = std.ArrayList(u8);
 var sb_descriptor: ?*const type_descriptor.TypeDescriptor = null;
 
 fn listOf(recv: Value) *ByteList {
-    return @ptrFromInt(host_instance.asHostInstance(recv).state[0]);
+    return @ptrFromInt(@as(usize, @intCast(host_instance.asHostInstance(recv).state[0])));
 }
 
 /// Append `v`'s `str`-rendering to `lp`. Shared by `<init>` (1-arg) and append.
@@ -221,7 +221,7 @@ fn reverse(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) an
 }
 
 fn finaliseState(infra: std.mem.Allocator, state: *[host_instance.STATE_WORDS]u64) void {
-    const lp: *ByteList = @ptrFromInt(state[0]);
+    const lp: *ByteList = @ptrFromInt(@as(usize, @intCast(state[0])));
     lp.deinit(infra);
     infra.destroy(lp);
 }

@@ -24,6 +24,7 @@
 //! and reserved for an explicit clear pass). All four are landed.
 
 const std = @import("std");
+const build_options = @import("build_options");
 const clock = @import("../clock.zig");
 const max_threshold_floor_bytes = @import("gc_heap.zig").max_threshold_floor_bytes;
 const gc_time_target_percent = @import("gc_heap.zig").gc_time_target_percent;
@@ -283,7 +284,7 @@ pub fn collect(gc: *GcHeap, ctx: root_set_mod.WalkContext) void {
     // intermediates this main-only scan does not cover (the D-556 residual).
     const t_scan0 = clock.nanoTime(io_default.get());
     phase_roots_ns +|= @intCast(@max(0, t_scan0 - t_prep));
-    conservativeStackScan(gc);
+    ConservativeScan.run(gc);
     const t_scan1 = clock.nanoTime(io_default.get());
     // All roots are shaded gray; blacken transitively (ADR-0028 amendment 3).
     drainGray(gc);
@@ -351,45 +352,51 @@ pub fn collect(gc: *GcHeap, ctx: root_set_mod.WalkContext) void {
 /// dangling pointer. The live-pointer set is built in one pass over the
 /// `allocations` side-table using `gc.infra` (never `gc.alloc` — collect must
 /// not re-enter the heap).
-/// libc setjmp — used ONLY as a register spill (Boehm GC's `GC_push_regs`
-/// idiom): it writes every callee-saved register into the buffer, so a heap
-/// Value living ONLY in a callee-saved register (never spilled on the paths
-/// the collector happened to take) becomes scannable. We never longjmp.
-extern fn setjmp(env: *anyopaque) c_int;
+///
+/// Compiled only under `-Dbackend=tree_walk`; vm builds get the no-op branch.
+const ConservativeScan = if (build_options.backend == .tree_walk) struct {
+    /// libc setjmp — used ONLY as a register spill (Boehm GC's `GC_push_regs`
+    /// idiom): it writes every callee-saved register into the buffer, so a heap
+    /// Value living ONLY in a callee-saved register (never spilled on the paths
+    /// the collector happened to take) becomes scannable. We never longjmp.
+    extern fn setjmp(env: *anyopaque) c_int;
 
-/// Decode one candidate word and pin it if it is a live heap Value.
-inline fn pinIfLiveWord(gc: *GcHeap, live: *const std.AutoHashMapUnmanaged(usize, void), word: u64) void {
-    const Value = @import("../value/value.zig").Value;
-    const nb = @import("../value/nan_box.zig");
-    // Pre-filter a zero address: `heapHeader`'s decodePtr would cast it to a
-    // null pointer (a ReleaseSafe panic) — a heap-TAGGED word with address
-    // bits 0 is garbage, never a real Value.
-    if (word & nb.NB_ADDR_SHIFTED_MASK == 0) return;
-    const v: Value = @enumFromInt(word);
-    const hdr = v.heapHeader() orelse return;
-    if (live.contains(@intFromPtr(hdr))) mark(gc, hdr);
-}
-
-fn conservativeStackScan(gc: *GcHeap) void {
-    const top = root_set_mod.conservative_stack_top;
-    if (top == 0) return;
-    const bottom = @frameAddress();
-    if (bottom >= top) return;
-    var live: std.AutoHashMapUnmanaged(usize, void) = .empty;
-    defer live.deinit(gc.infra);
-    live.ensureTotalCapacity(gc.infra, @intCast(gc.allocations.items.len)) catch return;
-    for (gc.allocations.items) |rec| live.putAssumeCapacity(@intFromPtr(rec.header), {});
-    // Registers first (see `setjmp` above): 128 u64s comfortably hold any
-    // ABI's jmp_buf; unwritten tail words stay zero and are filtered.
-    var jb: [128]u64 align(16) = [_]u64{0} ** 128;
-    _ = setjmp(@ptrCast(&jb));
-    for (jb) |word| pinIfLiveWord(gc, &live, word);
-    // Then the native stack from the collector's frame up to the anchor.
-    var addr = std.mem.alignForward(usize, bottom, @alignOf(u64));
-    while (addr + @sizeOf(u64) <= top) : (addr += @sizeOf(u64)) {
-        pinIfLiveWord(gc, &live, @as(*const u64, @ptrFromInt(addr)).*);
+    /// Decode one candidate word and pin it if it is a live heap Value.
+    inline fn pinIfLiveWord(gc: *GcHeap, live: *const std.AutoHashMapUnmanaged(usize, void), word: u64) void {
+        const Value = @import("../value/value.zig").Value;
+        const nb = @import("../value/nan_box.zig");
+        // Pre-filter a zero address: `heapHeader`'s decodePtr would cast it to a
+        // null pointer (a ReleaseSafe panic) — a heap-TAGGED word with address
+        // bits 0 is garbage, never a real Value.
+        if (word & nb.NB_ADDR_SHIFTED_MASK == 0) return;
+        const v: Value = @enumFromInt(word);
+        const hdr = v.heapHeader() orelse return;
+        if (live.contains(@intFromPtr(hdr))) mark(gc, hdr);
     }
-}
+
+    fn run(gc: *GcHeap) void {
+        const top = root_set_mod.conservative_stack_top;
+        if (top == 0) return;
+        const bottom = @frameAddress();
+        if (bottom >= top) return;
+        var live: std.AutoHashMapUnmanaged(usize, void) = .empty;
+        defer live.deinit(gc.infra);
+        live.ensureTotalCapacity(gc.infra, @intCast(gc.allocations.items.len)) catch return;
+        for (gc.allocations.items) |rec| live.putAssumeCapacity(@intFromPtr(rec.header), {});
+        // Registers first (see `setjmp` above): 128 u64s comfortably hold any
+        // ABI's jmp_buf; unwritten tail words stay zero and are filtered.
+        var jb: [128]u64 align(16) = [_]u64{0} ** 128;
+        _ = setjmp(@ptrCast(&jb));
+        for (jb) |word| pinIfLiveWord(gc, &live, word);
+        // Then the native stack from the collector's frame up to the anchor.
+        var addr = std.mem.alignForward(usize, bottom, @alignOf(u64));
+        while (addr + @sizeOf(u64) <= top) : (addr += @sizeOf(u64)) {
+            pinIfLiveWord(gc, &live, @as(*const u64, @ptrFromInt(addr)).*);
+        }
+    }
+} else struct {
+    fn run(_: *GcHeap) void {}
+};
 
 /// Stop-the-world collect (ADR-0090 Alt B / D-244 #4): pause every other
 /// registered worker at a safe point (its `alloc`-prologue park or the VM

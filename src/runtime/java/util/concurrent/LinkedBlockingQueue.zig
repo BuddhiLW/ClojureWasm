@@ -32,6 +32,7 @@
 //! every blocking op is a retry loop around the non-blocking one.
 
 const std = @import("std");
+const atomics = @import("../../../atomics.zig");
 const host_api = @import("../../_host_api.zig");
 const type_descriptor = @import("../../../type_descriptor.zig");
 const Value = @import("../../../value/value.zig").Value;
@@ -86,12 +87,12 @@ fn lockPtr(recv: Value) *u64 {
 /// ops, so spinning beats parking; nothing sleeps while holding it.
 fn lock(recv: Value) void {
     const p = lockPtr(recv);
-    while (@cmpxchgWeak(u64, p, 0, 1, .acquire, .monotonic) != null)
+    while (atomics.cmpxchgWeak(u64, p, 0, 1, .acquire, .monotonic) != null)
         std.atomic.spinLoopHint();
 }
 
 fn unlock(recv: Value) void {
-    @atomicStore(u64, lockPtr(recv), 0, .release);
+    atomics.store(u64, lockPtr(recv), 0, .release);
 }
 
 /// Live element count. Caller holds the lock.

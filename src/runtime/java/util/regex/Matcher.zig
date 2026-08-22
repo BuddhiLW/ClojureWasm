@@ -54,7 +54,7 @@ const MutState = struct {
 };
 
 fn stateOf(recv: Value) *MutState {
-    return @ptrFromInt(host_instance.asHostInstance(recv).state[2]);
+    return @ptrFromInt(@as(usize, @intCast(host_instance.asHostInstance(recv).state[2])));
 }
 
 fn inputOf(recv: Value) []const u8 {
@@ -236,7 +236,7 @@ fn traceState(gc_ptr: *anyopaque, state: *[host_instance.STATE_WORDS]u64) void {
 }
 
 fn finaliseState(infra: std.mem.Allocator, state: *[host_instance.STATE_WORDS]u64) void {
-    const ms: *MutState = @ptrFromInt(state[2]);
+    const ms: *MutState = @ptrFromInt(@as(usize, @intCast(state[2])));
     infra.destroy(ms);
 }
 

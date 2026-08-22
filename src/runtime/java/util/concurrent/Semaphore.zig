@@ -19,6 +19,7 @@
 //! acquisition always barges — there is no FIFO queue behind the permits.
 
 const std = @import("std");
+const atomics = @import("../../../atomics.zig");
 const host_api = @import("../../_host_api.zig");
 const type_descriptor = @import("../../../type_descriptor.zig");
 const Value = @import("../../../value/value.zig").Value;
@@ -44,7 +45,7 @@ fn permitsPtr(recv: Value) *u64 {
 }
 
 fn permitsNow(recv: Value) i64 {
-    return @bitCast(@atomicLoad(u64, permitsPtr(recv), .seq_cst));
+    return @bitCast(atomics.load(u64, permitsPtr(recv), .seq_cst));
 }
 
 /// CAS `n` permits out of the counter. False without blocking when fewer than
@@ -52,21 +53,21 @@ fn permitsNow(recv: Value) i64 {
 fn takeNow(recv: Value, n: i64) bool {
     const ptr = permitsPtr(recv);
     while (true) {
-        const cur_bits = @atomicLoad(u64, ptr, .seq_cst);
+        const cur_bits = atomics.load(u64, ptr, .seq_cst);
         const cur: i64 = @bitCast(cur_bits);
         if (cur < n) return false;
         const next: u64 = @bitCast(cur - n);
-        if (@cmpxchgWeak(u64, ptr, cur_bits, next, .seq_cst, .seq_cst) == null) return true;
+        if (atomics.cmpxchgWeak(u64, ptr, cur_bits, next, .seq_cst, .seq_cst) == null) return true;
     }
 }
 
 fn giveBack(recv: Value, n: i64) void {
     const ptr = permitsPtr(recv);
     while (true) {
-        const cur_bits = @atomicLoad(u64, ptr, .seq_cst);
+        const cur_bits = atomics.load(u64, ptr, .seq_cst);
         const cur: i64 = @bitCast(cur_bits);
         const next: u64 = @bitCast(cur +| n);
-        if (@cmpxchgWeak(u64, ptr, cur_bits, next, .seq_cst, .seq_cst) == null) return;
+        if (atomics.cmpxchgWeak(u64, ptr, cur_bits, next, .seq_cst, .seq_cst) == null) return;
     }
 }
 
@@ -77,8 +78,8 @@ fn takeWaiting(rt: *Runtime, recv: Value, n: i64, deadline_ns: ?i64) anyerror!bo
     // Registered only once the caller actually parks, so `.getQueueLength`
     // counts waiters and not passers-by.
     const waiters = &@constCast(host_instance.asHostInstance(recv)).state[2];
-    _ = @atomicRmw(u64, waiters, .Add, 1, .seq_cst);
-    defer _ = @atomicRmw(u64, waiters, .Sub, 1, .seq_cst);
+    _ = atomics.rmw(u64, waiters, .Add, 1, .seq_cst);
+    defer _ = atomics.rmw(u64, waiters, .Sub, 1, .seq_cst);
     while (true) {
         if (takeNow(recv, n)) return true;
         if (deadline_ns) |deadline| {
@@ -161,10 +162,10 @@ fn drainPermits(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocatio
     try error_catalog.checkArity(".drainPermits", args, 1, loc);
     const ptr = permitsPtr(args[0]);
     while (true) {
-        const cur_bits = @atomicLoad(u64, ptr, .seq_cst);
+        const cur_bits = atomics.load(u64, ptr, .seq_cst);
         const cur: i64 = @bitCast(cur_bits);
         if (cur <= 0) return Value.initInteger(0);
-        if (@cmpxchgWeak(u64, ptr, cur_bits, @as(u64, @bitCast(@as(i64, 0))), .seq_cst, .seq_cst) == null)
+        if (atomics.cmpxchgWeak(u64, ptr, cur_bits, @as(u64, @bitCast(@as(i64, 0))), .seq_cst, .seq_cst) == null)
             return Value.initInteger(cur);
     }
 }
@@ -175,14 +176,14 @@ fn getQueueLength(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocat
     _ = rt;
     _ = env;
     try error_catalog.checkArity(".getQueueLength", args, 1, loc);
-    return Value.initInteger(@intCast(@atomicLoad(u64, &@constCast(host_instance.asHostInstance(args[0])).state[2], .seq_cst)));
+    return Value.initInteger(@intCast(atomics.load(u64, &@constCast(host_instance.asHostInstance(args[0])).state[2], .seq_cst)));
 }
 
 fn hasQueuedThreads(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
     _ = rt;
     _ = env;
     try error_catalog.checkArity(".hasQueuedThreads", args, 1, loc);
-    return Value.initBoolean(@atomicLoad(u64, &@constCast(host_instance.asHostInstance(args[0])).state[2], .seq_cst) > 0);
+    return Value.initBoolean(atomics.load(u64, &@constCast(host_instance.asHostInstance(args[0])).state[2], .seq_cst) > 0);
 }
 
 /// `(.isFair s)` — the constructor flag. See AD-061: it does not change

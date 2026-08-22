@@ -26,6 +26,7 @@
 //! safepoint is bounded by the poll discipline, not a wait timeout).
 
 const std = @import("std");
+const atomics = @import("../atomics.zig");
 const io_default = @import("io_default.zig");
 const root_set = @import("../gc/root_set.zig");
 const clock = @import("../clock.zig");
@@ -37,7 +38,7 @@ const clock = @import("../clock.zig");
 /// OBSERVABLE — if this grows into real pause-time trouble, D-560 names the
 /// publish-roots redesign that removes the cliff. Monotonic max; read on demand
 /// (no print path wired — a probe reads it via a debugger / future stats dump).
-pub var max_stopworld_wait_ns: std.atomic.Value(i64) = .init(0);
+pub var max_stopworld_wait_ns: atomics.Value(i64) = .init(0);
 
 /// Armed by a collecting thread (`stopWorld`); read by the VM back-edge poll +
 /// the `alloc`-boundary check. A worker that observes this set at a safe point
@@ -428,7 +429,7 @@ test "collectStopTheWorld parks real workers allocating through gc.alloc, then r
     const Shared = struct {
         var gc_ptr: *GcHeap = undefined;
         var ready: std.atomic.Value(u32) = .init(0);
-        var allocs: std.atomic.Value(u64) = .init(0);
+        var allocs: atomics.Value(u64) = .init(0);
         var done: std.atomic.Value(bool) = .init(false);
 
         fn worker() void {

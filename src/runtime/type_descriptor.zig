@@ -17,6 +17,7 @@
 //! (`runtime/dispatch/method_table.zig`) without needing GC pinning.
 
 const std = @import("std");
+const atomics = @import("atomics.zig");
 const value_mod = @import("value/value.zig");
 const Value = value_mod.Value;
 const HeapHeader = value_mod.HeapHeader;
@@ -432,14 +433,14 @@ pub const TypedInstance = extern struct {
     /// ORDERING fence (+ to stop the compiler reordering/coalescing) — the
     /// publish half of cross-thread happens-before. Pairs with `getFieldVolatile`.
     pub fn setFieldVolatile(self: *const TypedInstance, index: u32, v: Value) void {
-        @atomicStore(Value, &self.field_values_ptr[index], v, .release);
+        atomics.store(Value, &self.field_values_ptr[index], v, .release);
     }
 
     /// Atomic-acquire read of a `^:volatile-mutable` field slot (D-444 /
     /// ADR-0152) — the consume half; sees every write ordered-before the
     /// matching `setFieldVolatile`'s release.
     pub fn getFieldVolatile(self: *const TypedInstance, index: u32) Value {
-        return @atomicLoad(Value, &self.field_values_ptr[index], .acquire);
+        return atomics.load(Value, &self.field_values_ptr[index], .acquire);
     }
 };
 
