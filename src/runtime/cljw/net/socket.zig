@@ -1,19 +1,24 @@
 // SPDX-License-Identifier: EPL-2.0
-//! cljw.net — a TCP client stream, bound thinly to `std.Io.net`.
+//! cljw.net — TCP streams, both sides, bound thinly to `std.Io.net`.
 //!
 //! Backend: impl-only
 //! Impl deps: none
-//! Clojure peer: cljw.net/connect
+//! Clojure peer: cljw.net/connect, cljw.net/listen
 //!
 //! Surface: `(cljw.net/connect host port)` → a `.host_instance` socket, then
 //!          `(.write sock byte-array n)` → bytes written,
 //!          `(.read  sock byte-array)`   → bytes read, or -1 at end of stream,
 //!          `(.close sock)`              → nil (idempotent).
 //!
+//!          `(cljw.net/listen host port)` → a `.host_instance` server, then
+//!          `(.accept srv)` → a socket of the SAME kind `connect` returns,
+//!          `(.port   srv)` → the BOUND port (so `(listen h 0)` is usable),
+//!          `(.close  srv)` → nil (idempotent; accepted sockets stay open).
+//!
 //! This is a cljw-ORIGINAL surface, not a `java.net.Socket` emulation: it
 //! exposes what `std.Io.net` does and leaves Java/JS/elisp reconciliation to the
-//! caller's own adapter. The client mirror of the `.listen`/`.accept` pair
-//! `src/app/nrepl.zig` already uses.
+//! caller's own adapter. It is the same `.listen`/`.accept` pair
+//! `src/app/nrepl.zig` already drives, lifted to a Clojure-facing surface.
 //!
 //! Ownership: the `Stream` plus its reader/writer buffers live in one
 //! gpa-allocated `SocketBox` whose pointer is `state[0]`; the box holds its own
@@ -229,9 +234,171 @@ fn ensureMethodTable(gpa: std.mem.Allocator) !void {
     descriptor.method_table = entries;
 }
 
+// ── the listening side ───────────────────────────────────────────────────────
+//
+// `.accept` answers a socket built on the SAME `descriptor` `connect` produces,
+// so `.read` / `.write` / `.close` need no new arm: this is a new PRODUCER of an
+// existing representation, not a second one.
+
+/// Heap carrier for one listening socket. Address-stable for the same reason
+/// `SocketBox` is — the finaliser reaches it back through `state[0]`.
+const ServerBox = struct {
+    io: std.Io,
+    server: std.Io.net.Server,
+    closed: bool,
+};
+
+fn serverBoxOf(recv: Value) *ServerBox {
+    return @ptrFromInt(@as(usize, @intCast(host_instance.asHostInstance(recv).state[0])));
+}
+
+fn isServer(v: Value) bool {
+    return v.tag() == .host_instance and
+        host_instance.asHostInstance(v).descriptor == &server_descriptor;
+}
+
+fn expectServer(v: Value, loc: SourceLocation) !*ServerBox {
+    if (!isServer(v)) return error_catalog.raise(.net_arg_invalid, loc, .{ .detail = "the receiver must be a cljw.net server" });
+    const box = serverBoxOf(v);
+    if (box.closed) return error_catalog.raise(.net_socket_closed, loc, .{});
+    return box;
+}
+
+/// `(cljw.net/listen host port)` — bind and listen. Port 0 asks the OS for an
+/// ephemeral port, which `(.port srv)` then reports.
+fn listenFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
+    _ = env;
+    try error_catalog.checkArity("cljw.net/listen", args, 2, loc);
+    try ensureMethodTable(rt.gpa);
+    try ensureServerMethodTable(rt.gpa);
+    if (!args[0].isString()) return error_catalog.raise(.net_arg_invalid, loc, .{ .detail = "the host must be a string" });
+    const host = string_mod.asString(args[0]);
+    const port_i = try error_catalog.expectI64(args[1], "port", loc);
+    if (port_i < 0 or port_i > 65535) return error_catalog.raise(.net_arg_invalid, loc, .{ .detail = "the port must be an integer in 0..65535" });
+    const port: u16 = @intCast(port_i);
+
+    // A listen address is an interface this host already owns, so unlike
+    // `connect` there is nothing to resolve and racing several addresses would
+    // mean nothing. An IP literal is the whole contract.
+    const parsed = std.Io.net.IpAddress.parse(host, port) catch
+        return error_catalog.raise(.net_arg_invalid, loc, .{ .detail = "the listen host must be an IP address literal" });
+    var addr = parsed;
+    const server = std.Io.net.IpAddress.listen(&addr, rt.io, .{}) catch
+        return error_catalog.raise(.net_listen_failed, loc, .{ .host = host, .port = port_i });
+
+    const box = rt.gpa.create(ServerBox) catch |e| {
+        var s = server;
+        s.deinit(rt.io);
+        return e;
+    };
+    box.* = .{ .io = rt.io, .server = server, .closed = false };
+
+    return host_instance.alloc(rt, &server_descriptor, .{ @intFromPtr(box), 0, 0, 0 });
+}
+
+/// `(.accept srv)` — block until a peer connects. => a cljw.net socket.
+fn acceptMethod(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
+    _ = env;
+    try error_catalog.checkArity("cljw.net accept", args, 1, loc);
+    const box = try expectServer(args[0], loc);
+
+    const stream = box.server.accept(box.io) catch
+        return error_catalog.raise(.net_io_failed, loc, .{ .op = "accept" });
+
+    const sock = rt.gpa.create(SocketBox) catch |e| {
+        stream.close(rt.io);
+        return e;
+    };
+    sock.* = .{
+        .io = rt.io,
+        .stream = stream,
+        .reader = undefined,
+        .writer = undefined,
+        .closed = false,
+        .rbuf = undefined,
+        .wbuf = undefined,
+    };
+    sock.reader = sock.stream.reader(sock.io, &sock.rbuf);
+    sock.writer = sock.stream.writer(sock.io, &sock.wbuf);
+
+    return host_instance.alloc(rt, &descriptor, .{ @intFromPtr(sock), 0, 0, 0 });
+}
+
+/// `(.port srv)` — the BOUND port. `listen` with 0 resolves an ephemeral port
+/// into the socket address, and a caller that asked for 0 has no other way to
+/// learn where to send a client.
+fn portMethod(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
+    _ = rt;
+    _ = env;
+    try error_catalog.checkArity("cljw.net port", args, 1, loc);
+    const box = try expectServer(args[0], loc);
+    return Value.initInteger(@intCast(box.server.socket.address.getPort()));
+}
+
+/// `(.close srv)` — stop listening. Idempotent. Sockets already accepted stay
+/// open: closing the door does not evict the guests (JVM ServerSocket parity).
+fn closeServerMethod(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
+    _ = rt;
+    _ = env;
+    try error_catalog.checkArity("cljw.net close", args, 1, loc);
+    if (!isServer(args[0])) return error_catalog.raise(.net_arg_invalid, loc, .{ .detail = "the receiver must be a cljw.net server" });
+    const box = serverBoxOf(args[0]);
+    if (!box.closed) {
+        box.server.deinit(box.io);
+        box.closed = true;
+    }
+    return Value.nil_val;
+}
+
+/// ADR-0106 finaliser: stop a listener the program dropped, then free the box.
+fn finaliseServer(infra: std.mem.Allocator, state: *[host_instance.STATE_WORDS]u64) void {
+    if (state[0] == 0) return;
+    const box: *ServerBox = @ptrFromInt(@as(usize, @intCast(state[0])));
+    if (!box.closed) {
+        box.server.deinit(box.io);
+        box.closed = true;
+    }
+    infra.destroy(box);
+    state[0] = 0;
+}
+
+const SERVER_METHODS = [_]MethodSpec{
+    .{ .name = "accept", .f = &acceptMethod },
+    .{ .name = "port", .f = &portMethod },
+    .{ .name = "close", .f = &closeServerMethod },
+};
+
+var server_descriptor: type_descriptor.TypeDescriptor = .{
+    .fqcn = "cljw.net.Server",
+    .kind = .native,
+    .field_layout = null,
+    .protocol_impls = &.{},
+    .method_table = &.{},
+    .parent = null,
+    .meta = .nil_val,
+};
+
+/// Populate the server method table. Idempotent, and called from `listenFn` for
+/// the same reason `ensureMethodTable` is called from `connectFn`: `installAll`
+/// carries no allocator, and a server can only be reached through `listen`.
+fn ensureServerMethodTable(gpa: std.mem.Allocator) !void {
+    if (server_descriptor.method_table.len != 0) return;
+    server_descriptor.host_finalise = &finaliseServer;
+    const entries = try gpa.alloc(type_descriptor.TypeDescriptor.MethodEntry, SERVER_METHODS.len);
+    for (SERVER_METHODS, 0..) |m, i| {
+        entries[i] = .{
+            .protocol_name = "",
+            .method_name = try gpa.dupe(u8, m.name),
+            .method_val = Value.initBuiltinFn(m.f),
+        };
+    }
+    server_descriptor.method_table = entries;
+}
+
 /// Create the `cljw.net` host namespace.
 /// Called by `runtime/cljw/_host_api.zig::installAll`.
 pub fn register(env: *Env) !void {
     const ns = try env.findOrCreateNs("cljw.net");
     _ = try env.intern(ns, "connect", Value.initBuiltinFn(&connectFn), null);
+    _ = try env.intern(ns, "listen", Value.initBuiltinFn(&listenFn), null);
 }

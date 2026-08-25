@@ -897,6 +897,7 @@ run_step "e2e_phase14_uuid_literal"          "bash test/e2e/phase14_uuid_literal
 run_step "e2e_phase14_clojure_lang_coll_hash" "bash test/e2e/phase14_clojure_lang_coll_hash.sh"
 run_step "e2e_phase14_multipair_assoc_extend" "bash test/e2e/phase14_multipair_assoc_extend.sh"
 run_step "e2e_phase14_assoc_ex_deftype"      "bash test/e2e/phase14_assoc_ex_deftype.sh"
+run_step "e2e_phase14_net_listen"            "bash test/e2e/phase14_net_listen.sh"
 run_step "e2e_phase14_deftype_equiv"          "bash test/e2e/phase14_deftype_equiv.sh"
 run_step "e2e_phase14_deftype_key_hash"       "bash test/e2e/phase14_deftype_key_hash.sh"
 run_step "e2e_phase14_instaparse_substrate"   "bash test/e2e/phase14_instaparse_substrate.sh"

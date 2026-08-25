@@ -7,6 +7,36 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 
 ## [Unreleased]
 
+### Added
+
+- **`cljw.net/listen` — a cljw process can now SERVE, not only dial.**
+  `cljw.net` exposed `connect` and nothing else, so a cljw program could reach
+  out and never answer: no RPC endpoint, no socket server, no accepting
+  anything. The `.listen`/`.accept` pair it needed has been in
+  `src/app/nrepl.zig` the whole time (cljw runs an nREPL server); this lifts it
+  to a Clojure-facing surface.
+
+  ```clojure
+  (let [srv  (cljw.net/listen "127.0.0.1" 0)   ; 0 = ask the OS
+        port (.port srv)                        ; ...and find out what it gave
+        sock (.accept srv)]                     ; blocks until a peer arrives
+    (.read sock (byte-array 1024))
+    (.close sock)
+    (.close srv))
+  ```
+
+  `.accept` answers a socket built on the **same** descriptor `connect`
+  produces, so `.read` / `.write` / `.close` gained no new arm — a new
+  *producer* of an existing representation rather than a second representation
+  every reader would have to tell apart.
+
+  `.port` reports the BOUND port, which is the only thing that makes `(listen h
+  0)` usable. `.close` is idempotent and closes the listener alone: sockets it
+  already handed out stay open, matching a JVM `ServerSocket`.
+
+  A hostname is rejected rather than resolved. You bind an interface this host
+  already owns, so there is nothing to look up and a name is a caller mistake.
+
 ### Fixed
 
 - **`assocEx` is wired on a `deftype`/`reify` `clojure.lang.IPersistentMap`
