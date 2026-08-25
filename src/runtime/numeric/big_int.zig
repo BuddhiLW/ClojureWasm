@@ -35,8 +35,10 @@ const hash = @import("../hash.zig");
 /// i48 inline range but stays ≤ i64) or a genuine arbitrary-precision
 /// BigInt (D-165 / ADR-0080 — B2). INTENT-based, set by the producing call,
 /// NEVER inferred from magnitude: `(parse-long "999999999999999")` →
-/// `.long`, `(bigint 5)` / `5N` → `.bigint`. Gates only print (`N` suffix)
-/// and `(class)` / `instance?` (Long vs BigInt); `=` / hash are value-based
+/// `.long`, `(bigint 5)` / `5N` → `.bigint`. Gates print (`N` suffix),
+/// `(class)` / `instance?` (Long vs BigInt), and the FIXED-PRECISION
+/// predicates `int?` / `pos-int?` / `neg-int?` / `nat-int?` (a `.long`-origin
+/// heap Long is `int?`, a `.bigint` is not); `=` / hash are value-based
 /// (D-205) and ignore it.
 pub const IntOrigin = enum(u8) { long, bigint };
 
