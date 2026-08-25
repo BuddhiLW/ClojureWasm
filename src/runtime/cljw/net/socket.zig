@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: EPL-2.0
-//! cljw.net — TCP streams, both sides, bound thinly to `std.Io.net`.
+//! cljw.net — TCP and UNIX streams, both sides, bound thinly to `std.Io.net`.
 //!
 //! Backend: impl-only
 //! Impl deps: none
-//! Clojure peer: cljw.net/connect, cljw.net/listen
+//! Clojure peer: cljw.net/connect, cljw.net/listen,
+//!               cljw.net/connect-unix, cljw.net/listen-unix
 //!
 //! Surface: `(cljw.net/connect host port)` → a `.host_instance` socket, then
 //!          `(.write sock byte-array n)` → bytes written,
@@ -14,6 +15,11 @@
 //!          `(.accept srv)` → a socket of the SAME kind `connect` returns,
 //!          `(.port   srv)` → the BOUND port (so `(listen h 0)` is usable),
 //!          `(.close  srv)` → nil (idempotent; accepted sockets stay open).
+//!
+//!          `(cljw.net/connect-unix path)` and `(cljw.net/listen-unix path)`
+//!          answer the SAME socket and server kinds over a UNIX domain socket.
+//!          A unix server's `.port` is 0 — it genuinely has none — and a
+//!          leftover socket file is NOT unlinked for you.
 //!
 //! This is a cljw-ORIGINAL surface, not a `java.net.Socket` emulation: it
 //! exposes what `std.Io.net` does and leaves Java/JS/elisp reconciliation to the
@@ -395,10 +401,89 @@ fn ensureServerMethodTable(gpa: std.mem.Allocator) !void {
     server_descriptor.method_table = entries;
 }
 
+// ── UNIX domain sockets ──────────────────────────────────────────────────────
+//
+// `UnixAddress.listen` / `.connect` answer the SAME `Server` / `Stream` types
+// the IP pair does, so both carriers, both descriptors, both method tables and
+// both finalisers above serve these unchanged. A unix socket is a different
+// ADDRESS, not a different representation.
+
+/// The path from a `cljw.net` unix arg, bounds-checked. The 108-byte cap is the
+/// OS's, not the filesystem's, so a perfectly ordinary temp path can exceed it.
+fn expectUnixPath(v: Value, loc: SourceLocation) ![]const u8 {
+    if (!v.isString()) return error_catalog.raise(.net_arg_invalid, loc, .{ .detail = "the socket path must be a string" });
+    const path = string_mod.asString(v);
+    if (path.len > std.Io.net.UnixAddress.max_len) {
+        return error_catalog.raise(.net_arg_invalid, loc, .{ .detail = "the socket path is longer than the 108 bytes the OS allows" });
+    }
+    return path;
+}
+
+/// `(cljw.net/connect-unix path)` — connect to a UNIX domain socket.
+fn connectUnixFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
+    _ = env;
+    try error_catalog.checkArity("cljw.net/connect-unix", args, 1, loc);
+    try ensureMethodTable(rt.gpa);
+    const path = try expectUnixPath(args[0], loc);
+
+    const ua = std.Io.net.UnixAddress.init(path) catch
+        return error_catalog.raise(.net_arg_invalid, loc, .{ .detail = "the socket path is longer than the 108 bytes the OS allows" });
+    const stream = ua.connect(rt.io) catch
+        return error_catalog.raise(.net_unix_connect_failed, loc, .{ .path = path });
+
+    const box = rt.gpa.create(SocketBox) catch |e| {
+        stream.close(rt.io);
+        return e;
+    };
+    box.* = .{
+        .io = rt.io,
+        .stream = stream,
+        .reader = undefined,
+        .writer = undefined,
+        .closed = false,
+        .rbuf = undefined,
+        .wbuf = undefined,
+    };
+    box.reader = box.stream.reader(box.io, &box.rbuf);
+    box.writer = box.stream.writer(box.io, &box.wbuf);
+
+    return host_instance.alloc(rt, &descriptor, .{ @intFromPtr(box), 0, 0, 0 });
+}
+
+/// `(cljw.net/listen-unix path)` — bind and listen on a UNIX domain socket.
+///
+/// A leftover socket file from a dead process makes this fail, and cljw does
+/// NOT unlink it: the path may still belong to a live server, and deleting
+/// another process's socket is a decision the caller owns, not the runtime.
+/// `(.port srv)` answers 0 here — a unix socket genuinely has no port.
+fn listenUnixFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
+    _ = env;
+    try error_catalog.checkArity("cljw.net/listen-unix", args, 1, loc);
+    try ensureMethodTable(rt.gpa);
+    try ensureServerMethodTable(rt.gpa);
+    const path = try expectUnixPath(args[0], loc);
+
+    const ua = std.Io.net.UnixAddress.init(path) catch
+        return error_catalog.raise(.net_arg_invalid, loc, .{ .detail = "the socket path is longer than the 108 bytes the OS allows" });
+    const server = ua.listen(rt.io, .{}) catch
+        return error_catalog.raise(.net_unix_listen_failed, loc, .{ .path = path });
+
+    const box = rt.gpa.create(ServerBox) catch |e| {
+        var s = server;
+        s.deinit(rt.io);
+        return e;
+    };
+    box.* = .{ .io = rt.io, .server = server, .closed = false };
+
+    return host_instance.alloc(rt, &server_descriptor, .{ @intFromPtr(box), 0, 0, 0 });
+}
+
 /// Create the `cljw.net` host namespace.
 /// Called by `runtime/cljw/_host_api.zig::installAll`.
 pub fn register(env: *Env) !void {
     const ns = try env.findOrCreateNs("cljw.net");
     _ = try env.intern(ns, "connect", Value.initBuiltinFn(&connectFn), null);
     _ = try env.intern(ns, "listen", Value.initBuiltinFn(&listenFn), null);
+    _ = try env.intern(ns, "connect-unix", Value.initBuiltinFn(&connectUnixFn), null);
+    _ = try env.intern(ns, "listen-unix", Value.initBuiltinFn(&listenUnixFn), null);
 }

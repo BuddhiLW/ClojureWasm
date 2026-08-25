@@ -556,6 +556,14 @@ pub const Code = enum {
     /// args: `.{ .host = "...", .port = <i64> }` — `cljw.net/listen` could not
     /// bind the address (already in use, not permitted, or not a local one).
     net_listen_failed,
+    /// args: `.{ .path = "..." }` — `cljw.net/connect-unix` could not reach the
+    /// socket (absent, not a socket, or not permitted).
+    net_unix_connect_failed,
+    /// args: `.{ .path = "..." }` — `cljw.net/listen-unix` could not bind the
+    /// path. A leftover file from a dead process is the usual cause, and cljw
+    /// does NOT unlink it: removing a path that a live server may still own is
+    /// the caller's decision, not the runtime's.
+    net_unix_listen_failed,
     /// args: `.{ .op = "..." }` — a `cljw.net` read / write / flush failed.
     net_io_failed,
     /// args: `.{}` — a `cljw.net` operation was attempted on a closed socket.
@@ -1833,6 +1841,16 @@ pub fn entry(comptime code: Code) Entry {
             .kind = .io_error,
             .phase = .eval,
             .template = "cljw.net: could not listen on '{[host]s}:{[port]d}'",
+        },
+        .net_unix_connect_failed => .{
+            .kind = .io_error,
+            .phase = .eval,
+            .template = "cljw.net: could not connect to unix socket '{[path]s}'",
+        },
+        .net_unix_listen_failed => .{
+            .kind = .io_error,
+            .phase = .eval,
+            .template = "cljw.net: could not listen on unix socket '{[path]s}' (a leftover file from a dead process is not removed for you)",
         },
         .net_io_failed => .{
             .kind = .io_error,

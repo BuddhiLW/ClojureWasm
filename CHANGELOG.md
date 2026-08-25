@@ -37,6 +37,35 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
   A hostname is rejected rather than resolved. You bind an interface this host
   already owns, so there is nothing to look up and a name is a caller mistake.
 
+- **`cljw.net/connect-unix` and `cljw.net/listen-unix` — UNIX domain sockets.**
+  A unix socket needs no port to allocate or collide on, and the filesystem
+  already answers who may connect, which is why local RPC endpoints prefer one.
+
+  ```clojure
+  (let [srv  (cljw.net/listen-unix "/tmp/app.sock")
+        sock (.accept srv)]
+    (.read sock (byte-array 1024))
+    (.close sock)
+    (.close srv))
+  ```
+
+  `UnixAddress.listen` / `.connect` answer the **same** `Server` / `Stream`
+  types the IP pair does, so these reuse both carriers, both descriptors, both
+  method tables and both finalisers unchanged — a unix socket is a different
+  *address*, not a different representation. `.accept` / `.read` / `.write` /
+  `.close` are the same functions the TCP side uses.
+
+  Two behaviours are deliberate, and pinned by the e2e because they can look
+  like bugs. `.port` on a unix server answers **0** — a unix socket genuinely
+  has no port, and 0 is honest where a fabricated value would not be. And a
+  leftover socket file from a dead process is **not unlinked for you**: the
+  path may still belong to a live server, and deleting another process's socket
+  is the caller's decision, not the runtime's.
+
+  The 108-byte path cap is the OS's rather than the filesystem's — easy to
+  exceed with an ordinary temp path — so it is reported as a clear argument
+  error instead of an opaque bind failure.
+
 ### Fixed
 
 - **`assocEx` is wired on a `deftype`/`reify` `clojure.lang.IPersistentMap`
