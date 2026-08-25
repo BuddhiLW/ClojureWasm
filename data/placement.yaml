@@ -24,10 +24,10 @@
 schema_version: "2.0"
 summary:
   namespaces_required: 34
-  total: 1407
-  zig: 402
+  total: 1411
+  zig: 405
   clj: 786
-  value: 213
+  value: 214
   unbound: 6
 vars:
   "cljw.error/*error-context*": { impl: value, flags: "dynamic" }
@@ -119,6 +119,9 @@ vars:
   "cljw.json/read-str": { impl: clj, flags: "-" }
   "cljw.json/write-str": { impl: clj, flags: "-" }
   "cljw.net/connect": { impl: zig, flags: "-" }
+  "cljw.net/connect-unix": { impl: zig, flags: "-" }
+  "cljw.net/listen": { impl: zig, flags: "-" }
+  "cljw.net/listen-unix": { impl: zig, flags: "-" }
   "cljw.proxy/->ThreadLocalCell": { impl: clj, flags: "-" }
   "cljw.proxy/IThreadLocalCell": { impl: value, flags: "-" }
   "cljw.proxy/ThreadLocalCell": { impl: value, flags: "-" }
@@ -219,6 +222,7 @@ vars:
   "clojure.core/-as-transient": { impl: value, flags: "-" }
   "clojure.core/-assoc": { impl: value, flags: "-" }
   "clojure.core/-assoc!": { impl: value, flags: "-" }
+  "clojure.core/-assoc-ex": { impl: value, flags: "-" }
   "clojure.core/-assoc-n": { impl: value, flags: "-" }
   "clojure.core/-assoc-n!": { impl: value, flags: "-" }
   "clojure.core/-blocking-deref": { impl: value, flags: "-" }

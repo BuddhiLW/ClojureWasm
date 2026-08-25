@@ -36,6 +36,7 @@ clojure.core/-apply-to
 clojure.core/-as-transient
 clojure.core/-assoc
 clojure.core/-assoc!
+clojure.core/-assoc-ex
 clojure.core/-assoc-n
 clojure.core/-assoc-n!
 clojure.core/-blocking-deref

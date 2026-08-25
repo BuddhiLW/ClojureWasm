@@ -471,7 +471,7 @@ interfaces:
     tier: A
     recognised: true
     kind: protocol_remap
-    note: "D-280c multi-target remap: clj groups these under IPersistentMap; cljw splits them across IPersistentCollection (-count/-cons/-empty), Associative (-assoc/-contains-key?), Seqable (-seq), IPersistentMap (-without). The macro regroups by target protocol. Object methods (hashCode/equals) + cljw-unmodeled (equiv/entryAt) that clj also allows here are NOT mapped → explicit feature_not_supported (slice 2 + D-280d), never silent drop."
+    note: "D-280c multi-target remap: clj groups these under IPersistentMap; cljw splits them across IPersistentCollection (-count/-cons/-empty), Associative (-assoc/-contains-key?), Seqable (-seq), IPersistentMap (-without/-assoc-ex). The macro regroups by target protocol. Object methods (hashCode/equals) + cljw-unmodeled (equiv/entryAt) that clj also allows here are NOT mapped → explicit feature_not_supported (slice 2 + D-280d), never silent drop."
     methods:
       count: { status: wired, wires_to_protocol: IPersistentCollection, wires_to_method: "-count" }
       cons: { status: wired, wires_to_protocol: IPersistentCollection, wires_to_method: "-cons" }
@@ -480,6 +480,7 @@ interfaces:
       containsKey: { status: wired, wires_to_protocol: Associative, wires_to_method: "-contains-key?" }
       seq: { status: wired, wires_to_protocol: Seqable, wires_to_method: "-seq" }
       without: { status: wired, wires_to_protocol: IPersistentMap, wires_to_method: "-without" }
+      assocEx: { status: wired, wires_to_protocol: IPersistentMap, wires_to_method: "-assoc-ex" }
       hashCode: { status: wired, wires_to: "Object method-family hashCode (D-280d1b — clj inherits Object under IPersistentMap; rewrite emits an Object section)" }
       equals: { status: wired, wires_to: "Object method-family equals (D-280d1b — same-type; cross-type is D-280d8)" }
       equiv: { status: wired, wires_to: "Object method-family equiv (D-280d8 — clj collection =; same-type, cross-type residual)" }
