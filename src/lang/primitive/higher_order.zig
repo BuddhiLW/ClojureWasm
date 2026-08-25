@@ -37,6 +37,7 @@ const reduced = @import("../../runtime/collection/reduced.zig");
 const range_mod = @import("../../runtime/collection/range.zig");
 const vector_mod = @import("../../runtime/collection/vector.zig");
 const sub_vector_mod = @import("../../runtime/collection/sub_vector.zig");
+const big_int = @import("../../runtime/numeric/big_int.zig");
 
 /// Count of a `.vector` OR `.sub_vector` — the reduce fast path index-walks both.
 fn vsCount(v: Value) u32 {
@@ -476,20 +477,51 @@ pub fn someQFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation
 // `-take-eager` remains (take is bounded-eager: it realizes only N, so
 // it already terminates on an infinite source).
 
-/// `(-take-eager n coll)` — eager list of first n elements.
+/// The realizable element count for a `take` numeric argument, mirroring clj's
+/// `(pos? n)` / `(dec n)` loop: a non-integer or infinite count is legal (clj
+/// compares the count numerically, it does not truncate). A positive float
+/// realizes ⌈n⌉ elements; ##Inf — or any count past the f64 integer range —
+/// realizes the whole (finite) source; n ≤ 0 / ##NaN realizes none. `null`
+/// means the count is not a number at all.
+const TakeCount = union(enum) { finite: i64, unbounded };
+
+fn takeCountOf(n_val: Value) ?TakeCount {
+    return switch (n_val.tag()) {
+        .integer => .{ .finite = n_val.asInteger() },
+        .float => blk: {
+            const f = n_val.asFloat();
+            if (std.math.isNan(f) or f <= 0) break :blk TakeCount{ .finite = 0 };
+            // Beyond 2^53 an f64 cannot represent consecutive integers, and no
+            // realizable sequence is that long, so ##Inf and any such count are
+            // unbounded — realize until the source ends.
+            if (f >= 9007199254740992.0) break :blk TakeCount.unbounded;
+            break :blk TakeCount{ .finite = @intFromFloat(@ceil(f)) };
+        },
+        // A BigInt count uses its value (`(take 5N …)` takes 5); one larger than
+        // any realizable sequence is unbounded (bounded by the finite source).
+        .big_int => blk: {
+            const v = big_int.toI64(n_val) catch break :blk TakeCount.unbounded;
+            break :blk TakeCount{ .finite = if (v > 0) v else 0 };
+        },
+        else => null,
+    };
+}
+
+/// `(-take-eager n coll)` — eager list of the first n elements. `n` may be any
+/// number (clj's take compares the count numerically): a positive float
+/// realizes ⌈n⌉ elements, ##Inf the whole finite source, n ≤ 0 / ##NaN none.
 pub fn takeEagerFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
     try error_catalog.checkArity("-take-eager", args, 2, loc);
-    const n_val = args[0];
-    if (n_val.tag() != .integer) {
-        return error_catalog.raise(.type_arg_not_integer, loc, .{
-            .fn_name = "-take-eager",
-            .actual = @tagName(n_val.tag()),
-        });
+    const count = takeCountOf(args[0]) orelse return error_catalog.raise(.type_arg_not_number, loc, .{
+        .fn_name = "take",
+        .actual = @tagName(args[0].tag()),
+    });
+    // (take 0 …) / (take -1 …) → () not nil (D-164): take yields an empty seq
+    // for a non-positive count.
+    switch (count) {
+        .finite => |n| if (n <= 0) return try list_mod.emptyList(rt),
+        .unbounded => {},
     }
-    const n = n_val.asInteger();
-    // (take 0 …) / (take -1 …) → () not nil (D-164): JVM take yields an
-    // empty seq for a non-positive count.
-    if (n <= 0) return try list_mod.emptyList(rt);
     // D-244 #4b: `cur` (the source cursor) AND each `collected` element are held
     // in a gpa `ArrayList` the GC does NOT trace, so a collect during `nextFn`'s
     // alloc (alloc-torture / ADR-0028 auto-collect) sweeps the source chunk +
@@ -502,7 +534,12 @@ pub fn takeEagerFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLoca
     var cur = try sequence.seqFn(rt, env, &.{args[1]}, loc);
     var collected: std.ArrayList(Value) = .empty;
     defer collected.deinit(rt.gpa);
-    var remaining: i64 = n;
+    // Unbounded (##Inf / oversized count) walks until the source ends; the
+    // source is finite by contract for an eager take, so maxInt never limits.
+    var remaining: i64 = switch (count) {
+        .finite => |n| n,
+        .unbounded => std.math.maxInt(i64),
+    };
     while (!cur.isNil() and remaining > 0) {
         try collected.append(rt.gpa, try sequence.firstFn(rt, env, &.{cur}, loc));
         remaining -= 1;

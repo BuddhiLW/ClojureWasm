@@ -66,6 +66,14 @@ pub fn originOf(v: Value) IntOrigin {
     return v.decodePtr(*const BigInt).origin;
 }
 
+/// The heap integer's value as an i64, or `error.TargetTooSmall` /
+/// `error.NegativeIntoUnsigned` when it does not fit. Caller must know `v` is
+/// `.big_int`. Used where a magnitude only matters up to i64 (e.g. a `take`
+/// count larger than any realizable sequence is treated as unbounded).
+pub fn toI64(v: Value) !i64 {
+    return v.decodePtr(*const BigInt).m.toInt(i64);
+}
+
 /// Parse a base-10 digit string `[-+]?ddd` into a Managed on `rt.gc.infra`,
 /// WITHOUT `std`'s `setString` — which has a Linux-glibc-x86 off-by-one past
 /// 2^64 (D-047). Builds the value as `acc = acc·10 + digit`, exact on every
