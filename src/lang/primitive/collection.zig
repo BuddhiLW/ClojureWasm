@@ -283,19 +283,23 @@ fn sortedMapConj(rt: *Runtime, env: *Env, m: Value, entry: Value, loc: SourceLoc
 /// JVM reference: clojure.core/disj → IPersistentSet.disjoin
 /// cw v1 tier: A (Phase 6.16.a-2)
 pub fn disjFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
-    try error_catalog.checkArity("disj", args, 2, loc);
-    const coll = args[0];
+    // clj: ([set] set) ([set k] …) ([set k & ks] …) — remove each key in turn.
+    try error_catalog.checkArityMin("disj", args, 1, loc);
+    var coll = args[0];
     if (coll.isNil()) return .nil_val;
-    return switch (coll.tag()) {
-        .hash_set => try set.disj(rt, coll, args[1]),
-        .sorted_set => try sorted.disjSet(rt, env, coll, args[1], loc),
-        else => blk: {
-            // D-089 row 8.6 cycle 4: IPersistentSet -disjoin slow-path
-            // (close cycle for the retro-audit cluster).
-            var cs: dispatch.CallSite = .{};
-            break :blk try dispatch.dispatch(rt, env, &cs, coll, IPS_FQCN, "-disjoin", args, loc);
-        },
-    };
+    for (args[1..]) |k| {
+        coll = switch (coll.tag()) {
+            .hash_set => try set.disj(rt, coll, k),
+            .sorted_set => try sorted.disjSet(rt, env, coll, k, loc),
+            else => blk: {
+                // D-089 row 8.6 cycle 4: IPersistentSet -disjoin slow-path
+                // (close cycle for the retro-audit cluster).
+                var cs: dispatch.CallSite = .{};
+                break :blk try dispatch.dispatch(rt, env, &cs, coll, IPS_FQCN, "-disjoin", &.{ coll, k }, loc);
+            },
+        };
+    }
+    return coll;
 }
 
 // --- contains? ---

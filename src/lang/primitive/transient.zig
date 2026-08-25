@@ -143,17 +143,21 @@ pub fn conjBangFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocat
 /// JVM reference: clojure.core/disj! → ITransientSet.disjoin
 /// cw v1 tier: A (Phase 8.5 cycle 3)
 pub fn disjBangFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
-    try error_catalog.checkArity("disj!", args, 2, loc);
-    const tcoll = args[0];
-    return switch (tcoll.tag()) {
-        .transient_set => try transient_hash_set.disj(rt, tcoll, args[1], loc),
-        .typed_instance => try dispatchBang(rt, env, tcoll, "ITransientSet", "-disjoin!", args, loc, "disj!", "transient_set"),
-        else => error_catalog.raise(.transient_kind_mismatch, loc, .{
-            .fn_name = "disj!",
-            .expected = "transient_set",
-            .actual = @tagName(tcoll.tag()),
-        }),
-    };
+    // clj: ([set] set) ([set k] …) ([set k & ks] …) — remove each key in turn.
+    try error_catalog.checkArityMin("disj!", args, 1, loc);
+    var tcoll = args[0];
+    for (args[1..]) |k| {
+        tcoll = switch (tcoll.tag()) {
+            .transient_set => try transient_hash_set.disj(rt, tcoll, k, loc),
+            .typed_instance => try dispatchBang(rt, env, tcoll, "ITransientSet", "-disjoin!", &.{ tcoll, k }, loc, "disj!", "transient_set"),
+            else => return error_catalog.raise(.transient_kind_mismatch, loc, .{
+                .fn_name = "disj!",
+                .expected = "transient_set",
+                .actual = @tagName(tcoll.tag()),
+            }),
+        };
+    }
+    return tcoll;
 }
 
 /// Implements clojure.core/assoc!.
@@ -209,17 +213,21 @@ pub fn assocBangFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLoca
 /// JVM reference: clojure.core/dissoc! → ITransientMap.without
 /// cw v1 tier: A (Phase 8.5 cycle 2)
 pub fn dissocBangFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
-    try error_catalog.checkArity("dissoc!", args, 2, loc);
-    const tcoll = args[0];
-    return switch (tcoll.tag()) {
-        .transient_map => try transient_array_map.dissoc(rt, tcoll, args[1], loc),
-        .typed_instance => try dispatchBang(rt, env, tcoll, "ITransientMap", "-without!", args, loc, "dissoc!", "transient_map"),
-        else => error_catalog.raise(.transient_kind_mismatch, loc, .{
-            .fn_name = "dissoc!",
-            .expected = "transient_map",
-            .actual = @tagName(tcoll.tag()),
-        }),
-    };
+    // clj: ([map key] …) ([map key & ks] …) — remove each key in turn (no 1-arg).
+    try error_catalog.checkArityMin("dissoc!", args, 2, loc);
+    var tcoll = args[0];
+    for (args[1..]) |k| {
+        tcoll = switch (tcoll.tag()) {
+            .transient_map => try transient_array_map.dissoc(rt, tcoll, k, loc),
+            .typed_instance => try dispatchBang(rt, env, tcoll, "ITransientMap", "-without!", &.{ tcoll, k }, loc, "dissoc!", "transient_map"),
+            else => return error_catalog.raise(.transient_kind_mismatch, loc, .{
+                .fn_name = "dissoc!",
+                .expected = "transient_map",
+                .actual = @tagName(tcoll.tag()),
+            }),
+        };
+    }
+    return tcoll;
 }
 
 /// Implements clojure.core/pop!.
