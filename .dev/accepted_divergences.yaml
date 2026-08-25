@@ -892,7 +892,7 @@ accepted:
     derives_from: "ADR-0176 (live-worker teardown guard; the JVM-exact wait-for-futures flip enumerated + rejected there as a separate product decision) + ADR-0059 no-JVM (no executor pools) + ADR-0174 D6 (the daemon hard-exit idiom ADR-0176 generalises)."
     pin: "test/e2e/phase14_future_promise_delay.sh — `exit_pending_future` (a 60s-sleeper future + prompt :ok exit, bounded)."
   - id: "AD-057"
-    summary: "clojure.core publishes 104 public names JVM Clojure does not: protocol names (ISeq, ILookup, Seqable, …), their `-name` methods (-first, -count, -assoc, …), and a few cljw-original conveniences (array?, queue?, re-find-all, …)."
+    summary: "clojure.core publishes 107 public names JVM Clojure does not: protocol names (ISeq, ILookup, Seqable, …), their `-name` methods (-first, -count, -assoc, -assoc-ex, …), and a few cljw-original conveniences (array?, queue?, re-find-all, …). The count is data/core_surface_extras.txt, which check_core_surface.sh gates; this prose had drifted to 104 and is corrected to match."
     example: "(contains? (set (map name (keys (ns-publics 'clojure.core)))) \"ISeq\") => cljw true / clj false. `clojure.lang.ISeq` is a Java INTERFACE upstream, not a clojure.core var."
     why: |-
       cljw has no Java, so the `clojure.lang.*` interfaces a JVM `deftype`

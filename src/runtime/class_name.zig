@@ -101,6 +101,12 @@ const NATIVE_ENTRIES = [_]NativeEntry{
     // instance-method surface (getName/…) already lives on
     // nativeDescriptor(.type_descriptor) via java/lang/Class.zig.
     .{ .name = "Class", .tag = .type_descriptor },
+    // clojure.lang.MultiFn — a multimethod IS a distinct native class (1 tag →
+    // 1 name), so it is an exact-tag `instance?` target (unlike the ambiguous
+    // `Fn`, whose 3 fn tags share one display name and stay in displayClassName).
+    // Lets `(instance? clojure.lang.MultiFn ct/report)` be true — the branch
+    // clojure.test.check.clojure-test guards its multimethod reporting on.
+    .{ .name = "MultiFn", .tag = .multi_fn },
 };
 
 /// FQCN → simple normalisation for native class names. Throwable
@@ -117,6 +123,7 @@ const FQCN_MAP = std.StaticStringMap([]const u8).initComptime(.{
     .{ "java.lang.Number", "Number" },
     .{ "java.util.regex.Pattern", "Pattern" },
     .{ "java.util.UUID", "UUID" },
+    .{ "clojure.lang.MultiFn", "MultiFn" },
     // java.util.Date is NOT here: Date values carry the canonical
     // rt.types["java.util.Date"] descriptor (ADR-0174 merge), whose fqcn IS
     // the FQCN — instance?/resolution match on it directly.
@@ -231,7 +238,9 @@ pub fn fqcnForTag(tag: Tag) ?[]const u8 {
 pub fn displayClassName(tag: Tag) ?[]const u8 {
     return switch (tag) {
         .fn_val, .builtin_fn, .protocol_fn => "Fn",
-        .multi_fn => "MultiFn",
+        // `.multi_fn` is NOT here: it is a NATIVE_ENTRIES exact-tag class
+        // ("MultiFn"), resolved by `fqcnForTag` before this fallback, so a
+        // multimethod is an `instance?` target (see NATIVE_ENTRIES).
         .lazy_seq => "LazySeq",
         .cons => "Cons",
         .chunked_cons => "ChunkedSeq",
@@ -591,4 +600,18 @@ test "nativeTagFor: interface-shaped + unknown names do NOT resolve" {
     // Throwable hierarchy is not a NATIVE_ENTRIES exact-tag class.
     try testing.expectEqual(@as(?Tag, null), nativeTagFor("Throwable"));
     try testing.expectEqual(@as(?Tag, null), nativeTagFor("FooBarClass"));
+}
+
+test "MultiFn is an exact-tag native class (blocker 4: instance? clojure.lang.MultiFn)" {
+    // A multimethod resolves 1 tag → 1 name, so it is a real `instance?` target
+    // (test.check.clojure-test guards `(instance? clojure.lang.MultiFn ct/report)`).
+    try testing.expectEqual(@as(?Tag, .multi_fn), nativeTagFor("MultiFn"));
+    try testing.expectEqual(@as(?Tag, .multi_fn), nativeTagFor("clojure.lang.MultiFn"));
+    try testing.expectEqualStrings("MultiFn", fqcnForTag(.multi_fn).?);
+    try testing.expect(isKnown("MultiFn"));
+    try testing.expect(isKnown("clojure.lang.MultiFn"));
+    // Still a callable class so `(isa? (class my-multi) IFn)` holds.
+    try testing.expect(isCallableClassName("MultiFn"));
+    // `Fn` remains ambiguous (3 tags share it) and stays a NON-instance? name.
+    try testing.expectEqual(@as(?Tag, null), nativeTagFor("Fn"));
 }

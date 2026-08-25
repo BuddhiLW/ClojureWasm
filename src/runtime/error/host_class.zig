@@ -72,6 +72,10 @@ pub const ENTRIES = [_]Entry{
 
     .{ .name = "Error", .parent = "Throwable" },
     .{ .name = "OutOfMemoryError", .parent = "Error" },
+    // java.lang.ThreadDeath ⊂ Error. cljw is single-threaded and never throws
+    // it; recognised only so a `(catch java.lang.ThreadDeath t (throw t))` guard
+    // ANALYSES (test.check.properties re-throws it to not swallow thread-death).
+    .{ .name = "ThreadDeath", .parent = "Error" },
     // `(assert …)` throws an AssertionError (under Error, NOT Exception) — D-192.
     .{ .name = "AssertionError", .parent = "Error" },
     // Stack overflow: JVM StackOverflowError ⊂ VirtualMachineError ⊂ Error; cw
@@ -124,6 +128,7 @@ const FQCN_MAP = std.StaticStringMap([]const u8).initComptime(.{
     .{ "java.lang.Throwable", "Throwable" },
     .{ "java.lang.Error", "Error" },
     .{ "java.lang.OutOfMemoryError", "OutOfMemoryError" },
+    .{ "java.lang.ThreadDeath", "ThreadDeath" },
     // `(assert …)` throws AssertionError; clj catches it by simple OR FQCN name
     // (D-398, surfaced by clojure.tools.trace `extend-type java.lang.AssertionError`).
     .{ "java.lang.AssertionError", "AssertionError" },
@@ -429,6 +434,16 @@ test "CancellationException hierarchy (D-442): ⊂ IllegalStateException ⊂ Run
     // Sibling, not a subtype: an IllegalArgumentException catch must NOT match.
     try testing.expect(!isSubclassOf("CancellationException", "IllegalArgumentException"));
     try testing.expectEqualStrings("CancellationException", kindToHostClass(.cancellation_error).?);
+}
+
+test "ThreadDeath (blocker 3): ⊂ Error ⊂ Throwable, NOT under Exception" {
+    try testing.expect(isKnownException("ThreadDeath"));
+    try testing.expect(isKnownException("java.lang.ThreadDeath"));
+    try testing.expectEqualStrings("ThreadDeath", normalizeClassName("java.lang.ThreadDeath"));
+    try testing.expect(isSubclassOf("ThreadDeath", "Error"));
+    try testing.expect(isSubclassOf("ThreadDeath", "Throwable"));
+    // Under Error, so a `(catch Exception …)` must NOT swallow it (clj parity).
+    try testing.expect(!isSubclassOf("ThreadDeath", "Exception"));
 }
 
 test "kindToHostClass: file_not_found maps to the leaf FileNotFoundException (D-321)" {

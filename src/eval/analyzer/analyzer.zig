@@ -62,6 +62,7 @@ const sub_vector_collection = @import("../../runtime/collection/sub_vector.zig")
 const map_collection = @import("../../runtime/collection/map.zig");
 const set_collection = @import("../../runtime/collection/set.zig");
 const big_int = @import("../../runtime/numeric/big_int.zig");
+const promote = @import("../../runtime/numeric/promote.zig");
 const big_decimal = @import("../../runtime/numeric/big_decimal.zig");
 const ratio_mod = @import("../../runtime/numeric/ratio.zig");
 const print_mod = @import("../../runtime/print.zig");
@@ -1018,6 +1019,14 @@ fn analyzeList(
             // shadowed by a local: not a macro
         } else {
             if (resolveMaybe(env, head)) |v_ptr| {
+                // *unchecked-math*: rewrite a pristine core +/-/*/inc/dec to
+                // nested wrapping unchecked-* ops while the flag is truthy
+                // (CLJW-UNCHECKED-MATH). Before macro dispatch (these are not
+                // macros) so the wrapping form is what gets analyzed.
+                if (uncheckedArithOp(rt, env, v_ptr, head)) |uop| {
+                    if (try uncheckedArithRewrite(arena, uop, items[1..], form.location)) |rewritten|
+                        return analyze(arena, rt, env, scope, rewritten, macro_table);
+                }
                 // instance?'s class name is a lexical class reference (like the
                 // (Class. …) / Class/method branches above): resolve an imported
                 // simple name to its FQCN here, at analyze time, so a fn closing
@@ -1081,6 +1090,80 @@ fn resolveMaybe(env: *Env, sym: SymbolRef) ?*Var {
     }
     const ns = env.current_ns orelse return null;
     return ns.resolve(sym.name);
+}
+
+// --- *unchecked-math* honoring (CLJW-UNCHECKED-MATH) ------------------------
+// cljw's checked +/-/*/inc/dec AUTO-PROMOTE i64 overflow to BigInt; JVM Clojure
+// instead WRAPS when `*unchecked-math*` is truthy at COMPILE time. We reproduce
+// that here at analyze time: while the flag is truthy, a call to a pristine core
+// arith op is rewritten to nested wrapping unchecked-* ops (which cljw already
+// has). Analyze-time only — no runtime cost when the flag is off, and the rare
+// flag-on read happens once per form (compile), not per execution.
+
+/// True iff `*unchecked-math*` is currently bound truthy (`true` or the
+/// `:warn-on-boxed` keyword, both truthy). Reads the live value so a
+/// `(set! *unchecked-math* …)` earlier in the same load scopes the rewrite.
+fn uncheckedMathActive(rt: *Runtime) bool {
+    const p = rt.unchecked_math_var orelse return false;
+    const v: *const Var = @ptrCast(@alignCast(p));
+    return v.deref().isTruthy();
+}
+
+/// If `*unchecked-math*` is active and `head` names the canonical `clojure.core`
+/// +/-/*/inc/dec (not a user redef; for the intrinsic ops the arith cache must
+/// be pristine so an `alter-var-root` deopt is honoured), return the op name;
+/// else null.
+fn uncheckedArithOp(rt: *Runtime, env: *Env, v_ptr: *const Var, head: SymbolRef) ?[]const u8 {
+    if (!uncheckedMathActive(rt)) return null;
+    const core = env.findNs("clojure.core") orelse return null;
+    const names = [_][]const u8{ "+", "-", "*", "inc", "dec" };
+    for (names) |nm| {
+        if (!std.mem.eql(u8, head.name, nm)) continue;
+        const canon = core.resolve(nm) orelse return null;
+        if (canon != v_ptr) return null;
+        const is_intrinsic = std.mem.eql(u8, nm, "+") or std.mem.eql(u8, nm, "-") or std.mem.eql(u8, nm, "*");
+        if (is_intrinsic and !rt.core_arith_pristine) return null;
+        return nm;
+    }
+    return null;
+}
+
+/// `(clojure.core/<name> args...)` — a hygienic qualified-head call Form.
+fn coreCallForm(arena: std.mem.Allocator, name: []const u8, call_args: []const Form, loc: SourceLocation) !Form {
+    const items = try arena.alloc(Form, 1 + call_args.len);
+    items[0] = .{ .data = .{ .symbol = .{ .ns = "clojure.core", .name = name } }, .location = loc };
+    @memcpy(items[1..], call_args);
+    return .{ .data = .{ .list = items }, .location = loc };
+}
+
+/// Rewrite `(op args…)` into nested WRAPPING unchecked-* ops (JVM's unchecked
+/// compile mode). Emitted heads are clojure.core-qualified and are NOT remapped,
+/// so re-analysis cannot loop. Returns null for an arity the binary/unary
+/// unchecked builtins cannot express (`(-)`, `(inc a b)`), leaving the checked
+/// path to run and raise its own arity error.
+fn uncheckedArithRewrite(arena: std.mem.Allocator, op: []const u8, args: []const Form, loc: SourceLocation) !?Form {
+    const eq = std.mem.eql;
+    if (eq(u8, op, "+") or eq(u8, op, "*")) {
+        const bin: []const u8 = if (eq(u8, op, "+")) "unchecked-add" else "unchecked-multiply";
+        if (args.len == 0) {
+            const ident: i64 = if (eq(u8, op, "+")) 0 else 1;
+            return Form{ .data = .{ .integer = ident }, .location = loc };
+        }
+        if (args.len == 1) return args[0];
+        var acc = try coreCallForm(arena, bin, args[0..2], loc);
+        for (args[2..]) |a| acc = try coreCallForm(arena, bin, &.{ acc, a }, loc);
+        return acc;
+    }
+    if (eq(u8, op, "-")) {
+        if (args.len == 0) return null;
+        if (args.len == 1) return try coreCallForm(arena, "unchecked-negate", args[0..1], loc);
+        var acc = try coreCallForm(arena, "unchecked-subtract", args[0..2], loc);
+        for (args[2..]) |a| acc = try coreCallForm(arena, "unchecked-subtract", &.{ acc, a }, loc);
+        return acc;
+    }
+    if (eq(u8, op, "inc")) return if (args.len == 1) try coreCallForm(arena, "unchecked-inc", args[0..1], loc) else null;
+    if (eq(u8, op, "dec")) return if (args.len == 1) try coreCallForm(arena, "unchecked-dec", args[0..1], loc) else null;
+    return null;
 }
 
 fn analyzeCall(
@@ -1592,7 +1675,15 @@ pub fn valueToForm(
             };
             break :blk .{ .data = .{ .ratio_literal = lit }, .location = call_loc };
         },
-        .big_int => .{ .data = .{ .big_int_literal = try std.fmt.allocPrint(arena, "{f}", .{big_int.asManaged(v)}) }, .location = call_loc },
+        // A heap-boxed Long (origin .long, D-165) must round-trip as a Long, not
+        // a BigInt: valueToForm feeds macroexpansion, and a macro returning a
+        // large-magnitude i64 (e.g. test.check's `longify`) would otherwise come
+        // back as a BigInt literal and break downstream i64-only ops
+        // (unsigned-bit-shift-right et al.).
+        .big_int => if (big_int.originOf(v) == .long) blk: {
+            const n = promote.exactI64(v) catch break :blk Form{ .data = .{ .big_int_literal = try std.fmt.allocPrint(arena, "{f}", .{big_int.asManaged(v)}) }, .location = call_loc };
+            break :blk Form{ .data = .{ .integer = n }, .location = call_loc };
+        } else .{ .data = .{ .big_int_literal = try std.fmt.allocPrint(arena, "{f}", .{big_int.asManaged(v)}) }, .location = call_loc },
         .big_decimal => blk: {
             var aw: std.Io.Writer.Allocating = .init(arena);
             print_mod.writeBigDecimalDigits(&aw.writer, v) catch return error.OutOfMemory;

@@ -7,6 +7,90 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 
 ## [Unreleased]
 
+### Added
+
+- **`cljw.net/listen` — a cljw process can now SERVE, not only dial.**
+  `cljw.net` exposed `connect` and nothing else, so a cljw program could reach
+  out and never answer: no RPC endpoint, no socket server, no accepting
+  anything. The `.listen`/`.accept` pair it needed has been in
+  `src/app/nrepl.zig` the whole time (cljw runs an nREPL server); this lifts it
+  to a Clojure-facing surface.
+
+  ```clojure
+  (let [srv  (cljw.net/listen "127.0.0.1" 0)   ; 0 = ask the OS
+        port (.port srv)                        ; ...and find out what it gave
+        sock (.accept srv)]                     ; blocks until a peer arrives
+    (.read sock (byte-array 1024))
+    (.close sock)
+    (.close srv))
+  ```
+
+  `.accept` answers a socket built on the **same** descriptor `connect`
+  produces, so `.read` / `.write` / `.close` gained no new arm — a new
+  *producer* of an existing representation rather than a second representation
+  every reader would have to tell apart.
+
+  `.port` reports the BOUND port, which is the only thing that makes `(listen h
+  0)` usable. `.close` is idempotent and closes the listener alone: sockets it
+  already handed out stay open, matching a JVM `ServerSocket`.
+
+  A hostname is rejected rather than resolved. You bind an interface this host
+  already owns, so there is nothing to look up and a name is a caller mistake.
+
+- **`cljw.net/connect-unix` and `cljw.net/listen-unix` — UNIX domain sockets.**
+  A unix socket needs no port to allocate or collide on, and the filesystem
+  already answers who may connect, which is why local RPC endpoints prefer one.
+
+  ```clojure
+  (let [srv  (cljw.net/listen-unix "/tmp/app.sock")
+        sock (.accept srv)]
+    (.read sock (byte-array 1024))
+    (.close sock)
+    (.close srv))
+  ```
+
+  `UnixAddress.listen` / `.connect` answer the **same** `Server` / `Stream`
+  types the IP pair does, so these reuse both carriers, both descriptors, both
+  method tables and both finalisers unchanged — a unix socket is a different
+  *address*, not a different representation. `.accept` / `.read` / `.write` /
+  `.close` are the same functions the TCP side uses.
+
+  Two behaviours are deliberate, and pinned by the e2e because they can look
+  like bugs. `.port` on a unix server answers **0** — a unix socket genuinely
+  has no port, and 0 is honest where a fabricated value would not be. And a
+  leftover socket file from a dead process is **not unlinked for you**: the
+  path may still belong to a live server, and deleting another process's socket
+  is the caller's decision, not the runtime's.
+
+  The 108-byte path cap is the OS's rather than the filesystem's — easy to
+  exceed with an ordinary temp path — so it is reported as a clear argument
+  error instead of an opaque bind failure.
+
+### Fixed
+
+- **`assocEx` is wired on a `deftype`/`reify` `clojure.lang.IPersistentMap`
+  section.** clj's `IPersistentMap` declares `assocEx` — assoc that throws when
+  the key is already present — so a type implementing the interface faithfully
+  declares it. cljw's remap table had no row for the name, and an unwired
+  `clojure.lang.*` method is a LOAD-time raise, so one unrecognised name took
+  down the entire type, and with it the namespace, and with it every namespace
+  requiring it.
+
+  Found against [replikativ/boring][boring]: `boring.data`'s `UnknownRecord`
+  declares `assocEx` between `assoc` and `without`, and the namespace would not
+  load at all. The declaring type's own body supplies the behaviour, so
+  registering the method is all cljw owes it; `IPersistentMap` gains the
+  matching `-assoc-ex` protocol method plus the identity remap row every
+  member needs so a cljw-form `extend-type` section passes through unrewritten.
+
+  `(.assocEx native-map k v)` stays deliberately unwired. There is no
+  `clojure.core` fn with `assocEx`'s semantics, and mapping it to `assoc` would
+  answer a *different question silently* — the failure class F-002 rejects. It
+  therefore still raises, which is the honest answer until a caller justifies a
+  real primitive.
+
+[boring]: https://github.com/replikativ/boring
+
 ## [1.11.0] - 2026-08-22
 
 ### Added

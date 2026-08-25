@@ -1892,7 +1892,7 @@
 (defprotocol ILookup (-lookup [c k]))
 (defprotocol Indexed (-nth [c i]))
 (defprotocol Associative (-assoc [c k v]) (-contains-key? [c k]) (-entry-at [c k]))
-(defprotocol IPersistentMap (-without [m k]) (-keys [m]) (-vals [m]))
+(defprotocol IPersistentMap (-without [m k]) (-keys [m]) (-vals [m]) (-assoc-ex [m k v]))
 (defprotocol IPersistentSet (-disjoin [s k]))
 ;; Editable / transient collection family (D-286, F-013 definition-derived).
 ;; A deftype declaring these (flatland.ordered's OrderedSet/Transient* types)
@@ -2663,6 +2663,51 @@
        (if (< ~idx (alength a#))
          (recur (inc ~idx) ~expr)
          ~ret))))
+
+;; ---------------------------------------------------------------------------
+;; proxy — cljw has no JVM class hierarchy to extend, so `proxy` supports a
+;; REGISTERED, closed-per-build set of base classes (D-298). The runtime cells
+;; live in cljw.proxy; this is the OCP expansion layer. WHAT + contract only —
+;; rationale (single-thread ThreadLocal semantics, why a registry) is in memory.
+;; ---------------------------------------------------------------------------
+
+(defn- proxy-threadlocal-expansion
+  "Expander for (proxy [ThreadLocal] [] (initialValue [] body)). Emits a
+   construction of the cljw.proxy ThreadLocal cell whose initialValue is the
+   given 0-arg body. requiring-resolve keeps cljw.proxy off the analyze-time
+   path and loads it on first use (the bundled-load-safe pattern)."
+  [ctor-args methods]
+  (let [init (methods 'initialValue)]
+    (when-not (and (empty? ctor-args) init)
+      (throw (ex-info "proxy [ThreadLocal] takes no super-args and requires an (initialValue [] ...) method"
+                      {:proxy/base 'ThreadLocal :methods (vec (keys methods))})))
+    `((requiring-resolve 'cljw.proxy/threadlocal-cell) (fn ~@init))))
+
+(def ^:private proxy-base-registry
+  "OCP extension point (D-298): base-class symbol -> expander
+   (fn [ctor-args method-map] -> form). A base absent here is unsupported, and
+   `proxy` raises rather than silently mis-expanding. Add a base by adding an
+   entry (and a cell in cljw.proxy) — the `proxy` macro body never changes."
+  {'ThreadLocal           proxy-threadlocal-expansion
+   'java.lang.ThreadLocal proxy-threadlocal-expansion})
+
+(defmacro proxy
+  "Construct an instance of a REGISTERED proxyable base class with the given
+   method overrides. Unlike JVM `proxy`, cljw's base set is closed per build
+   (see proxy-base-registry): an unregistered base is a compile-time error, not
+   a deep JVM class extension. Shape:
+     (proxy [Base] [super-args] (method-name [params*] body)+)."
+  {:arglists '([class-and-interfaces args & fs])}
+  [bases ctor-args & fns]
+  (let [base     (first bases)
+        expander (get proxy-base-registry base)
+        methods  (into {} (map (fn [f] [(first f) (rest f)])) fns)]
+    (when-not expander
+      (throw (ex-info (str "proxy against " base " is not part of ClojureWasm. "
+                           "Supported base classes: " (pr-str (vec (keys proxy-base-registry)))
+                           ". Extending arbitrary JVM classes needs deep class extension cljw does not provide.")
+                      {:proxy/base base})))
+    (expander ctor-args methods)))
 
 (defn Throwable->map
   "Constructs a data representation for a caught exception with keys:

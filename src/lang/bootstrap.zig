@@ -214,6 +214,11 @@ pub const FILES: []const FileEntry = &.{
     // (`cljw -m cljw.test`). Loads after clojure.test (FILES[10]) and cljw.fs;
     // require-on-demand. Appended last so earlier FILES[N] indices stay stable.
     f("cljw.test", "clj/cljw/test.clj"),
+    // cljw.proxy (D-298) — runtime support for `clojure.core/proxy` over the
+    // registered proxyable base classes (ThreadLocal is entry 1). deftype +
+    // protocol, no JVM class extension; require-on-demand (the proxy macro
+    // requiring-resolves it). Appended last so earlier FILES[N] indices stay stable.
+    f("cljw.proxy", "clj/cljw/proxy.clj"),
 };
 
 /// The build-active subset of `FILES`. **Every walk that compiles, emits, or
@@ -570,6 +575,12 @@ pub fn cacheArithIntrinsics(rt: *Runtime, env: *Env) void {
         if (v) |p| rt.coll_vars[@intFromEnum(op)] = p;
     }
     rt.core_coll_pristine = true;
+
+    // *unchecked-math* (CLJW-UNCHECKED-MATH): cache the Var so the analyzer can
+    // read its current value and rewrite pristine core arith to wrapping
+    // unchecked-* ops while it is truthy. Resolved from clojure.core (interned
+    // in core.clj); null if absent (the rewrite then never fires).
+    if (core) |c| rt.unchecked_math_var = c.resolve("*unchecked-math*");
 }
 
 /// Intern `clojure.core/*print-length*` and `*print-level*` as `^:dynamic`
