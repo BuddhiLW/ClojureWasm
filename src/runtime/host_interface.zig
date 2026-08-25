@@ -346,6 +346,20 @@ const IPERSISTENT_MAP: HostInterface = .{
         .{ .clj = "-without", .protocol = "IPersistentMap", .method = "-without" },
         .{ .clj = "-keys", .protocol = "IPersistentMap", .method = "-keys" },
         .{ .clj = "-vals", .protocol = "IPersistentMap", .method = "-vals" },
+        // assocEx = assoc that THROWS when the key is already present. clj's
+        // IPersistentMap declares it, so a type implementing the interface
+        // faithfully declares it too (replikativ/boring's UnknownRecord does,
+        // and that single unwired name was the whole reason boring.data would
+        // not load). The declaring type's own body supplies the behaviour, so
+        // registering the method is all cljw owes it.
+        //
+        // Deliberately NOT added to clojure_lang_method.METHOD_MAP: there is no
+        // clojure.core fn with assocEx's semantics, and mapping it to `assoc`
+        // would answer a DIFFERENT question silently — the failure class F-002
+        // rejects. `(.assocEx native-map k v)` therefore still raises, which is
+        // the honest answer until a caller justifies a real primitive.
+        .{ .clj = "assocEx", .protocol = "IPersistentMap", .method = "-assoc-ex" },
+        .{ .clj = "-assoc-ex", .protocol = "IPersistentMap", .method = "-assoc-ex" },
     },
 };
 

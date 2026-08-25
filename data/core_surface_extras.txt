@@ -23,6 +23,7 @@
 -as-transient
 -assoc
 -assoc!
+-assoc-ex
 -assoc-n
 -assoc-n!
 -blocking-deref

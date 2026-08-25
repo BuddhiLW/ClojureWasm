@@ -1892,7 +1892,7 @@
 (defprotocol ILookup (-lookup [c k]))
 (defprotocol Indexed (-nth [c i]))
 (defprotocol Associative (-assoc [c k v]) (-contains-key? [c k]) (-entry-at [c k]))
-(defprotocol IPersistentMap (-without [m k]) (-keys [m]) (-vals [m]))
+(defprotocol IPersistentMap (-without [m k]) (-keys [m]) (-vals [m]) (-assoc-ex [m k v]))
 (defprotocol IPersistentSet (-disjoin [s k]))
 ;; Editable / transient collection family (D-286, F-013 definition-derived).
 ;; A deftype declaring these (flatland.ordered's OrderedSet/Transient* types)

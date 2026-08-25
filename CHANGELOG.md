@@ -7,6 +7,31 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 
 ## [Unreleased]
 
+### Fixed
+
+- **`assocEx` is wired on a `deftype`/`reify` `clojure.lang.IPersistentMap`
+  section.** clj's `IPersistentMap` declares `assocEx` — assoc that throws when
+  the key is already present — so a type implementing the interface faithfully
+  declares it. cljw's remap table had no row for the name, and an unwired
+  `clojure.lang.*` method is a LOAD-time raise, so one unrecognised name took
+  down the entire type, and with it the namespace, and with it every namespace
+  requiring it.
+
+  Found against [replikativ/boring][boring]: `boring.data`'s `UnknownRecord`
+  declares `assocEx` between `assoc` and `without`, and the namespace would not
+  load at all. The declaring type's own body supplies the behaviour, so
+  registering the method is all cljw owes it; `IPersistentMap` gains the
+  matching `-assoc-ex` protocol method plus the identity remap row every
+  member needs so a cljw-form `extend-type` section passes through unrewritten.
+
+  `(.assocEx native-map k v)` stays deliberately unwired. There is no
+  `clojure.core` fn with `assocEx`'s semantics, and mapping it to `assoc` would
+  answer a *different question silently* — the failure class F-002 rejects. It
+  therefore still raises, which is the honest answer until a caller justifies a
+  real primitive.
+
+[boring]: https://github.com/replikativ/boring
+
 ## [1.11.0] - 2026-08-22
 
 ### Added
