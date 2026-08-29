@@ -57,6 +57,7 @@ pub fn refFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) 
         const k = args[i];
         const val = args[i + 1];
         if (@intFromEnum(k) == @intFromEnum(kw_meta)) {
+            try iref.requireMetaMap(val, "ref", loc);
             ref_mod.setMeta(r, val);
         } else if (@intFromEnum(k) == @intFromEnum(kw_validator)) {
             ref_mod.setValidator(r, val);

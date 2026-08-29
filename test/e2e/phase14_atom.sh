@@ -50,5 +50,13 @@ assert_eq 'ctor_validator_no_meta' "$("$BIN" -e '(meta (atom 1 :validator pos?))
 assert_eq 'ctor_validator_reject' "$("$BIN" -e '(try (atom -1 :validator pos?) (catch Throwable e :threw))' 2>/dev/null)" ':threw'
 # a later swap! past the ctor validator throws + leaves the atom unchanged.
 assert_eq 'ctor_validator_swap_reject' "$("$BIN" -e '(let [a (atom 2 :validator even?)] (try (swap! a inc) (catch Throwable e :rejected)))' 2>/dev/null)" ':rejected'
+# :meta must be a map — clj's setup-reference casts it to IPersistentMap, so a
+# non-map :meta is a ClassCastException. A map is kept; a non-map throws. The
+# guard is shared by atom / ref / agent (iref.requireMetaMap).
+assert_eq 'ctor_meta_map'    "$("$BIN" -e '(meta (atom 1 :meta {:x 1}))')" '{:x 1}'
+assert_eq 'ctor_meta_nonmap' "$("$BIN" -e '(try (atom 1 :meta 5) (catch Throwable e :threw))' 2>/dev/null)"  ':threw'
+assert_eq 'ctor_meta_set'    "$("$BIN" -e '(try (atom 1 :meta #{}) (catch Throwable e :threw))' 2>/dev/null)" ':threw'
+assert_eq 'ctor_meta_ref'    "$("$BIN" -e '(try (ref 1 :meta 5) (catch Throwable e :threw))' 2>/dev/null)"    ':threw'
+assert_eq 'ctor_meta_agent'  "$("$BIN" -e '(try (agent 1 :meta 5) (catch Throwable e :threw))' 2>/dev/null)"  ':threw'
 
-echo "OK — phase14_atom smoke (25 cases) green"
+echo "OK — phase14_atom smoke (30 cases) green"

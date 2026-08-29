@@ -18,6 +18,7 @@ const error_catalog = @import("../../runtime/error/catalog.zig");
 const SourceLocation = error_mod.SourceLocation;
 const dispatch = @import("../../runtime/dispatch.zig");
 const agent_mod = @import("../../runtime/agent.zig");
+const iref = @import("../../runtime/iref.zig");
 const root_set = @import("../../runtime/gc/root_set.zig");
 const vector = @import("../../runtime/collection/vector.zig");
 const promise_mod = @import("../../runtime/promise.zig");
@@ -71,6 +72,7 @@ pub fn agentFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation
         const k = args[i];
         const val = args[i + 1];
         if (@intFromEnum(k) == @intFromEnum(kw_meta)) {
+            try iref.requireMetaMap(val, "agent", loc);
             agent_mod.setMeta(a, val);
         } else if (@intFromEnum(k) == @intFromEnum(kw_validator)) {
             agent_mod.setValidator(a, val);

@@ -124,6 +124,7 @@ test {
     _ = @import("runtime/collection/transient/transient_array_map.zig");
     _ = @import("runtime/collection/transient/transient_hash_set.zig");
     _ = @import("runtime/hash.zig");
+    _ = @import("runtime/iref.zig");
     _ = @import("runtime/keyword.zig");
     _ = @import("runtime/symbol.zig");
     _ = @import("runtime/print.zig");

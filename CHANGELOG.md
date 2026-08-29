@@ -68,6 +68,13 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 
 ### Fixed
 
+- **`(atom v :meta m)` / `ref` / `agent` reject a non-map `:meta`.** clj's
+  `setup-reference` casts a `:meta` constructor option to `IPersistentMap`, so a
+  number, set, or vector `:meta` throws `ClassCastException` — but cljw silently
+  accepted it (e.g. `(meta (atom 1 :meta 5))` returned `5`). All three reference
+  constructors now reject a non-nil, non-map `:meta` through one shared guard
+  (`iref.requireMetaMap`).
+
 - **`(contains? array i)` tests index validity instead of throwing.** A Java
   array is Indexed, so clj's `contains?` answers `true`/`false` for an integer
   key by bounds — but cljw raised `No implementation of method
