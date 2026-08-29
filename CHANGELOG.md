@@ -7,6 +7,8 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 
 ## [Unreleased]
 
+## [1.12.1] - 2026-08-29
+
 ### Fixed
 
 - **`future` / `future-call` / `pmap` convey the creating thread's dynamic
