@@ -35,8 +35,10 @@ const hash = @import("../hash.zig");
 /// i48 inline range but stays ≤ i64) or a genuine arbitrary-precision
 /// BigInt (D-165 / ADR-0080 — B2). INTENT-based, set by the producing call,
 /// NEVER inferred from magnitude: `(parse-long "999999999999999")` →
-/// `.long`, `(bigint 5)` / `5N` → `.bigint`. Gates only print (`N` suffix)
-/// and `(class)` / `instance?` (Long vs BigInt); `=` / hash are value-based
+/// `.long`, `(bigint 5)` / `5N` → `.bigint`. Gates print (`N` suffix),
+/// `(class)` / `instance?` (Long vs BigInt), and the FIXED-PRECISION
+/// predicates `int?` / `pos-int?` / `neg-int?` / `nat-int?` (a `.long`-origin
+/// heap Long is `int?`, a `.bigint` is not); `=` / hash are value-based
 /// (D-205) and ignore it.
 pub const IntOrigin = enum(u8) { long, bigint };
 
@@ -62,6 +64,14 @@ pub const BigInt = extern struct {
 /// The heap integer's origin (D-165). Caller must know `v` is `.big_int`.
 pub fn originOf(v: Value) IntOrigin {
     return v.decodePtr(*const BigInt).origin;
+}
+
+/// The heap integer's value as an i64, or `error.TargetTooSmall` /
+/// `error.NegativeIntoUnsigned` when it does not fit. Caller must know `v` is
+/// `.big_int`. Used where a magnitude only matters up to i64 (e.g. a `take`
+/// count larger than any realizable sequence is treated as unbounded).
+pub fn toI64(v: Value) !i64 {
+    return v.decodePtr(*const BigInt).m.toInt(i64);
 }
 
 /// Parse a base-10 digit string `[-+]?ddd` into a Managed on `rt.gc.infra`,

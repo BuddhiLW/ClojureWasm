@@ -692,23 +692,50 @@ fn join(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyer
 /// each element's low 8 bits form a byte, so a signed -61 and unsigned 195 both
 /// give 0xC3). cljw is UTF-8-only (charset arg accepted, UTF-8 used). `(String.
 /// char-array)` → the chars' codepoints UTF-8-encoded (the first element's tag
-/// selects the char vs byte path).
+/// selects the char vs byte path). `(String. bytes/chars offset length
+/// [charset])` → the `[offset, offset+length)` sub-range only; an out-of-range
+/// window throws (JVM StringIndexOutOfBounds), it does not clamp.
 fn stringCtor(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
     _ = env;
     if (args.len == 0) return string_collection.alloc(rt, "");
-    if (args.len > 2)
-        return error_catalog.raise(.arity_out_of_range, loc, .{ .fn_name = "java.lang.String.", .got = args.len, .min = 0, .max = 2 });
+    if (args.len > 4)
+        return error_catalog.raise(.arity_out_of_range, loc, .{ .fn_name = "java.lang.String.", .got = args.len, .min = 0, .max = 4 });
     const a = args[0];
-    if (a.tag() == .string) return string_collection.alloc(rt, string_collection.asString(a)); // copy
+    if (a.tag() == .string) {
+        // Only `(String. s)` copies a string; the offset/length forms are
+        // array-only (clj has no String(String, int, int)).
+        if (args.len != 1)
+            return error_catalog.raise(.arity_out_of_range, loc, .{ .fn_name = "java.lang.String.", .got = args.len, .min = 0, .max = 4 });
+        return string_collection.alloc(rt, string_collection.asString(a)); // copy
+    }
     if (java_array.isArray(a)) {
         const arr = java_array.asArray(a);
+        // `(bytes/chars)` / `(… charset)` → the whole array; `(… offset length
+        // [charset])` → the `[offset, offset+length)` sub-range (clj
+        // String(byte[]/char[], int, int[, Charset])). offset/length index the
+        // array ELEMENTS (bytes or chars); an out-of-range window throws like
+        // the JVM rather than clamping.
+        var start: usize = 0;
+        var count: usize = arr.len;
+        if (args.len >= 3) {
+            if (args[1].tag() != .integer or args[2].tag() != .integer)
+                return error_catalog.raise(.type_arg_not_number, loc, .{ .fn_name = "java.lang.String.", .actual = @tagName(args[1].tag()) });
+            const off: i64 = args[1].asInteger();
+            const len_i: i64 = args[2].asInteger();
+            if (off < 0 or len_i < 0 or off + len_i > @as(i64, @intCast(arr.len)))
+                return error_catalog.raise(.index_out_of_range, loc, .{ .fn_name = "java.lang.String." });
+            start = @intCast(off);
+            count = @intCast(len_i);
+        }
+        const elems = arr.items()[start .. start + count];
         // A CHAR array → the chars' codepoints, UTF-8 encoded (clj `(String.
         // char[])`); a BYTE/INT array → each element's low 8 bits as a byte (the
-        // `.getBytes` inverse). The first element selects the path.
-        if (arr.len > 0 and arr.items()[0].tag() == .char) {
+        // `.getBytes` inverse). The first element of the window selects the path;
+        // an empty window takes the byte path and yields "".
+        if (elems.len > 0 and elems[0].tag() == .char) {
             var buf: std.ArrayList(u8) = .empty;
             defer buf.deinit(rt.gpa);
-            for (arr.items()) |v| {
+            for (elems) |v| {
                 if (v.tag() != .char)
                     return error_catalog.raise(.type_arg_invalid, loc, .{ .fn_name = "java.lang.String.", .expected = "char array", .actual = @tagName(v.tag()) });
                 var cbuf: [4]u8 = undefined;
@@ -718,9 +745,9 @@ fn stringCtor(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation)
             }
             return string_collection.alloc(rt, buf.items);
         }
-        const buf = try rt.gpa.alloc(u8, arr.len);
+        const buf = try rt.gpa.alloc(u8, elems.len);
         defer rt.gpa.free(buf);
-        for (arr.items(), 0..) |v, i| {
+        for (elems, 0..) |v, i| {
             if (v.tag() != .integer)
                 return error_catalog.raise(.type_arg_invalid, loc, .{ .fn_name = "java.lang.String.", .expected = "byte array", .actual = @tagName(v.tag()) });
             buf[i] = @intCast(v.asInteger() & 0xFF); // low 8 bits → byte (signed or unsigned in)

@@ -5,11 +5,26 @@
 
 ## Resume contract
 
-- **HEAD**: `main` (`git log` = SSOT). Per-commit = smoke locally; commit
-  **and** push (atomic Step 6). **CI runs ONE configuration everywhere** — PR,
-  push and dispatch all run the identical `test/run_all.sh --serial-e2e` that
-  `scripts/run_gate.sh` runs, so "green" means the same run wherever it is
-  said; `check_gate_parity.sh` fails if a tier comes back.
+- **HEAD**: `staging` is the WIP/integration branch (`git log` = SSOT); a
+  release is cut by PR `staging`→`main` (the merge push auto-bumps the patch).
+  Per-commit = smoke locally; commit **and** push. **First commit MUST be**
+  `[CLJW-META-MAP]` (`20260828224509-23d5e92c`) — atom/ref/agent `:meta` ctor
+  must reject a non-map (verified live 2026-08-28; TRIVIAL, extract one
+  `requireMetaMap`). Then the g5 cheap chain `[CLJW-HIER-GUARDS]` →
+  `[CLJW-FUTURE-BINDINGS]`, and `[CLJW-COMPLIANCE-REMEASURE]`
+  (`20260828224528-20f90bb5`, HIGH) to refresh the STALE 2026-08-21 red list
+  (memory `20260828224435-02f356e5`; g-notes g1..g6 are the root-cause map, and
+  the runtime-`def`-interns-wrong-ns root `[CLJW-DEF-NS]` clears several reds at
+  once — memory `20260828224443-05ce9bfa`). **3 source commits ride since the
+  last full gate — run `bash scripts/run_gate.sh` before the 5-commit ceiling.**
+  OR cut **v1.11.2** first (staging→main; `[Unreleased]` now has
+  range-heap-Long + empty + contains?-array + prior). **Forbidden this
+  session**: `git rebase`/`cherry-pick`/
+  `commit --amend` (classifier-blocked in auto-mode — use FORWARD commits on a
+  fresh branch); killing co-tenant JVMs to free build memory (see the build-OOM
+  memory). **CI runs ONE configuration everywhere** — PR, push and dispatch all
+  run the identical `test/run_all.sh --serial-e2e` that `scripts/run_gate.sh`
+  runs; `check_gate_parity.sh` fails if a tier comes back.
 - **zwasm** = tag pin **v2.5.0** (`278587f6`, FINAL), living at
   `github.com/zwasm/zwasm` under separate maintainership since 2026-08-12; the
   dep URL names it directly rather than riding the transfer redirect.
@@ -65,26 +80,24 @@
   outside contributors from the loop's own conventions: a contributed commit
   is taken as-is with authorship preserved and any missing `Smell-audited:`
   line amended in. Each `scripts/check_*.sh` header is its own SSOT.
-- **Active unit — clojure.core compliance drain.** cljw runs the jank
-  `clojure-test-suite` (248 `.cljc` namespaces, one per core symbol) through
-  its own `clojure.test`; the harness itself was fixed first under **ADR-0191**
-  so the number means what it says. Baseline needs re-measuring against the
-  fixed harness. First task on resume: kanban `[CLJW-CHUNKED-EQ]` — add
-  `.chunked_cons` to `src/runtime/equal.zig::isSequential`; the umbrella is
-  `[CLJW-COMPLIANCE]` with nine child rows carrying file, line and expected
-  green-count.
+- **Active unit — clojure.core compliance drain** (jank `clojure-test-suite`,
+  248 `.cljc`; drain-plan `private/notes/compliance/drain-plan-2026-08-22.md`,
+  batches B1-B8; baseline is pre-fix, re-measure via the fixed harness ADR-0191).
+  **v1.11.1 SHIPPED** (net serve + unix sockets + assocEx + numeric + interop;
+  its 3 SSOT-ledger CI failures fixed — see the smoke-drift memory). Landed on
+  `staging` since, unreleased (4-5 clj-parity fixes, cards done): **int?**
+  fixed-precision + heap-Long origin (B7); **take** float/`##Inf`/BigInt count
+  (B3-adjacent); **disj/disj!/dissoc!** variadic (B1); **(String. …offset len
+  [charset])** range ctors; **string/replace** map/IFn replacement (B4, WIP).
+  Deferred with design memos: **[CLJW-DEF-NS]** (Capture-by-Var, multi-backend +
+  AOT — memory `20260825160952-2e68811c`). New card **[CLJW-RANGE-HEAPLONG]**
+  (B3, `-range` rejects heap-Long bounds).
 
 ## What was left unfinished (`.dev/debt.yaml` is the SSOT)
 
-- **D-565** — external-contributor reproducibility sweep (Discussion #11).
-  (1)-(6) DISCHARGED; residuals (7)/(8) point into upstream's gitignored
-  `private/notes/`, which did not come with the fork — unreachable, not pending.
-- **Perf campaign (§9.2.S) — PAUSED** (D-520 / D-386 / D-005/006). **D-513**
-  item (1) `clojure.core.reducers` is the only remaining piece (repl + var :doc
-  landed); it is IN PROGRESS — its "take up on a real consumer" deferral is the
-  pattern the 2026-06-25 drain-order decision forbids.
-- **D-548** — (a) DISCHARGED (ADR-0176); residual = (b) pmap wall-clock on the
-  3-vCPU runner (timing envelope, still gated).
+- **D-565** residuals (7)/(8) unreachable (upstream gitignored `private/`).
+- **Perf campaign (§9.2.S) — PAUSED** (D-520/D-386/D-005/006); **D-513** (1)
+  `clojure.core.reducers` remaining. **D-548** (b) pmap wall-clock on 3-vCPU.
 
 ## North star (ACTIVE, distal)
 
@@ -92,6 +105,13 @@ cljw's differentiator = **Wasm interop (gap II) × VM-perf fusion→JIT (gap
 III)**. zwasm JIT (ADR-0200) is the cljw default; remaining =
 components-through-the-JIT (zwasm-side, D-500). Distal — needs a user nod.
 NOTE ADR-0177: "edge execution" is an AIM owned by D-552, not a capability.
+
+## Stopped — user requested
+
+User instruction (2026-08-25): "commit and push current WIP in staging. and we
+continue later. make memories on all learnings this session, kg connect them,
+sync kanban, create remaining kanban tasks if any, and `workflow wrap`."
+Resume per the Resume-contract "First commit MUST be".
 
 ## Reading order (resume)
 

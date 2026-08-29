@@ -40,6 +40,8 @@ const protocol_mod = @import("../../runtime/protocol.zig");
 const class_name = @import("../../runtime/class_name.zig");
 const driver = @import("../../eval/driver.zig");
 const analyzer = @import("../../eval/analyzer/analyzer.zig");
+const math = @import("math.zig");
+const big_int = @import("../../runtime/numeric/big_int.zig");
 
 /// `(-instance-of? c x)` — ADR-0128: the fn-side `instance?`. `c` is a class
 /// VALUE (a `.type_descriptor`, produced when a class symbol evaluates via the
@@ -203,6 +205,32 @@ pub fn integerQ(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocatio
     try error_catalog.checkArity("integer?", args, 1, loc);
     const t = args[0].tag();
     return if (t == .integer or t == .big_int) .true_val else .false_val;
+}
+
+/// True iff `v` is a FIXED-PRECISION integer (clojure.core/int?): an inline
+/// `.integer`, or a heap-boxed Long — a `.big_int` whose origin is `.long`
+/// (a Long that overflowed cljw's i48 inline range, D-165). A genuine
+/// `(bigint …)` / `5N` (origin `.bigint`) is NOT fixed-precision. This is the
+/// single classifier `int?` and the `pos-int?`/`neg-int?`/`nat-int?` family
+/// all consult, so the Long-vs-BigInt boundary is defined once.
+fn isFixedInt(v: Value) bool {
+    return switch (v.tag()) {
+        .integer => true,
+        .big_int => big_int.originOf(v) == .long,
+        else => false,
+    };
+}
+
+/// `(int? x)` — true iff `x` is a FIXED-PRECISION integer (Long). Unlike
+/// `integer?`, this EXCLUDES BigInt (matches clojure.core/int?): a genuine
+/// `(bigint …)` is `integer?` but not `int?`. cljw's heap-boxed Long (a Long
+/// past the i48 inline range, tagged `.big_int` origin `.long`, D-165) IS
+/// `int?` — it is a Long, only its storage differs.
+pub fn intQ(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
+    _ = rt;
+    _ = env;
+    try error_catalog.checkArity("int?", args, 1, loc);
+    return if (isFixedInt(args[0])) .true_val else .false_val;
 }
 
 /// `(number? x)` — true iff `x` is any numeric (Long / Float / BigInt
@@ -523,32 +551,32 @@ pub fn booleanFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocati
     return if (args[0].isNil() or args[0] == Value.false_val) .false_val else .true_val;
 }
 
-/// `(pos-int? x)` — true iff x is a positive Long. BigInt arm is a
-/// follow-up; today BigInt → false (transient).
+/// `(pos-int? x)` ≡ `(and (int? x) (pos? x))` (matches clojure.core/pos-int?).
+/// True iff `x` is a positive FIXED-PRECISION integer. A heap-boxed Long
+/// (`.big_int` origin `.long`, D-165) qualifies; a genuine `(bigint …)` is
+/// `int?`-false, so `(pos-int? (bigint 5))` is false as in clj. Sign is read
+/// through `pos?` — the one numeric-comparison path — never restated here.
 pub fn posIntQ(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
-    _ = rt;
-    _ = env;
     try error_catalog.checkArity("pos-int?", args, 1, loc);
-    if (args[0].tag() != .integer) return .false_val;
-    return if (args[0].asInteger() > 0) .true_val else .false_val;
+    if (!isFixedInt(args[0])) return .false_val;
+    return math.posQ(rt, env, args, loc);
 }
 
-/// `(neg-int? x)` — true iff x is a negative Long.
+/// `(neg-int? x)` ≡ `(and (int? x) (neg? x))` (matches clojure.core/neg-int?).
 pub fn negIntQ(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
-    _ = rt;
-    _ = env;
     try error_catalog.checkArity("neg-int?", args, 1, loc);
-    if (args[0].tag() != .integer) return .false_val;
-    return if (args[0].asInteger() < 0) .true_val else .false_val;
+    if (!isFixedInt(args[0])) return .false_val;
+    return math.negQ(rt, env, args, loc);
 }
 
-/// `(nat-int? x)` — true iff x is a non-negative Long (includes 0).
+/// `(nat-int? x)` ≡ `(and (int? x) (not (neg? x)))` (matches
+/// clojure.core/nat-int?). True for a non-negative fixed-precision integer,
+/// zero included.
 pub fn natIntQ(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
-    _ = rt;
-    _ = env;
     try error_catalog.checkArity("nat-int?", args, 1, loc);
-    if (args[0].tag() != .integer) return .false_val;
-    return if (args[0].asInteger() >= 0) .true_val else .false_val;
+    if (!isFixedInt(args[0])) return .false_val;
+    const neg = try math.negQ(rt, env, args, loc);
+    return if (neg == Value.true_val) .false_val else .true_val;
 }
 
 /// `(keyword s)` / `(keyword ns s)` — intern a keyword Value.
@@ -1984,7 +2012,7 @@ const ENTRIES = [_]Entry{
     .{ .name = "integer?", .f = &integerQ },
     // int? and double? are exact aliases: cw v1 has a single integer tag and
     // a single float tag, so int? ≡ integer? and double? ≡ float?.
-    .{ .name = "int?", .f = &integerQ },
+    .{ .name = "int?", .f = &intQ },
     .{ .name = "double?", .f = &floatQ },
     .{ .name = "NaN?", .f = &nanQ },
     .{ .name = "infinite?", .f = &infiniteQ },

@@ -1541,18 +1541,21 @@ pub fn printList(ports: ?Ports, w: *Writer, v: Value) anyerror!void {
     try w.writeByte(')');
 }
 
-/// Render a compact `.range` as a list `(0 1 2 …)` (JVM parity). Computes
-/// each element with pure scalar math (`start + i*step`) so it needs no
-/// `rt` and allocates nothing — unlike a generic seq-walk. A huge range
-/// prints every element (same as realizing a lazy seq).
+/// Render a compact `.range` as a list `(0 1 2 …)` (JVM parity). Each element
+/// is a Long, which always prints as its plain decimal digits (an element past
+/// i48 is a heap Long — origin `.long`, no `N`), so the printer renders the raw
+/// `elementI64` directly: it needs no `rt` and allocates nothing (unlike a
+/// generic seq-walk, and unlike boxing each element through `wrapI64` just to
+/// print it). A huge range prints every element (same as realizing a lazy seq).
 pub fn printRange(ports: ?Ports, w: *Writer, v: Value) anyerror!void {
+    _ = ports;
     try w.writeByte('(');
     const n = range_collection.countOf(v);
     var i: i64 = 0;
     while (i < n) : (i += 1) {
         if (try lengthTruncated(w, i, " ")) break;
         if (i > 0) try w.writeByte(' ');
-        try printValue(ports, w, range_collection.elementAt(v, i));
+        try w.print("{d}", .{range_collection.elementI64(v, i)});
     }
     try w.writeByte(')');
 }

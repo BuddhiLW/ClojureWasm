@@ -40,4 +40,13 @@ assert_eq 'mm_cache_invalidate' "$("$BIN" -e '(do (defmulti area :shape) (defmet
 assert_eq 'mm_transitive' "$("$BIN" -e '(do (defmulti area :shape) (defmethod area :s3 [r] :s3-fn) (derive :square :rect) (derive :rect :s3) (area {:shape :square}))')" ':s3-fn'
 assert_eq 'mm_default_no_rel' "$("$BIN" -e '(do (defmulti area :shape) (defmethod area :rect [r] :rect-fn) (defmethod area :default [r] :def-fn) (area {:shape :tri}))')" ':def-fn'
 assert_eq 'mm_prefer' "$("$BIN" -e '(do (defmulti area :shape) (defmethod area :rect [r] :r) (defmethod area :round [r] :ro) (derive :square :rect) (derive :square :round) (prefer-method area :rect :round) (area {:shape :square}))')" ':r'
-echo "OK — phase14_hierarchy (19 cases) green"
+# g5 HIER-GUARDS — clj-parity throws for malformed hierarchy ops (was silently
+# returning a value). descendants of a class → UnsupportedOperationException;
+# self-derive → AssertionError; derive/underive on a non-hierarchy map → NPE.
+# cljw matches by THROWING (exception-Kind divergence is AD-007).
+assert_eq 'desc_class'    "$("$BIN" -e '(try (descendants (class 5)) (catch Throwable e :threw))' 2>/dev/null)" ':threw'
+assert_eq 'derive_self'   "$("$BIN" -e '(try (derive :hg-x :hg-x) (catch Throwable e :threw))' 2>/dev/null)" ':threw'
+assert_eq 'derive_nil_h'  "$("$BIN" -e '(try (derive nil :hg-a :hg-b) (catch Throwable e :threw))' 2>/dev/null)" ':threw'
+assert_eq 'derive_bad_h'  "$("$BIN" -e '(try (derive {} :hg-a :hg-b) (catch Throwable e :threw))' 2>/dev/null)" ':threw'
+assert_eq 'underive_bad_h' "$("$BIN" -e '(try (underive {} :hg-a :hg-b) (catch Throwable e :threw))' 2>/dev/null)" ':threw'
+echo "OK — phase14_hierarchy (24 cases) green"

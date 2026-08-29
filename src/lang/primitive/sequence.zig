@@ -122,8 +122,11 @@ pub fn countFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation
             try transient_hash_set.ensureLive(coll, "count", loc);
             break :blk Value.initInteger(@intCast(transient_hash_set.count(coll)));
         },
-        // PERF: O(1) precomputed range length, no element walk [refs: O-001]
-        .range => Value.initInteger(range.countOf(coll)),
+        // PERF: O(1) precomputed range length, no element walk [refs: O-001].
+        // Boxed through range's `wrapI64` lever — a virtual count past i48 is a
+        // heap Long, not a float (ADR-0063 amendment; the range aggregate owns
+        // all its i64→Value projections).
+        .range => try range.countValue(rt, coll),
         // PERF: a vector view counts by subtraction — backing count minus the
         // read cursor — where the eager list copy it replaced had to allocate
         // n cells before it could answer. [refs: O-058]
@@ -429,7 +432,7 @@ pub fn firstFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation
         .persistent_queue => persistent_queue.peek(coll), // first = oldest = peek
         .chunked_cons => chunked_cons.first(coll),
         // PERF: O(1) head (start), no chunk materialised for just first [refs: O-001]
-        .range => range.first(coll),
+        .range => try range.first(rt, coll),
         // PERF: O(1) indexed read through the view [refs: O-058]
         .array_seq => array_seq.first(coll),
         // PERF: O(1) decode in place through the view [refs: D-179]
@@ -656,14 +659,16 @@ pub fn emptyFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation
         else => blk: {
             // D-089 row 8.6 cycle 1: IPC -empty slow-path.
             var cs: dispatch.CallSite = .{};
-            // clj's RT.empty returns nil for a non-emptyable value (e.g. a
-            // java.util.HashMap/HashSet — it is not a Clojure collection). cljw
-            // matches by falling back to nil when -empty is unimplemented on a
-            // host_instance, rather than raising (D-431). deftype/reify keep the
-            // raising dispatch (a collection deftype is expected to wire -empty).
-            if (coll.tag() == .host_instance)
-                break :blk (try dispatch.dispatchOrNull(rt, env, &cs, coll, IPC_FQCN, "-empty", args, loc)) orelse .nil_val;
-            break :blk try dispatch.dispatch(rt, env, &cs, coll, IPC_FQCN, "-empty", args, loc);
+            // clj's `(empty x)` returns nil for ANY value that is not an
+            // IPersistentCollection — a Long, char, keyword, float, java array,
+            // host instance, … all yield nil, never a raise. cljw matches via
+            // the nil-fallback dispatch for every such type (D-431, B2 sweep).
+            // A deftype/reify keeps the RAISING dispatch: a type that declares
+            // itself a collection is expected to wire -empty, so a missing impl
+            // there is a developer error, not a silent nil.
+            if (coll.tag() == .typed_instance or coll.tag() == .reified_instance)
+                break :blk try dispatch.dispatch(rt, env, &cs, coll, IPC_FQCN, "-empty", args, loc);
+            break :blk (try dispatch.dispatchOrNull(rt, env, &cs, coll, IPC_FQCN, "-empty", args, loc)) orelse .nil_val;
         },
     };
 }
@@ -718,7 +723,7 @@ fn firstOfSeq(rt: *Runtime, env: *Env, sv: Value, loc: SourceLocation) anyerror!
     return switch (sv.tag()) {
         .list, .cons => list.first(sv),
         .chunked_cons => chunked_cons.first(sv),
-        .range => range.first(sv),
+        .range => try range.first(rt, sv),
         .array_seq => array_seq.first(sv),
         .string_seq => string_seq.first(sv),
         .lazy_seq => try lazy_seq.first(rt, env, sv),
@@ -1002,3 +1007,8 @@ test "empty: vector returns empty vector" {
     try testing.expect(r.tag() == .vector);
     try testing.expectEqual(@as(u32, 0), vector.count(r));
 }
+// `(empty <non-collection>)` → nil is verified at the integration layer
+// (test/diff/clj_corpus/empty_noncoll.txt, run by corpus_regression), NOT here:
+// the non-collection path runs through protocol dispatch (resolveDescriptor +
+// the fn vtable), which the minimal unit-test Runtime does not bootstrap — a
+// unit test would exercise the fixture, not the behaviour.

@@ -365,10 +365,11 @@ fn strReplacePatternImpl(rt: *Runtime, env: *Env, fn_name: []const u8, kind: Rep
     if (args[2].tag() == .string)
         return regex_replace.replaceString(rt, program, haystack, string_collection.asString(args[2]), kind);
 
-    // Fn replacement stays in this Layer-2 file: it calls back into the
-    // interpreter via the vtable, which the neutral leaf does not own.
-    if (args[2].tag() != .fn_val and args[2].tag() != .builtin_fn)
-        return error_catalog.raise(.type_arg_invalid, loc, .{ .fn_name = fn_name, .expected = "string or fn", .actual = @tagName(args[2].tag()) });
+    // Any non-string replacement is invoked as a FUNCTION via the vtable —
+    // clj passes the match to it (a map / keyword / set / vector is IFn too,
+    // e.g. {"X" "-"} looked up by the match "X"). A genuinely non-callable
+    // value raises inside callFn, as it does in clj. The vtable call stays in
+    // this Layer-2 file (the neutral leaf does not own the interpreter callback).
     const vt = rt.vtable orelse
         return error_catalog.raise(.feature_not_supported, loc, .{ .name = "regex-replace fn-arm before vtable install" });
 

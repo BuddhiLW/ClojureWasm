@@ -283,19 +283,23 @@ fn sortedMapConj(rt: *Runtime, env: *Env, m: Value, entry: Value, loc: SourceLoc
 /// JVM reference: clojure.core/disj → IPersistentSet.disjoin
 /// cw v1 tier: A (Phase 6.16.a-2)
 pub fn disjFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
-    try error_catalog.checkArity("disj", args, 2, loc);
-    const coll = args[0];
+    // clj: ([set] set) ([set k] …) ([set k & ks] …) — remove each key in turn.
+    try error_catalog.checkArityMin("disj", args, 1, loc);
+    var coll = args[0];
     if (coll.isNil()) return .nil_val;
-    return switch (coll.tag()) {
-        .hash_set => try set.disj(rt, coll, args[1]),
-        .sorted_set => try sorted.disjSet(rt, env, coll, args[1], loc),
-        else => blk: {
-            // D-089 row 8.6 cycle 4: IPersistentSet -disjoin slow-path
-            // (close cycle for the retro-audit cluster).
-            var cs: dispatch.CallSite = .{};
-            break :blk try dispatch.dispatch(rt, env, &cs, coll, IPS_FQCN, "-disjoin", args, loc);
-        },
-    };
+    for (args[1..]) |k| {
+        coll = switch (coll.tag()) {
+            .hash_set => try set.disj(rt, coll, k),
+            .sorted_set => try sorted.disjSet(rt, env, coll, k, loc),
+            else => blk: {
+                // D-089 row 8.6 cycle 4: IPersistentSet -disjoin slow-path
+                // (close cycle for the retro-audit cluster).
+                var cs: dispatch.CallSite = .{};
+                break :blk try dispatch.dispatch(rt, env, &cs, coll, IPS_FQCN, "-disjoin", &.{ coll, k }, loc);
+            },
+        };
+    }
+    return coll;
 }
 
 // --- contains? ---
@@ -340,6 +344,22 @@ pub fn containsQFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLoca
             if (k.tag() != .integer) break :blk .false_val;
             const idx: i64 = k.asInteger();
             break :blk if (idx >= 0 and idx < @as(i64, @intCast(string.codepointCount(string.asString(coll))))) .true_val else .false_val;
+        },
+        // A Java array is Indexed but NOT Associative (ADR-0105): `contains?`
+        // tests INDEX validity for an integer key. Unlike a vector — whose
+        // non-integer key is simply absent (false) via the Associative path —
+        // an array has no `containsKey`, so clj's RT.contains falls through to
+        // an IllegalArgumentException for a non-integer key. cljw matches with a
+        // catchable type error rather than a silent false.
+        .array => blk: {
+            if (k.tag() != .integer)
+                break :blk error_catalog.raise(.type_arg_invalid, loc, .{
+                    .fn_name = "contains?",
+                    .expected = "an integer index (an array is indexed, not associative)",
+                    .actual = @tagName(k.tag()),
+                });
+            const idx: i64 = k.asInteger();
+            break :blk if (idx >= 0 and idx < @as(i64, java_array.alength(coll))) .true_val else .false_val;
         },
         // A live transient mirrors its persistent peer (clj parity, D-199):
         // map/set by key/element membership; vector by index validity.
@@ -627,7 +647,7 @@ pub fn nthFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) 
                 if (has_default) break :blk default;
                 break :blk error_catalog.raise(.index_out_of_range, loc, .{ .fn_name = "nth" });
             }
-            break :blk range_mod.elementAt(coll, idx);
+            break :blk try range_mod.elementAt(rt, coll, idx);
         },
         // A String is Indexed (clj `(nth "abc" 1)` → \b): return the
         // codepoint char at `idx`. OOR → default, or throw (clj
@@ -1333,6 +1353,23 @@ test "contains? vector tests index validity (ADR-0069, JVM-match)" {
     try testing.expectEqual(Value.false_val, try containsQFn(&fix.rt, &fix.env, &.{ v, Value.initInteger(-1) }, loc));
     const kw = try keyword_mod.intern(&fix.rt, null, "x");
     try testing.expectEqual(Value.false_val, try containsQFn(&fix.rt, &fix.env, &.{ v, kw }, loc));
+}
+
+test "contains? array tests index validity; a non-integer key throws (clj RT.contains)" {
+    var fix: TestFixture = undefined;
+    try fix.init(testing.allocator);
+    defer fix.deinit();
+    const arr = try java_array.fromSlice(&fix.rt, &.{ Value.initInteger(10), Value.initInteger(20), Value.initInteger(30) });
+    const loc: SourceLocation = .{ .line = 0, .column = 0 };
+    // integer key → INDEX validity (true in-bounds, false OOB / negative).
+    try testing.expectEqual(Value.true_val, try containsQFn(&fix.rt, &fix.env, &.{ arr, Value.initInteger(0) }, loc));
+    try testing.expectEqual(Value.true_val, try containsQFn(&fix.rt, &fix.env, &.{ arr, Value.initInteger(2) }, loc));
+    try testing.expectEqual(Value.false_val, try containsQFn(&fix.rt, &fix.env, &.{ arr, Value.initInteger(3) }, loc));
+    try testing.expectEqual(Value.false_val, try containsQFn(&fix.rt, &fix.env, &.{ arr, Value.initInteger(-1) }, loc));
+    // an array is NOT Associative — a non-integer key is unsupported (clj throws),
+    // NOT a false like a vector's miss.
+    const kw = try keyword_mod.intern(&fix.rt, null, "x");
+    try testing.expectError(error.TypeError, containsQFn(&fix.rt, &fix.env, &.{ arr, kw }, loc));
 }
 
 test "get nil → nil; get nil :a default → default" {

@@ -2219,6 +2219,14 @@
 (def derive
   (fn* ([tag parent] (swap! -global-hierarchy derive tag parent) nil)
        ([h tag parent]
+        ;; clj: self-derive → AssertionError; a non-map hierarchy field →
+        ;; NullPointerException (it invokes the field as a fn). Both throw here
+        ;; (exception-Kind divergence is AD-007). The 2-arity global path always
+        ;; passes a valid hierarchy, so those guards never fire on it.
+        (when (= tag parent)
+          (throw (ex-info (str "(not= tag parent) — cannot derive " tag " from itself") {})))
+        (when-not (and (map? (:parents h)) (map? (:descendants h)) (map? (:ancestors h)))
+          (throw (ex-info "derive: hierarchy must have map :parents / :descendants / :ancestors" {})))
         (let [tp (:parents h) td (:descendants h) ta (:ancestors h)]
           (if (contains? (get tp tag) parent)
             h
@@ -2255,11 +2263,20 @@
 
 (def descendants
   (fn* ([tag] (descendants (deref -global-hierarchy) tag))
-       ([h tag] (not-empty (get (:descendants h) tag)))))
+       ([h tag]
+        ;; clj: a class tag → UnsupportedOperationException (the class hierarchy
+        ;; is open, not enumerable). cljw class values are class? too.
+        (if (class? tag)
+          (throw (ex-info "Can't get descendants of classes" {}))
+          (not-empty (get (:descendants h) tag))))))
 
 (def underive
   (fn* ([tag parent] (swap! -global-hierarchy underive tag parent) nil)
        ([h tag parent]
+        ;; clj: a non-map (:parents h) → NullPointerException. Match as a throw
+        ;; (AD-007). The 2-arity global path always passes a valid hierarchy.
+        (when-not (map? (:parents h))
+          (throw (ex-info "underive: hierarchy must have a map :parents" {})))
         (let [pm (:parents h)
               cps (if (get pm tag) (disj (get pm tag) parent) #{})
               new-parents (if (not-empty cps) (assoc pm tag cps) (dissoc pm tag))

@@ -262,7 +262,7 @@ pub fn first(rt: *Runtime, env: *env_mod.Env, v: Value) !Value {
         // chunked_cons or a compact range (e.g. `(cons x (range n))`), so
         // these are part of the Layer-0 seq-accessor protocol too.
         .chunked_cons => chunked_cons_mod.first(current),
-        .range => range_mod.first(current),
+        .range => try range_mod.first(rt, current),
         .array_seq => array_seq_mod.first(current),
         .string_seq => string_seq_mod.first(current),
         .nil => Value.nil_val,
