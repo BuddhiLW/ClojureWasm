@@ -712,7 +712,20 @@
         ;; clj bounds-checks (0 <= start <= end <= count) and throws
         ;; IndexOutOfBounds — it does NOT clamp like take/drop would
         ;; (`(subvec [1 2 3] 1 10)` throws, not `[2 3]`).
-        (let [c (count v)]
+        ;;
+        ;; clj's `RT.subvec` takes primitive `int` params, so a float / ratio
+        ;; index is coerced via `Number.intValue` (truncate toward zero; NaN → 0)
+        ;; BEFORE the bounds check: (subvec [0 1 2] 2.72 3.14) → [2],
+        ;; (subvec [0 1 2] 1/2 4/3) → [0], (subvec [0 1 2] ##NaN 3) → [0 1 2],
+        ;; (subvec [0 1 2] 1 ##NaN) → start 1 > end 0 → out-of-bounds. Coercing
+        ;; here is also what keeps a non-integer index off `__subvec`'s raw i64
+        ;; cast, which would `@panic` on a NaN / ratio (ADR-0019 — no panic on
+        ;; user input). A non-number index (`:a`, `nil`, a symbol) has no
+        ;; `intValue`, so `int` throws — matching clj's cast-failure throw.
+        (let [->idx (fn* [x] (if (and (float? x) (not (== x x))) 0 (int x)))
+              start (->idx start)
+              end (->idx end)
+              c (count v)]
           ;; clj throws IndexOutOfBoundsException here (NOT an ex-info) — so a
           ;; `(catch IndexOutOfBoundsException …)` around a subvec works.
           (when (or (< start 0) (< end start) (< c end))
