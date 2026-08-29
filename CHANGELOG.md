@@ -68,6 +68,15 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 
 ### Fixed
 
+- **`(empty x)` returns `nil` for a non-collection instead of throwing.** clj's
+  `empty` answers `nil` for anything that is not an `IPersistentCollection` — a
+  number, char, keyword, symbol, boolean, ratio, BigInt, or a Java array — but
+  cljw raised `No implementation of method '-empty' on protocol
+  'IPersistentCollection' for type 'Long'`. It now matches clj: every
+  non-collection value yields `nil`. A `deftype`/`reify` that declares itself a
+  collection still raises if it left `-empty` unwired — a missing impl there is a
+  developer error, not a silent `nil`.
+
 - **`(range …)` over Long bounds past ±2^47 no longer errors — a range spans
   the full Long domain.** cljw stores an integer past its ±2^47 inline window as
   a heap Long, and a recent fix taught `int?` to recognise those; that routed
