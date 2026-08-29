@@ -7,11 +7,19 @@
 
 - **HEAD**: `staging` is the WIP/integration branch (`git log` = SSOT); a
   release is cut by PR `staging`→`main` (the merge push auto-bumps the patch).
-  Per-commit = smoke locally; commit **and** push. **First commit MUST be**:
-  continue the clj-parity / compliance drain — next `[CLJW-RANGE-HEAPLONG]`
-  (B3), then B2/B5/B7 per `private/notes/compliance/drain-plan-2026-08-22.md`;
-  OR cut **v1.11.2** first (add CHANGELOG `[Unreleased]` for the 4-5 staged
-  fixes, PR staging→main). **Forbidden this session**: `git rebase`/`cherry-pick`/
+  Per-commit = smoke locally; commit **and** push. **First commit MUST be**
+  `[CLJW-META-MAP]` (`20260828224509-23d5e92c`) — atom/ref/agent `:meta` ctor
+  must reject a non-map (verified live 2026-08-28; TRIVIAL, extract one
+  `requireMetaMap`). Then the g5 cheap chain `[CLJW-HIER-GUARDS]` →
+  `[CLJW-FUTURE-BINDINGS]`, and `[CLJW-COMPLIANCE-REMEASURE]`
+  (`20260828224528-20f90bb5`, HIGH) to refresh the STALE 2026-08-21 red list
+  (memory `20260828224435-02f356e5`; g-notes g1..g6 are the root-cause map, and
+  the runtime-`def`-interns-wrong-ns root `[CLJW-DEF-NS]` clears several reds at
+  once — memory `20260828224443-05ce9bfa`). **3 source commits ride since the
+  last full gate — run `bash scripts/run_gate.sh` before the 5-commit ceiling.**
+  OR cut **v1.11.2** first (staging→main; `[Unreleased]` now has
+  range-heap-Long + empty + contains?-array + prior). **Forbidden this
+  session**: `git rebase`/`cherry-pick`/
   `commit --amend` (classifier-blocked in auto-mode — use FORWARD commits on a
   fresh branch); killing co-tenant JVMs to free build memory (see the build-OOM
   memory). **CI runs ONE configuration everywhere** — PR, push and dispatch all
