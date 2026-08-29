@@ -68,6 +68,16 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 
 ### Fixed
 
+- **Ad-hoc hierarchy ops reject malformed input instead of silently returning
+  a value.** `(descendants SomeClass)` now throws (clj:
+  `UnsupportedOperationException` — the class hierarchy is open, not
+  enumerable), a self-derive `(derive x x)` throws (clj `AssertionError`), and
+  `derive`/`underive` on a non-hierarchy map (`(derive {} :a :b)`,
+  `(underive {} :a :b)`) throw (clj `NullPointerException` on the field
+  dereference). Previously each silently built or returned a bogus hierarchy.
+  cljw matches by throwing (the exception Kind differs — accepted divergence
+  AD-007). The valid 2-arity global-hierarchy path is unaffected.
+
 - **`(atom v :meta m)` / `ref` / `agent` reject a non-map `:meta`.** clj's
   `setup-reference` casts a `:meta` constructor option to `IPersistentMap`, so a
   number, set, or vector `:meta` throws `ClassCastException` — but cljw silently
