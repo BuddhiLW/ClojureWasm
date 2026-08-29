@@ -91,7 +91,9 @@ compact value; map/filter reduce-fusion = increment 2 (deferred).**
   fallback handles them).
 - **Fixing D-164** (empty≡nil), **D-165** (i48 element overflow → float),
   or **D-178** (`.list`/`.cons` conflation). All three are inherited
-  unchanged — not fixed, not regressed.
+  unchanged — not fixed, not regressed. *(D-165 for `.range` was AMENDED
+  2026-08-28 — see Revision history; the increment-1 non-goal held until the
+  `int?` fix routed heap-Long bounds here.)*
 
 ## Consequences
 
@@ -103,6 +105,9 @@ compact value; map/filter reduce-fusion = increment 2 (deferred).**
   for float / infinite / bigint ranges.
 - Range elements beyond ±2^47 silently become float (D-165, F-005-owner,
   inherited). Range count beyond 2^47 likewise (rare; D-165 sibling).
+  **SUPERSEDED 2026-08-28 (see Revision history):** elements and the virtual
+  count now box as heap Longs across the full i64 domain via `promote.wrapI64`
+  — no float spill; a `.range` spans the whole Long range like JVM `LongRange`.
 - A new `runtime/collection/range.zig` + the §4 call-site arms; the
   chunked-seq path reuses `chunked_cons` (no new chunk machinery).
 
@@ -281,3 +286,85 @@ ADR-0033 D4 (`:zig-leaf` producer pattern) · survey
   boundary tests at n ∈ {0,1,31,32,33,63,64,65,1023,1024,1025,1e5}) —
   a deliberate "腰を据えて" treatment rather than a rushed mega-session
   addition.
+
+- **2026-08-28 — `.range` spans the full i64 Long domain (D-165 completed for
+  `.range`).** The increment-1 non-goal "elements/count beyond ±2^47 silently
+  become float (D-165 inherited)" became a **clj-parity bug** once the
+  `int?`-is-fixed-precision fix (commit `271d9bb8`) made `int?` true for heap
+  Longs (a `big_int` origin `.long`): `range`'s 3-arg gate `(and (int? start)
+  (int? end) (int? step) …)` now routes heap-Long bounds to `-range`, whose
+  guard rejected any tag ≠ `.integer`. Repro `(range (bit-shift-left 1 55) (+ 4
+  (bit-shift-left 1 55)))` → `Type error: -range: expected integer, got
+  big_int`; clj yields the finite 4-element Long range. Global D-165 (ADR-0080)
+  was itself DISCHARGED 2026-06-03 (C7) — the numeric tower boxes past-i48 Longs
+  via `promote.wrapI64` everywhere *except* this last `.range` element/count
+  site. **Amendment:** `.range` is an i64-domain value (its struct fields are
+  already `i64`), and **every** projection of it to a `Value` — `elementAt`,
+  `first`, `seqChunk` slot fill, and the virtual `countValue` — now crosses the
+  one canonical `promote.wrapI64` lever (Single-Source-Lever
+  `20260817195814-7eebeaf4`): a value past i48 boxes as a heap Long (exact,
+  class Long), never a float. `rangeLeafFn` accepts heap-Long bounds via
+  `error_catalog.expectI64`. `elementAt`/`first` gain `rt` + become fallible
+  (the heap-Long alloc); the reduce loop already roots its accumulator (and
+  `coll` via the operand stack), and `seqChunk`'s fill is already inside the
+  D-244 fabrication no-collect region, so no new GC-rooting hazard. F-005-clean
+  (a Long past i48 stays a Long, not an F-005 numeric-tower redesign — it reuses
+  the tower's existing `wrapI64`). This is the `quality-loop floor: clj-parity`
+  drain (compliance batch B3-adjacent), corpus-backed. Depth-3 amendment; the
+  mandatory Devil's-advocate fork (fresh context, F-002/F-005/F-011 envelope) is
+  reproduced verbatim below.
+
+### DA alternatives (2026-08-28 amendment) — verbatim
+
+> **Alt 1 — smallest-diff (gate-predicate reroute).** Add a `cljw.internal`
+> "is-inline-`.integer`" predicate and change the core.clj gate so heap-Long
+> bounds fall to the lazy cons body; `.range` element production untouched.
+> *Better than A-fixed:* zero ripple — no rt/fallible signatures, no new GC
+> allocation in the reduce loop, no change to the D-165/D-179 `initInteger`
+> invariant. *Breaks/risks:* large-offset ranges lose O(1) `nth`/`count` and
+> become O(n) lazy (ADR-0063/O-001 regression). More importantly it is the
+> Nth+1 copy: `.range`'s element/count spill-to-float bug survives, merely
+> dodged at one entry path — a latent lie the next `-range` caller re-hits.
+> Element magnitude is bounded by the bounds, so this covers element spill, but
+> the **`count`-field spill** (span > 2^47 with i48 bounds, e.g. `(range -2^47
+> 2^47)`) still routes to `-range` and still floats. Smallest-diff bias per
+> F-002.
+>
+> **Alt 2 — finished-form-clean (single wrapI64 lever; RECOMMENDED).** A-fixed
+> *plus* routing the `count`→Value boxing through `promote.wrapI64` too.
+> Invariant: `.range` is an i64-domain value; **every** projection to a Value
+> (element, first, seqChunk slot, count) crosses through the one canonical
+> `wrapI64`, retiring the scattered `initInteger` D-165 flagged. *Better than
+> A-fixed:* A-fixed as scoped fixes elements but leaves `(count (range
+> huge-span))` spilling to float — Alt 2 is the only option making `.range` a
+> faithful JVM `LongRange` (O(1) `nth`/`count` correct across the full i64
+> domain) and fully discharging D-165/D-179 for `.range`. *Breaks/risks:*
+> GC-rooting — `wrapI64` allocates a heap-Long, so the reduce accumulator and
+> the mid-fill `chunk_buffer` (`seqChunk` sets `cb.slots[i]` one at a time) must
+> be rooted across each boxing; audit every `GC-ROOT:` site. Alloc cost is
+> inherent to F-005 (a Long past i48 *is* a heap value) and matches JVM boxing —
+> not a regression to dodge. `wrapI64` stays alloc-free for in-i48 elements, so
+> the common hot path only gains a bounds check.
+>
+> **Alt 3 — wildcard (`-range` internal fallback).** Keep the clj gate calling
+> `-range` for any integer+step≠0; `-range` itself mints a `.range` only when
+> the range is *wholly* i48-representable, else builds the lazy heap-Long seq.
+> Preserves `.range ⟺ i48` in one producer. *Better than A-fixed:* `.range`
+> element/count code untouched (no ripple, no GC hazard), and spill is
+> *structurally* impossible. *Risks:* wide ranges O(n) (like Alt 1); `-range`
+> now sometimes returns a non-`.range` (callers already handle its `()` return,
+> so tolerable); the wholly-i48 test is a new correctness-critical branch.
+>
+> **Recommendation:** Alt 2 — the single-`wrapI64`-lever completion of A-fixed,
+> because only it also closes the `count`-field spill A-fixed leaves open and
+> makes `.range` a true i64-domain `LongRange`; the GC-rooting audit is the
+> price, not a reason to shrink to Alt 1/3 (F-002).
+
+**Main-loop decision:** adopt **Alt 2**. The DA rated it finished-form-clean
+within the F-NNN envelope with no F-NNN block; per CLAUDE.md's Cycle-budget-defer
+rule the larger-diff finished form is taken. The GC-rooting audit the DA
+demanded was performed: the reduce accumulator is rooted via `gc_roots[1]` and
+`coll` via the operand stack (`args[last]`); `seqChunk`'s fill sits inside the
+existing D-244 fabrication no-collect region; `elementAt` reads `start`/`step`
+into i64 locals before allocating, so `coll` need not survive the alloc. No new
+`GC-ROOT:` site was required.
