@@ -24,9 +24,9 @@
 schema_version: "2.0"
 summary:
   namespaces_required: 34
-  total: 1411
+  total: 1413
   zig: 405
-  clj: 786
+  clj: 788
   value: 214
   unbound: 6
 vars:
@@ -101,6 +101,8 @@ vars:
   "cljw.internal/__resolve": { impl: zig, flags: "-" }
   "cljw.internal/__run-in-transaction": { impl: zig, flags: "-" }
   "cljw.internal/__satisfies?": { impl: zig, flags: "-" }
+  "cljw.internal/__send": { impl: zig, flags: "-" }
+  "cljw.internal/__send-off": { impl: zig, flags: "-" }
   "cljw.internal/__stderr-writer": { impl: zig, flags: "-" }
   "cljw.internal/__stdin-reader": { impl: zig, flags: "-" }
   "cljw.internal/__stdout-writer": { impl: zig, flags: "-" }
@@ -752,8 +754,8 @@ vars:
   "clojure.core/satisfies?": { impl: clj, flags: "-" }
   "clojure.core/second": { impl: clj, flags: "-" }
   "clojure.core/select-keys": { impl: clj, flags: "-" }
-  "clojure.core/send": { impl: zig, flags: "-" }
-  "clojure.core/send-off": { impl: zig, flags: "-" }
+  "clojure.core/send": { impl: clj, flags: "-" }
+  "clojure.core/send-off": { impl: clj, flags: "-" }
   "clojure.core/send-via": { impl: zig, flags: "-" }
   "clojure.core/seq": { impl: zig, flags: "-" }
   "clojure.core/seq-to-map-for-destructuring": { impl: clj, flags: "-" }
