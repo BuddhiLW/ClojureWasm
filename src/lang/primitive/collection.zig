@@ -631,7 +631,7 @@ pub fn nthFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) 
                 if (has_default) break :blk default;
                 break :blk error_catalog.raise(.index_out_of_range, loc, .{ .fn_name = "nth" });
             }
-            break :blk range_mod.elementAt(coll, idx);
+            break :blk try range_mod.elementAt(rt, coll, idx);
         },
         // A String is Indexed (clj `(nth "abc" 1)` → \b): return the
         // codepoint char at `idx`. OOR → default, or throw (clj

@@ -122,8 +122,11 @@ pub fn countFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation
             try transient_hash_set.ensureLive(coll, "count", loc);
             break :blk Value.initInteger(@intCast(transient_hash_set.count(coll)));
         },
-        // PERF: O(1) precomputed range length, no element walk [refs: O-001]
-        .range => Value.initInteger(range.countOf(coll)),
+        // PERF: O(1) precomputed range length, no element walk [refs: O-001].
+        // Boxed through range's `wrapI64` lever — a virtual count past i48 is a
+        // heap Long, not a float (ADR-0063 amendment; the range aggregate owns
+        // all its i64→Value projections).
+        .range => try range.countValue(rt, coll),
         // PERF: a vector view counts by subtraction — backing count minus the
         // read cursor — where the eager list copy it replaced had to allocate
         // n cells before it could answer. [refs: O-058]
@@ -429,7 +432,7 @@ pub fn firstFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation
         .persistent_queue => persistent_queue.peek(coll), // first = oldest = peek
         .chunked_cons => chunked_cons.first(coll),
         // PERF: O(1) head (start), no chunk materialised for just first [refs: O-001]
-        .range => range.first(coll),
+        .range => try range.first(rt, coll),
         // PERF: O(1) indexed read through the view [refs: O-058]
         .array_seq => array_seq.first(coll),
         // PERF: O(1) decode in place through the view [refs: D-179]
@@ -718,7 +721,7 @@ fn firstOfSeq(rt: *Runtime, env: *Env, sv: Value, loc: SourceLocation) anyerror!
     return switch (sv.tag()) {
         .list, .cons => list.first(sv),
         .chunked_cons => chunked_cons.first(sv),
-        .range => range.first(sv),
+        .range => try range.first(rt, sv),
         .array_seq => array_seq.first(sv),
         .string_seq => string_seq.first(sv),
         .lazy_seq => try lazy_seq.first(rt, env, sv),

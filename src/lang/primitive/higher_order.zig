@@ -256,11 +256,11 @@ pub fn reduceFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocatio
     // `.range` always has count ≥ 1 (empty → nil). [refs: O-001, D-163]
     if (coll.tag() == .range) {
         const n = range_mod.countOf(coll);
-        var racc: Value = if (args.len == 3) args[1] else range_mod.elementAt(coll, 0);
+        var racc: Value = if (args.len == 3) args[1] else try range_mod.elementAt(rt, coll, 0);
         var ri: i64 = if (args.len == 3) 0 else 1;
         while (ri < n) : (ri += 1) {
-            gc_roots[1] = racc; // root across the reducing-fn eval
-            const rstep = try invokeCallable(rt, env, f, &.{ racc, range_mod.elementAt(coll, ri) }, loc);
+            gc_roots[1] = racc; // root across the reducing-fn eval (and the elementAt heap-Long alloc)
+            const rstep = try invokeCallable(rt, env, f, &.{ racc, try range_mod.elementAt(rt, coll, ri) }, loc);
             if (reduced.isReduced(rstep)) return reduced.unreduce(rstep);
             racc = rstep;
         }
@@ -554,25 +554,21 @@ pub fn takeEagerFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLoca
 
 /// `(-range start end step)` — produce a compact `.range` value (ADR-0063,
 /// O-001) for a finite integer range, or nil for an empty one. core.clj's
-/// `range` 3-arg arm calls this only when all args are fixed-precision
-/// integers and step≠0 (the `int?` + `(not= step 0)` gate); float / bigint /
-/// step-0 ranges stay the lazy `.clj` body. The integer-tag guard here is
-/// defensive — a direct mis-call raises rather than mis-producing.
+/// `range` 3-arg arm calls this only when all args are `int?` (a Long — inline
+/// i48 OR a heap `big_int` origin `.long`) and step≠0; float / genuine-BigInt /
+/// step-0 ranges stay the lazy `.clj` body. `expectI64` accepts a heap Long
+/// (the `.range` spans the full i64 domain, ADR-0063 amendment) and rejects
+/// anything else — the defensive guard against a direct mis-call.
 pub fn rangeLeafFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
     _ = env;
     try error_catalog.checkArity("-range", args, 3, loc);
-    for (args) |a| {
-        if (a.tag() != .integer) {
-            return error_catalog.raise(.type_arg_not_integer, loc, .{
-                .fn_name = "-range",
-                .actual = @tagName(a.tag()),
-            });
-        }
-    }
+    const start = try error_catalog.expectI64(args[0], "-range", loc);
+    const end = try error_catalog.expectI64(args[1], "-range", loc);
+    const step = try error_catalog.expectI64(args[2], "-range", loc);
     // An empty integer range (`(range 0)` / `(range 5 5)`) is `()` not nil
     // (D-164); `fromBounds` returns nil for count 0, lifted here. Internal
     // range ops keep `make`'s nil-for-empty (their callers test isNil).
-    const r = try range_mod.fromBounds(rt, args[0].asInteger(), args[1].asInteger(), args[2].asInteger());
+    const r = try range_mod.fromBounds(rt, start, end, step);
     return if (r.isNil()) try list_mod.emptyList(rt) else r;
 }
 

@@ -194,7 +194,7 @@ const Cursor = union(enum) {
             },
             .rng => |*s| {
                 if (s.i >= s.n) return null;
-                const e = range.elementAt(s.v, s.i);
+                const e = try range.elementAt(rt, s.v, s.i);
                 s.i += 1;
                 return e;
             },

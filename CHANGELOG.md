@@ -68,6 +68,21 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 
 ### Fixed
 
+- **`(range …)` over Long bounds past ±2^47 no longer errors — a range spans
+  the full Long domain.** cljw stores an integer past its ±2^47 inline window as
+  a heap Long, and a recent fix taught `int?` to recognise those; that routed
+  `(range (bit-shift-left 1 55) (+ 4 (bit-shift-left 1 55)))` to the compact-range
+  fast path, whose guard accepted only inline integers — so it raised `-range:
+  expected integer, got big_int` where clj yields the finite Long range.
+
+  A compact range is now a full i64-domain value, like a JVM `LongRange`: it
+  accepts heap-Long bounds, and every element it hands out — through `first`,
+  `nth`, `reduce`, `count`, a chunked `map`/`seq` walk, or print — boxes a value
+  past ±2^47 as a heap Long (exact, class `Long`), never a float. A range whose
+  elements cross the ±2^47 boundary mid-sequence is exact throughout. Every
+  projection of the range to a value now flows through one boxing point, so
+  there is no path left that can still spill an element or the count to a float.
+
 - **`assocEx` is wired on a `deftype`/`reify` `clojure.lang.IPersistentMap`
   section.** clj's `IPersistentMap` declares `assocEx` — assoc that throws when
   the key is already present — so a type implementing the interface faithfully

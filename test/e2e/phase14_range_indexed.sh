@@ -75,4 +75,31 @@ assert_eq 'range_large'  "$("$BIN" -e '(count (range 100000))')"        '100000'
 assert_eq 'range_large_sum' "$("$BIN" -e '(reduce + 0 (range 1000))')"  '499500'
 assert_eq 'range_large_last' "$("$BIN" -e '(last (range 50000))')"      '49999'
 
+# ADR-0063 amendment (2026-08-28) — a `.range` spans the full i64 Long domain,
+# not just the ±2^47 i48 window. Heap-Long bounds (a `big_int` origin `.long`,
+# `int?`-true) now mint a compact `.range`; its elements past i48 box as heap
+# Longs (via `promote.wrapI64`) instead of silently spilling to float. clj
+# yields the finite Long range for all of these.
+assert_eq 'range_heap_seq' "$("$BIN" -e '(range (bit-shift-left 1 55) (+ 4 (bit-shift-left 1 55)))')" \
+    '(36028797018963968 36028797018963969 36028797018963970 36028797018963971)'
+assert_eq 'range_heap_nth' "$("$BIN" -e '(nth (range (bit-shift-left 1 55) (+ 4 (bit-shift-left 1 55))) 1)')" \
+    '36028797018963969'
+assert_eq 'range_heap_count' "$("$BIN" -e '(count (range (bit-shift-left 1 55) (+ 4 (bit-shift-left 1 55))))')" '4'
+assert_eq 'range_heap_reduce' "$("$BIN" -e '(reduce + (range (bit-shift-left 1 55) (+ 4 (bit-shift-left 1 55))))')" \
+    '144115188075855878'
+# generic (chunked) seq walk — seqChunk must box elements past i48 as Longs too.
+assert_eq 'range_heap_map' "$("$BIN" -e '(map inc (range (bit-shift-left 1 55) (+ 4 (bit-shift-left 1 55))))')" \
+    '(36028797018963969 36028797018963970 36028797018963971 36028797018963972)'
+assert_eq 'range_heap_into' "$("$BIN" -e '(into [] (range (bit-shift-left 1 55) (+ 4 (bit-shift-left 1 55))))')" \
+    '[36028797018963968 36028797018963969 36028797018963970 36028797018963971]'
+# a produced element is a Long (int?-true), NOT a float.
+assert_eq 'range_heap_int?' "$("$BIN" -e '(int? (nth (range (bit-shift-left 1 55) (+ 4 (bit-shift-left 1 55))) 0))')" 'true'
+# elements that CROSS the i48 boundary mid-range (start fits i48, end past it):
+# 140737488355327 = i48-max, the next element is the first heap Long.
+assert_eq 'range_cross_i48' "$("$BIN" -e '(range (- (bit-shift-left 1 47) 2) (+ (bit-shift-left 1 47) 2))')" \
+    '(140737488355326 140737488355327 140737488355328 140737488355329)'
+# negative step at a large offset.
+assert_eq 'range_heap_neg' "$("$BIN" -e '(range (bit-shift-left 1 55) (- (bit-shift-left 1 55) 4) -1)')" \
+    '(36028797018963968 36028797018963967 36028797018963966 36028797018963965)'
+
 echo "ALL phase14_range_indexed PASS"
