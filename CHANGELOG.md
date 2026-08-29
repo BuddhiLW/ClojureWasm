@@ -7,6 +7,8 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 
 ## [Unreleased]
 
+## [1.11.1] - 2026-08-25
+
 ### Added
 
 - **`cljw.net/listen` — a cljw process can now SERVE, not only dial.**
