@@ -7,6 +7,109 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 
 ## [Unreleased]
 
+## [1.12.0] - 2026-08-29
+
+### Added
+
+- **`(String. bytes/chars offset length [charset])` range constructors.** clj's
+  `String(byte[]/char[], int, int[, Charset])` decodes only the
+  `[offset, offset+length)` window, but cljw's constructor capped at 2 args
+  (whole array `[+ charset]`), so `(String. (byte-array [104 105 106]) 1 2)`
+  raised an arity error where clj yields `"ij"`. The constructor now accepts
+  0–4 args: with 3 or 4 args the 2nd/3rd are offset/length and the decode runs
+  over that element window (bytes or chars); a 4th arg is the charset (accepted,
+  UTF-8 used — cljw is UTF-8-only). An out-of-range window raises
+  `index_out_of_range` (catchable, JVM `StringIndexOutOfBounds` parity) rather
+  than clamping. `(String. s)` stays 1-arg only.
+
+### Fixed
+
+- **`int?` is fixed-precision; `pos-int?` / `neg-int?` / `nat-int?` accept heap
+  Longs.** cljw stores a Long that overflows its inline range as a heap value
+  with a `.long` origin; the integer predicates read the tag without consulting
+  that origin, so `(pos-int? (bit-shift-left 1 60))` was `false` (clj `true`)
+  and `(int? (bigint 5))` was `true` (clj `false` — clj's `int?` is
+  fixed-precision, only `integer?` accepts a BigInt). `int?` is now split from
+  `integer?`, and all four predicates route through one `isFixedInt` classifier
+  (`.integer` or a `.long`-origin heap value), composing the existing
+  `pos?`/`neg?` for the sign so a heap Long and a true BigInt are classified
+  once.
+
+- **`take` accepts a float / `##Inf` / BigInt count.** clj's `take` compares the
+  count numerically (`(pos? n)` / `(dec n)`), so `(take 2.0 [1 2 3 4])` →
+  `(1 2)`, `(take 2.9 …)` → `(1 2 3)` (ceil, not truncation), `(take ##Inf …)`
+  realizes the whole finite source, and a BigInt count is legal — but cljw's
+  eager leaf raised a type error for any non-integer count. It now derives the
+  realizable count (integer as-is, positive float as `ceil(n)`, `##Inf` or an
+  oversized count as unbounded, `n ≤ 0` / `##NaN` as none, BigInt via its i64
+  value). A non-number count raises `type_arg_not_number`.
+
+- **`disj` / `disj!` / `dissoc!` accept a variadic (and single-arg) key list.**
+  clj's set/transient removers fold over multiple keys (`(disj #{1 2 3 4} 1 2 3)`
+  → `#{4}`, `(disj #{1 2})` → `#{1 2}`), but cljw held all three to a fixed
+  2-arg arity and errored. Each now takes a variadic key list and loops the
+  removal, mirroring `assoc!`'s existing pair-loop; a 1-arg call returns the
+  collection unchanged (clj identity arity). `(disj)` / `(dissoc! t)` still
+  error, matching clj.
+
+- **`clojure.string/replace` accepts a map / IFn replacement.** clj treats any
+  non-string replacement on a regex match as a function called with the match,
+  and a map/keyword/set/vector is `IFn` too, so
+  `(clojure.string/replace "aXbXc" #"X" {"X" "-"})` → `"a-b-c"` — but cljw
+  whitelisted only fn values and raised a type error for a map. It now invokes
+  any non-string replacement through the vtable (cljw's `callFn` already
+  dispatches map/keyword/set/vector-as-fn); a genuinely non-callable value
+  raises inside the call, as in clj.
+
+- **Ad-hoc hierarchy ops reject malformed input instead of silently returning
+  a value.** `(descendants SomeClass)` now throws (clj:
+  `UnsupportedOperationException` — the class hierarchy is open, not
+  enumerable), a self-derive `(derive x x)` throws (clj `AssertionError`), and
+  `derive`/`underive` on a non-hierarchy map (`(derive {} :a :b)`,
+  `(underive {} :a :b)`) throw (clj `NullPointerException` on the field
+  dereference). Previously each silently built or returned a bogus hierarchy.
+  cljw matches by throwing (the exception Kind differs — accepted divergence
+  AD-007). The valid 2-arity global-hierarchy path is unaffected.
+
+- **`(atom v :meta m)` / `ref` / `agent` reject a non-map `:meta`.** clj's
+  `setup-reference` casts a `:meta` constructor option to `IPersistentMap`, so a
+  number, set, or vector `:meta` throws `ClassCastException` — but cljw silently
+  accepted it (e.g. `(meta (atom 1 :meta 5))` returned `5`). All three reference
+  constructors now reject a non-nil, non-map `:meta` through one shared guard
+  (`iref.requireMetaMap`).
+
+- **`(contains? array i)` tests index validity instead of throwing.** A Java
+  array is Indexed, so clj's `contains?` answers `true`/`false` for an integer
+  key by bounds — but cljw raised `No implementation of method
+  '-contains-key?' on protocol 'Associative' for type 'array'` for every key.
+  It now matches: an integer key reports whether the index is in range. A
+  non-integer key still raises (an array is not associative, so — unlike a
+  vector's miss, which is `false` — clj does not treat it as merely absent).
+
+- **`(empty x)` returns `nil` for a non-collection instead of throwing.** clj's
+  `empty` answers `nil` for anything that is not an `IPersistentCollection` — a
+  number, char, keyword, symbol, boolean, ratio, BigInt, or a Java array — but
+  cljw raised `No implementation of method '-empty' on protocol
+  'IPersistentCollection' for type 'Long'`. It now matches clj: every
+  non-collection value yields `nil`. A `deftype`/`reify` that declares itself a
+  collection still raises if it left `-empty` unwired — a missing impl there is a
+  developer error, not a silent `nil`.
+
+- **`(range …)` over Long bounds past ±2^47 no longer errors — a range spans
+  the full Long domain.** cljw stores an integer past its ±2^47 inline window as
+  a heap Long, and a recent fix taught `int?` to recognise those; that routed
+  `(range (bit-shift-left 1 55) (+ 4 (bit-shift-left 1 55)))` to the compact-range
+  fast path, whose guard accepted only inline integers — so it raised `-range:
+  expected integer, got big_int` where clj yields the finite Long range.
+
+  A compact range is now a full i64-domain value, like a JVM `LongRange`: it
+  accepts heap-Long bounds, and every element it hands out — through `first`,
+  `nth`, `reduce`, `count`, a chunked `map`/`seq` walk, or print — boxes a value
+  past ±2^47 as a heap Long (exact, class `Long`), never a float. A range whose
+  elements cross the ±2^47 boundary mid-sequence is exact throughout. Every
+  projection of the range to a value now flows through one boxing point, so
+  there is no path left that can still spill an element or the count to a float.
+
 ## [1.11.1] - 2026-08-25
 
 ### Added
@@ -69,55 +172,6 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
   error instead of an opaque bind failure.
 
 ### Fixed
-
-- **Ad-hoc hierarchy ops reject malformed input instead of silently returning
-  a value.** `(descendants SomeClass)` now throws (clj:
-  `UnsupportedOperationException` — the class hierarchy is open, not
-  enumerable), a self-derive `(derive x x)` throws (clj `AssertionError`), and
-  `derive`/`underive` on a non-hierarchy map (`(derive {} :a :b)`,
-  `(underive {} :a :b)`) throw (clj `NullPointerException` on the field
-  dereference). Previously each silently built or returned a bogus hierarchy.
-  cljw matches by throwing (the exception Kind differs — accepted divergence
-  AD-007). The valid 2-arity global-hierarchy path is unaffected.
-
-- **`(atom v :meta m)` / `ref` / `agent` reject a non-map `:meta`.** clj's
-  `setup-reference` casts a `:meta` constructor option to `IPersistentMap`, so a
-  number, set, or vector `:meta` throws `ClassCastException` — but cljw silently
-  accepted it (e.g. `(meta (atom 1 :meta 5))` returned `5`). All three reference
-  constructors now reject a non-nil, non-map `:meta` through one shared guard
-  (`iref.requireMetaMap`).
-
-- **`(contains? array i)` tests index validity instead of throwing.** A Java
-  array is Indexed, so clj's `contains?` answers `true`/`false` for an integer
-  key by bounds — but cljw raised `No implementation of method
-  '-contains-key?' on protocol 'Associative' for type 'array'` for every key.
-  It now matches: an integer key reports whether the index is in range. A
-  non-integer key still raises (an array is not associative, so — unlike a
-  vector's miss, which is `false` — clj does not treat it as merely absent).
-
-- **`(empty x)` returns `nil` for a non-collection instead of throwing.** clj's
-  `empty` answers `nil` for anything that is not an `IPersistentCollection` — a
-  number, char, keyword, symbol, boolean, ratio, BigInt, or a Java array — but
-  cljw raised `No implementation of method '-empty' on protocol
-  'IPersistentCollection' for type 'Long'`. It now matches clj: every
-  non-collection value yields `nil`. A `deftype`/`reify` that declares itself a
-  collection still raises if it left `-empty` unwired — a missing impl there is a
-  developer error, not a silent `nil`.
-
-- **`(range …)` over Long bounds past ±2^47 no longer errors — a range spans
-  the full Long domain.** cljw stores an integer past its ±2^47 inline window as
-  a heap Long, and a recent fix taught `int?` to recognise those; that routed
-  `(range (bit-shift-left 1 55) (+ 4 (bit-shift-left 1 55)))` to the compact-range
-  fast path, whose guard accepted only inline integers — so it raised `-range:
-  expected integer, got big_int` where clj yields the finite Long range.
-
-  A compact range is now a full i64-domain value, like a JVM `LongRange`: it
-  accepts heap-Long bounds, and every element it hands out — through `first`,
-  `nth`, `reduce`, `count`, a chunked `map`/`seq` walk, or print — boxes a value
-  past ±2^47 as a heap Long (exact, class `Long`), never a float. A range whose
-  elements cross the ±2^47 boundary mid-sequence is exact throughout. Every
-  projection of the range to a value now flows through one boxing point, so
-  there is no path left that can still spill an element or the count to a float.
 
 - **`assocEx` is wired on a `deftype`/`reify` `clojure.lang.IPersistentMap`
   section.** clj's `IPersistentMap` declares `assocEx` — assoc that throws when
