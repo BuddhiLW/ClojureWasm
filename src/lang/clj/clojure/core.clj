@@ -2311,6 +2311,30 @@
 ;; parity); scripts require clojure.repl explicitly. The early in-core copies
 ;; (pre-D-305, when vars carried no :doc) were removed with D-513.
 
+;; `(send a f & args)` / `(send-off a f & args)` — dispatch an action to an
+;; agent (clj 1.0). Both route the action fn through `bound-fn*` so the action
+;; re-establishes the DISPATCHING thread's dynamic bindings before it runs on the
+;; agent's action thread (clj's binding conveyance): `(binding [*v* x] (send a
+;; (fn [_] *v*)))` sees `x`, not the var's root. `bound-fn*` captures at dispatch
+;; time (the calling thread) and the worker replays it. `send`/`send-off` differ
+;; only by executor pool in clj; cljw's first slice shares one, so both wrap the
+;; SAME conveyance point (Single-Source-Lever) over the `__send`/`__send-off`
+;; enqueue primitives. `bound-fn*` is defined later in this file → forward-declared
+;; here (covers `future-call` below too).
+(declare bound-fn*)
+(defn send
+  "Dispatch an action to an agent. Returns the agent immediately. Subsequently,
+  in a thread from a thread pool, the state of the agent will be set to the value
+  of: (apply action-fn state-of-agent args)."
+  [a f & args]
+  (apply cljw.internal/__send a (bound-fn* f) args))
+(defn send-off
+  "Dispatch a potentially blocking action to an agent. Returns the agent
+  immediately. Subsequently, in a separate thread, the state of the agent will be
+  set to the value of: (apply action-fn state-of-agent args)."
+  [a f & args]
+  (apply cljw.internal/__send-off a (bound-fn* f) args))
+
 ;; `tap>` / `add-tap` / `remove-tap` — clj 1.10 debugging fan-out (D-502).
 ;; clj uses a daemon thread + a bounded ArrayBlockingQueue; cljw has no
 ;; java.util.concurrent, so an agent (send-off → a real worker thread) carries
@@ -2359,8 +2383,7 @@
 ;; which captures the CREATING thread's dynamic bindings and re-establishes them
 ;; in the worker before the body runs — `(binding [*v* x] @(future *v*))` sees
 ;; `x`, not the var's root. `pmap`/`pcalls`/`pvalues` route through `future`, so
-;; they convey too. `bound-fn*` is defined later in this file → forward-declared.
-(declare bound-fn*)
+;; they convey too. (`bound-fn*` is forward-declared above, at `send`.)
 (defn future-call
   "Takes a function of no args and yields a future object that will invoke the
   function in another thread, caching the result for deref/@."
