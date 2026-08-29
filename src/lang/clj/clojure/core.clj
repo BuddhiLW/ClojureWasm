@@ -2353,15 +2353,19 @@
   (.flush *out*)
   nil)
 
-;; `(future-call f)` — the fn behind the `future` macro (clj 1.1). cljw's
-;; `future` macro expands to `(cljw.internal/__future-call (fn* [] body))`; future-call is the
-;; same primitive exposed for a pre-built no-arg thunk. (clj adds binding
-;; conveyance here; cljw's `future` macro does not, so future-call matches it.)
+;; `(future-call f)` — the fn behind the `future` macro (clj 1.1). The `future`
+;; macro expands to `(future-call (fn* [] body))`, so `future-call` is the single
+;; BINDING-CONVEYANCE point (clj parity): it wraps the thunk with `bound-fn*`,
+;; which captures the CREATING thread's dynamic bindings and re-establishes them
+;; in the worker before the body runs — `(binding [*v* x] @(future *v*))` sees
+;; `x`, not the var's root. `pmap`/`pcalls`/`pvalues` route through `future`, so
+;; they convey too. `bound-fn*` is defined later in this file → forward-declared.
+(declare bound-fn*)
 (defn future-call
   "Takes a function of no args and yields a future object that will invoke the
   function in another thread, caching the result for deref/@."
   [f]
-  (cljw.internal/__future-call f))
+  (cljw.internal/__future-call (bound-fn* f)))
 
 ;; `(load-string s)` — sequentially read+eval every form in s, return the last
 ;; value (clj 1.0). clj routes through a StringReader + load-reader; cljw has no

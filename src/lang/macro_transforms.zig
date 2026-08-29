@@ -3388,11 +3388,15 @@ fn expandDelay(
     return expandThunkWrapper(arena, "__delay-create", args, loc);
 }
 
-// --- future — `(future expr...)` → `(__future-call (fn* [] expr...))` ---
+// --- future — `(future expr...)` → `(clojure.core/future-call (fn* [] expr...))` ---
 //
-// Wraps the body in a zero-arity thunk. `__future-call` spawns a real
-// OS thread that runs the thunk and caches the result; `(deref f)`
-// blocks until the worker completes (see runtime/future.zig).
+// Wraps the body in a zero-arity thunk and routes it through the
+// `clojure.core/future-call` fn (clj's structure) rather than the
+// `cljw.internal/__future-call` primitive directly, so BINDING CONVEYANCE
+// is applied at the single `future-call` choke point (it wraps the thunk
+// with `bound-fn*`) — the worker re-establishes the creating thread's
+// dynamic bindings before running the body. `future-call` then calls
+// `__future-call`, which spawns a real OS thread (see runtime/future.zig).
 fn expandFuture(
     arena: std.mem.Allocator,
     rt: *Runtime,
@@ -3400,7 +3404,19 @@ fn expandFuture(
     loc: SourceLocation,
 ) macro_dispatch.ExpandError!Form {
     _ = rt;
-    return expandThunkWrapper(arena, "__future-call", args, loc);
+    // `(fn* [] expr...)` — the zero-arity thunk over the body.
+    const empty_params = try arena.dupe(Form, &.{});
+    const params_form: Form = .{ .data = .{ .vector = empty_params }, .location = loc };
+    var fn_items = try arena.alloc(Form, 2 + args.len);
+    fn_items[0] = sym("fn*", loc);
+    fn_items[1] = params_form;
+    @memcpy(fn_items[2..], args);
+    const fn_form: Form = .{ .data = .{ .list = fn_items }, .location = loc };
+    // `(clojure.core/future-call <thunk>)`.
+    var call_items = try arena.alloc(Form, 2);
+    call_items[0] = .{ .data = .{ .symbol = .{ .ns = "clojure.core", .name = "future-call" } }, .location = loc };
+    call_items[1] = fn_form;
+    return list(arena, call_items, loc);
 }
 
 /// `(dosync body...)` → `(__run-in-transaction (fn* [] body...))`.
