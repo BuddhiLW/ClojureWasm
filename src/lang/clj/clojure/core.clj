@@ -712,7 +712,20 @@
         ;; clj bounds-checks (0 <= start <= end <= count) and throws
         ;; IndexOutOfBounds — it does NOT clamp like take/drop would
         ;; (`(subvec [1 2 3] 1 10)` throws, not `[2 3]`).
-        (let [c (count v)]
+        ;;
+        ;; clj's `RT.subvec` takes primitive `int` params, so a float / ratio
+        ;; index is coerced via `Number.intValue` (truncate toward zero; NaN → 0)
+        ;; BEFORE the bounds check: (subvec [0 1 2] 2.72 3.14) → [2],
+        ;; (subvec [0 1 2] 1/2 4/3) → [0], (subvec [0 1 2] ##NaN 3) → [0 1 2],
+        ;; (subvec [0 1 2] 1 ##NaN) → start 1 > end 0 → out-of-bounds. Coercing
+        ;; here is also what keeps a non-integer index off `__subvec`'s raw i64
+        ;; cast, which would `@panic` on a NaN / ratio (ADR-0019 — no panic on
+        ;; user input). A non-number index (`:a`, `nil`, a symbol) has no
+        ;; `intValue`, so `int` throws — matching clj's cast-failure throw.
+        (let [->idx (fn* [x] (if (and (float? x) (not (== x x))) 0 (int x)))
+              start (->idx start)
+              end (->idx end)
+              c (count v)]
           ;; clj throws IndexOutOfBoundsException here (NOT an ex-info) — so a
           ;; `(catch IndexOutOfBoundsException …)` around a subvec works.
           (when (or (< start 0) (< end start) (< c end))
@@ -2311,6 +2324,30 @@
 ;; parity); scripts require clojure.repl explicitly. The early in-core copies
 ;; (pre-D-305, when vars carried no :doc) were removed with D-513.
 
+;; `(send a f & args)` / `(send-off a f & args)` — dispatch an action to an
+;; agent (clj 1.0). Both route the action fn through `bound-fn*` so the action
+;; re-establishes the DISPATCHING thread's dynamic bindings before it runs on the
+;; agent's action thread (clj's binding conveyance): `(binding [*v* x] (send a
+;; (fn [_] *v*)))` sees `x`, not the var's root. `bound-fn*` captures at dispatch
+;; time (the calling thread) and the worker replays it. `send`/`send-off` differ
+;; only by executor pool in clj; cljw's first slice shares one, so both wrap the
+;; SAME conveyance point (Single-Source-Lever) over the `__send`/`__send-off`
+;; enqueue primitives. `bound-fn*` is defined later in this file → forward-declared
+;; here (covers `future-call` below too).
+(declare bound-fn*)
+(defn send
+  "Dispatch an action to an agent. Returns the agent immediately. Subsequently,
+  in a thread from a thread pool, the state of the agent will be set to the value
+  of: (apply action-fn state-of-agent args)."
+  [a f & args]
+  (apply cljw.internal/__send a (bound-fn* f) args))
+(defn send-off
+  "Dispatch a potentially blocking action to an agent. Returns the agent
+  immediately. Subsequently, in a separate thread, the state of the agent will be
+  set to the value of: (apply action-fn state-of-agent args)."
+  [a f & args]
+  (apply cljw.internal/__send-off a (bound-fn* f) args))
+
 ;; `tap>` / `add-tap` / `remove-tap` — clj 1.10 debugging fan-out (D-502).
 ;; clj uses a daemon thread + a bounded ArrayBlockingQueue; cljw has no
 ;; java.util.concurrent, so an agent (send-off → a real worker thread) carries
@@ -2353,15 +2390,18 @@
   (.flush *out*)
   nil)
 
-;; `(future-call f)` — the fn behind the `future` macro (clj 1.1). cljw's
-;; `future` macro expands to `(cljw.internal/__future-call (fn* [] body))`; future-call is the
-;; same primitive exposed for a pre-built no-arg thunk. (clj adds binding
-;; conveyance here; cljw's `future` macro does not, so future-call matches it.)
+;; `(future-call f)` — the fn behind the `future` macro (clj 1.1). The `future`
+;; macro expands to `(future-call (fn* [] body))`, so `future-call` is the single
+;; BINDING-CONVEYANCE point (clj parity): it wraps the thunk with `bound-fn*`,
+;; which captures the CREATING thread's dynamic bindings and re-establishes them
+;; in the worker before the body runs — `(binding [*v* x] @(future *v*))` sees
+;; `x`, not the var's root. `pmap`/`pcalls`/`pvalues` route through `future`, so
+;; they convey too. (`bound-fn*` is forward-declared above, at `send`.)
 (defn future-call
   "Takes a function of no args and yields a future object that will invoke the
   function in another thread, caching the result for deref/@."
   [f]
-  (cljw.internal/__future-call f))
+  (cljw.internal/__future-call (bound-fn* f)))
 
 ;; `(load-string s)` — sequentially read+eval every form in s, return the last
 ;; value (clj 1.0). clj routes through a StringReader + load-reader; cljw has no

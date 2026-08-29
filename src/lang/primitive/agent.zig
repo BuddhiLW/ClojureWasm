@@ -96,9 +96,12 @@ pub fn agentFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation
     return a;
 }
 
-/// `(send a f & args)` / `(send-off a f & args)` — dispatch an action; returns
-/// the agent. Builds the `[f & args]` action vector (on the GC heap, before the
-/// queue lock) and enqueues it. Both share one path in the first slice.
+/// `__send` / `__send-off` — the primitives behind clojure.core `send` /
+/// `send-off`. The `.clj` wrappers route the action fn through `bound-fn*`
+/// (binding conveyance — the action re-establishes the dispatching thread's
+/// dynamic bindings) BEFORE calling these, which build the `[f & args]` action
+/// vector (on the GC heap, before the queue lock) and enqueue it. Both share one
+/// path in the first slice.
 pub fn sendFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
     _ = env;
     if (args.len < 2)
@@ -257,8 +260,11 @@ const Entry = struct {
 
 const ENTRIES = [_]Entry{
     .{ .name = "agent", .f = &agentFn },
-    .{ .name = "send", .f = &sendFn },
-    .{ .name = "send-off", .f = &sendFn },
+    // Binding conveyance (clj parity) is applied by the clojure.core `send` /
+    // `send-off` `.clj` wrappers (bound-fn*); these primitives enqueue the
+    // already-conveyed action. Renamed `__`-internal so the wrappers own the name.
+    .{ .name = "__send", .f = &sendFn },
+    .{ .name = "__send-off", .f = &sendFn },
     .{ .name = "agent-error", .f = &agentErrorFn },
     .{ .name = "restart-agent", .f = &restartFn },
     .{ .name = "__agent-set-fail-mode", .f = &setFailModeFn },
