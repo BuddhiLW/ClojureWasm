@@ -7,6 +7,29 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 
 ## [Unreleased]
 
+### Fixed
+
+- **`future` / `future-call` / `pmap` convey the creating thread's dynamic
+  bindings.** clj's `binding-conveyor-fn` re-establishes the spawning thread's
+  dynamic binding frame on the worker, so `(binding [*x* 1] @(future *x*))`
+  sees `1`; cljw ran the worker on a fresh thread with only root bindings and
+  saw the root value. `future-call` — the single conveyance point that
+  `future`, `pmap`, `pcalls` and `pvalues` all route through — now wraps its
+  thunk with `bound-fn*`. A worker with no `binding` in scope still sees the
+  root value (unchanged).
+
+- **`agent` `send` / `send-off` convey the dispatching thread's dynamic
+  bindings.** Same gap as `future`: an action dispatched under a `binding` ran
+  against root bindings on the agent's executor. Both now wrap the action with
+  `bound-fn*` before enqueue, sharing `future-call`'s single conveyance point.
+
+- **`subvec` coerces a non-integer index instead of crashing.** clj runs
+  `subvec`'s start/end through `Number.intValue` (truncate; `##NaN` → 0) before
+  the bounds check, so `(subvec [0 1 2] 2.72 3.14)` → `[2]` and
+  `(subvec [0 1 2] ##NaN 3)` → `[0 1 2]`; cljw passed the raw value to an i64
+  cast that panicked on a float / ratio / NaN. Indices are now `int`-coerced
+  ahead of the bounds check, and a non-number index raises a catchable error.
+
 ## [1.12.0] - 2026-08-29
 
 ### Added
