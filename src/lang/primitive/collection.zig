@@ -345,6 +345,22 @@ pub fn containsQFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLoca
             const idx: i64 = k.asInteger();
             break :blk if (idx >= 0 and idx < @as(i64, @intCast(string.codepointCount(string.asString(coll))))) .true_val else .false_val;
         },
+        // A Java array is Indexed but NOT Associative (ADR-0105): `contains?`
+        // tests INDEX validity for an integer key. Unlike a vector — whose
+        // non-integer key is simply absent (false) via the Associative path —
+        // an array has no `containsKey`, so clj's RT.contains falls through to
+        // an IllegalArgumentException for a non-integer key. cljw matches with a
+        // catchable type error rather than a silent false.
+        .array => blk: {
+            if (k.tag() != .integer)
+                break :blk error_catalog.raise(.type_arg_invalid, loc, .{
+                    .fn_name = "contains?",
+                    .expected = "an integer index (an array is indexed, not associative)",
+                    .actual = @tagName(k.tag()),
+                });
+            const idx: i64 = k.asInteger();
+            break :blk if (idx >= 0 and idx < @as(i64, java_array.alength(coll))) .true_val else .false_val;
+        },
         // A live transient mirrors its persistent peer (clj parity, D-199):
         // map/set by key/element membership; vector by index validity.
         .transient_map => blk: {
@@ -1337,6 +1353,23 @@ test "contains? vector tests index validity (ADR-0069, JVM-match)" {
     try testing.expectEqual(Value.false_val, try containsQFn(&fix.rt, &fix.env, &.{ v, Value.initInteger(-1) }, loc));
     const kw = try keyword_mod.intern(&fix.rt, null, "x");
     try testing.expectEqual(Value.false_val, try containsQFn(&fix.rt, &fix.env, &.{ v, kw }, loc));
+}
+
+test "contains? array tests index validity; a non-integer key throws (clj RT.contains)" {
+    var fix: TestFixture = undefined;
+    try fix.init(testing.allocator);
+    defer fix.deinit();
+    const arr = try java_array.fromSlice(&fix.rt, &.{ Value.initInteger(10), Value.initInteger(20), Value.initInteger(30) });
+    const loc: SourceLocation = .{ .line = 0, .column = 0 };
+    // integer key → INDEX validity (true in-bounds, false OOB / negative).
+    try testing.expectEqual(Value.true_val, try containsQFn(&fix.rt, &fix.env, &.{ arr, Value.initInteger(0) }, loc));
+    try testing.expectEqual(Value.true_val, try containsQFn(&fix.rt, &fix.env, &.{ arr, Value.initInteger(2) }, loc));
+    try testing.expectEqual(Value.false_val, try containsQFn(&fix.rt, &fix.env, &.{ arr, Value.initInteger(3) }, loc));
+    try testing.expectEqual(Value.false_val, try containsQFn(&fix.rt, &fix.env, &.{ arr, Value.initInteger(-1) }, loc));
+    // an array is NOT Associative — a non-integer key is unsupported (clj throws),
+    // NOT a false like a vector's miss.
+    const kw = try keyword_mod.intern(&fix.rt, null, "x");
+    try testing.expectError(error.TypeError, containsQFn(&fix.rt, &fix.env, &.{ arr, kw }, loc));
 }
 
 test "get nil → nil; get nil :a default → default" {

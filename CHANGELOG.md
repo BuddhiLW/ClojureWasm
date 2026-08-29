@@ -68,6 +68,14 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 
 ### Fixed
 
+- **`(contains? array i)` tests index validity instead of throwing.** A Java
+  array is Indexed, so clj's `contains?` answers `true`/`false` for an integer
+  key by bounds — but cljw raised `No implementation of method
+  '-contains-key?' on protocol 'Associative' for type 'array'` for every key.
+  It now matches: an integer key reports whether the index is in range. A
+  non-integer key still raises (an array is not associative, so — unlike a
+  vector's miss, which is `false` — clj does not treat it as merely absent).
+
 - **`(empty x)` returns `nil` for a non-collection instead of throwing.** clj's
   `empty` answers `nil` for anything that is not an `IPersistentCollection` — a
   number, char, keyword, symbol, boolean, ratio, BigInt, or a Java array — but
