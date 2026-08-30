@@ -7,6 +7,8 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 
 ## [Unreleased]
 
+## [1.13.0] - 2026-08-30
+
 ### Added
 
 - **`clojure.core/file-seq`.** A lazy depth-first seq of a directory and
