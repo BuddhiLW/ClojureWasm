@@ -7,6 +7,24 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 
 ## [Unreleased]
 
+### Added
+
+- **`clojure.core/file-seq`.** A lazy depth-first seq of a directory and
+  everything under it, defined as the JVM does — a `tree-seq` over
+  `.isDirectory` / `.listFiles`. A non-directory yields just itself. Output
+  matches clj exactly on the same tree.
+
+- **The dev REPL loop is written in Clojure, not bash or python.** The nREPL
+  client lives in `scripts/dev/{bencode,nrepl}.cljc` and is shared by two entry
+  points: `scripts/dev_repl.clj` (babashka — it also supervises the server
+  process, which cljw cannot do yet) and `scripts/nrepl_client.clj` (cljw
+  itself). One implementation, two runtimes, split by a three-function reader
+  conditional over the socket. Running it under cljw exercises `cljw.net`
+  sockets, byte arrays and UTF-8 length handling on every use, so a regression
+  there breaks a daily tool instead of hiding. Its purpose is prototyping
+  `clojure.core` changes: redefining a var in the running image takes ~0.13 s
+  where the same change through `core.clj` costs a full bytecode rebuild.
+
 ### Fixed
 
 - **`(conj map nil)` is a no-op instead of throwing.** clj's

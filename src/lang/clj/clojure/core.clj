@@ -964,6 +964,16 @@
         (when (branch? root)
           (mapcat (fn* [c] (tree-seq branch? children c)) (children root)))))))
 
+;; `(file-seq dir)` — lazy depth-first seq of `dir` and everything under it,
+;; as host File values. The JVM definition is exactly this `tree-seq` over
+;; `.isDirectory` / `.listFiles`, so it is expressed the same way here rather
+;; than as a separate walker. A non-directory yields just itself.
+(def file-seq
+  (fn* [dir]
+    (tree-seq (fn* [f] (.isDirectory f))
+              (fn* [d] (seq (.listFiles d)))
+              dir)))
+
 ;; `(line-seq rdr)` — lazy seq of the lines of `rdr` (a host reader exposing
 ;; `.readLine`, e.g. from `clojure.java.io/reader`). The head line is read
 ;; eagerly (matching JVM `line-seq`'s when-let); the tail is lazy. nil at EOF.
