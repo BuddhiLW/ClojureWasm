@@ -9,6 +9,27 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 
 ### Fixed
 
+- **Sorted-map seqs yield map entries, not plain 2-vectors.** `sorted-map`,
+  `rseq`, `subseq`/`rsubseq` and `java.util.TreeMap` (which delegates to the
+  same walkers) built a 2-element vector per entry, so `(map-entry? (first
+  (sorted-map :a 1)))` was `false` where clj says `true`, and `key`/`val` —
+  which require a real entry — threw on them. The hash-map path was already
+  correct, making the sorted path the odd one out and quietly contradicting
+  AD-032's "cljw MapEntry pairs" promise. All three sorted walkers now build a
+  `MapEntry`. Print form (`[k v]`) is unchanged.
+
+- **`select-keys` requires an associative (or nil) first argument.** clj runs
+  `RT/find`, which casts a non-Associative, non-nil argument to `Map` and
+  throws; cljw silently returned `{}`, so `(select-keys "" [:a])` looked like a
+  successful lookup of nothing. Maps, vectors and `nil` are unchanged
+  (`nil` → `{}`); a string / list / number now raises a catchable error.
+
+- **`merge` adds a 2-vector or map-entry argument AS an entry.** clj's `merge`
+  reduces with `conj`, so `(merge {:a 1} [:b 2])` → `{:a 1, :b 2}`; cljw
+  iterated each argument's `keys`, which threw on a plain vector. Now
+  conj-based, matching clj for map / entry / vector arguments; `nil` arguments
+  are still skipped and the 0-arity still returns `nil`.
+
 - **`future` / `future-call` / `pmap` convey the creating thread's dynamic
   bindings.** clj's `binding-conveyor-fn` re-establishes the spawning thread's
   dynamic binding frame on the worker, so `(binding [*x* 1] @(future *x*))`

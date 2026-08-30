@@ -769,18 +769,27 @@
 ;; `ks` that are present in `m`. JVM uses `find` to distinguish
 ;; "absent" from "nil-valued"; cw v1 uses `contains?` (same
 ;; semantic when nil-values are absent — Phase 7+ value-meta layer
-;; adds `find`).
+;; adds `find`). `m` must be associative or nil: JVM `RT/find` casts a
+;; non-Associative, non-nil arg to `Map` → ClassCastException, so a
+;; string / list / number throws rather than silently returning `{}`.
 (def select-keys
   (fn* [m ks]
-    (reduce (fn* [acc k]
-              (if (contains? m k)
-                (assoc acc k (get m k))
-                acc))
-            {}
-            ks)))
+    (if (or (nil? m) (associative? m))
+      (reduce (fn* [acc k]
+                (if (contains? m k)
+                  (assoc acc k (get m k))
+                  acc))
+              {}
+              ks)
+      (throw (ClassCastException. "select-keys: not associative")))))
 
 ;; `(merge & maps)` — right-most key wins. nil args are skipped.
-;; Variadic via `[& maps]`; 0-arity returns nil (matches JVM).
+;; JVM `merge` reduces with `conj`, so a later arg that is a 2-vector
+;; or a map entry is added AS an entry (`(merge {:a 1} [:b 2])` →
+;; `{:a 1 :b 2}`), not iterated as a map — the old `keys`/`assoc` body
+;; rejected a plain vector. Variadic via `[& maps]`; 0-arity returns nil
+;; (matches JVM). `(if (nil? acc) {} acc)` seeds a map only when the
+;; first arg was nil, so a vector-first `merge` keeps vector-conj.
 (def merge
   (fn* [& maps]
     (if (= 0 (count maps))
@@ -788,9 +797,7 @@
       (reduce (fn* [acc m]
                 (if (nil? m)
                   acc
-                  (reduce (fn* [a k] (assoc a k (get m k)))
-                          acc
-                          (keys m))))
+                  (conj (if (nil? acc) {} acc) m)))
               (first maps)
               (rest maps)))))
 ;; `(merge-with f & maps)` — like merge, but a key present in more than
