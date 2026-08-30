@@ -24,7 +24,6 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
   there breaks a daily tool instead of hiding. Its purpose is prototyping
   `clojure.core` changes: redefining a var in the running image takes ~0.13 s
   where the same change through `core.clj` costs a full bytecode rebuild.
-
 ### Fixed
 
 - **`find` / `.entryAt` / `(MapEntry. k v)` / `clojure.walk` yield real map
@@ -79,6 +78,10 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
   iterated each argument's `keys`, which threw on a plain vector. Now
   conj-based, matching clj for map / entry / vector arguments; `nil` arguments
   are still skipped and the 0-arity still returns `nil`.
+
+## [1.12.1] - 2026-08-29
+
+### Fixed
 
 - **`future` / `future-call` / `pmap` convey the creating thread's dynamic
   bindings.** clj's `binding-conveyor-fn` re-establishes the spawning thread's
