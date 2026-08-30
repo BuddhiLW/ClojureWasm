@@ -129,6 +129,38 @@ fn rebuildVector(
     return result;
 }
 
+/// Walk a MAP ENTRY: transform the key and the val, rebuild an entry.
+///
+/// clj's `walk` carries a dedicated IMapEntry branch —
+/// `(MapEntry/create (inner (key form)) (inner (val form)))` — so an entry stays
+/// an entry and BOTH halves are visited. cljw needs the same arm now that an
+/// entry is a distinct type rather than a 2-vector: without it `.map_entry`
+/// falls through to the scalar `else` in the walk dispatches, and nothing inside
+/// a map is transformed at all. The tell was `keywordize-keys` converting the
+/// outer key and leaving every nested one alone.
+fn rebuildMapEntry(
+    rt: *Runtime,
+    env: *Env,
+    loc: SourceLocation,
+    form: Value,
+    comptime transform_child: fn (rt: *Runtime, env: *Env, ctx: anytype, child: Value, loc: SourceLocation) anyerror!Value,
+    ctx: anytype,
+) anyerror!Value {
+    // GC-ROOT: C6 — root the source entry plus the already-transformed key
+    // across the SECOND reentrant transform_child (it re-enters the VM), or a
+    // torture collect sweeps the key before the entry is built
+    // [ref: .dev/gc_rooting.md §C].
+    var gc_roots: [2]Value = .{ form, .nil_val };
+    var gc_sp: u16 = 2;
+    var gc_frame: root_set.EvalFrame = .{ .stack = &gc_roots, .sp = &gc_sp, .locals = &.{}, .parent = root_set.eval_frame_head };
+    root_set.eval_frame_head = &gc_frame;
+    defer root_set.eval_frame_head = gc_frame.parent;
+    const k = try transform_child(rt, env, ctx, map_entry_collection.keyOf(form), loc);
+    gc_roots[1] = k;
+    const v = try transform_child(rt, env, ctx, map_entry_collection.valOf(form), loc);
+    return map_entry_collection.make(rt, k, v);
+}
+
 fn rebuildSet(
     rt: *Runtime,
     env: *Env,
@@ -278,6 +310,7 @@ fn walkRebuild(rt: *Runtime, env: *Env, inner: Value, form: Value, loc: SourceLo
     return switch (form.tag()) {
         .list, .cons => rebuildList(rt, env, loc, form, walkInnerCallback, ctx),
         .vector, .sub_vector => rebuildVector(rt, env, loc, form, walkInnerCallback, ctx),
+        .map_entry => rebuildMapEntry(rt, env, loc, form, walkInnerCallback, ctx),
         .hash_set => rebuildSet(rt, env, loc, form, walkInnerCallback, ctx),
         .array_map => rebuildArrayMap(rt, env, loc, form, walkInnerCallback, ctx),
         .hash_map => rebuildHashMap(rt, env, loc, form, walkInnerCallback, ctx),
@@ -309,6 +342,7 @@ fn prewalkRec(rt: *Runtime, env: *Env, f: Value, form: Value, loc: SourceLocatio
     return switch (transformed.tag()) {
         .list, .cons => rebuildList(rt, env, loc, transformed, prewalkChildCallback, ctx),
         .vector, .sub_vector => rebuildVector(rt, env, loc, transformed, prewalkChildCallback, ctx),
+        .map_entry => rebuildMapEntry(rt, env, loc, transformed, prewalkChildCallback, ctx),
         .hash_set => rebuildSet(rt, env, loc, transformed, prewalkChildCallback, ctx),
         .array_map => rebuildArrayMap(rt, env, loc, transformed, prewalkChildCallback, ctx),
         .hash_map => rebuildHashMap(rt, env, loc, transformed, prewalkChildCallback, ctx),
@@ -334,6 +368,7 @@ fn postwalkRec(rt: *Runtime, env: *Env, f: Value, form: Value, loc: SourceLocati
     const rebuilt = switch (form.tag()) {
         .list, .cons => try rebuildList(rt, env, loc, form, postwalkChildCallback, ctx),
         .vector, .sub_vector => try rebuildVector(rt, env, loc, form, postwalkChildCallback, ctx),
+        .map_entry => try rebuildMapEntry(rt, env, loc, form, postwalkChildCallback, ctx),
         .hash_set => try rebuildSet(rt, env, loc, form, postwalkChildCallback, ctx),
         .array_map => try rebuildArrayMap(rt, env, loc, form, postwalkChildCallback, ctx),
         .hash_map => try rebuildHashMap(rt, env, loc, form, postwalkChildCallback, ctx),

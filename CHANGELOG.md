@@ -27,6 +27,24 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 
 ### Fixed
 
+- **`find` / `.entryAt` / `(MapEntry. k v)` / `clojure.walk` yield real map
+  entries.** A sweep for every site still producing a plain 2-vector where clj
+  produces a `MapEntry` — live bugs since `key`/`val` began requiring a real
+  entry — found three roots. `clojure.core/find` built `[k (get m k)]`, and
+  being receiver-blind that broke every receiver (map / sorted-map / vector /
+  record / transient) plus `.entryAt`, which routes through it. `clojure.walk`
+  synthesized vector pairs when rebuilding a map. The host constructor
+  `(MapEntry. k v)` returned a vector. All now yield entries, so
+  `(key (find {:a 1} :a))` works as in clj.
+
+- **`clojure.walk` recurses into map entries.** Its dispatches matched
+  `.vector` but not the (now distinct) entry type, so an entry was treated as a
+  scalar and nothing *inside* a map was transformed — `keywordize-keys`
+  converted the outer key and left nested ones alone. `walk` / `prewalk` /
+  `postwalk` now transform an entry's key and val and rebuild an entry, which
+  is what clj's dedicated `IMapEntry` branch does. A walk fn may still return a
+  plain 2-vector instead of an entry; both are accepted.
+
 - **`(conj map nil)` is a no-op instead of throwing.** clj's
   `APersistentMap.cons` walks `(RT/seq o)`, and the seq of `nil` is `nil`, so
   the map comes back unchanged; cljw raised "expected [k v] vector". Hash,

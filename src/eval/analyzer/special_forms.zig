@@ -27,7 +27,6 @@ const env_mod = @import("../../runtime/env.zig");
 const Env = env_mod.Env;
 const error_catalog = @import("../../runtime/error/catalog.zig");
 const macro_dispatch = @import("../macro_dispatch.zig");
-const vector_mod = @import("../../runtime/collection/vector.zig");
 const map_entry_mod = @import("../../runtime/collection/map_entry.zig");
 const analyzer_mod = @import("analyzer.zig");
 const bindings = @import("bindings.zig");

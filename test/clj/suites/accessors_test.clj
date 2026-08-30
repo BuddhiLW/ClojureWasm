@@ -86,7 +86,25 @@
   (testing "returning a plain 2-vector from the walk fn is still accepted"
     (is (= {:a 9} (clojure.walk/postwalk
                     (fn [x] (if (map-entry? x) [(key x) 9] x))
-                    {:a 1})))))
+                    {:a 1}))))
+  ;; The walk must RECURSE INTO an entry — transform both its key and its val.
+  ;; When entries became a distinct type the dispatches still matched only
+  ;; `.vector`, so an entry fell through to the scalar arm and nothing inside a
+  ;; map was transformed. The giveaway was NESTED: the outer key converted and
+  ;; the inner one did not, so a one-level test would have passed.
+  (testing "values nested inside a map are transformed"
+    (is (= {:a 10 :b [20 30]}
+           (clojure.walk/postwalk (fn [x] (if (number? x) (* x 10) x))
+                                  {:a 1 :b [2 3]}))))
+  (testing "keys are transformed at EVERY depth, not just the top"
+    (is (= {:a {:b 1}} (clojure.walk/keywordize-keys {"a" {"b" 1}})))
+    (is (= {:a [{:b 1}]} (clojure.walk/keywordize-keys {"a" [{"b" 1}]})))
+    (is (= {"a" {"b" 1}} (clojure.walk/stringify-keys {:a {:b 1}}))))
+  (testing "replace reaches nested maps"
+    (is (= {:x 1 :nested {:x 2}}
+           (clojure.walk/prewalk-replace {:a :x} {:a 1 :nested {:a 2}})))
+    (is (= {:x 1 :y 2}
+           (clojure.walk/postwalk-replace {:a :x :b :y} {:a 1 :b 2})))))
 
 ;; --- select-keys: associative-or-nil, else throw ---
 ;; JVM RT/find casts a non-Associative, non-nil arg to Map, so a string / list
