@@ -1398,11 +1398,14 @@
 ;; `(ffirst coll)` — `(first (first coll))`.
 (def ffirst (fn* [coll] (first (first coll))))
 
-;; `(key e)` / `(val e)` — the key / value of a map entry. cw v1 represents
-;; map entries as 2-element vectors (`(first {:a 1})` → `[:a 1]`), so these
-;; index positionally rather than calling a JVM Map.Entry accessor.
-(def key (fn* [e] (nth e 0)))
-(def val (fn* [e] (nth e 1)))
+;; `(key e)` / `(val e)` — the key / value of a map entry. clj parity: both
+;; require an actual map entry (`map-entry?`), NOT a plain 2-vector. cljw's map
+;; entries are a distinct type — `(map-entry? (first {:a 1}))` → true while
+;; `(map-entry? [:a 1])` → false — so `(key [:k :v])` / `(val nil)` throw a
+;; catchable ClassCastException like clj, rather than indexing positionally.
+;; (Map destructuring feeds real entries via `(first (seq some-map))`, unaffected.)
+(def key (fn* [e] (if (map-entry? e) (nth e 0) (throw (ClassCastException. "key: not a map entry")))))
+(def val (fn* [e] (if (map-entry? e) (nth e 1) (throw (ClassCastException. "val: not a map entry")))))
 
 ;; `(not-empty coll)` — coll if it has items, else nil.
 (def not-empty (fn* [coll] (if (empty? coll) nil coll)))
