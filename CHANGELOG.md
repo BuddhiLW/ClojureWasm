@@ -9,6 +9,20 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 
 ### Fixed
 
+- **`(conj map nil)` is a no-op instead of throwing.** clj's
+  `APersistentMap.cons` walks `(RT/seq o)`, and the seq of `nil` is `nil`, so
+  the map comes back unchanged; cljw raised "expected [k v] vector". Hash,
+  array and sorted maps are all fixed. Vectors, sets and lists still take the
+  `nil` AS an element (`(conj [1] nil)` → `[1 nil]`) — the no-op is
+  map-specific, not a blanket rule.
+
+- **`(nth () 0)` raises instead of answering nil.** The list arm walked the
+  tail, so `(nth '(1) 5)` already raised, but index 0 on an EMPTY list never
+  entered the walk and fell through to `first`, which answers `nil` for an
+  empty list — a silent wrong answer where clj raises `IndexOutOfBounds`. The
+  3-arity default form is unchanged (`(nth '() 0 :default)` → `:default`), as
+  is `(nth nil 0)` → `nil`.
+
 - **Sorted-map seqs yield map entries, not plain 2-vectors.** `sorted-map`,
   `rseq`, `subseq`/`rsubseq` and `java.util.TreeMap` (which delegates to the
   same walkers) built a 2-element vector per entry, so `(map-entry? (first
