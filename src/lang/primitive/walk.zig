@@ -26,6 +26,7 @@ const vector_collection = @import("../../runtime/collection/vector.zig");
 const sub_vector = @import("../../runtime/collection/sub_vector.zig");
 const list_collection = @import("../../runtime/collection/list.zig");
 const map_collection = @import("../../runtime/collection/map.zig");
+const map_entry_collection = @import("../../runtime/collection/map_entry.zig");
 const set_collection = @import("../../runtime/collection/set.zig");
 const sequence = @import("sequence.zig");
 const root_set = @import("../../runtime/gc/root_set.zig");
@@ -179,21 +180,38 @@ fn rebuildArrayMap(
     defer root_set.eval_frame_head = gc_frame.parent;
     var i: u32 = 0;
     while (i < am.count) : (i += 1) {
-        // Synthesize the [k v] 2-vector.
-        var entry = vector_collection.empty();
-        entry = try vector_collection.conj(rt, entry, am.entries[2 * i]);
-        entry = try vector_collection.conj(rt, entry, am.entries[2 * i + 1]);
+        // Hand the walk fn a real map ENTRY, as clj does — it used to get a plain
+        // 2-vector, so `(postwalk #(do (key %) %) {:a 1})` threw once key/val
+        // began requiring an entry.
+        const entry = try map_entry_collection.make(rt, am.entries[2 * i], am.entries[2 * i + 1]);
         gc_roots[1] = result;
         gc_roots[2] = entry;
         const transformed = try transform_child(rt, env, ctx, entry, loc);
-        // Expect transformed back to a 2-vector.
-        if (transformed.tag() != .vector or vector_collection.count(transformed) != 2)
+        const kv = entryKV(transformed) orelse
             // The walk fn returned an unusable map entry — the caller's data;
             // clj throws a catchable ClassCastException.
             return error_catalog.raise(.type_arg_invalid, loc, .{ .fn_name = "clojure.walk", .expected = "a [k v] entry from the walk fn", .actual = "another shape" });
-        result = try map_collection.assoc(rt, result, vector_collection.nth(transformed, 0), vector_collection.nth(transformed, 1));
+        result = try map_collection.assoc(rt, result, kv.k, kv.v);
     }
     return result;
+}
+
+/// Read `[k v]` back out of whatever the walk fn returned for a map entry.
+///
+/// A map entry is handed to the walk fn as a real `.map_entry` (clj hands over a
+/// MapEntry too), but the fn may legitimately return a plain 2-vector instead —
+/// `(fn [[k v]] [k (inc v)])` is the ordinary idiom, and clj accepts it because
+/// its walk rebuilds through `into`, which takes either. So BOTH shapes are
+/// valid here; anything else is the caller's bad data and raises.
+fn entryKV(v: Value) ?struct { k: Value, v: Value } {
+    return switch (v.tag()) {
+        .map_entry => .{ .k = map_entry_collection.keyOf(v), .v = map_entry_collection.valOf(v) },
+        .vector => if (vector_collection.count(v) == 2)
+            .{ .k = vector_collection.nth(v, 0), .v = vector_collection.nth(v, 1) }
+        else
+            null,
+        else => null,
+    };
 }
 
 const HashMapCollectCtx = struct { list: *std.ArrayList(Value), gpa: std.mem.Allocator };
@@ -233,17 +251,16 @@ fn rebuildHashMap(
     defer root_set.eval_frame_head = gc_frame.parent;
     var i: usize = 0;
     while (i < entries.items.len) : (i += 2) {
-        var entry = vector_collection.empty();
-        entry = try vector_collection.conj(rt, entry, entries.items[i]);
-        entry = try vector_collection.conj(rt, entry, entries.items[i + 1]);
+        // A real map ENTRY, same contract as the array-map arm above.
+        const entry = try map_entry_collection.make(rt, entries.items[i], entries.items[i + 1]);
         gc_roots[1] = result;
         gc_roots[2] = entry;
         const transformed = try transform_child(rt, env, ctx, entry, loc);
-        if (transformed.tag() != .vector or vector_collection.count(transformed) != 2)
+        const kv = entryKV(transformed) orelse
             // The walk fn returned an unusable map entry — the caller's data;
             // clj throws a catchable ClassCastException.
             return error_catalog.raise(.type_arg_invalid, loc, .{ .fn_name = "clojure.walk", .expected = "a [k v] entry from the walk fn", .actual = "another shape" });
-        result = try map_collection.assoc(rt, result, vector_collection.nth(transformed, 0), vector_collection.nth(transformed, 1));
+        result = try map_collection.assoc(rt, result, kv.k, kv.v);
     }
     return result;
 }

@@ -77,6 +77,10 @@
   (is (= [1 2 3 1] (into [] (dedupe) [1 1 2 2 2 3 1 1])))
   (is (= [1 2 3 4] (into [] (distinct) [1 2 1 3 2 4])))
   (is (= [[1 2] [3 4] [5]] (into [] (partition-all 2) [1 2 3 4 5])))
+  ;; `=` alone does NOT pin the inner type — (= [[1 2]] [(seq [1 2])]) is true —
+  ;; and clj's partition xforms produce VECTORS. The bash case this replaced
+  ;; compared the printed form, which pinned that; assert it directly.
+  (is (every? vector? (into [] (partition-all 2) [1 2 3 4 5])))
   (is (= [1 2 3 4 5] (into [] cat [[1 2] [3 4] [5]])))
   (is (= [2 3 4 5] (into [] (comp cat (map inc)) [[1 2] [3 4]])))
   (testing "preserving-reduced propagates the early stop through cat"
@@ -111,6 +115,7 @@
   (is (= [0 1] (into [] (sequence (take 2) (iterate inc 0)))))
   (is (= [3 5] (into [] (sequence (comp (filter even?) (map inc)) [1 2 3 4]))))
   (is (= [[1 2] [3 4] [5]] (into [] (sequence (partition-all 2) [1 2 3 4 5]))))
+  (is (every? vector? (into [] (sequence (partition-all 2) [1 2 3 4 5]))))
   (is (= [1 1 2 2 3 3] (into [] (sequence (mapcat (fn [x] [x x])) [1 2 3]))))
   (is (= [1 2 3] (into [] (sequence [1 2 3]))))
   (is (= [] (into [] (sequence (map inc) [])))))
@@ -159,6 +164,10 @@
                        [:a :b :c :d])))
   (is (= [:a 2 :a] (into [] (replace {1 :a}) [1 2 1])))
   (is (= [[1 1] [2] [3]] (into [] (partition-by odd?) [1 1 2 3])))
+  (is (every? vector? (into [] (partition-by odd?) [1 1 2 3])))
   (testing "partition-by flushes its pending group under an early stop"
     (is (= [[1 1] [2]] (into [] (comp (partition-by odd?) (take 2))
-                             [1 1 2 3 5])))))
+                             [1 1 2 3 5])))
+    ;; the flushed group must be a vector too, not a seq
+    (is (every? vector? (into [] (comp (partition-by odd?) (take 2))
+                              [1 1 2 3 5])))))

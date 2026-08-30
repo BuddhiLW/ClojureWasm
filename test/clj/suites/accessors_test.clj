@@ -3,7 +3,8 @@
 ;; Run by `test/clj/run_suites.clj` — one cljw process for the whole file,
 ;; instead of one process per assertion the way the bash e2e tier works.
 (ns suites.accessors-test
-  (:require [clojure.test :refer [deftest is testing]]))
+  (:require [clojure.test :refer [deftest is testing]]
+            [clojure.walk]))
 
 ;; --- key / val require an actual map entry ---
 ;; cljw's map entries are a DISTINCT type, so `key`/`val` throw on a plain
@@ -43,6 +44,49 @@
     (is (= '(:b :a) (map key (rseq (sorted-map :a 1 :b 2)))))
     (is (= '(1 2 3) (map key (seq (java.util.TreeMap. {3 :c 1 :a 2 :b})))))
     (is (= '(:a :b :c) (map val (seq (java.util.TreeMap. {3 :c 1 :a 2 :b})))))))
+
+;; --- find / .entryAt / MapEntry. / walk all yield REAL entries ---
+;; Found by an exhaustive producer sweep after `key`/`val` began requiring an
+;; entry: `find` built a plain 2-vector, and it also backs `.entryAt`, so every
+;; Associative host-method path inherited the bug. clojure.walk had the same
+;; defect when rebuilding a map.
+(deftest find-and-friends-yield-entries
+  (testing "find over every associative kind"
+    (is (map-entry? (find {:a 1} :a)))
+    (is (map-entry? (find (sorted-map :a 1) :a)))
+    (is (map-entry? (find [10 20] 0)))              ; a vector is associative by index
+    (is (nil? (find {:a 1} :missing)))              ; absent is still nil, not an entry
+    (is (= :a (key (find {:a 1} :a))))
+    (is (= 1 (val (find {:a 1} :a))))
+    (is (= 0 (key (find [10 20] 0))))
+    (is (= 10 (val (find [10 20] 0)))))
+  (testing "find distinguishes absent from present-but-nil"
+    (is (nil? (find {:a nil} :missing)))
+    (is (map-entry? (find {:a nil} :a)))
+    (is (nil? (val (find {:a nil} :a)))))
+  (testing "the MapEntry constructor"
+    (is (map-entry? (MapEntry. :a 1)))
+    (is (= :a (key (MapEntry. :a 1))))
+    (is (= 2 (val (new clojure.lang.MapEntry :b 2)))))
+  (testing ".entryAt routes through find, so it yields an entry too"
+    (is (map-entry? (.entryAt {:a 1} :a)))
+    (is (= :a (key (.entryAt {:a 1} :a))))))
+
+;; --- clojure.walk hands the walk fn a real entry, and takes either shape back ---
+(deftest walk-map-entries
+  (testing "the fn receives an entry it can key/val"
+    (is (= {:a 1} (clojure.walk/postwalk (fn [x] (when (map-entry? x) (key x)) x) {:a 1})))
+    (is (= {:a 2} (clojure.walk/postwalk
+                    (fn [x] (if (map-entry? x) [(key x) (inc (val x))] x))
+                    {:a 1}))))
+  (testing "identity walk survives on both map representations"
+    ;; >8 keys forces the HAMT path, which is a separate rebuild site
+    (let [big (zipmap (range 12) (range 12))]
+      (is (= big (clojure.walk/postwalk identity big)))))
+  (testing "returning a plain 2-vector from the walk fn is still accepted"
+    (is (= {:a 9} (clojure.walk/postwalk
+                    (fn [x] (if (map-entry? x) [(key x) 9] x))
+                    {:a 1})))))
 
 ;; --- select-keys: associative-or-nil, else throw ---
 ;; JVM RT/find casts a non-Associative, non-nil arg to Map, so a string / list

@@ -28,6 +28,7 @@ const Env = env_mod.Env;
 const error_catalog = @import("../../runtime/error/catalog.zig");
 const macro_dispatch = @import("../macro_dispatch.zig");
 const vector_mod = @import("../../runtime/collection/vector.zig");
+const map_entry_mod = @import("../../runtime/collection/map_entry.zig");
 const analyzer_mod = @import("analyzer.zig");
 const bindings = @import("bindings.zig");
 const map_collection = @import("../../runtime/collection/map.zig");
@@ -107,14 +108,17 @@ pub fn constructInstance(
     args: []const Value,
     loc: error_catalog.SourceLocation,
 ) anyerror!Value {
-    // D-284: cljw has no clojure.lang.MapEntry type — a map entry IS a 2-vector
-    // `[k v]` (core.clj). `(MapEntry. k v)` (or the qualified form) constructs that
-    // 2-vector, so collection libs that build entries explicitly (priority-map,
-    // ordered, …) work. `key`/`val`/`nth` already operate on a 2-vector.
+    // D-284: `(MapEntry. k v)` / `(new clojure.lang.MapEntry k v)` constructs an
+    // entry, so collection libs that build entries explicitly (priority-map,
+    // ordered, …) work. It used to return a plain 2-vector, from when a map entry
+    // WAS one; a map entry is now a distinct type, and `key`/`val` require a real
+    // one, so a vector here made `(key (MapEntry. :a 1))` throw. clj agrees with
+    // the current shape: `(map-entry? (clojure.lang.MapEntry. :a 1))` is true —
+    // and so is `vector?`, which the map_entry type also satisfies.
     if (std.mem.eql(u8, type_name, "MapEntry") or std.mem.eql(u8, type_name, "clojure.lang.MapEntry")) {
         if (args.len != 2)
             return error_catalog.raise(.arity_not_expected, loc, .{ .got = args.len, .fn_name = "MapEntry.", .expected = 2 });
-        return vector_mod.fromSlice(rt, args);
+        return map_entry_mod.make(rt, args[0], args[1]);
     }
     // D-416: `(Object.)` mints a fresh identity-unique value — the Clojure
     // unique-sentinel idiom (`(def notfound (Object.))`, data.finger-tree). No

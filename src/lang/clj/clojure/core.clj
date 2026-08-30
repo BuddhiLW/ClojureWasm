@@ -696,11 +696,14 @@
               (-pop coll)
               (throw (ClassCastException. "Can't pop: not a stack (list, vector)")))))))))
 
-;; `(find m k)` — the map entry `[k v]` for key k if present, else nil
-;; (distinguishes "absent" from "present with nil value" via contains?).
-;; cw v1 represents the entry as a 2-vector (no distinct MapEntry type).
+;; `(find m k)` — the map entry for key k if present, else nil (distinguishes
+;; "absent" from "present with nil value" via contains?). The result is a real
+;; map ENTRY, as in clj: `(map-entry? (find {:a 1} :a))` is true and `key`/`val`
+;; work on it. It built a plain 2-vector until entries became a distinct type,
+;; which made `(key (find m k))` throw — and `find` also backs `.entryAt`, so
+;; every Associative host-method path inherited the bug.
 (def find
-  (fn* [m k] (if (contains? m k) [k (get m k)] nil)))
+  (fn* [m k] (if (contains? m k) (MapEntry. k (get m k)) nil)))
 
 ;; `(subvec v start [end])` — the elements of v in [start, end) (end
 ;; defaults to (count v)) as a vector. For a vector this is JVM's O(1)
@@ -968,7 +971,10 @@
 ;; as host File values. The JVM definition is exactly this `tree-seq` over
 ;; `.isDirectory` / `.listFiles`, so it is expressed the same way here rather
 ;; than as a separate walker. A non-directory yields just itself.
-(def file-seq
+(def ^{:doc "A tree seq on host files: dir and everything beneath it, depth-first.
+  A non-directory yields just itself."
+       :arglists '([dir])}
+  file-seq
   (fn* [dir]
     (tree-seq (fn* [f] (.isDirectory f))
               (fn* [d] (seq (.listFiles d)))
