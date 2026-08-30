@@ -24,9 +24,9 @@
 schema_version: "2.0"
 summary:
   namespaces_required: 34
-  total: 1413
+  total: 1414
   zig: 405
-  clj: 788
+  clj: 789
   value: 214
   unbound: 6
 vars:
@@ -506,6 +506,7 @@ vars:
   "clojure.core/extends?": { impl: clj, flags: "-" }
   "clojure.core/false?": { impl: zig, flags: "-" }
   "clojure.core/ffirst": { impl: clj, flags: "-" }
+  "clojure.core/file-seq": { impl: clj, flags: "-" }
   "clojure.core/filter": { impl: clj, flags: "-" }
   "clojure.core/filterv": { impl: clj, flags: "-" }
   "clojure.core/find": { impl: clj, flags: "-" }

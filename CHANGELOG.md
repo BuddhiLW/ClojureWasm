@@ -7,6 +7,80 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 
 ## [Unreleased]
 
+## [1.13.0] - 2026-08-30
+
+### Added
+
+- **`clojure.core/file-seq`.** A lazy depth-first seq of a directory and
+  everything under it, defined as the JVM does — a `tree-seq` over
+  `.isDirectory` / `.listFiles`. A non-directory yields just itself. Output
+  matches clj exactly on the same tree.
+
+- **The dev REPL loop is written in Clojure, not bash or python.** The nREPL
+  client lives in `scripts/dev/{bencode,nrepl}.cljc` and is shared by two entry
+  points: `scripts/dev_repl.clj` (babashka — it also supervises the server
+  process, which cljw cannot do yet) and `scripts/nrepl_client.clj` (cljw
+  itself). One implementation, two runtimes, split by a three-function reader
+  conditional over the socket. Running it under cljw exercises `cljw.net`
+  sockets, byte arrays and UTF-8 length handling on every use, so a regression
+  there breaks a daily tool instead of hiding. Its purpose is prototyping
+  `clojure.core` changes: redefining a var in the running image takes ~0.13 s
+  where the same change through `core.clj` costs a full bytecode rebuild.
+### Fixed
+
+- **`find` / `.entryAt` / `(MapEntry. k v)` / `clojure.walk` yield real map
+  entries.** A sweep for every site still producing a plain 2-vector where clj
+  produces a `MapEntry` — live bugs since `key`/`val` began requiring a real
+  entry — found three roots. `clojure.core/find` built `[k (get m k)]`, and
+  being receiver-blind that broke every receiver (map / sorted-map / vector /
+  record / transient) plus `.entryAt`, which routes through it. `clojure.walk`
+  synthesized vector pairs when rebuilding a map. The host constructor
+  `(MapEntry. k v)` returned a vector. All now yield entries, so
+  `(key (find {:a 1} :a))` works as in clj.
+
+- **`clojure.walk` recurses into map entries.** Its dispatches matched
+  `.vector` but not the (now distinct) entry type, so an entry was treated as a
+  scalar and nothing *inside* a map was transformed — `keywordize-keys`
+  converted the outer key and left nested ones alone. `walk` / `prewalk` /
+  `postwalk` now transform an entry's key and val and rebuild an entry, which
+  is what clj's dedicated `IMapEntry` branch does. A walk fn may still return a
+  plain 2-vector instead of an entry; both are accepted.
+
+- **`(conj map nil)` is a no-op instead of throwing.** clj's
+  `APersistentMap.cons` walks `(RT/seq o)`, and the seq of `nil` is `nil`, so
+  the map comes back unchanged; cljw raised "expected [k v] vector". Hash,
+  array and sorted maps are all fixed. Vectors, sets and lists still take the
+  `nil` AS an element (`(conj [1] nil)` → `[1 nil]`) — the no-op is
+  map-specific, not a blanket rule.
+
+- **`(nth () 0)` raises instead of answering nil.** The list arm walked the
+  tail, so `(nth '(1) 5)` already raised, but index 0 on an EMPTY list never
+  entered the walk and fell through to `first`, which answers `nil` for an
+  empty list — a silent wrong answer where clj raises `IndexOutOfBounds`. The
+  3-arity default form is unchanged (`(nth '() 0 :default)` → `:default`), as
+  is `(nth nil 0)` → `nil`.
+
+- **Sorted-map seqs yield map entries, not plain 2-vectors.** `sorted-map`,
+  `rseq`, `subseq`/`rsubseq` and `java.util.TreeMap` (which delegates to the
+  same walkers) built a 2-element vector per entry, so `(map-entry? (first
+  (sorted-map :a 1)))` was `false` where clj says `true`, and `key`/`val` —
+  which require a real entry — threw on them. The hash-map path was already
+  correct, making the sorted path the odd one out and quietly contradicting
+  AD-032's "cljw MapEntry pairs" promise. All three sorted walkers now build a
+  `MapEntry`. Print form (`[k v]`) is unchanged.
+
+- **`select-keys` requires an associative (or nil) first argument.** clj runs
+  `RT/find`, which casts a non-Associative, non-nil argument to `Map` and
+  throws; cljw silently returned `{}`, so `(select-keys "" [:a])` looked like a
+  successful lookup of nothing. Maps, vectors and `nil` are unchanged
+  (`nil` → `{}`); a string / list / number now raises a catchable error.
+
+- **`merge` adds a 2-vector or map-entry argument AS an entry.** clj's `merge`
+  reduces with `conj`, so `(merge {:a 1} [:b 2])` → `{:a 1, :b 2}`; cljw
+  iterated each argument's `keys`, which threw on a plain vector. Now
+  conj-based, matching clj for map / entry / vector arguments; `nil` arguments
+  are still skipped and the 0-arity still returns `nil`.
+
 ## [1.12.1] - 2026-08-29
 
 ### Fixed

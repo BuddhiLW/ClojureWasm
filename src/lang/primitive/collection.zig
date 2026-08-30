@@ -221,6 +221,11 @@ fn mapConj(rt: *Runtime, m: Value, entry: Value, loc: SourceLocation) anyerror!V
         try map.forEachEntry(entry, &ctx, MapMergeCtx.cb);
         return acc;
     }
+    // (conj m nil) — a no-op returning the map. clj's APersistentMap.cons walks
+    // `RT.seq(o)`, and seq of nil is nil, so the loop never runs and `this` comes
+    // back. `(conj [1] nil)` / `(conj #{1} nil)` DO take the nil as an element;
+    // only the map arm drops it.
+    if (entry.isNil()) return m;
     // (conj m [k v]) — vector pair gets destructured into assoc. A non-pair
     // entry → IllegalArgumentException in clj (PersistentArrayMap.cons), NOT
     // ClassCastException. D-459.
@@ -265,6 +270,8 @@ fn sortedMapConj(rt: *Runtime, env: *Env, m: Value, entry: Value, loc: SourceLoc
         try map.forEachEntry(entry, &ctx, SortedMapMergeCtx.cb);
         return acc;
     }
+    // (conj sorted-map nil) — a no-op, same as the hash/array-map arm above.
+    if (entry.isNil()) return m;
     // (conj sorted-map [k v]) — same [k v]-pair contract as hash/array map.
     if (entry.tag() != .vector or vector.count(entry) != 2) {
         return error_catalog.raise(.arg_value_invalid, loc, .{
@@ -638,6 +645,15 @@ pub fn nthFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) 
                     if (has_default) break :blk default;
                     break :blk error_catalog.raise(.index_out_of_range, loc, .{ .fn_name = "nth" });
                 }
+            }
+            // An EMPTY list has nothing at any index. The walk above never runs
+            // for idx 0, so without this `(nth '() 0)` fell through to
+            // `list.first`, which answers nil for an empty list — a silent wrong
+            // answer where clj raises IndexOutOfBounds. `(nth '(1) 5)` already
+            // raised, because that case does walk and hits the nil tail.
+            if (list.isEmpty(cur)) {
+                if (has_default) break :blk default;
+                break :blk error_catalog.raise(.index_out_of_range, loc, .{ .fn_name = "nth" });
             }
             break :blk list.first(cur);
         },

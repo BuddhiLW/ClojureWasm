@@ -29,7 +29,7 @@ const equal = @import("../equal.zig");
 const hash_mod = @import("../hash.zig");
 const list_mod = @import("list.zig");
 const map_mod = @import("map.zig");
-const vector_mod = @import("vector.zig");
+const map_entry_mod = @import("map_entry.zig");
 const SourceLocation = @import("../error/info.zig").SourceLocation;
 
 const RED: u8 = 1;
@@ -485,9 +485,13 @@ fn seqInto(rt: *Runtime, h: Value, acc: Value) !Value {
     if (h.tag() != .rb_node) return acc;
     const hn = h.decodePtr(*const RbNode);
     var result = try seqInto(rt, hn.right, acc);
-    var pair = vector_mod.empty();
-    pair = try vector_mod.conj(rt, pair, hn.key);
-    pair = try vector_mod.conj(rt, pair, hn.val);
+    // A map's seq yields MAP ENTRIES, not plain 2-vectors — `map.seq` already
+    // does (`(map-entry? (first {:a 1}))` → true), and `key`/`val` require a
+    // real entry. Building a vector here made the sorted path (sorted-map,
+    // and java.util.TreeMap which delegates to it) the odd one out, so
+    // `(map key (seq (java.util.TreeMap. …)))` threw. AD-032 promises a cljw
+    // MapEntry for these seq-views; this is what makes that true.
+    const pair = try map_entry_mod.make(rt, hn.key, hn.val);
     result = try list_mod.consHeap(rt, pair, result);
     return seqInto(rt, hn.left, result);
 }
@@ -526,9 +530,8 @@ fn rseqMapInto(rt: *Runtime, h: Value, acc: Value) !Value {
     if (h.tag() != .rb_node) return acc;
     const hn = h.decodePtr(*const RbNode);
     var result = try rseqMapInto(rt, hn.left, acc);
-    var pair = vector_mod.empty();
-    pair = try vector_mod.conj(rt, pair, hn.key);
-    pair = try vector_mod.conj(rt, pair, hn.val);
+    // Map entries, not 2-vectors — same contract as `seqInto` above.
+    const pair = try map_entry_mod.make(rt, hn.key, hn.val);
     result = try list_mod.consHeap(rt, pair, result);
     return rseqMapInto(rt, hn.right, result);
 }
@@ -585,12 +588,9 @@ fn subseqWalk(rt: *Runtime, env: *Env, is_map: bool, comparator: Value, h: Value
     const second = if (ascending) hn.left else hn.right;
     var result = try subseqWalk(rt, env, is_map, comparator, first, b, ascending, acc, loc);
     if (try inRange(rt, env, comparator, hn.key, b, loc)) {
-        const entry = if (is_map) blk: {
-            var pair = vector_mod.empty();
-            pair = try vector_mod.conj(rt, pair, hn.key);
-            pair = try vector_mod.conj(rt, pair, hn.val);
-            break :blk pair;
-        } else hn.key;
+        // Map entries, not 2-vectors — same contract as `seqInto`, so
+        // `(key (first (subseq …)))` works like every other map seq.
+        const entry = if (is_map) try map_entry_mod.make(rt, hn.key, hn.val) else hn.key;
         result = try list_mod.consHeap(rt, entry, result);
     }
     return subseqWalk(rt, env, is_map, comparator, second, b, ascending, result, loc);

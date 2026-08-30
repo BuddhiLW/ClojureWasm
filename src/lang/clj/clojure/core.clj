@@ -696,11 +696,14 @@
               (-pop coll)
               (throw (ClassCastException. "Can't pop: not a stack (list, vector)")))))))))
 
-;; `(find m k)` — the map entry `[k v]` for key k if present, else nil
-;; (distinguishes "absent" from "present with nil value" via contains?).
-;; cw v1 represents the entry as a 2-vector (no distinct MapEntry type).
+;; `(find m k)` — the map entry for key k if present, else nil (distinguishes
+;; "absent" from "present with nil value" via contains?). The result is a real
+;; map ENTRY, as in clj: `(map-entry? (find {:a 1} :a))` is true and `key`/`val`
+;; work on it. It built a plain 2-vector until entries became a distinct type,
+;; which made `(key (find m k))` throw — and `find` also backs `.entryAt`, so
+;; every Associative host-method path inherited the bug.
 (def find
-  (fn* [m k] (if (contains? m k) [k (get m k)] nil)))
+  (fn* [m k] (if (contains? m k) (MapEntry. k (get m k)) nil)))
 
 ;; `(subvec v start [end])` — the elements of v in [start, end) (end
 ;; defaults to (count v)) as a vector. For a vector this is JVM's O(1)
@@ -769,18 +772,27 @@
 ;; `ks` that are present in `m`. JVM uses `find` to distinguish
 ;; "absent" from "nil-valued"; cw v1 uses `contains?` (same
 ;; semantic when nil-values are absent — Phase 7+ value-meta layer
-;; adds `find`).
+;; adds `find`). `m` must be associative or nil: JVM `RT/find` casts a
+;; non-Associative, non-nil arg to `Map` → ClassCastException, so a
+;; string / list / number throws rather than silently returning `{}`.
 (def select-keys
   (fn* [m ks]
-    (reduce (fn* [acc k]
-              (if (contains? m k)
-                (assoc acc k (get m k))
-                acc))
-            {}
-            ks)))
+    (if (or (nil? m) (associative? m))
+      (reduce (fn* [acc k]
+                (if (contains? m k)
+                  (assoc acc k (get m k))
+                  acc))
+              {}
+              ks)
+      (throw (ClassCastException. "select-keys: not associative")))))
 
 ;; `(merge & maps)` — right-most key wins. nil args are skipped.
-;; Variadic via `[& maps]`; 0-arity returns nil (matches JVM).
+;; JVM `merge` reduces with `conj`, so a later arg that is a 2-vector
+;; or a map entry is added AS an entry (`(merge {:a 1} [:b 2])` →
+;; `{:a 1 :b 2}`), not iterated as a map — the old `keys`/`assoc` body
+;; rejected a plain vector. Variadic via `[& maps]`; 0-arity returns nil
+;; (matches JVM). `(if (nil? acc) {} acc)` seeds a map only when the
+;; first arg was nil, so a vector-first `merge` keeps vector-conj.
 (def merge
   (fn* [& maps]
     (if (= 0 (count maps))
@@ -788,9 +800,7 @@
       (reduce (fn* [acc m]
                 (if (nil? m)
                   acc
-                  (reduce (fn* [a k] (assoc a k (get m k)))
-                          acc
-                          (keys m))))
+                  (conj (if (nil? acc) {} acc) m)))
               (first maps)
               (rest maps)))))
 ;; `(merge-with f & maps)` — like merge, but a key present in more than
@@ -956,6 +966,19 @@
       (cons root
         (when (branch? root)
           (mapcat (fn* [c] (tree-seq branch? children c)) (children root)))))))
+
+;; `(file-seq dir)` — lazy depth-first seq of `dir` and everything under it,
+;; as host File values. The JVM definition is exactly this `tree-seq` over
+;; `.isDirectory` / `.listFiles`, so it is expressed the same way here rather
+;; than as a separate walker. A non-directory yields just itself.
+(def ^{:doc "A tree seq on host files: dir and everything beneath it, depth-first.
+  A non-directory yields just itself."
+       :arglists '([dir])}
+  file-seq
+  (fn* [dir]
+    (tree-seq (fn* [f] (.isDirectory f))
+              (fn* [d] (seq (.listFiles d)))
+              dir)))
 
 ;; `(line-seq rdr)` — lazy seq of the lines of `rdr` (a host reader exposing
 ;; `.readLine`, e.g. from `clojure.java.io/reader`). The head line is read
@@ -1398,11 +1421,14 @@
 ;; `(ffirst coll)` — `(first (first coll))`.
 (def ffirst (fn* [coll] (first (first coll))))
 
-;; `(key e)` / `(val e)` — the key / value of a map entry. cw v1 represents
-;; map entries as 2-element vectors (`(first {:a 1})` → `[:a 1]`), so these
-;; index positionally rather than calling a JVM Map.Entry accessor.
-(def key (fn* [e] (nth e 0)))
-(def val (fn* [e] (nth e 1)))
+;; `(key e)` / `(val e)` — the key / value of a map entry. clj parity: both
+;; require an actual map entry (`map-entry?`), NOT a plain 2-vector. cljw's map
+;; entries are a distinct type — `(map-entry? (first {:a 1}))` → true while
+;; `(map-entry? [:a 1])` → false — so `(key [:k :v])` / `(val nil)` throw a
+;; catchable ClassCastException like clj, rather than indexing positionally.
+;; (Map destructuring feeds real entries via `(first (seq some-map))`, unaffected.)
+(def key (fn* [e] (if (map-entry? e) (nth e 0) (throw (ClassCastException. "key: not a map entry")))))
+(def val (fn* [e] (if (map-entry? e) (nth e 1) (throw (ClassCastException. "val: not a map entry")))))
 
 ;; `(not-empty coll)` — coll if it has items, else nil.
 (def not-empty (fn* [coll] (if (empty? coll) nil coll)))
