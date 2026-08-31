@@ -7,6 +7,32 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 
 ## [Unreleased]
 
+### Added
+
+- **`clojure.core/load-file`.** Reads and evaluates every form in the file at a
+  given path in order, with `*file*` bound to that path, and returns the value
+  of the last form (the clj `(load-file name)` contract). It delegates to
+  `load-string` over the file contents, so the vars a loaded file defines are
+  visible afterwards exactly as in clj. Found missing while writing the dev
+  nREPL loop in cljw.
+
+### Fixed
+
+- **`interpose`, `map-indexed` and `keep-indexed` preserve lazy realization.**
+  Each now recurses through a chunk-aware lazy helper instead of realizing its
+  whole input, so `(take 5 (interpose :s (repeat :x)))` and the `map-indexed` /
+  `keep-indexed` equivalents compose with infinite and large seqs as in clj.
+  The helpers are `^:private`, so they stay out of the public surface and out
+  of `apropos`.
+
+- **`format` supports the `%C` conversion and nil characters.** `(format "%C"
+  \a)` uppercases to `"A"`, and a nil character renders as `"null"` (`%c`) or
+  `"NULL"` (`%C`), matching clj's `Formatter`.
+
+- **`double` and `float` reject a Character argument.** `(double \A)` and
+  `(float \A)` now throw as in clj, instead of coercing the character's code
+  point.
+
 ## [1.13.0] - 2026-08-30
 
 ### Added

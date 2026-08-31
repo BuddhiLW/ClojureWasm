@@ -1303,7 +1303,7 @@
 ;; intentional: realizing an item does not pull its successor; requesting the
 ;; separator pulls that successor before exposing the separator, matching JVM
 ;; Clojure's `(drop 1 (interleave (repeat sep) coll))` timing.
-(def -interpose-lazy
+(def ^:private -interpose-lazy
   (fn* [sep coll]
     (lazy-seq
       (let [s (seq coll)]
@@ -1589,7 +1589,7 @@
 
 ;; Lazy collection engine for `map-indexed`. Preserve source chunks like JVM
 ;; Clojure while carrying the absolute index across chunk boundaries.
-(def -map-indexed-lazy
+(def ^:private -map-indexed-lazy
   (fn* [f idx coll]
     (lazy-seq
       (let [s (seq coll)]
@@ -1623,7 +1623,7 @@
 ;; Lazy collection engine for `keep-indexed`. The inner loop skips runs of nil
 ;; results without building recursive function frames; emitted tails re-enter
 ;; through the lazy-seq boundary.
-(def -keep-indexed-lazy
+(def ^:private -keep-indexed-lazy
   (fn* [f idx coll]
     (lazy-seq
       ((fn* [i xs]
@@ -2499,6 +2499,17 @@
   "Sequentially read and evaluate the set of forms contained in the string."
   [s]
   (eval (read-string (str "(do " s "\n)"))))
+
+;; `(load-file name)`: read+eval every form in the file at path `name`,
+;; returning the last form's value (clj 1.0). clj routes through
+;; Compiler.loadFile over a reader stream; cljw has no reader streams, so it
+;; slurps the file and delegates to `load-string`, binding `*file*` to `name`
+;; so the loaded forms observe the source path.
+(defn load-file
+  "Sequentially read and evaluate the set of forms contained in the file."
+  [name]
+  (binding [*file* name]
+    (load-string (slurp name))))
 
 
 ;; `(definline name & decl)` — mainline defines an `:inline`-carrying fn (a
