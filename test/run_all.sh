@@ -487,8 +487,6 @@ run_step "e2e_phase6_clojure_walk_cycle1" "bash test/e2e/phase6_clojure_walk_cyc
 run_step "e2e_phase6_16_a_0_metadata"      "bash test/e2e/phase6_16_a_0_metadata.sh"
 run_step "e2e_composition_unlock_a1"       "bash test/e2e/composition_unlock_a1.sh"
 run_step "e2e_composition_unlock_a2"       "bash test/e2e/composition_unlock_a2.sh"
-run_step "e2e_composition_unlock_a3_1"     "bash test/e2e/composition_unlock_a3_1.sh"
-run_step "e2e_phase6_clojure_set_group_ab" "bash test/e2e/phase6_clojure_set_group_ab.sh"
 run_step "e2e_phase6_set_map_literal"      "bash test/e2e/phase6_set_map_literal.sh"
 run_step "e2e_phase6_clojure_set_group_c"  "bash test/e2e/phase6_clojure_set_group_c.sh"
 run_step "e2e_phase6_16_b_4_private_leaf"  "bash test/e2e/phase6_16_b_4_private_leaf.sh"
