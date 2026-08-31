@@ -59,4 +59,15 @@ assert_eq 'slurp_stdin_after_read_line' \
   "$(printf 'first\nrest-of-stream' | "$BIN" -e '(do (read-line) (slurp *in*))' | tail -1)" \
   '"rest-of-stream"'
 
+# System/in is the OTHER stdin object (a host_stream, not the *in* reader):
+# slurp drains it to EOF too, not to whatever a prior .read happened to buffer.
+assert_eq 'slurp_system_in' \
+  "$(printf 'sysin-data' | "$BIN" -e '(slurp System/in)' | tail -1)" \
+  '"sysin-data"'
+
+# …and after a .read consumed one byte, only the remainder drains.
+assert_eq 'slurp_system_in_after_read' \
+  "$(printf 'Xrest-of-stream' | "$BIN" -e '(do (.read System/in) (slurp System/in))' | tail -1)" \
+  '"rest-of-stream"'
+
 echo "ALL phase16_stdin_read_line PASS"

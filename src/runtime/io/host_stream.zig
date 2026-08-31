@@ -359,15 +359,19 @@ fn isStream(v: Value) bool {
 
 /// D-471 IOFactory arms for `slurp`: when `v` is an open reader/input-stream
 /// host_stream, return the UNREAD remainder of its buffer and advance the
-/// cursor to the end (what draining the JVM Reader does). Null when `v` is
-/// not a readable stream — the caller falls through to its path handling.
-pub fn drainRemaining(v: Value) ?[]const u8 {
+/// cursor to the end (what draining the JVM Reader does). A `System/in`-backed
+/// stream blocks pulling process stdin to EOF first, so the remainder is the
+/// whole input rather than whatever a prior `.read` happened to buffer
+/// (symmetric with text_io's `*in*` drain). Null when `v` is not a readable
+/// stream — the caller falls through to its path handling.
+pub fn drainRemaining(rt: *Runtime, v: Value) !?[]const u8 {
     if (!isStream(v)) return null;
     const st = stateOf(v);
     switch (st.kind) {
         .reader, .input => {},
         else => return null,
     }
+    while (st.stdin and !st.stdin_eof) try stdinFill(rt, st);
     const rest_bytes = st.data.items[st.pos..];
     st.pos = st.data.items.len;
     return rest_bytes;

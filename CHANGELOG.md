@@ -7,6 +7,15 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 
 ## [Unreleased]
 
+### Fixed
+
+- **`slurp` drains `System/in` to EOF.** `(slurp System/in)` returned `""`
+  where clj returns the piped input: the stream-side drain sliced whatever
+  happened to be buffered without demand-filling process stdin first, so with
+  nothing yet read the remainder was empty. It now blocks pulling stdin to EOF
+  before draining, the same way the `*in*` text-reader drain already did, and
+  it still returns only the unread remainder after a prior `.read`.
+
 ## [1.13.2] - 2026-08-31
 
 ### Added
