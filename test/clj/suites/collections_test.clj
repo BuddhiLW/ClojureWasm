@@ -1,4 +1,5 @@
-;; conj / nth edge semantics (clj parity, F-011).
+;; conj / nth edge semantics (clj parity, F-011), plus predicate coverage
+;; migrated from test/e2e/phase14_counted_reversible.sh.
 ;;
 ;; This file needed no registration anywhere — test/clj/run_suites.clj discovers
 ;; test/clj/suites/*_test.clj by listing the directory.
@@ -53,3 +54,62 @@
   (testing "nil coll is nil at any index (clj RT.nth), not a raise"
     (is (nil? (nth nil 0)))
     (is (= :default (nth nil 3 :default)))))
+
+(deftest core-collection-predicates
+  (testing "counted?"
+    (is (= [true true true true false false false true true]
+           [(counted? [1])
+            (counted? {})
+            (counted? #{1})
+            (counted? (list 1))
+            (counted? (lazy-seq (cons 1 nil)))
+            (counted? "abc")
+            (counted? nil)
+            (counted? (range 3))
+            (counted? (seq [1 2]))])))
+  (testing "reversible?"
+    (is (= [true false false true true false false]
+           [(reversible? [1])
+            (reversible? (list 1))
+            (reversible? {})
+            (reversible? (sorted-map))
+            (reversible? (sorted-set))
+            (reversible? "abc")
+            (reversible? nil)])))
+  (testing "rational?"
+    (is (= [true true false true true]
+           [(rational? 1/2)
+            (rational? 1M)
+            (rational? 1.5)
+            (rational? 1)
+            (rational? 1N)])))
+  (testing "seqable?"
+    (is (= [true true false true true true true]
+           [(seqable? nil)
+            (seqable? "x")
+            (seqable? 5)
+            (seqable? [1])
+            (seqable? {})
+            (seqable? #{1})
+            (seqable? (list 1))])))
+  (testing "indexed?"
+    (is (= [true false false false false]
+           [(indexed? [1])
+            (indexed? (list 1))
+            (indexed? "x")
+            (indexed? (range 3))
+            (indexed? (seq [1]))])))
+  (testing "qualified-keyword?"
+    (is (= [true false false false]
+           [(qualified-keyword? :a/b)
+            (qualified-keyword? :a)
+            (qualified-keyword? 'a/b)
+            (qualified-keyword? nil)])))
+  (testing "ident?"
+    (is (= [true true false true true false]
+           [(ident? :a)
+            (ident? 'a)
+            (ident? "a")
+            (ident? :a/b)
+            (ident? 'a/b)
+            (ident? nil)]))))

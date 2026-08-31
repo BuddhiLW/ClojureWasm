@@ -1,5 +1,9 @@
 ;; quot / rem / mod across the full numeric tower (Long / BigInt / Ratio /
-;; Float) + int / long coercion of BigInt / Ratio / BigDecimal.
+;; Float) + int / long / double / float coercion and parse helpers.
+;; Bit-operation coverage migrated from test/e2e/phase14_bit_ops.sh and
+;; test/e2e/phase14_long_num_bitandnot.sh.
+;; Floating coercion and parse coverage migrated from
+;; test/e2e/phase14_double_float.sh and test/e2e/phase14_parse.sh.
 ;;
 ;; Migrated from test/e2e/phase14_quot_rem_mod_tower.sh — the bash tier
 ;; compared the PRINTED form of each expression, so every value case here
@@ -94,3 +98,113 @@
   (testing "long"
     (is (= "5" (pr-str (long 5N))))               ; long_bigint
     (is (= "3" (pr-str (long 7/2))))))            ; long_ratio
+
+(deftest long-num-coercion
+  (is (= 3 (long 3.7)))
+  (is (= 5 (long 5)))
+  #_{:clj-kondo/ignore [:type-mismatch]}
+  (is (= 65 (long (char 65))))
+  (is (= 5 (num 5)))
+  (is (= 1.5 (num 1.5)))
+  (is (thrown-with-msg? Throwable #"expected number" (num "x"))))
+
+(deftest floating-coercion
+  (is (= "3.0" (pr-str (double 3))))
+  (is (= "3.0" (pr-str (float 3))))
+  (is (= "1.5" (pr-str (double 1.5))))
+  (is (= "0.5" (pr-str (double 1/2))))
+  (is (= "0.75" (pr-str (double 3/4))))
+  (is (= "1.0E19" (pr-str (double 10000000000000000000N))))
+  (is (= "1.5" (pr-str (double 1.50M))))
+  (is (= 0.5 (double 1/2)))
+  #_{:clj-kondo/ignore [:type-mismatch]}
+  (is (thrown-with-msg? Throwable #"expected number" (double "x")))
+  #_{:clj-kondo/ignore [:type-mismatch]}
+  (is (thrown? Throwable (double (char 65))))
+  #_{:clj-kondo/ignore [:type-mismatch]}
+  (is (thrown? Throwable (float (char 65)))))
+
+(deftest parse-number-helpers
+  (is (= 42 (parse-long "42")))
+  (is (= -7 (parse-long "-7")))
+  (is (= 42 (parse-long "+42")))
+  (is (= 0 (parse-long "-0")))
+  (is (= 9223372036854775807 (parse-long "9223372036854775807")))
+  (is (nil? (parse-long "9223372036854775808")))
+  (is (nil? (parse-long "abc")))
+  (is (nil? (parse-long "")))
+  (is (nil? (parse-long "3.5")))
+  (is (nil? (parse-long " 42 ")))
+  (is (thrown-with-msg? Throwable #"expected string" (parse-long 42)))
+  (is (= 3.14 (parse-double "3.14")))
+  (is (= 1000.0 (parse-double "1e3")))
+  (is (= 5.0 (parse-double "5")))
+  (is (nil? (parse-double "x")))
+  (is (nil? (parse-double "")))
+  (is (= 1.5 (parse-double " 1.5 ")))
+  (is (Double/isNaN (parse-double "NaN")))
+  (is (= ##Inf (parse-double "Infinity")))
+  (is (= ##-Inf (parse-double "-Infinity")))
+  (is (= 1.0 (parse-double "0x1.0p0")))
+  (is (= 1.0 (parse-double "1d")))
+  (is (thrown-with-msg? Throwable #"expected string" (parse-double 42))))
+
+(deftest parse-boolean-helper
+  (is (true? (parse-boolean "true")))
+  (is (false? (parse-boolean "false")))
+  (is (nil? (parse-boolean "TRUE")))
+  (is (nil? (parse-boolean "False")))
+  (is (nil? (parse-boolean " yes ")))
+  (is (nil? (parse-boolean "")))
+  (is (thrown-with-msg? Throwable #"expected string" (parse-boolean 42))))
+
+(deftest bit-operation-compositions
+  (is (= 8 (bit-set 0 3)))
+  (is (= 7 (bit-set 5 1)))
+  (is (= 13 (bit-clear 15 1)))
+  (is (= 0 (bit-clear 8 3)))
+  (is (= 8 (bit-flip 0 3)))
+  (is (= 0 (bit-flip 8 3)))
+  (is (true? (bit-test 4 2)))
+  (is (false? (bit-test 4 1)))
+  (is (false? (bit-test 0 0)))
+  (is (true? (bit-test (bit-set 0 5) 5)))
+  (is (= 5 (bit-and-not 7 2)))
+  (is (= 6 (bit-and-not 15 9)))
+  (is (= 0 (bit-and-not 0 0)))
+  (is (= 8 (bit-and-not 15 1 2 4))))
+
+(deftest bit-operation-long-boundaries
+  (is (= 1000000000000000
+         (bit-and 1000000000000000 1000000000000000)))
+  (is (= 1000000000000255
+         (bit-or 1000000000000000 255)))
+  (is (= -1000000000000001
+         (bit-not 1000000000000000)))
+  (is (= 4611686018427387904 (bit-shift-left 1 62)))
+  (is (= -9223372036854775808 (bit-shift-left 1 63)))
+  (is (= 9223372036854775807 (unsigned-bit-shift-right -1 1)))
+  (is (= 1000000000000001 (bit-set 1000000000000000 0)))
+  (is (true? (bit-test 1000000000000000 40)))
+  (is (= 562949953421312 (Long/highestOneBit 1000000000000000)))
+  (is (= 1000000000000000 (Long/max 1000000000000000 5))))
+
+(deftest bit-shift-and-index-boundaries
+  (is (= [-9223372036854775808 1 2 -4 -1 1 -1]
+         [(bit-shift-left 1 -1)
+          (bit-shift-left 1 64)
+          (bit-shift-left 1 65)
+          (bit-shift-right -8 1)
+          (bit-shift-right -1 64)
+          (unsigned-bit-shift-right -1 63)
+          (unsigned-bit-shift-right -1 64)]))
+  (is (= [-9223372036854775808 -9223372036854775808 1 -2 2 true true]
+         [(bit-set 0 -1)
+          (bit-set 0 63)
+          (bit-set 0 64)
+          (bit-clear -1 64)
+          (bit-flip 0 65)
+          (bit-test -1 -1)
+          (bit-test 1 64)]))
+  (is (thrown? Throwable (bit-and 5N 3)))
+  (is (thrown? Throwable (bit-and 1.5 2))))
