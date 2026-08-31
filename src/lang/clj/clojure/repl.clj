@@ -25,6 +25,7 @@
       (clojure.string/replace "_EQ_" "=")
       (clojure.string/replace "_PLUS_" "+")
       (clojure.string/replace "_SLASH_" "/")
+      (clojure.string/replace "$" "/")
       (clojure.string/replace "_" "-")))
 
 (defn dir-fn

@@ -24,10 +24,10 @@
 schema_version: "2.0"
 summary:
   namespaces_required: 34
-  total: 1418
+  total: 1420
   zig: 405
-  clj: 793
-  value: 214
+  clj: 794
+  value: 215
   unbound: 6
 vars:
   "cljw.error/*error-context*": { impl: value, flags: "dynamic" }
@@ -626,6 +626,8 @@ vars:
   "clojure.core/mod": { impl: zig, flags: "-" }
   "clojure.core/monitor-enter": { impl: zig, flags: "-" }
   "clojure.core/monitor-exit": { impl: zig, flags: "-" }
+  "clojure.core/munge": { impl: clj, flags: "-" }
+  "clojure.core/munge-char-map": { impl: value, flags: "private" }
   "clojure.core/name": { impl: zig, flags: "-" }
   "clojure.core/namespace": { impl: zig, flags: "-" }
   "clojure.core/namespace-munge": { impl: clj, flags: "-" }

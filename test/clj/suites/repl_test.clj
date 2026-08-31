@@ -1,0 +1,35 @@
+;; clojure.repl parity (F-011).
+(ns suites.repl-test
+  (:require [clojure.test :refer [deftest is testing]]
+            [clojure.repl :as repl]))
+
+;; --- demunge ---
+;; demunge maps every `$` (the JVM nested-class separator) to `/`, on top of
+;; reversing the munge char tokens. cljw reversed the tokens but left `$`
+;; in place, found while writing the dev tooling in cljw.
+(deftest demunge-maps-dollar-to-slash
+  (testing "the class$fn separator becomes ns/fn"
+    (is (= "clojure.core/map" (repl/demunge "clojure.core$map"))))
+  (testing "every $ maps to / (nested classes)"
+    (is (= "a/b/c" (repl/demunge "a$b$c"))))
+  (testing "$ maps alongside the munge tokens"
+    (is (= "foo/fn?" (repl/demunge "foo$fn_QMARK_")))
+    (is (= "//x" (repl/demunge "_SLASH_$x"))))
+  (testing "a name with no $ still reverses the munge tokens"
+    (is (= "no-dollar" (repl/demunge "no_dollar")))))
+
+;; --- munge (clojure.core, the inverse of demunge) ---
+;; Escapes every character illegal in a Java identifier as a `_TOKEN_`,
+;; preserving the argument's type (string or symbol).
+(deftest munge-escapes-special-chars
+  (testing "string in, string out"
+    (is (= "foo_bar_QMARK_" (munge "foo-bar?")))
+    (is (= "a_SLASH_b.c_d" (munge "a/b.c-d")))
+    (is (= "a_AMPERSAND_b_BAR_c" (munge "a&b|c"))))
+  (testing "symbol in, symbol out"
+    (is (= 'foo_bar_QMARK_ (munge 'foo-bar?)))
+    (is (symbol? (munge 'a))))
+  (testing "a name needing no escaping is unchanged"
+    (is (= "ok" (munge "ok"))))
+  (testing "munge then demunge round-trips a hyphenated name"
+    (is (= "foo-bar" (repl/demunge (munge "foo-bar"))))))

@@ -7,6 +7,20 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 
 ## [Unreleased]
 
+### Added
+
+- **`clojure.core/munge`.** Escapes each character illegal in a Java identifier
+  as a `_TOKEN_` (the inverse of `clojure.repl/demunge`), preserving the
+  argument's type: a string munges to a string, a symbol to a symbol.
+  `(munge "foo-bar?")` is `"foo_bar_QMARK_"`. cljw carried `namespace-munge`
+  and `demunge` but not the full `munge`; found while writing dev tooling.
+
+### Fixed
+
+- **`clojure.repl/demunge` maps the `$` nested-class separator to `/`.**
+  `(demunge "clojure.core$map")` now returns `"clojure.core/map"` as in clj;
+  cljw reversed the munge tokens but left `$` in place.
+
 ## [1.13.1] - 2026-08-31
 
 ### Added
