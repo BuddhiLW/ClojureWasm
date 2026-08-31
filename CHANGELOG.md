@@ -15,6 +15,12 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
   `(munge "foo-bar?")` is `"foo_bar_QMARK_"`. cljw carried `namespace-munge`
   and `demunge` but not the full `munge`; found while writing dev tooling.
 
+- **`clojure.repl/stack-element-str`.** Renders one stack frame as
+  `<ns>/<fn> (<file>:<line>)`. cljw has no JVM `StackTraceElement` and only
+  Clojure frames, so it takes the cljw-native frame map `{:ns :fn :file :line}`
+  (as returned by `stack-trace`) and produces exactly clj's Clojure-frame form,
+  e.g. `"clojure.core/map (core.clj:2743)"`.
+
 ### Fixed
 
 - **`clojure.repl/demunge` maps the `$` nested-class separator to `/`.**

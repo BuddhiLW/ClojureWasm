@@ -33,3 +33,14 @@
     (is (= "ok" (munge "ok"))))
   (testing "munge then demunge round-trips a hyphenated name"
     (is (= "foo-bar" (repl/demunge (munge "foo-bar"))))))
+
+;; --- stack-element-str (cljw-native frame map input) ---
+;; clj takes a JVM StackTraceElement; cljw has only Clojure frames, so it
+;; takes a frame map and produces clj's Clojure-frame render string.
+(deftest stack-element-str-renders-a-frame
+  (testing "a frame map renders as ns/fn (file:line)"
+    (is (= "clojure.core/map (core.clj:2743)"
+           (repl/stack-element-str {:ns "clojure.core" :fn "map" :file "core.clj" :line 2743}))))
+  (testing "a frame with no ns omits the ns/ prefix"
+    (is (= "eval1 (NO_SOURCE_FILE:1)"
+           (repl/stack-element-str {:fn "eval1" :file "NO_SOURCE_FILE" :line 1})))))

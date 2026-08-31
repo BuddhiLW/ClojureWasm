@@ -24,9 +24,9 @@
 schema_version: "2.0"
 summary:
   namespaces_required: 34
-  total: 1420
+  total: 1421
   zig: 405
-  clj: 794
+  clj: 795
   value: 215
   unbound: 6
 vars:
@@ -1039,6 +1039,7 @@ vars:
   "clojure.repl/root-cause": { impl: clj, flags: "-" }
   "clojure.repl/source": { impl: clj, flags: "macro" }
   "clojure.repl/source-fn": { impl: clj, flags: "-" }
+  "clojure.repl/stack-element-str": { impl: clj, flags: "-" }
   "clojure.set/difference": { impl: clj, flags: "-" }
   "clojure.set/index": { impl: clj, flags: "-" }
   "clojure.set/intersect2": { impl: clj, flags: "private" }
