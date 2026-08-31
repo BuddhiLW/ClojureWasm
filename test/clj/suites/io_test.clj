@@ -38,3 +38,16 @@
       (is (= :loaded @(resolve 'load-file-fixture-marker))))
     (testing "*file* is bound during the load (not the default)"
       (is (some? @(resolve 'load-file-fixture-file))))))
+
+;; --- slurp on a Reader (*in* / with-in-str) ---
+;; slurp drains a text_io Reader's unread remainder. The `*in*` / with-in-str
+;; reader is a text_io Reader, not a host_stream stream, so it fell through the
+;; IOFactory arm and slurp raised "expected string". Found writing dev tooling
+;; that did (slurp *in*).
+(deftest slurp-drains-a-reader
+  (testing "with-in-str: slurp returns the whole string"
+    (is (= "hello world" (with-in-str "hello world" (slurp *in*)))))
+  (testing "slurp drains only the UNREAD remainder after read-line"
+    (is (= "ab|cd\nef" (with-in-str "ab\ncd\nef" (str (read-line) "|" (slurp *in*))))))
+  (testing "an empty reader slurps to an empty string"
+    (is (= "" (with-in-str "" (slurp *in*))))))

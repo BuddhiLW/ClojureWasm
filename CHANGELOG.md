@@ -7,6 +7,33 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 
 ## [Unreleased]
 
+### Added
+
+- **`clojure.core/munge`.** Escapes each character illegal in a Java identifier
+  as a `_TOKEN_` (the inverse of `clojure.repl/demunge`), preserving the
+  argument's type: a string munges to a string, a symbol to a symbol.
+  `(munge "foo-bar?")` is `"foo_bar_QMARK_"`. cljw carried `namespace-munge`
+  and `demunge` but not the full `munge`; found while writing dev tooling.
+
+- **`clojure.repl/stack-element-str`.** Renders one stack frame as
+  `<ns>/<fn> (<file>:<line>)`. cljw has no JVM `StackTraceElement` and only
+  Clojure frames, so it takes the cljw-native frame map `{:ns :fn :file :line}`
+  (as returned by `stack-trace`) and produces exactly clj's Clojure-frame form,
+  e.g. `"clojure.core/map (core.clj:2743)"`.
+
+### Fixed
+
+- **`clojure.repl/demunge` maps the `$` nested-class separator to `/`.**
+  `(demunge "clojure.core$map")` now returns `"clojure.core/map"` as in clj;
+  cljw reversed the munge tokens but left `$` in place.
+
+- **`slurp` reads from `*in*` and any text reader.** `(slurp *in*)` and
+  `(with-in-str s (slurp *in*))` raised "expected string, got host_instance"
+  because the `*in*` reader is a cljw-native text reader, not a host stream, so
+  it fell through slurp's reader arm. slurp now drains a text reader's unread
+  remainder (blocking to stdin EOF for `*in*`), and it respects a prior
+  `read-line`, matching clj.
+
 ## [1.13.1] - 2026-08-31
 
 ### Added

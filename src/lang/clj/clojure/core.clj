@@ -1812,6 +1812,24 @@
   "Convert a Clojure namespace name to a legal Java package name."
   [ns]
   (.replace (str ns) \- \_))
+
+;; `munge` escapes every character illegal in a Java identifier as a `_TOKEN_`
+;; (the inverse of clojure.repl/demunge). clj routes through Compiler.munge;
+;; cljw carries the same char-map here. The map is a cljw implementation
+;; detail (clj has no `clojure.core/char-map`), so it stays ^:private.
+(def ^:private munge-char-map
+  {\- "_", \: "_COLON_", \+ "_PLUS_", \> "_GT_", \< "_LT_", \= "_EQ_",
+   \~ "_TILDE_", \! "_BANG_", \@ "_CIRCA_", \# "_SHARP_", \' "_SINGLEQUOTE_",
+   \" "_DOUBLEQUOTE_", \% "_PERCENT_", \^ "_CARET_", \& "_AMPERSAND_",
+   \* "_STAR_", \| "_BAR_", \{ "_LBRACE_", \} "_RBRACE_", \[ "_LBRACK_",
+   \] "_RBRACK_", \/ "_SLASH_", \\ "_BSLASH_", \? "_QMARK_"})
+
+(defn munge
+  "Munges a name string or symbol into a legal Java identifier, escaping each
+  special character as a `_TOKEN_`. Returns the same type as its argument."
+  [s]
+  ((if (symbol? s) symbol str)
+   (apply str (map (fn [c] (get munge-char-map c c)) (str s)))))
 ;; `(take-nth n)` / `(take-nth n coll)` — every nth item. The 1-arg form is a
 ;; stateful transducer (emit when the running index is a multiple of n); the
 ;; 2-arg form is lazy.
