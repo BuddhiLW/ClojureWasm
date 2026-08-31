@@ -7,6 +7,16 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 
 ## [Unreleased]
 
+### Added
+
+- **`clojure.walk/macroexpand-all` now works.** It previously threw
+  "not yet supported": it had been left as a deliberate stub until
+  `macroexpand` was callable at runtime, and that prerequisite has long since
+  shipped. It is now the same definition as the JVM's — a `prewalk` that
+  macroexpands every seq it visits — so `(macroexpand-all '(when true 1))` is
+  `(if true (do 1))`. Like the JVM's, it is not quote-aware and walks into
+  quoted forms.
+
 ### Fixed
 
 - **`slurp` drains `System/in` to EOF.** `(slurp System/in)` returned `""`

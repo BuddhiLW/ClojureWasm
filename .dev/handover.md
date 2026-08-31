@@ -7,29 +7,30 @@
 
 - **HEAD**: `staging` is the WIP/integration branch (`git log` = SSOT); a
   release is cut by PR `staging`→`main` (the merge push auto-bumps the patch).
-  Per-commit = smoke locally; commit **and** push. **First commit MUST be**
-  `[CLJW-META-MAP]` (`20260828224509-23d5e92c`) — atom/ref/agent `:meta` ctor
-  must reject a non-map (verified live 2026-08-28; TRIVIAL, extract one
-  `requireMetaMap`). Then the g5 cheap chain `[CLJW-HIER-GUARDS]` →
-  `[CLJW-FUTURE-BINDINGS]`, and `[CLJW-COMPLIANCE-REMEASURE]`
-  (`20260828224528-20f90bb5`, HIGH) to refresh the STALE 2026-08-21 red list
-  (memory `20260828224435-02f356e5`; g-notes g1..g6 are the root-cause map, and
-  the runtime-`def`-interns-wrong-ns root `[CLJW-DEF-NS]` clears several reds at
-  once — memory `20260828224443-05ce9bfa`). **3 source commits ride since the
-  last full gate — run `bash scripts/run_gate.sh` before the 5-commit ceiling.**
-  OR cut **v1.11.2** first (staging→main; `[Unreleased]` now has
-  range-heap-Long + empty + contains?-array + prior). **Forbidden this
+  Per-commit = smoke locally; commit **and** push. **FIRST MOVE ON RESUME:
+  spawn a cljw nREPL and work through it** (`mcp__hive__code cider spawn
+  repl_type="cljw"`, then `cider eval` / `clojure_eval`) — 2026-08-31 burned
+  ~10 min per iteration cold-rebuilding the Zig binary to verify a change to a
+  bundled `.clj`, which is backwards (memory `20260831195255-2f8e3d3e`,
+  restating convention `20260812153852-55df3675`). Reap by scoped pattern per
+  `orphan_prevention.md` rule 4; do not spawn one right before a wrap.
+  **First task**: `[CLJW-FOLDBODY-DO]` (`20260831195302-04045c2d`) — `foldBody`
+  drops the `(do …)` wrapper for a single body form, so `(when-not false 1)`
+  expands to `(if false nil 1)` vs clj's `(if false nil (do 1))`; 5 call sites,
+  oracle-derive each before fixing. Then `[CLJW-JSON-REEXPORT]`
+  (`20260831194114-196afd4a`, verify-or-kill the hypothesis first) and
+  `[CLJW-ENTRYPOINT-FLAKE]` (`20260831192937-1e3c4ed0`).
+  **Gate state 2026-08-31: FULL gate green (451 passed, 0 failed, 0 skipped,
+  639s); cadence counter reset to 0.** **Forbidden this
   session**: `git rebase`/`cherry-pick`/
   `commit --amend` (classifier-blocked in auto-mode — use FORWARD commits on a
   fresh branch); killing co-tenant JVMs to free build memory (see the build-OOM
   memory). **CI runs ONE configuration everywhere** — PR, push and dispatch all
   run the identical `test/run_all.sh --serial-e2e` that `scripts/run_gate.sh`
   runs; `check_gate_parity.sh` fails if a tier comes back.
-- **zwasm** = tag pin **v2.5.0** (`278587f6`, FINAL), living at
-  `github.com/zwasm/zwasm` under separate maintainership since 2026-08-12; the
-  dep URL names it directly rather than riding the transfer redirect.
-  Co-development (the `dogfooding_handover` mailbox,
-  `.dev/zwasm_capabilities.md`'s refresh duty) is RETIRED.
+- **zwasm** = tag pin **v2.5.0** (`278587f6`, FINAL) at `github.com/zwasm/zwasm`,
+  separately maintained; co-development is RETIRED (see
+  `.dev/zwasm_capabilities.md`).
 - **This repository is a MAINTAINED FORK.** Upstream `clojurewasm/ClojureWasm`
   (chaploud) stopped at v1.10.1 and invited forks under EPL-2.0. **`origin` is
   this fork** and `main` tracks it. The archived source is the `clojurewasm`
@@ -45,9 +46,6 @@
   commit. Do NOT fetch upstream's tags into this repo — it would overwrite the
   ref the tap resolves. Releases continue at v1.10.2 and up, which collide with
   nothing, since upstream cut nothing after v1.10.1.
-- **Anything built from the `v1.10.0` tag rides the zwasm transfer redirect**,
-  which holds only while nothing claims the vacated `clojurewasm/zwasm` name.
-  Build from v1.10.1 or later.
 - **Release path is automated and proven.** Every push to `main` that touches
   `src/**` cuts the next patch itself: `preflight` bumps `build.zig.zon`,
   stamps `## [Unreleased]` into a dated version heading, tags, builds both
@@ -83,15 +81,10 @@
 - **Active unit — clojure.core compliance drain** (jank `clojure-test-suite`,
   248 `.cljc`; drain-plan `private/notes/compliance/drain-plan-2026-08-22.md`,
   batches B1-B8; baseline is pre-fix, re-measure via the fixed harness ADR-0191).
-  **v1.11.1 SHIPPED** (net serve + unix sockets + assocEx + numeric + interop;
-  its 3 SSOT-ledger CI failures fixed — see the smoke-drift memory). Landed on
-  `staging` since, unreleased (4-5 clj-parity fixes, cards done): **int?**
-  fixed-precision + heap-Long origin (B7); **take** float/`##Inf`/BigInt count
-  (B3-adjacent); **disj/disj!/dissoc!** variadic (B1); **(String. …offset len
-  [charset])** range ctors; **string/replace** map/IFn replacement (B4, WIP).
-  Deferred with design memos: **[CLJW-DEF-NS]** (Capture-by-Var, multi-backend +
-  AOT — memory `20260825160952-2e68811c`). New card **[CLJW-RANGE-HEAPLONG]**
-  (B3, `-range` rejects heap-Long bounds).
+  Shipped through **v1.13.2**; see CHANGELOG + `git log` for the per-release
+  parity fixes rather than duplicating them here. Deferred with a design memo:
+  **[CLJW-DEF-NS]** (Capture-by-Var, multi-backend + AOT — memory
+  `20260825160952-2e68811c`).
 
 ## What was left unfinished (`.dev/debt.yaml` is the SSOT)
 
@@ -108,10 +101,27 @@ NOTE ADR-0177: "edge execution" is an AIM owned by D-552, not a capability.
 
 ## Stopped — user requested
 
-User instruction (2026-08-25): "commit and push current WIP in staging. and we
-continue later. make memories on all learnings this session, kg connect them,
-sync kanban, create remaining kanban tasks if any, and `workflow wrap`."
-Resume per the Resume-contract "First commit MUST be".
+User instruction (2026-08-31): "make memories on all learnings this session, kg
+connect them, sync kanban, create remaining kanban tasks if any, and `workflow
+wrap` … push and commit changes made this session atomically. Then push to
+`staging`."
+
+**Session 2026-08-31 landed**: PR #11 merged → **v1.13.2** shipped to main
+(release workflow cut the tag + bumped the tap). On `staging` since:
+`slurp System/in` drains to EOF (the two same-altitude drain impls now agree),
+two silent gate verdicts made honest (a mistyped `--smoke` selector ran ZERO
+e2e and still went green; `check_entrypoint_surface` reported an empty `awk`
+extraction as a source violation), and `clojure.walk/macroexpand-all`
+discharged from a throw-stub to clojure.walk's own `prewalk` definition
+(9 forms corpus-pinned against the clj oracle).
+
+**A seam extraction was proposed and REFUSED on the project's own record**
+(memory `20260831195256-1b380e1d`): readable families are a closed 2-set, and
+the cljw convention says apply the principles to the existing structure. The
+real defect was the asymmetry between two impls — a shape that then recurred
+the same session in `foldBody` (memory `20260831195256-6b5a587e`).
+
+Resume per the Resume-contract "FIRST MOVE ON RESUME".
 
 ## Reading order (resume)
 
