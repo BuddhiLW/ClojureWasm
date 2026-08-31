@@ -617,7 +617,7 @@ accepted:
       `when`/`if-not`/`when-not` forms ARE made to byte-match clj; only the
       recursive-cascade cases keep cljw's full-expand shape.
     derives_from: "F-011 (behavioural equivalence is the contract; the macros run identically — only the intermediate macroexpand-1 FORM differs; cljw's Zig transforms lower eagerly in one step). Functionally-equivalent expansion form, like ClojureScript's macroexpansions vs JVM clj."
-    pin: "test/e2e/phase14_when_if_not.sh — `cond_expand_full` locks (macroexpand-1 '(cond a 1 :else 2)) => (if a 1 (if :else 2 nil)) (cljw's full form), and `when_expand_multi`/`when_expand_single` lock when's byte-match with clj"
+    pin: "test/clj/suites/control_macros_test.clj — `cond-expands-to-the-full-nested-if` locks (macroexpand-1 '(cond a 1 :else 2)) => (if a 1 (if :else 2 nil)) (cljw's full form), and `when-expands-like-clj`/`when-not-expands-like-clj` lock when's and when-not's byte-match with clj"
   - id: "AD-041"
     summary: "clojure.test's FAIL/ERROR ` (file:line)` suffix points at the DEFTEST var's line (from Var source meta, D-563b) where clj points at the failing assertion's line (JVM stack frame); and `report :error` prints the exception's value instead of clj's JVM cause trace. Names, expected/actual, context, and counts all match clj."
     example: "(deftest a (is (= 1 2))) in f.clj: cljw `FAIL in (a) (f.clj:LINE-OF-DEFTEST)` / clj `FAIL in (a) (f.clj:LINE-OF-IS)`. An erroring test: cljw `  actual: #error {…}` (the ex value) / clj a multi-line `clojure.lang.ExceptionInfo … at …` cause trace."
