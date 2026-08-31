@@ -930,6 +930,35 @@ fi
 # they already ran inline).
 flush_e2e_queue
 
+# A step selector that matches NOTHING silently narrows the run instead of
+# failing. 2026-08-31: `--smoke phase16_stdin_read_line` (the registered name is
+# e2e_phase16_stdin_read_line) selected NO e2e at all, and the run still printed
+# per-step [pass] lines and a green summary — so the smoke authorised a commit
+# while the very e2e that commit added had never executed. That is the same
+# false-assurance test_reach / e2e_reach exist to prevent, one level up: there
+# the test file is unregistered, here the SELECTOR is unknown. Both must be a
+# hard error, never a quiet zero.
+if [[ -n "$ONLY_STEPS" ]]; then
+    unmatched_selectors=()
+    IFS=',' read -ra selectors <<< "$ONLY_STEPS"
+    for sel in "${selectors[@]}"; do
+        [[ -z "$sel" ]] && continue
+        hit=0
+        for known in "${ALL_STEP_NAMES[@]}"; do
+            [[ "$known" == "$sel" ]] && { hit=1; break; }
+        done
+        (( hit )) || unmatched_selectors+=("$sel")
+    done
+    if [[ ${#unmatched_selectors[@]} -gt 0 ]]; then
+        echo "" >&2
+        echo "==> FATAL: step selector matched no registered step:" >&2
+        printf '    - %s\n' "${unmatched_selectors[@]}" >&2
+        echo "    e2e steps are registered with an 'e2e_' prefix (e.g. e2e_phase16_stdin_read_line)." >&2
+        echo "    'bash test/run_all.sh --list' prints every registered step name." >&2
+        exit 1
+    fi
+fi
+
 if print_summary; then
     if (( SMOKE_MODE )); then
         # ADR-0107: a green smoke stamps .dev/.smoke_pass (the per-commit
