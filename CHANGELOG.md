@@ -21,6 +21,13 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
   `(demunge "clojure.core$map")` now returns `"clojure.core/map"` as in clj;
   cljw reversed the munge tokens but left `$` in place.
 
+- **`slurp` reads from `*in*` and any text reader.** `(slurp *in*)` and
+  `(with-in-str s (slurp *in*))` raised "expected string, got host_instance"
+  because the `*in*` reader is a cljw-native text reader, not a host stream, so
+  it fell through slurp's reader arm. slurp now drains a text reader's unread
+  remainder (blocking to stdin EOF for `*in*`), and it respects a prior
+  `read-line`, matching clj.
+
 ## [1.13.1] - 2026-08-31
 
 ### Added

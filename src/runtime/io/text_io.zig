@@ -218,6 +218,30 @@ pub fn isTextReader(v: Value) bool {
         host_instance.asHostInstance(v).descriptor == &reader_descriptor;
 }
 
+/// The unread remainder of a text_io Reader as bytes, for `slurp` / `(slurp
+/// *in*)`. Null unless `v` is a text_io Reader. A stdin reader blocks pulling
+/// process stdin to EOF first; a pending 1-slot pushback is re-inserted ahead of
+/// the cursor so it is included. Advances the cursor to the end; the returned
+/// slice points into the reader's own buffer, so the caller copies it.
+pub fn drainRemaining(rt: *Runtime, v: Value) !?[]const u8 {
+    if (!isTextReader(v)) return null;
+    const st = readerStateOf(v);
+    if (st.stdin) {
+        while (fillFromStdin(rt, st)) {
+            // drain every stdin chunk into st.data until EOF
+        }
+    }
+    if (st.pushback) |cp| {
+        var buf: [4]u8 = undefined;
+        const n = std.unicode.utf8Encode(cp, &buf) catch 0;
+        if (n > 0) try st.data.insertSlice(rt.gc.infra, st.pos, buf[0..n]);
+        st.pushback = null;
+    }
+    const rest = st.data.items[st.pos..];
+    st.pos = st.data.items.len;
+    return rest;
+}
+
 /// Decode the codepoint at `st.pos` + its UTF-8 byte length, or null at EOF.
 /// Invalid UTF-8 degrades to the raw byte as a 1-byte codepoint (no crash).
 const Decoded = struct { cp: u21, len: usize };

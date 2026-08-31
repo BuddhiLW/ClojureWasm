@@ -49,4 +49,14 @@ assert_eq 'read_codepoint' \
   "$(printf 'あZ' | "$BIN" -e '(pr-str [(.read *in*) (.read *in*) (.read *in*)])' | tail -1)" \
   '"[12354 90 -1]"'
 
+# slurp on process stdin drains the whole remainder to EOF (-e pr-prints it).
+assert_eq 'slurp_stdin' \
+  "$(printf 'piped-stdin-content' | "$BIN" -e '(slurp *in*)' | tail -1)" \
+  '"piped-stdin-content"'
+
+# slurp drains only the UNREAD remainder after a read-line consumed a line.
+assert_eq 'slurp_stdin_after_read_line' \
+  "$(printf 'first\nrest-of-stream' | "$BIN" -e '(do (read-line) (slurp *in*))' | tail -1)" \
+  '"rest-of-stream"'
+
 echo "ALL phase16_stdin_read_line PASS"
