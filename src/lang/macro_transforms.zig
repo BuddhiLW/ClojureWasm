@@ -699,14 +699,11 @@ fn expandWhen(
     const cond_form = args[0];
     const body = args[1..];
 
-    // clj: `(when test body...)` → `(if test (do body...))` — ALWAYS a `(do …)`
-    // wrap (even single-body) and a 2-arg `if` (no explicit `nil` else), so
-    // `(macroexpand-1 '(when c x))` byte-matches clj. (2-arg `if` yields nil on
-    // a false test, identical to a 3-arg `(if c then nil)`.)
-    var do_items = try arena.alloc(Form, body.len + 1);
-    do_items[0] = sym("do", loc);
-    @memcpy(do_items[1..], body);
-    const then_form = try list(arena, do_items, loc);
+    // clj: `(when test body...)` → `(if test (do body...))` — a 2-arg `if`
+    // (no explicit `nil` else), so `(macroexpand-1 '(when c x))` byte-matches
+    // clj. (2-arg `if` yields nil on a false test, identical to a 3-arg
+    // `(if c then nil)`.)
+    const then_form = try doBody(arena, body, loc);
 
     const if_items = try arena.alloc(Form, 3);
     if_items[0] = sym("if", loc);
@@ -891,13 +888,26 @@ fn expandSomeThreadLast(arena: std.mem.Allocator, rt: *Runtime, args: []const Fo
 
 // --- if-some / when-some / doto (conditional family) ---
 
-/// `(do body…)` from a body slice, folded to the single form when len == 1.
-fn foldBody(arena: std.mem.Allocator, body: []const Form, loc: SourceLocation) macro_dispatch.ExpandError!Form {
-    if (body.len == 1) return body[0];
+/// `(do body…)` from a body slice — ALWAYS a `(do …)`, including for an empty
+/// or single-form body. This is the body rule of the clj templates that write
+/// `(cons 'do body)`: `(when c x)` → `(if c (do x))`,
+/// `(when-not c)` → `(if c nil (do))`.
+fn doBody(arena: std.mem.Allocator, body: []const Form, loc: SourceLocation) macro_dispatch.ExpandError!Form {
     const do_items = try arena.alloc(Form, body.len + 1);
     do_items[0] = sym("do", loc);
     @memcpy(do_items[1..], body);
     return list(arena, do_items, loc);
+}
+
+/// `(do body…)` from a body slice, folded to the single form when len == 1.
+///
+/// For the macros whose clj templates SPLICE the body into a surrounding
+/// binding form (`when-some`, `when-first`, `doseq`, `for`) rather than wrap
+/// it — there a single-form body carries no `(do …)` of its own. Use
+/// `doBody` for the `when` family, whose templates wrap unconditionally.
+fn foldBody(arena: std.mem.Allocator, body: []const Form, loc: SourceLocation) macro_dispatch.ExpandError!Form {
+    if (body.len == 1) return body[0];
+    return doBody(arena, body, loc);
 }
 
 /// `(if-some [name expr] then else?)` →
@@ -1504,8 +1514,9 @@ fn expandWhenNot(arena: std.mem.Allocator, rt: *Runtime, args: []const Form, loc
     _ = rt;
     if (args.len < 1)
         return error_catalog.raise(.when_not_form_incomplete, loc, .{});
-    // Empty body (`(when-not test)`) is nil (clj parity), like `when`.
-    const body = if (args.len == 1) nilForm(loc) else try foldBody(arena, args[1..], loc);
+    // clj wraps unconditionally, so an empty body is `(do)` and a single-form
+    // body is `(do x)` — both nil-valued, but the expansion must match.
+    const body = try doBody(arena, args[1..], loc);
     return makeIf(arena, args[0], nilForm(loc), body, loc);
 }
 

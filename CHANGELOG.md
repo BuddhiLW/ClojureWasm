@@ -19,6 +19,13 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 
 ### Fixed
 
+- **`when-not` expands to clj's shape.** `(macroexpand '(when-not c x))` was
+  `(if c nil x)` where clj gives `(if c nil (do x))`, and `(when-not c)` was
+  `(if c nil nil)` against clj's `(if c nil (do))` — the body wrapper was
+  folded away for a single or empty body. Every arm now wraps unconditionally,
+  as `when` already did. The evaluated result never differed; only the
+  expansion did, which `macroexpand-all` had just made visible.
+
 - **`slurp` drains `System/in` to EOF.** `(slurp System/in)` returned `""`
   where clj returns the piped input: the stream-side drain sliced whatever
   happened to be buffered without demand-filling process stdin first, so with
