@@ -127,8 +127,8 @@
 ;; map / filter / keep / remove / drop are LAZY (ADR-0054 cycle 2/3):
 ;; each wraps its step in `lazy-seq` so it composes with infinite
 ;; producers (`(first (map inc (iterate inc 0)))` → 1, no hang;
-;; `(first (drop 100 (range)))` → 100). `take` stays bounded-eager (it
-;; realizes only N, so it already terminates on an infinite source).
+;; `(first (drop 100 (range)))` → 100). `take` is lazy too: constructing
+;; `(take n source)` does not pull source before the result is demanded.
 ;; The `-*-eager` map/filter/keep/remove/drop leaves are deleted.
 ;; `map` — 1/2/3-coll + n-coll variadic. Multi-coll walks colls in parallel,
 ;; stopping at the shortest (D-134). The n-ary arm delegates to `-map-n-step`,
@@ -241,7 +241,14 @@
                         nm (vswap! nv dec)
                         result (if (> m 0) (rf result input) result)]
                     (if (not (> nm 0)) (ensure-reduced result) result)))))))
-       ([n coll] (-take-eager n coll))))
+       ([n coll]
+        (lazy-seq
+          (if (pos? n)
+            (let [s (seq coll)]
+              (if s
+                (cons (first s) (take (dec n) (rest s)))
+                nil))
+            nil)))))
 (def drop
   (fn* ([n]
         ;; transducer arity: stateful (skips the first n inputs)
@@ -1276,8 +1283,8 @@
             coll)))
 
 ;; ----------------------------------------------------------------
-;; D-134 cluster 4 — eager seq helpers (Pattern A; recursion for
-;; zipmap/interleave).
+;; D-134 cluster 4 — sequence helpers (Pattern A; recursion for
+;; interpose/zipmap/interleave).
 ;; ----------------------------------------------------------------
 
 ;; `(empty? coll)` — true when coll has no items (nil counts as empty).
@@ -1292,10 +1299,26 @@
        ([f x y] (fn* [a b & args] (apply f (if (nil? a) x a) (if (nil? b) y b) args)))
        ([f x y z] (fn* [a b c & args] (apply f (if (nil? a) x a) (if (nil? b) y b) (if (nil? c) z c) args)))))
 
+;; Lazy collection engine for `interpose`. The second lazy boundary is
+;; intentional: realizing an item does not pull its successor; requesting the
+;; separator pulls that successor before exposing the separator, matching JVM
+;; Clojure's `(drop 1 (interleave (repeat sep) coll))` timing.
+(def -interpose-lazy
+  (fn* [sep coll]
+    (lazy-seq
+      (let [s (seq coll)]
+        (if s
+          (cons (first s)
+                (lazy-seq
+                  (let [r (next s)]
+                    (if r
+                      (cons sep (-interpose-lazy sep r))
+                      nil))))
+          nil)))))
+
 ;; `(interpose sep)` / `(interpose sep coll)` — sep between consecutive items.
 ;; The 1-arg form is a stateful transducer (emit sep before every item except
-;; the first); the 2-arg form is eager (prepend sep before each, drop the
-;; leading sep with `rest`).
+;; the first); the 2-arg form is a lazy seq and composes with infinite inputs.
 (def interpose
   (fn* ([sep]
         (fn* [rf]
@@ -1308,7 +1331,7 @@
                       (if (reduced? sepr) sepr (rf sepr input)))
                     (do (vreset! started true) (rf result input))))))))
        ([sep coll]
-        (rest (reduce (fn* [acc x] (conj (conj acc sep) x)) [] coll)))))
+        (-interpose-lazy sep coll))))
 
 ;; `(zipmap ks vs)` — map pairing keys with values, stopping at the
 ;; shorter. Recursive parallel walk.
@@ -1561,10 +1584,29 @@
 ;; ----------------------------------------------------------------
 ;; D-134 index/accessor cluster. `iterate` is defined above `range` (its
 ;; 0-arg body resolves it at analysis time); map-indexed / keep-indexed
-;; are eager index walks; butlast drops the final element.
+;; are lazy index walks; butlast drops the final element.
 ;; ----------------------------------------------------------------
 
-;; `(map-indexed f coll)` — eager map passing (index, item) to f.
+;; Lazy collection engine for `map-indexed`. Preserve source chunks like JVM
+;; Clojure while carrying the absolute index across chunk boundaries.
+(def -map-indexed-lazy
+  (fn* [f idx coll]
+    (lazy-seq
+      (let [s (seq coll)]
+        (if s
+          (if (chunked-seq? s)
+            (let [size (cljw.internal/__chunk-count s)
+                  b (chunk-buffer size)]
+              (loop [i 0]
+                (when (< i size)
+                  (chunk-append b (f (+ idx i) (cljw.internal/__chunk-nth s i)))
+                  (recur (inc i))))
+              (chunk-cons b (-map-indexed-lazy f (+ idx size) (chunk-rest s))))
+            (cons (f idx (first s))
+                  (-map-indexed-lazy f (inc idx) (rest s))))
+          nil)))))
+
+;; `(map-indexed f coll)` — lazy map passing (index, item) to f.
 (def map-indexed
   (fn* ([f]
         ;; transducer arity: stateful index starting at 0
@@ -1574,16 +1616,37 @@
                  ([result] (rf result))
                  ([result input] (rf result (f (vswap! iv inc) input)))))))
        ([f coll]
-        ;; Returns a SEQ (JVM parity). PERF: route through the 1-arg transducer
-        ;; so the source is walked SEQUENTIALLY (O(n)); the old
-        ;; `(mapv #(f % (nth coll %)) (range (count coll)))` was O(n²) on a
-        ;; non-indexed coll (lazy seq / list), where `(nth coll i)` is O(i).
+        ;; Returns a lazy SEQ and walks non-indexed inputs sequentially (O(n)).
         ;; [refs: O-011]
-        (-seq-or-empty (into [] (map-indexed f) coll)))))
+        (-map-indexed-lazy f 0 coll))))
+
+;; Lazy collection engine for `keep-indexed`. The inner loop skips runs of nil
+;; results without building recursive function frames; emitted tails re-enter
+;; through the lazy-seq boundary.
+(def -keep-indexed-lazy
+  (fn* [f idx coll]
+    (lazy-seq
+      ((fn* [i xs]
+         (let [s (seq xs)]
+           (when s
+             (if (chunked-seq? s)
+               (let [size (cljw.internal/__chunk-count s)
+                     b (chunk-buffer size)]
+                 (loop [j 0]
+                   (when (< j size)
+                     (let [v (f (+ i j) (cljw.internal/__chunk-nth s j))]
+                       (when (not (nil? v)) (chunk-append b v)))
+                     (recur (inc j))))
+                 (chunk-cons b (-keep-indexed-lazy f (+ i size) (chunk-rest s))))
+               (let [v (f i (first s))]
+                 (if (nil? v)
+                   (recur (inc i) (rest s))
+                   (cons v (-keep-indexed-lazy f (inc i) (rest s)))))))))
+       idx coll))))
 
 ;; `(keep-indexed f)` / `(keep-indexed f coll)` — like map-indexed but drops
 ;; nil results. The 1-arg form is a stateful transducer (running index); the
-;; 2-arg form returns a SEQ (JVM parity).
+;; 2-arg form returns a lazy SEQ (JVM parity).
 (def keep-indexed
   (fn* ([f]
         (fn* [rf]
@@ -1594,10 +1657,8 @@
                   (let [i (vswap! iv inc) v (f i input)]
                     (if (nil? v) result (rf result v))))))))
        ([f coll]
-        ;; Returns a SEQ (JVM parity). PERF: route through the 1-arg transducer
-        ;; (sequential O(n) walk); the old `(nth coll i)` over `(range (count
-        ;; coll))` was O(n²) on a non-indexed coll. [refs: O-011]
-        (-seq-or-empty (into [] (keep-indexed f) coll)))))
+        ;; Sequential O(n) walk; no eager intermediate vector. [refs: O-011]
+        (-keep-indexed-lazy f 0 coll))))
 
 ;; `(butlast coll)` — all but the final element, or nil for a coll of
 ;; ≤1 element (JVM returns `(seq ret)` → nil when empty). The `(seq …)`
@@ -2833,4 +2894,3 @@
   ;; the one visible nuance (D-563c note).
   {'inst (fn [form] ((requiring-resolve 'clojure.instant/read-instant-date) form))
    'uuid (fn [form] ((requiring-resolve 'clojure.uuid/default-uuid-reader) form))})
-

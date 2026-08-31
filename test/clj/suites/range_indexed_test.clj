@@ -33,6 +33,19 @@
 (deftest range-laziness
   (is (= [0 1 2 3 4] (into [] (take 5 (range 1000000000))))))
 
+(deftest take-realization-is-lazy
+  (let [calls (atom 0)
+        xs (take 2 (repeatedly #(swap! calls inc)))]
+    (is (= 0 @calls))
+    (is (= 1 (first xs)))
+    (is (= 1 @calls))
+    (is (= 2 (second xs)))
+    (is (= 2 @calls)))
+  (let [calls (atom 0)
+        xs (take 0 (repeatedly #(swap! calls inc)))]
+    (is (empty? xs))
+    (is (= 0 @calls))))
+
 ;; conj on any ISeq prepends (the D-168 prerequisite fix, commonised via the
 ;; cons primitive). Covers lazy_seq producers: range / map / filter.
 (deftest conj-on-lazy-seqs
@@ -82,6 +95,31 @@
 (deftest indexed-fns
   (is (= [[0 :a] [1 :b]] (into [] (map-indexed (fn* [i x] [i x]) [:a :b]))))
   (is (= [:a :c] (into [] (keep-indexed (fn* [i x] (if (= 0 (rem i 2)) x nil)) [:a :b :c])))))
+
+(deftest indexed-fns-are-lazy
+  (let [calls (atom 0)
+        xs (map-indexed (fn [i x] (swap! calls inc) [i x])
+                        (take 3 (repeat :x)))]
+    (is (= 0 @calls))
+    (is (= [0 :x] (first xs)))
+    (is (= 1 @calls))
+    (is (= [1 :x] (second xs)))
+    (is (= 2 @calls)))
+  (let [calls (atom 0)
+        xs (keep-indexed (fn [i x]
+                           (swap! calls inc)
+                           (when (odd? i) x))
+                         (take 4 (repeat :x)))]
+    (is (= 0 @calls))
+    (is (= :x (first xs)))
+    (is (= 2 @calls))
+    (is (= :x (second xs)))
+    (is (= 4 @calls)))
+  (is (= [[0 :x] [1 :x] [2 :x]]
+         (into [] (take 3 (map-indexed vector (repeat :x))))))
+  (is (= [:x :x :x]
+         (into [] (take 3 (keep-indexed (fn [i x] (when (odd? i) x))
+                                        (repeat :x)))))))
 
 ;; A large range must realize without blowing the stack: the lazy-seq body is
 ;; walked iteratively by count/reduce/last (one thunk per step, not fn-deep
