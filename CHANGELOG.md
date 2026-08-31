@@ -7,6 +7,8 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 
 ## [Unreleased]
 
+## [1.13.1] - 2026-08-31
+
 ### Added
 
 - **`clojure.core/load-file`.** Reads and evaluates every form in the file at a
