@@ -1,8 +1,8 @@
 ;; clojure.core/format — the printf subset (D-134, D-216, D-470).
 ;;
-;; Migrated from test/e2e/phase14_format.sh: every case there evaluated one
-;; `(format …)` expression and compared the printed VALUE, so all of them are
-;; value assertions. Only the process/stderr surface stays in bash.
+;; Migrated from test/e2e/phase14_format.sh and
+;; test/e2e/phase14_format_char_int.sh. Value and error contracts now run in
+;; one native clojure.test process, including the intentional AD-029 %c pin.
 ;;
 ;; Run by `test/clj/run_suites.clj` — one cljw process for the whole file,
 ;; instead of one process per assertion the way the bash e2e tier works.
@@ -108,6 +108,20 @@
     (is (= "hel" (format "%.3s" "hello")))
     (is (= "     hel|" (format "%8.3s|" "hello")))))
 
+(deftest character-conversions
+  (is (= "A" (format "%c" (char 65))))
+  (is (= "A" (format "%c" \A)))
+  (is (= "A" (format "%C" \a)))
+  (is (= "[  A]" (format "[%3c]" \A)))
+  (is (= "[A  ]" (format "[%-3c]" \A)))
+  (is (= "null" (format "%c" nil)))
+  (is (= "NULL" (format "%C" nil)))
+  ;; D-267/AD-029: cljw has one integer type, so it cannot preserve JVM
+  ;; Integer-accepted versus Long-rejected behavior. Reject both consciously.
+  (is (thrown? Throwable (format "%c" (int 65))))
+  (is (thrown? Throwable (format "%c" 65)))
+  (is (thrown? Throwable (format "%.1c" \A))))
+
 ;; %h/%H render hex of the single-system hasheq (AD-009): hex((hash "abc")) =
 ;; hex(74834163). clj's %h renders Java String.hashCode ("17862") instead —
 ;; this is the accepted divergence, asserted here as cljw's behaviour.
@@ -139,6 +153,8 @@
 ;; the thrown exception's message, so the assertion survives intact) ---
 (deftest errors
   (is (thrown-with-msg? Throwable #"expected an integer" (format "%d" "x")))
+  #_{:clj-kondo/ignore [:format]}
   (is (thrown-with-msg? Throwable #"not enough arguments" (format "%d")))
   (is (thrown-with-msg? Throwable #"unsupported directive" (format "%q" 1)))
+  #_{:clj-kondo/ignore [:type-mismatch]}
   (is (thrown-with-msg? Throwable #"expected string" (format 42))))
