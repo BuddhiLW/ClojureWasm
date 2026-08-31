@@ -135,7 +135,7 @@ accepted:
       ns-qualification: type-hash XOR mapHasheq, corpus
       records_method_values.txt).
     derives_from: "ADR-0059 (no-JVM: no second Object.hashCode system, no identity hashes) + F-011 (the observable `(hash x)` values now MATCH clj for data; the single-hash delegation is the internal-representation freedom) + AD-028 (the mapHash/mapHasheq sibling)."
-    pin: "test/diff/clj_corpus/hash_compare.txt — 30+ `(hash …)` golden values locked against real clj across every aligned type; test/diff/clj_corpus/object_methods.txt — `(= (.hashCode \"abc\") (hash \"abc\"))` → true (single-system delegation locked); test/e2e/phase14_format.sh — `%h` lowercase-hex rendering."
+    pin: "test/diff/clj_corpus/hash_compare.txt — 30+ `(hash …)` golden values locked against real clj across every aligned type; test/diff/clj_corpus/object_methods.txt — `(= (.hashCode \"abc\") (hash \"abc\"))` → true (single-system delegation locked); test/clj/suites/format_test.clj: the hash-conversion deftest pins `%h`/`%H` lowercase-hex rendering."
   - id: "AD-010"
     summary: "a Namespace value prints as `#object[Namespace \"<name>\"]` (no JVM class FQN, no `0xADDR` identity hash)"
     example: '(pr-str *ns*) => cljw "#object[Namespace \"user\"]" / clj "#object[clojure.lang.Namespace 0x5ad10c1a \"user\"]" ; (str *ns*) => "user" (matches clj)'
@@ -466,7 +466,7 @@ accepted:
       value clj would refuse). The error KIND also differs (cljw type_error vs clj
       IllegalFormatConversionException) per AD-007.
     derives_from: "F-005 (numeric tower: int/Long collapse — cljw has no distinct Integer, so the Integer-accepts/Long-rejects split is unreproducible) + AD-007 (error Kind, not the JVM exception class)"
-    pin: "test/e2e/phase14_format_char_int.sh — format_c_int_rejected + format_c_long_rejected lock cljw's integer rejection; format_c_char locks the char-arg parity"
+    pin: "test/clj/suites/format_test.clj: the character-conversions deftest locks cljw's `%c` integer and long rejection and the char-arg parity"
   - id: "AD-031"
     summary: "Ratio components `(numerator r)` / `(denominator r)` (and integer results derived from them, e.g. `(clojure.math.numeric-tower/floor 5/2)` / `(ceil 5/2)`) narrow to Long when they fit i64; clj returns a BigInteger (numerator/denominator) / BigInt (floor/ceil). VALUE is `=` in both; only the class NAME + `N`-suffix print diverge."
     example: '(numerator 5/2) => cljw 5 (Long) / clj 5 (java.math.BigInteger) ; (clojure.math.numeric-tower/floor 5/2) => cljw 2 / clj 2N ; (ceil 5/2) => cljw 3 / clj 3N ; (= 2 2N) => true in both'
@@ -832,7 +832,7 @@ accepted:
       2026-07-07. Name conversions (%ta %tA %tb %tB %tp) match an
       English-locale JVM.
     derives_from: "ADR-0059 no-JVM (no host tz/locale database dependency) + F-011 (the deterministic-environment rendering matches TZ=UTC/en JVM exactly; only the host-env-dependent rendering diverges) + D-462 (tz database out of scope for the edge/wasm target)."
-    pin: "test/e2e/phase14_format.sh — the `%t` cases pin the UTC/English renderings (epoch-0 hour 00, Fri/Feb names, +0000 zone)."
+    pin: "test/clj/suites/format_test.clj: the `date-time-family` deftest pins the `%t` UTC/English renderings (epoch-0 hour 00, Thu/Jan names, +0000/UTC zone)."
   - id: "AD-053"
     summary: "`(all-ns)` / `(find-ns 'cljw.internal)` expose the kernel-helper namespace `cljw.internal` (the home of the `__`-prefixed Zig primitives macro expansions call qualified); mainline Clojure has no such namespace."
     example: "(some? (find-ns 'cljw.internal)) => cljw true / clj false (no such ns). (contains? (ns-publics 'clojure.core) '__class) => false BOTH (internals never pollute the core surface)."

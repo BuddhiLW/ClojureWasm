@@ -1081,16 +1081,16 @@ fn numCoerce(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) 
 
 /// `(double x)` / `(float x)` — coerce any number to a float (cw v1 has one
 /// f64 float type, so both map to it). Matches clojure.core/double + /float.
-/// Covers the whole numeric tower: integer / char (exact), big_int / ratio /
+/// Covers the whole numeric tower: integer (exact), big_int / ratio /
 /// big_decimal (lossy, round-to-nearest — float-contagion is a Clojure
-/// feature). Non-number is a type error.
+/// feature). Character is not a Number on the JVM, so it is a type error.
 fn floatCoerce(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
     _ = rt;
     _ = env;
     try error_catalog.checkArity("double", args, 1, loc);
     const v = args[0];
     switch (v.tag()) {
-        .float, .integer, .char, .big_int, .ratio, .big_decimal => {},
+        .float, .integer, .big_int, .ratio, .big_decimal => {},
         else => |t| return error_catalog.raise(.type_arg_not_number, loc, .{ .fn_name = "double", .actual = @tagName(t) }),
     }
     return Value.initFloat(toF64(v)); // shared converter (F-011)
@@ -1308,6 +1308,15 @@ test "plus identity / nullary / multi-arg integer / float contagion" {
         Value.initFloat(1.5),
         Value.initInteger(2),
     }, .{})).asFloat(), 1e-9);
+}
+
+test "floatCoerce accepts numbers and rejects Character (clj parity)" {
+    var fix: TestFixture = undefined;
+    try fix.init(testing.allocator);
+    defer fix.deinit();
+
+    try testing.expectEqual(@as(f64, 3.0), (try floatCoerce(&fix.rt, &fix.env, &.{Value.initInteger(3)}, .{})).asFloat());
+    try testing.expectError(error.TypeError, floatCoerce(&fix.rt, &fix.env, &.{Value.initChar('A')}, .{}));
 }
 
 test "minus: negation with one arg, subtraction with N" {

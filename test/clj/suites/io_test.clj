@@ -24,3 +24,17 @@
       (is (contains? names "suites"))
       (is (contains? names "io_test.clj"))
       (is (contains? names "run_suites.clj")))))
+
+;; --- load-file ---
+;; Was missing (`Unable to resolve symbol: 'load-file'`), found building the
+;; nREPL dev loop. Defined as clj does: read+eval every form in the file with
+;; *file* bound to the path, returning the last form's value.
+(deftest load-file-reads-and-evals
+  (let [ret (load-file "test/clj/load_fixture.clj")]
+    (testing "returns the value of the last form"
+      (is (= 84 ret)))
+    (testing "defs from the loaded file are interned in the current ns"
+      (is (= 42 @(resolve 'load-file-fixture-val)))
+      (is (= :loaded @(resolve 'load-file-fixture-marker))))
+    (testing "*file* is bound during the load (not the default)"
+      (is (some? @(resolve 'load-file-fixture-file))))))

@@ -1256,16 +1256,22 @@ pub fn formatFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocatio
                 const truthy = args[src].isTruthy();
                 try tw.writeAll(if (conv == 'B') (if (truthy) "TRUE" else "FALSE") else (if (truthy) "true" else "false"));
             },
-            // `%c` character conversion: arg must be a char. clj rejects a Long
-            // (65) with IllegalFormatConversionException ⊂ IllegalArgumentException,
-            // so cljw raises `arg_value_invalid` (→ IllegalArgumentException), not
-            // the ClassCastException of a plain type slot (D-459). UTF-8 codepoint.
-            'c' => {
-                if (args[src].tag() != .char)
-                    return error_catalog.raise(.arg_value_invalid, loc, .{ .fn_name = "format", .expected = "character for %c", .actual = @tagName(args[src].tag()) });
-                var cbuf: [4]u8 = undefined;
-                const cn = std.unicode.utf8Encode(args[src].asChar(), &cbuf) catch 0;
-                try tw.writeAll(cbuf[0..cn]);
+            // `%c`/`%C` character conversion. Java Formatter renders nil as
+            // "null"/"NULL" and `%C` upper-cases the character. cljw cannot
+            // distinguish JVM Integer from Long, so integer rejection remains
+            // the intentional D-267/AD-029 divergence. UTF-8 codepoint.
+            'c', 'C' => {
+                if (args[src].tag() == .nil) {
+                    try tw.writeAll(if (conv == 'C') "NULL" else "null");
+                } else {
+                    if (args[src].tag() != .char)
+                        return error_catalog.raise(.arg_value_invalid, loc, .{ .fn_name = "format", .expected = "character for %c", .actual = @tagName(args[src].tag()) });
+                    var cbuf: [4]u8 = undefined;
+                    const cn = std.unicode.utf8Encode(args[src].asChar(), &cbuf) catch 0;
+                    if (conv == 'C') {
+                        for (cbuf[0..cn]) |ch| try tw.writeByte(std.ascii.toUpper(ch));
+                    } else try tw.writeAll(cbuf[0..cn]);
+                }
             },
             // `%t<X>`/`%T<X>` date/time conversions (D-470). Arg = a
             // java.util.Date or a Long (epoch millis, Java semantics).

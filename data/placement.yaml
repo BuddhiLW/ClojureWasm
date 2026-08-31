@@ -24,9 +24,9 @@
 schema_version: "2.0"
 summary:
   namespaces_required: 34
-  total: 1414
+  total: 1418
   zig: 405
-  clj: 789
+  clj: 793
   value: 214
   unbound: 6
 vars:
@@ -253,13 +253,16 @@ vars:
   "clojure.core/-fuse-descriptor": { impl: clj, flags: "-" }
   "clojure.core/-fused-reduce": { impl: clj, flags: "-" }
   "clojure.core/-global-hierarchy": { impl: value, flags: "-" }
+  "clojure.core/-interpose-lazy": { impl: clj, flags: "private" }
   "clojure.core/-invoke": { impl: value, flags: "-" }
+  "clojure.core/-keep-indexed-lazy": { impl: clj, flags: "private" }
   "clojure.core/-keys": { impl: value, flags: "-" }
   "clojure.core/-kv-reduce": { impl: value, flags: "-" }
   "clojure.core/-lazy-get-fuse": { impl: zig, flags: "private,zig-leaf" }
   "clojure.core/-lazy-set-fuse": { impl: zig, flags: "private,zig-leaf" }
   "clojure.core/-length": { impl: value, flags: "-" }
   "clojure.core/-lookup": { impl: value, flags: "-" }
+  "clojure.core/-map-indexed-lazy": { impl: clj, flags: "private" }
   "clojure.core/-map-lazy": { impl: clj, flags: "-" }
   "clojure.core/-map-n-step": { impl: clj, flags: "-" }
   "clojure.core/-merge-sorted": { impl: clj, flags: "-" }
@@ -593,6 +596,7 @@ vars:
   "clojure.core/list": { impl: clj, flags: "-" }
   "clojure.core/list*": { impl: clj, flags: "-" }
   "clojure.core/list?": { impl: zig, flags: "-" }
+  "clojure.core/load-file": { impl: clj, flags: "-" }
   "clojure.core/load-string": { impl: clj, flags: "-" }
   "clojure.core/locking": { impl: value, flags: "macro" }
   "clojure.core/long": { impl: zig, flags: "-" }
