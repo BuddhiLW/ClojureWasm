@@ -7,6 +7,8 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 
 ## [Unreleased]
 
+## [1.13.2] - 2026-08-31
+
 ### Added
 
 - **`clojure.core/munge`.** Escapes each character illegal in a Java identifier
