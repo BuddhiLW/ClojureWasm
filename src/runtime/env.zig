@@ -48,9 +48,10 @@ pub const VarFlags = packed struct(u8) {
     zig_leaf: bool = false,
     /// `^:unsupported true` — declare-only placeholder per ADR-0033 D8.
     /// Analyzer raises `feature_not_supported_unsupported_var` when the
-    /// Var is used as a callable. Used for vars like
-    /// `clojure.walk/macroexpand-all` that depend on later-Phase
-    /// machinery (Phase 7 macroexpand) but need a symbol present today.
+    /// Var is used as a callable. For a var whose symbol must resolve
+    /// today while its implementation waits on machinery that has not
+    /// landed. No bundled var currently carries it — the mechanism is
+    /// live (analyzer.zig consults this flag) but unused.
     unsupported: bool = false,
     _pad: u3 = 0,
 };
@@ -1085,8 +1086,10 @@ test "Env.intern with ^:unsupported marker stores flag" {
     var env = try Env.init(&fix.rt);
     defer env.deinit();
 
-    const ns = try env.findOrCreateNs("clojure.walk");
-    const v = try env.intern(ns, "macroexpand-all", Value.nil_val, .{
+    // A synthetic var: the test exercises the FLAG, so the name must not be
+    // a real one whose support status could later contradict it.
+    const ns = try env.findOrCreateNs("cljw.test-fixture");
+    const v = try env.intern(ns, "declared-unsupported", Value.nil_val, .{
         .private = false,
         .unsupported = true,
     });
