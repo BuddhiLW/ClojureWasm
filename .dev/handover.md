@@ -25,13 +25,13 @@
   (classifier-blocked in auto-mode — use FORWARD commits); killing co-tenant
   JVMs/`cljw` processes to free memory (7 `bb-mcp.core` co-tenants are normal).
 - **CI runs ONE configuration everywhere** — PR, push and dispatch all run the
-  identical `test/run_all.sh --serial-e2e` that `scripts/run_gate.sh` runs;
-  `check_gate_parity.sh` fails if a tier comes back.
+  same `test/run_all.sh --serial-e2e` as `run_gate.sh`; `check_gate_parity.sh`
+  fails if a tier comes back.
 - **Forbidden**: bare `zig build test` without `-Dwasm`; bare `zig build` for a
   probe (use ReleaseSafe); a concurrent build during a gate (the FULL gate runs
   `--serial-e2e`, ALONE). `.claude/**` edits + cross-repo publishes may hit the
   auto-mode block — surface to the user. **D-549 user-LOCKED**, **D-560
-  trigger-gated**. External publishes need `test -s` + read-back guards.
+  trigger-gated**; external publishes need `test -s` + read-back guards.
 
 ## Project invariants (stable)
 
@@ -86,7 +86,7 @@
 - **Perf campaign (§9.2.S) — PAUSED** (D-520/D-386/D-005/006); **D-513** (1)
   `clojure.core.reducers`. **D-548** (b) pmap wall-clock on 3-vCPU.
 - Open cards: `[CLJW-JSON-REEXPORT]` (`20260831194114-196afd4a`, hypothesis
-  unverified), `[CLJW-ENTRYPOINT-FLAKE]` (`20260831192937-1e3c4ed0`),
+  unverified) · `[CLJW-ENTRYPOINT-FLAKE]` (`20260831192937-1e3c4ed0`) ·
   `[CLJW-NATIVE-HARNESS]` (`20260831201012-5386d9f9`).
 
 ## North star (ACTIVE, distal) + reading order
@@ -95,7 +95,6 @@ cljw's differentiator = **Wasm interop (gap II) × VM-perf fusion→JIT (gap
 III)**. zwasm JIT (ADR-0200) is the cljw default; remaining =
 components-through-the-JIT (zwasm-side, D-500). Distal — needs a user nod.
 ADR-0177: "edge execution" is an AIM owned by D-552, not a capability.
-
 Resume reading: handover → `yq` the live `active:` list → ADR-0166 → ROADMAP
 §9.0. Memories: `verify_against_releasesafe_binary` /
 `smoke_first_batch_full_gate` / `external-publish-payload-guard`.
