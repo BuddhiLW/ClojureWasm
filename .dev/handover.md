@@ -9,9 +9,11 @@
 - **FIRST MOVE ON RESUME: spawn a cljw nREPL and work through it**
   (`mcp__hive__code cider spawn repl_type="cljw"`, then `cider eval`). Reap by
   scoped pattern per `orphan_prevention.md` rule 4; never before a wrap.
-- **First task**: continue `[CLJW-E2E-TO-SUITES]` (`20260831204206-0eed020c`) —
-  ~78 stateless bash e2e still to port to `test/clj/suites/`. That card carries
-  the method AND the three hazards; read it before deleting any script.
+- **First commit on resume MUST be**: the next unit of
+  `[CLJW-E2E-TO-SUITES]` (`20260831204206-0eed020c`) — port the next stateless
+  bash e2e to `test/clj/suites/`. That card carries the method AND the three
+  hazards (state, process-bound cases, dangling pin/ledger pointers); read it
+  before deleting any script.
 - **Gate state 2026-08-31: FULL gate GREEN (436 passed, 0 failed, 0 skipped,
   907s); cadence counter reset.**
 - **Pick the smoke selector by COVERAGE, not topic**: grep the e2e tier for the
