@@ -1109,4 +1109,4 @@ accepted:
       matches clj, so no code that was portable has been broken.
     example: '(class (seq [1 2 3])) => cljw ArraySeq / clj clojure.lang.PersistentVector$ChunkedSeq. Also `(class (seq (into-array [1 2])))` would be ArraySeq in BOTH — the one backing for which the shared name is exact.'
     derives_from: "AD-003 (simple class name for cljw-native types) + F-004 A14 slot reservation + the F-005 family-collapse precedent."
-    pin: "test/e2e/vector_seq_view.sh — class_name."
+    pin: "test/clj/suites/vector_seq_view_test.clj — the `the-class-name-is-the-reserved-slot-name` deftest (case class_name), asserting (str (class (seq [1 2]))) => \"ArraySeq\"."
