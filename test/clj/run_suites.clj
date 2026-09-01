@@ -9,7 +9,9 @@
 ;; 1 process) = 47 ms — 8.5x, and the suite asserts MORE.
 ;;
 ;; It is also the fast inner loop: over an nREPL the deftests re-run on
-;; redefine with NO rebuild, which the bash tier can never do.
+;; redefine with NO rebuild, which the bash tier can never do. `dev/user.clj`
+;; is that loop, and it discovers suites through the same `harness.suites` this
+;; file uses, so the two tiers cannot disagree about what a suite is.
 ;;
 ;; WHAT STAYS IN BASH. Layer 2 is the CLI surface — process exit codes, stderr
 ;; rendering, argv handling. A suite running INSIDE cljw cannot assert its own
@@ -22,44 +24,20 @@
 ;; (a test written but never wired up gates nothing). A file that FAILS to load
 ;; is reported and fails the run — it is never silently skipped.
 ;;
+;; This file is the BOUNDARY: the process-level report and the exit code. The
+;; discovery rule itself is `harness.suites`.
+;;
 ;; Usage:  cljw -cp test/clj test/clj/run_suites.clj
 (require '[clojure.test :as test]
-         '[clojure.string :as str]
-         '[clojure.java.io :as io])
+         '[harness.suites :as suites])
 
-(def ^:private suite-dir "test/clj/suites")
-
-(defn- suite-files
-  "The *_test.clj files under suite-dir, name-sorted for a stable report."
-  []
-  (let [d (io/file suite-dir)]
-    (if (.isDirectory d)
-      (sort (filter #(str/ends-with? % "_test.clj")
-                    (map #(.getName %) (.listFiles d))))
-      [])))
-
-(defn- ns-of
-  "suites/foo_bar_test.clj -> suites.foo-bar-test (Clojure's file<->ns munging)."
-  [filename]
-  (symbol (str "suites." (str/replace (str/replace filename #"\.clj$" "") "_" "-"))))
-
-(let [files (suite-files)
-      ;; Load every suite first, keeping the failures instead of dying on the
-      ;; first one — a broken suite must be REPORTED, not hide the other results.
-      loaded (reduce (fn [acc f]
-                       (let [n (ns-of f)]
-                         (try (require n)
-                              (update acc :ok conj n)
-                              (catch Throwable t
-                                (update acc :failed conj [f (str t)])))))
-                     {:ok [] :failed []}
-                     files)
-      {:keys [ok failed]} loaded]
+(let [files (suites/files)
+      {:keys [ok failed]} (suites/load-all! files)]
   (when (seq failed)
     (println "\nSUITES THAT FAILED TO LOAD:")
     (doseq [[f err] failed] (println (str "  " f " -> " err))))
   (when (empty? files)
-    (println (str "\nNo suites found under " suite-dir "/")))
+    (println (str "\nNo suites found under " suites/dir "/")))
   (let [r (when (seq ok) (apply test/run-tests ok))
         bad (+ (long (or (:fail r) 0)) (long (or (:error r) 0)))]
     (println (str "\nsuites: " (count ok) " loaded, " (count failed) " failed to load"))
