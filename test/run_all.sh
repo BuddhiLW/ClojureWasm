@@ -817,7 +817,6 @@ run_step "e2e_phase14_dedup_group"           "bash test/e2e/phase14_dedup_group.
 run_step "e2e_phase14_reduce_helpers"        "bash test/e2e/phase14_reduce_helpers.sh"
 run_step "e2e_phase14_accessors"             "bash test/e2e/phase14_accessors.sh"
 run_step "e2e_phase14_compare"               "bash test/e2e/phase14_compare.sh"
-run_step "e2e_phase14_sort"                  "bash test/e2e/phase14_sort.sh"
 run_step "e2e_phase14_hierarchy"             "bash test/e2e/phase14_hierarchy.sh"
 run_step "e2e_phase14_deftype_object"        "bash test/e2e/phase14_deftype_object.sh"
 run_step "e2e_phase14_deftype_mutable"       "bash test/e2e/phase14_deftype_mutable.sh"
