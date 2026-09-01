@@ -224,7 +224,7 @@ accepted:
       recorded divergence. The class-NAME simple form (BigInt, not the FQCN) is
       additionally the AD-003 no-JVM-class surface.
     derives_from: "F-005 (numeric tower collapses BigInt/BigInteger into one `.big_int`) + AD-003 (simple class name, no JVM Class)"
-    pin: "test/e2e/phase14_biginteger.sh — biginteger_prints_N + biginteger_class_bigint lock cljw's `5N` print and BigInt class (the divergent values, not clj's 5 / java.math.BigInteger)"
+    pin: "test/clj/suites/biginteger_test.clj — the `biginteger-is-bigint-the-ad-016-divergence` deftest (cases biginteger_prints_N + biginteger_class_bigint) locks cljw's `5N` print and BigInt class (the divergent values, not clj's 5 / java.math.BigInteger)"
   - id: "AD-017"
     summary: "A deftype mutable field's `^long` / primitive type hint is parsed-and-ignored; cljw does not enforce clj's 'must assign primitive to primitive mutable'."
     example: '(deftype C [^:unsynchronized-mutable ^long n] P (go [this] (set! n "hi") n)) (go (->C 0)) => cljw "hi" / clj compile error (primitive mismatch)'

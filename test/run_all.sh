@@ -852,7 +852,6 @@ run_step "e2e_phase14_ratio_interop"        "bash test/e2e/phase14_ratio_interop
 run_step "e2e_phase14_class_names"           "bash test/e2e/phase14_class_names.sh"
 run_step "e2e_phase14_pattern_quote"         "bash test/e2e/phase14_pattern_quote.sh"
 run_step "e2e_phase14_var_resolve"           "bash test/e2e/phase14_var_resolve.sh"
-run_step "e2e_phase14_biginteger"            "bash test/e2e/phase14_biginteger.sh"
 run_step "e2e_phase14_throwable_map"         "bash test/e2e/phase14_throwable_map.sh"
 run_step "e2e_phase14_defmacro_destructure"  "bash test/e2e/phase14_defmacro_destructure.sh"
 run_step "e2e_phase14_read_string"           "bash test/e2e/phase14_read_string.sh"
