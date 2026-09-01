@@ -849,7 +849,6 @@ run_step "e2e_phase14_deftype_method_lowering" "bash test/e2e/phase14_deftype_me
 run_step "e2e_phase14_clojure_lang_util"     "bash test/e2e/phase14_clojure_lang_util.sh"
 run_step "e2e_phase14_compiler_specials"     "bash test/e2e/phase14_compiler_specials.sh"
 run_step "e2e_phase14_opaque_host_class"     "bash test/e2e/phase14_opaque_host_class.sh"
-run_step "e2e_phase14_bigdecimal_setscale"   "bash test/e2e/phase14_bigdecimal_setscale.sh"
 run_step "e2e_phase14_ratio_interop"        "bash test/e2e/phase14_ratio_interop.sh"
 run_step "e2e_phase14_class_names"           "bash test/e2e/phase14_class_names.sh"
 run_step "e2e_phase14_pattern_quote"         "bash test/e2e/phase14_pattern_quote.sh"

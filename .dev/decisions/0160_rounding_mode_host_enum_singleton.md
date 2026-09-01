@@ -128,5 +128,5 @@ source**, with **Alt 3 deferred to debt D-510**.
 - `src/runtime/java/math/BigDecimal.zig` (setScale dual-accept; ROUND_* table commonized)
 - `src/runtime/java/_host_api.zig` (register the surface)
 - `compat_tiers.yaml` (java.math.RoundingMode entry, keyword `rounding_mode`)
-- `test/e2e/phase14_bigdecimal_setscale.sh` (9 RoundingMode cases)
+- `test/clj/suites/bigdecimal_test.clj` (9 RoundingMode cases; migrated 2026-08-31 from `test/e2e/phase14_bigdecimal_setscale.sh`)
 - `.dev/debt.yaml` (D-510 — general host-enum mechanism, deferred)
