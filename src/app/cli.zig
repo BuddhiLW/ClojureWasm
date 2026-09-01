@@ -6,10 +6,10 @@
 //!   - `-e <expr>` / `--eval <expr>`: in-line source string.
 //!   - `<file.clj>` (positional): file's contents.
 //!   - `-` (positional): stdin (heredoc-friendly).
-//!   - `--compare`: runs source through BOTH backends
-//!     via `eval/evaluator.compare`; prints `OK` + the value when
-//!     they agree, `MISMATCH` + both values when they diverge
-//!     (exit 1 on mismatch). ADR-0005 full-bench remit.
+//!   - `--compare`: runs source through BOTH backends in isolated runtimes;
+//!     prints `OK` + the agreed value/error when value and stdout agree,
+//!     `MISMATCH` + both outcomes otherwise (exit 1 on mismatch).
+//!     ADR-0005 full-bench remit.
 //!   - `-h` / `--help`: usage message.
 //!
 //! Argv parsing lives here (extracted from `src/main.zig`, D-031) so
@@ -465,7 +465,7 @@ fn dispatchArgsRest(
     // D-309: a `-M`/`-X` (or bare `-m`) run mode supersedes the `-e`/file path —
     // it runs a `-main` / `:exec-fn` instead of printing eval results.
     if (run_mode) |mode| {
-        try deps_run_mode.run(io, gpa, arena, stdout, stderr, mode, deps.cfg, alias_names.items, run_args.items, deps.load_paths, fs_jail_root);
+        try deps_run_mode.run(io, gpa, arena, stdout, stderr, mode, deps.cfg, alias_names.items, run_args.items, deps.load_paths, compare_mode, fs_jail_root);
         return;
     }
 
@@ -479,7 +479,7 @@ fn dispatchArgsRest(
     }
 
     if (compare_mode) {
-        try runner.runSourceCompare(io, gpa, arena, stdout, stderr, source_text.?, source_label);
+        try runner.runSourceCompare(io, gpa, arena, stdout, stderr, source_text.?, source_label, deps.load_paths, fs_jail_root);
     } else {
         try runner.runSource(io, gpa, arena, stdout, stderr, source_text.?, source_label, deps.load_paths, print_results, fs_jail_root);
     }
