@@ -7,6 +7,15 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 
 ## [Unreleased]
 
+### Changed
+
+- **Behaviour tests move to a cljw-native tier.** 24 bash e2e scripts that
+  spent one `cljw` process per assertion became `clojure.test` suites under
+  `test/clj/suites/`, run by cljw itself — 781 process spawns out of the gate,
+  and the suites re-run over an nREPL with no rebuild. What stays in bash is
+  the CLI surface (exit code, stderr, argv) and anything that needs the
+  process itself. No runtime behaviour changes.
+
 ### Added
 
 - **`clojure.walk/macroexpand-all` now works.** It previously threw
