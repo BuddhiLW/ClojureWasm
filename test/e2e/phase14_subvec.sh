@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # test/e2e/phase14_subvec.sh — subvec (vector slice [start,end); end defaults to
 # count) + its bounds-check surface. Since D-583/O-059 this is an O(1) VIEW (the
-# `.sub_vector` tag); the observable-surface pins live in subvec_view.sh.
+# `.sub_vector` tag); the observable-surface pins live in test/clj/suites/subvec_view_test.clj.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 BIN="zig-out/bin/cljw"
