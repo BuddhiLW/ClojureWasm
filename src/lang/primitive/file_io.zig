@@ -63,7 +63,7 @@ pub fn slurp(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) 
         return try string_collection.alloc(rt, rest_bytes);
     // D-471 IOFactory arm: an open Reader/InputStream drains its remainder
     // (clj's slurp routes any IOFactory-coercible arg through io/reader).
-    if (host_stream.drainRemaining(args[0])) |rest_bytes|
+    if (try host_stream.drainRemaining(rt, args[0])) |rest_bytes|
         return try string_collection.alloc(rt, rest_bytes);
     const path = coerceToPath(rt, args[0]) orelse
         return error_catalog.raise(.type_arg_not_string, loc, .{ .fn_name = "slurp", .actual = @tagName(args[0].tag()) });

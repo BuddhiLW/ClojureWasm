@@ -7,6 +7,41 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 
 ## [Unreleased]
 
+### Changed
+
+- **Behaviour tests move to a cljw-native tier.** 24 bash e2e scripts that
+  spent one `cljw` process per assertion became `clojure.test` suites under
+  `test/clj/suites/`, run by cljw itself — 781 process spawns out of the gate,
+  and the suites re-run over an nREPL with no rebuild. What stays in bash is
+  the CLI surface (exit code, stderr, argv) and anything that needs the
+  process itself. No runtime behaviour changes.
+
+### Added
+
+- **`clojure.walk/macroexpand-all` now works.** It previously threw
+  "not yet supported": it had been left as a deliberate stub until
+  `macroexpand` was callable at runtime, and that prerequisite has long since
+  shipped. It is now the same definition as the JVM's — a `prewalk` that
+  macroexpands every seq it visits — so `(macroexpand-all '(when true 1))` is
+  `(if true (do 1))`. Like the JVM's, it is not quote-aware and walks into
+  quoted forms.
+
+### Fixed
+
+- **`when-not` expands to clj's shape.** `(macroexpand '(when-not c x))` was
+  `(if c nil x)` where clj gives `(if c nil (do x))`, and `(when-not c)` was
+  `(if c nil nil)` against clj's `(if c nil (do))` — the body wrapper was
+  folded away for a single or empty body. Every arm now wraps unconditionally,
+  as `when` already did. The evaluated result never differed; only the
+  expansion did, which `macroexpand-all` had just made visible.
+
+- **`slurp` drains `System/in` to EOF.** `(slurp System/in)` returned `""`
+  where clj returns the piped input: the stream-side drain sliced whatever
+  happened to be buffered without demand-filling process stdin first, so with
+  nothing yet read the remainder was empty. It now blocks pulling stdin to EOF
+  before draining, the same way the `*in*` text-reader drain already did, and
+  it still returns only the unread remainder after a prior `.read`.
+
 ## [1.13.2] - 2026-08-31
 
 ### Added

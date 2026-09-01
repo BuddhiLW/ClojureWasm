@@ -1,120 +1,100 @@
 # Session handover
-
-> ≤ 100 lines. Driving doc; framing per
-> [`.claude/rules/handover_framing.md`](../.claude/rules/handover_framing.md).
+> ≤100 lines. Driving doc; framing per `.claude/rules/handover_framing.md`.
 
 ## Resume contract
 
 - **HEAD**: `staging` is the WIP/integration branch (`git log` = SSOT); a
   release is cut by PR `staging`→`main` (the merge push auto-bumps the patch).
-  Per-commit = smoke locally; commit **and** push. **First commit MUST be**
-  `[CLJW-META-MAP]` (`20260828224509-23d5e92c`) — atom/ref/agent `:meta` ctor
-  must reject a non-map (verified live 2026-08-28; TRIVIAL, extract one
-  `requireMetaMap`). Then the g5 cheap chain `[CLJW-HIER-GUARDS]` →
-  `[CLJW-FUTURE-BINDINGS]`, and `[CLJW-COMPLIANCE-REMEASURE]`
-  (`20260828224528-20f90bb5`, HIGH) to refresh the STALE 2026-08-21 red list
-  (memory `20260828224435-02f356e5`; g-notes g1..g6 are the root-cause map, and
-  the runtime-`def`-interns-wrong-ns root `[CLJW-DEF-NS]` clears several reds at
-  once — memory `20260828224443-05ce9bfa`). **3 source commits ride since the
-  last full gate — run `bash scripts/run_gate.sh` before the 5-commit ceiling.**
-  OR cut **v1.11.2** first (staging→main; `[Unreleased]` now has
-  range-heap-Long + empty + contains?-array + prior). **Forbidden this
-  session**: `git rebase`/`cherry-pick`/
-  `commit --amend` (classifier-blocked in auto-mode — use FORWARD commits on a
-  fresh branch); killing co-tenant JVMs to free build memory (see the build-OOM
-  memory). **CI runs ONE configuration everywhere** — PR, push and dispatch all
-  run the identical `test/run_all.sh --serial-e2e` that `scripts/run_gate.sh`
-  runs; `check_gate_parity.sh` fails if a tier comes back.
-- **zwasm** = tag pin **v2.5.0** (`278587f6`, FINAL), living at
-  `github.com/zwasm/zwasm` under separate maintainership since 2026-08-12; the
-  dep URL names it directly rather than riding the transfer redirect.
-  Co-development (the `dogfooding_handover` mailbox,
-  `.dev/zwasm_capabilities.md`'s refresh duty) is RETIRED.
-- **This repository is a MAINTAINED FORK.** Upstream `clojurewasm/ClojureWasm`
-  (chaploud) stopped at v1.10.1 and invited forks under EPL-2.0. **`origin` is
-  this fork** and `main` tracks it. The archived source is the `clojurewasm`
-  remote, deliberately hobbled: push URL `no_push`, and
-  `remote.clojurewasm.tagOpt=--no-tags` so a fetch can never deliver its
-  `v1.10.1` over ours — that ref is what the Homebrew tap resolves, and losing
-  it would repoint every `brew install`. Tap = `BuddhiLW/homebrew-tap`. PERF
-  CAMPAIGN (D-450) stays **stopped** — findings remain in the row as a record.
-- **TAG CLASH — `v1.10.1` names two different commits.** Ours is `50b85214`
-  (what `brew install buddhilw/tap/cljw` installs); upstream's is `8fa46d97`.
-  Both were cut the same day from different trees, and since the upstream merge
-  both are reachable in one object graph, so that NAME no longer identifies a
-  commit. Do NOT fetch upstream's tags into this repo — it would overwrite the
-  ref the tap resolves. Releases continue at v1.10.2 and up, which collide with
-  nothing, since upstream cut nothing after v1.10.1.
-- **Anything built from the `v1.10.0` tag rides the zwasm transfer redirect**,
-  which holds only while nothing claims the vacated `clojurewasm/zwasm` name.
-  Build from v1.10.1 or later.
-- **Release path is automated and proven.** Every push to `main` that touches
-  `src/**` cuts the next patch itself: `preflight` bumps `build.zig.zon`,
-  stamps `## [Unreleased]` into a dated version heading, tags, builds both
-  native artifacts and bumps the tap (`tap` job, deploy key `TAP_DEPLOY_KEY`).
-  A patch whose `[Unreleased]` body is EMPTY is not stamped — so write the
-  changelog entry in the same landing as the source.
-- **Test layers 6/7/8 are OPEN** (ADR-0186): golden (`test/golden/`, gated),
-  properties (`src/testing/prop_*.zig`, fixed seed — sweep with
-  `-Dprop-seed`/`-Dprop-iters`), mutation (`scripts/mutation/run.sh`, on
-  demand, worktree-isolated, NEVER gated). The mutation `--oracle` defaults to
-  `unit`, which never builds the CLI — a file whose behaviour IS what the
-  program prints needs `--oracle unit+golden` or every rendering path scores
-  as unconstrained. First task **D-577**: rule out equivalence before writing
-  a test for a survivor (`.dev/mutation_equivalent.jsonl` holds the proofs).
-- **CI fires on push, on PRs and on tags here** — verified, not assumed.
-  **Unreleased on main**: see CHANGELOG `[Unreleased]`.
-- **Release-process hazard**: cutting the GitHub release BY HAND before the
-  tag workflow runs breaks the artifact upload (zwasm #160). The matrix-leg
-  `gh release view || gh release create` TOCTOU is FIXED — a failed create is
-  accepted iff the release exists afterwards.
+  Per-commit = smoke; commit **and** push.
+- **FIRST MOVE ON RESUME: spawn a cljw nREPL and work through it**
+  (`mcp__hive__code cider spawn repl_type="cljw"`, then `cider eval`). Reap by
+  scoped pattern per `orphan_prevention.md` rule 4; never before a wrap.
+- **First commit on resume MUST be**: the next unit of
+  `[CLJW-E2E-TO-SUITES]` (`20260831204206-0eed020c`) — port the next stateless
+  bash e2e to `test/clj/suites/`. That card carries the method AND the three
+  hazards (state, process-bound cases, dangling pin/ledger pointers); read it
+  before deleting any script.
+- **Gate state 2026-08-31: FULL gate GREEN (436 passed, 0 failed, 0 skipped,
+  907s); cadence counter reset.**
+- **Pick the smoke selector by COVERAGE, not topic**: grep the e2e tier for the
+  file you changed and name that step. A bare `--smoke` on a `walk.clj` change
+  ran zero walk e2e and shipped a stale stub assertion for 11 commits
+  (memory `20260831212130-2668f443`). Respect ADR-0107's 5-commit ceiling; it
+  bounds how far such a miss travels.
+- **Forbidden this session**: `git rebase`/`cherry-pick`/`commit --amend`
+  (classifier-blocked in auto-mode — use FORWARD commits); killing co-tenant
+  JVMs/`cljw` processes to free memory (7 `bb-mcp.core` co-tenants are normal).
+- **CI runs ONE configuration everywhere** — PR, push and dispatch all run the
+  same `test/run_all.sh --serial-e2e` as `run_gate.sh`; `check_gate_parity.sh`
+  fails if a tier comes back.
 - **Forbidden**: bare `zig build test` without `-Dwasm`; bare `zig build` for a
   probe (use ReleaseSafe); a concurrent build during a gate (the FULL gate runs
   `--serial-e2e`, ALONE). `.claude/**` edits + cross-repo publishes may hit the
-  auto-mode block — surface to the user. **D-549 is user-LOCKED**, **D-560
-  trigger-gated**. External publishes need `test -s` + read-back guards.
+  auto-mode block — surface to the user. **D-549 user-LOCKED**, **D-560
+  trigger-gated**; external publishes need `test -s` + read-back guards.
+
+## Project invariants (stable)
+
+- **zwasm** = tag pin **v2.5.0** (`278587f6`, FINAL) at `github.com/zwasm/zwasm`,
+  separately maintained; co-development RETIRED (`.dev/zwasm_capabilities.md`).
+- **This repository is a MAINTAINED FORK.** Upstream `clojurewasm/ClojureWasm`
+  (chaploud) stopped at v1.10.1 and invited forks under EPL-2.0. `origin` is
+  this fork; `main` tracks it. The archive is the `clojurewasm` remote,
+  deliberately hobbled (push URL `no_push`, `tagOpt=--no-tags`) so a fetch can
+  never deliver its `v1.10.1` over ours — that ref is what the Homebrew tap
+  resolves. Tap = `BuddhiLW/homebrew-tap`.
+- **TAG CLASH — `v1.10.1` names two commits.** Ours is `50b85214` (what `brew
+  install buddhilw/tap/cljw` gets); upstream's is `8fa46d97`. Do NOT fetch
+  upstream tags. Releases continue at v1.10.2+, which collide with nothing.
+- **Release path is automated.** Every push to `main` touching `src/**` cuts
+  the next patch: `preflight` bumps `build.zig.zon`, stamps `## [Unreleased]`
+  into a dated heading, tags, builds both native artifacts, bumps the tap
+  (`TAP_DEPLOY_KEY`). An EMPTY `[Unreleased]` body is not stamped — write the
+  changelog entry in the same landing as the source.
+- **Release hazard**: cutting the GitHub release BY HAND before the tag
+  workflow runs breaks artifact upload (zwasm #160). The matrix-leg
+  `gh release view || gh release create` TOCTOU is FIXED.
+- **PERF CAMPAIGN (D-450) stays stopped** — findings remain in the row.
 
 ## Current state (details = CHANGELOG + git log)
 
 - **Issues, PRs and Discussions are all OPEN here.** CONTRIBUTING exempts
-  outside contributors from the loop's own conventions: a contributed commit
-  is taken as-is with authorship preserved and any missing `Smell-audited:`
-  line amended in. Each `scripts/check_*.sh` header is its own SSOT.
-- **Active unit — clojure.core compliance drain** (jank `clojure-test-suite`,
-  248 `.cljc`; drain-plan `private/notes/compliance/drain-plan-2026-08-22.md`,
-  batches B1-B8; baseline is pre-fix, re-measure via the fixed harness ADR-0191).
-  **v1.11.1 SHIPPED** (net serve + unix sockets + assocEx + numeric + interop;
-  its 3 SSOT-ledger CI failures fixed — see the smoke-drift memory). Landed on
-  `staging` since, unreleased (4-5 clj-parity fixes, cards done): **int?**
-  fixed-precision + heap-Long origin (B7); **take** float/`##Inf`/BigInt count
-  (B3-adjacent); **disj/disj!/dissoc!** variadic (B1); **(String. …offset len
-  [charset])** range ctors; **string/replace** map/IFn replacement (B4, WIP).
-  Deferred with design memos: **[CLJW-DEF-NS]** (Capture-by-Var, multi-backend +
-  AOT — memory `20260825160952-2e68811c`). New card **[CLJW-RANGE-HEAPLONG]**
-  (B3, `-range` rejects heap-Long bounds).
+  outside contributors from the loop's conventions. Each `scripts/check_*.sh`
+  header is its own SSOT.
+- **Shipped through v1.13.2.** On `staging` since: `slurp` drains `System/in`;
+  two silent gate verdicts made honest; `clojure.walk/macroexpand-all`
+  implemented; `when-not` now wraps its body in `(do …)` like clj.
+- **Active unit — bash e2e → cljw-native suites (Layer 5b).**
+  `test/clj/run_suites.clj` runs `test/clj/suites/*_test.clj` by DISCOVERY
+  (drop a file in, it runs) and is gated in SMOKE_CORE as `test_clj_suites`.
+  2026-08-31: 18 scripts ported, **651 spawns removed**, suite tier 12 → **23
+  suites / 195 tests / 1116 assertions**, e2e 410 → 395. What stays in bash is
+  the CLI surface (exit code, stderr, argv) and anything needing the PROCESS
+  (e.g. `CLJW_GC_TORTURE=1`, which is read at process start).
+- **Test layers 6/7/8 OPEN** (ADR-0186): golden (`test/golden/`, gated),
+  properties (`src/testing/prop_*.zig`, `-Dprop-seed`/`-Dprop-iters`), mutation
+  (`scripts/mutation/run.sh`, on demand, NEVER gated; `--oracle` defaults to
+  `unit` and never builds the CLI — a rendering path needs `unit+golden`).
+  First task **D-577**: rule out equivalence before writing a test for a
+  survivor (`.dev/mutation_equivalent.jsonl`).
+- Deferred with a design memo: **[CLJW-DEF-NS]** (Capture-by-Var, multi-backend
+  + AOT — memory `20260825160952-2e68811c`).
 
 ## What was left unfinished (`.dev/debt.yaml` is the SSOT)
 
 - **D-565** residuals (7)/(8) unreachable (upstream gitignored `private/`).
 - **Perf campaign (§9.2.S) — PAUSED** (D-520/D-386/D-005/006); **D-513** (1)
-  `clojure.core.reducers` remaining. **D-548** (b) pmap wall-clock on 3-vCPU.
+  `clojure.core.reducers`. **D-548** (b) pmap wall-clock on 3-vCPU.
+- Open cards: `[CLJW-JSON-REEXPORT]` (`20260831194114-196afd4a`, hypothesis
+  unverified) · `[CLJW-ENTRYPOINT-FLAKE]` (`20260831192937-1e3c4ed0`) ·
+  `[CLJW-NATIVE-HARNESS]` (`20260831201012-5386d9f9`).
 
-## North star (ACTIVE, distal)
+## North star (ACTIVE, distal) + reading order
 
 cljw's differentiator = **Wasm interop (gap II) × VM-perf fusion→JIT (gap
 III)**. zwasm JIT (ADR-0200) is the cljw default; remaining =
 components-through-the-JIT (zwasm-side, D-500). Distal — needs a user nod.
-NOTE ADR-0177: "edge execution" is an AIM owned by D-552, not a capability.
-
-## Stopped — user requested
-
-User instruction (2026-08-25): "commit and push current WIP in staging. and we
-continue later. make memories on all learnings this session, kg connect them,
-sync kanban, create remaining kanban tasks if any, and `workflow wrap`."
-Resume per the Resume-contract "First commit MUST be".
-
-## Reading order (resume)
-
-handover → `yq` the live `active:` list → ADR-0166 → ROADMAP §9.0. Memories:
-`verify_against_releasesafe_binary` / `smoke_first_batch_full_gate` /
-`external-publish-payload-guard`.
+ADR-0177: "edge execution" is an AIM owned by D-552, not a capability.
+Resume reading: handover → `yq` the live `active:` list → ADR-0166 → ROADMAP
+§9.0. Memories: `verify_against_releasesafe_binary` /
+`smoke_first_batch_full_gate` / `external-publish-payload-guard`.

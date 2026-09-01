@@ -476,7 +476,6 @@ run_step "e2e_phase4_cli"        "bash test/e2e/phase4_cli.sh"
 run_step "e2e_phase4_exit"       "bash test/e2e/phase4_exit.sh"
 run_step "e2e_phase4_exit_codes" "bash test/e2e/phase4_exit_codes.sh"
 run_step "e2e_phase5_exit"       "bash test/e2e/phase5_exit.sh"
-run_step "e2e_phase6_regex_cycle1" "bash test/e2e/phase6_regex_cycle1.sh"
 run_step "e2e_phase6_clojure_string_cycle1" "bash test/e2e/phase6_clojure_string_cycle1.sh"
 run_step "e2e_phase6_clojure_string_cycle2" "bash test/e2e/phase6_clojure_string_cycle2.sh"
 run_step "e2e_phase6_clojure_string_cycle3" "bash test/e2e/phase6_clojure_string_cycle3.sh"
@@ -487,9 +486,6 @@ run_step "e2e_phase6_clojure_walk_cycle1" "bash test/e2e/phase6_clojure_walk_cyc
 run_step "e2e_phase6_16_a_0_metadata"      "bash test/e2e/phase6_16_a_0_metadata.sh"
 run_step "e2e_composition_unlock_a1"       "bash test/e2e/composition_unlock_a1.sh"
 run_step "e2e_composition_unlock_a2"       "bash test/e2e/composition_unlock_a2.sh"
-run_step "e2e_composition_unlock_a3_1"     "bash test/e2e/composition_unlock_a3_1.sh"
-run_step "e2e_transducer_unlock_a3"        "bash test/e2e/transducer_unlock_a3.sh"
-run_step "e2e_phase6_clojure_set_group_ab" "bash test/e2e/phase6_clojure_set_group_ab.sh"
 run_step "e2e_phase6_set_map_literal"      "bash test/e2e/phase6_set_map_literal.sh"
 run_step "e2e_phase6_clojure_set_group_c"  "bash test/e2e/phase6_clojure_set_group_c.sh"
 run_step "e2e_phase6_16_b_4_private_leaf"  "bash test/e2e/phase6_16_b_4_private_leaf.sh"
@@ -559,7 +555,6 @@ run_step "e2e_phase14_catch_internal"        "bash test/e2e/phase14_catch_intern
 run_step "e2e_phase14_binding"               "bash test/e2e/phase14_binding.sh"
 run_step "e2e_phase14_with_context"          "bash test/e2e/phase14_with_context.sh"
 run_step "e2e_phase14_user_throw"            "bash test/e2e/phase14_user_throw.sh"
-run_step "e2e_phase14_collection_keys"       "bash test/e2e/phase14_collection_keys.sh"
 run_step "e2e_phase14_key_val"               "bash test/e2e/phase14_key_val.sh"
 run_step "e2e_phase14_multifn_introspect"    "bash test/e2e/phase14_multifn_introspect.sh"
 run_step "e2e_phase14_auto_keyword"          "bash test/e2e/phase14_auto_keyword.sh"
@@ -608,7 +603,6 @@ run_step "e2e_phase14_letfn"                 "bash test/e2e/phase14_letfn.sh"
 run_step "e2e_phase14_math_transcendental" "bash test/e2e/phase14_math_transcendental.sh"
 run_step "e2e_phase14_destructure"           "bash test/e2e/phase14_destructure.sh"
 run_step "e2e_phase14_map_string_keys"       "bash test/e2e/phase14_map_string_keys.sh"
-run_step "e2e_phase14_float_print"           "bash test/e2e/phase14_float_print.sh"
 run_step "e2e_phase14_comp_juxt_partition"   "bash test/e2e/phase14_comp_juxt_partition.sh"
 run_step "e2e_phase14_map_complement_vector" "bash test/e2e/phase14_map_complement_vector.sh"
 run_step "e2e_phase14_merge_partition_by"    "bash test/e2e/phase14_merge_partition_by.sh"
@@ -640,7 +634,6 @@ run_step "e2e_phase14_case"                  "bash test/e2e/phase14_case.sh"
 run_step "e2e_phase14_condp"                 "bash test/e2e/phase14_condp.sh"
 run_step "e2e_phase14_println_stdout"        "bash test/e2e/phase14_println_stdout.sh"
 run_step "e2e_phase14_fn_combinators"        "bash test/e2e/phase14_fn_combinators.sh"
-run_step "e2e_phase14_when_if_not"          "bash test/e2e/phase14_when_if_not.sh"
 run_step "e2e_phase14_assert_distinct"      "bash test/e2e/phase14_assert_distinct.sh"
 run_step "e2e_phase14_partition_all"       "bash test/e2e/phase14_partition_all.sh"
 run_step "e2e_phase14_not_eq_run"          "bash test/e2e/phase14_not_eq_run.sh"
@@ -649,8 +642,6 @@ run_step "e2e_phase14_find"                "bash test/e2e/phase14_find.sh"
 run_step "e2e_phase14_int_char"            "bash test/e2e/phase14_int_char.sh"
 run_step "e2e_phase14_char_print"          "bash test/e2e/phase14_char_print.sh"
 run_step "e2e_phase14_subvec"              "bash test/e2e/phase14_subvec.sh"
-run_step "e2e_subvec_view"                 "bash test/e2e/subvec_view.sh"
-run_step "e2e_string_seq_view"             "bash test/e2e/string_seq_view.sh"
 run_step "e2e_phase14_bounded_count"       "bash test/e2e/phase14_bounded_count.sh"
 run_step "e2e_phase14_lazy_cat"            "bash test/e2e/phase14_lazy_cat.sh"
 run_step "e2e_phase14_tree_seq"            "bash test/e2e/phase14_tree_seq.sh"
@@ -661,7 +652,6 @@ run_step "e2e_phase14_num_predicates"      "bash test/e2e/phase14_num_predicates
 run_step "e2e_phase14_ratio_accessors"     "bash test/e2e/phase14_ratio_accessors.sh"
 run_step "e2e_phase14_rationalize"         "bash test/e2e/phase14_rationalize.sh"
 run_step "e2e_phase14_ratio_arith"         "bash test/e2e/phase14_ratio_arith.sh"
-run_step "e2e_phase14_quot_rem_mod_tower"  "bash test/e2e/phase14_quot_rem_mod_tower.sh"
 run_step "e2e_phase14_string_indexed"       "bash test/e2e/phase14_string_indexed.sh"
 run_step "e2e_phase14_namespaced_maps"      "bash test/e2e/phase14_namespaced_maps.sh"
 run_step "e2e_phase14_atom_watch"           "bash test/e2e/phase14_atom_watch.sh"
@@ -781,15 +771,12 @@ run_step "e2e_phase9_record_extmap"          "bash test/e2e/phase9_record_extmap
 run_step "e2e_phase14_redef"                 "bash test/e2e/phase14_redef.sh"
 run_step "e2e_phase14_var_metadata"          "bash test/e2e/phase14_var_metadata.sh"
 run_step "e2e_phase14_defn_meta"             "bash test/e2e/phase14_defn_meta.sh"
-run_step "e2e_phase14_empty_list"            "bash test/e2e/phase14_empty_list.sh"
 run_step "e2e_phase14_object_methods"        "bash test/e2e/phase14_object_methods.sh"
 run_step "e2e_phase14_map_entry"             "bash test/e2e/phase14_map_entry.sh"
 run_step "e2e_phase14_inst_literal"          "bash test/e2e/phase14_inst_literal.sh"
-run_step "e2e_phase14_exception_ctor"        "bash test/e2e/phase14_exception_ctor.sh"
 run_step "e2e_phase14_doc"                   "bash test/e2e/phase14_doc.sh"
 run_step "e2e_phase14_coll_helpers"          "bash test/e2e/phase14_coll_helpers.sh"
 run_step "e2e_phase14_map_helpers"           "bash test/e2e/phase14_map_helpers.sh"
-run_step "e2e_phase14_hamt_map"              "bash test/e2e/phase14_hamt_map.sh"
 run_step "e2e_phase14_ifn_callable"          "bash test/e2e/phase14_ifn_callable.sh"
 run_step "e2e_phase14_atom"                  "bash test/e2e/phase14_atom.sh"
 run_step "e2e_phase14_hash_gensym"           "bash test/e2e/phase14_hash_gensym.sh"
@@ -818,22 +805,16 @@ run_step "e2e_semaphore"                     "bash test/e2e/semaphore.sh"
 run_step "e2e_concurrent_atomics"            "bash test/e2e/concurrent_atomics.sh"
 run_step "e2e_concurrent_interfaces"         "bash test/e2e/concurrent_interfaces.sh"
 run_step "e2e_linked_blocking_queue"         "bash test/e2e/linked_blocking_queue.sh"
-run_step "e2e_list_count_exact"              "bash test/e2e/list_count_exact.sh"
 run_step "e2e_future_methods"                "bash test/e2e/future_methods.sh"
 run_step "e2e_vector_seq_view"               "bash test/e2e/vector_seq_view.sh"
 run_step "e2e_phase14_fn_prepost"            "bash test/e2e/phase14_fn_prepost.sh"
 run_step "e2e_phase14_deftype_ideref"        "bash test/e2e/phase14_deftype_ideref.sh"
-run_step "e2e_phase14_equality"              "bash test/e2e/phase14_equality.sh"
 run_step "e2e_phase14_realworld_program"     "bash test/e2e/phase14_realworld_program.sh"
 run_step "e2e_phase14_dedup_group"           "bash test/e2e/phase14_dedup_group.sh"
 run_step "e2e_phase14_reduce_helpers"        "bash test/e2e/phase14_reduce_helpers.sh"
 run_step "e2e_phase14_accessors"             "bash test/e2e/phase14_accessors.sh"
 run_step "e2e_phase14_compare"               "bash test/e2e/phase14_compare.sh"
-run_step "e2e_phase14_sort"                  "bash test/e2e/phase14_sort.sh"
-run_step "e2e_phase14_sorted"                "bash test/e2e/phase14_sorted.sh"
-run_step "e2e_phase14_transducers"           "bash test/e2e/phase14_transducers.sh"
 run_step "e2e_phase14_hierarchy"             "bash test/e2e/phase14_hierarchy.sh"
-run_step "e2e_phase14_class_type"            "bash test/e2e/phase14_class_type.sh"
 run_step "e2e_phase14_deftype_object"        "bash test/e2e/phase14_deftype_object.sh"
 run_step "e2e_phase14_deftype_mutable"       "bash test/e2e/phase14_deftype_mutable.sh"
 run_step "e2e_phase14_arrays"                "bash test/e2e/phase14_arrays.sh"
@@ -879,8 +860,6 @@ run_step "e2e_phase14_defmacro_destructure"  "bash test/e2e/phase14_defmacro_des
 run_step "e2e_phase14_read_string"           "bash test/e2e/phase14_read_string.sh"
 run_step "e2e_phase14_lazy_seq"              "bash test/e2e/phase14_lazy_seq.sh"
 run_step "e2e_phase14_lazy_map"              "bash test/e2e/phase14_lazy_map.sh"
-run_step "e2e_phase14_chunked_seq"           "bash test/e2e/phase14_chunked_seq.sh"
-run_step "e2e_phase14_lazy_seq_cycle3"       "bash test/e2e/phase14_lazy_seq_cycle3.sh"
 run_step "e2e_phase14_lazy_seq_cycle4"       "bash test/e2e/phase14_lazy_seq_cycle4.sh"
 run_step "e2e_phase14_tagged_literal"        "bash test/e2e/phase14_tagged_literal.sh"
 run_step "e2e_phase14_print_control"         "bash test/e2e/phase14_print_control.sh"
@@ -929,6 +908,35 @@ fi
 # Drain the deferred functional-e2e pool (no-op under --serial-e2e, where
 # they already ran inline).
 flush_e2e_queue
+
+# A step selector that matches NOTHING silently narrows the run instead of
+# failing. 2026-08-31: `--smoke phase16_stdin_read_line` (the registered name is
+# e2e_phase16_stdin_read_line) selected NO e2e at all, and the run still printed
+# per-step [pass] lines and a green summary — so the smoke authorised a commit
+# while the very e2e that commit added had never executed. That is the same
+# false-assurance test_reach / e2e_reach exist to prevent, one level up: there
+# the test file is unregistered, here the SELECTOR is unknown. Both must be a
+# hard error, never a quiet zero.
+if [[ -n "$ONLY_STEPS" ]]; then
+    unmatched_selectors=()
+    IFS=',' read -ra selectors <<< "$ONLY_STEPS"
+    for sel in "${selectors[@]}"; do
+        [[ -z "$sel" ]] && continue
+        hit=0
+        for known in "${ALL_STEP_NAMES[@]}"; do
+            [[ "$known" == "$sel" ]] && { hit=1; break; }
+        done
+        (( hit )) || unmatched_selectors+=("$sel")
+    done
+    if [[ ${#unmatched_selectors[@]} -gt 0 ]]; then
+        echo "" >&2
+        echo "==> FATAL: step selector matched no registered step:" >&2
+        printf '    - %s\n' "${unmatched_selectors[@]}" >&2
+        echo "    e2e steps are registered with an 'e2e_' prefix (e.g. e2e_phase16_stdin_read_line)." >&2
+        echo "    'bash test/run_all.sh --list' prints every registered step name." >&2
+        exit 1
+    fi
+fi
 
 if print_summary; then
     if (( SMOKE_MODE )); then

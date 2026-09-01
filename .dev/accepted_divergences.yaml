@@ -259,7 +259,7 @@ accepted:
       finite dividend gives a 0 quotient and both runtimes return NaN (verified
       2026-08-17 against the clj oracle).
     derives_from: "F-005 (numeric tower: single internal f64, one clean float quot/rem/mod path) + AD-008 (cljw's cleaner numeric surface where clj throws)"
-    pin: "test/e2e/phase14_quot_rem_mod_tower.sh — quot_nan/rem_nan/mod_nan_d/mod_nan_v (NaN family) + quot_inf/rem_inf/mod_inf/quot_ninf (+/-Inf-dividend family) lock cljw's non-finite result (clj throws)"
+    pin: "test/clj/suites/numeric_tower_test.clj — the `non-finite-operands` deftest: quot_nan/rem_nan/mod_nan_d/mod_nan_v (NaN family) + quot_inf/rem_inf/mod_inf/quot_ninf (+/-Inf-dividend family) lock cljw's non-finite result (clj throws). Each assertion carries its original case name as a trailing comment."
   - id: "AD-019"
     summary: "Java arrays are type-erased: element type hints (`^\"[B\"`, `^ints`, `^bytes`) are advisory only, and a typed-array constructor / `aset` does not coerce or type-check non-byte/short/char elements."
     example: '(let [^"[B" b (byte-array 1)] (aset b 0 65) (aget b 0)) => 65 (a non-byte stored into a byte-typed array, no error); (class (object-array 0)) => cljw "array" / clj "[Ljava.lang.Object;"'
@@ -617,7 +617,7 @@ accepted:
       `when`/`if-not`/`when-not` forms ARE made to byte-match clj; only the
       recursive-cascade cases keep cljw's full-expand shape.
     derives_from: "F-011 (behavioural equivalence is the contract; the macros run identically — only the intermediate macroexpand-1 FORM differs; cljw's Zig transforms lower eagerly in one step). Functionally-equivalent expansion form, like ClojureScript's macroexpansions vs JVM clj."
-    pin: "test/e2e/phase14_when_if_not.sh — `cond_expand_full` locks (macroexpand-1 '(cond a 1 :else 2)) => (if a 1 (if :else 2 nil)) (cljw's full form), and `when_expand_multi`/`when_expand_single` lock when's byte-match with clj"
+    pin: "test/clj/suites/control_macros_test.clj — `cond-expands-to-the-full-nested-if` locks (macroexpand-1 '(cond a 1 :else 2)) => (if a 1 (if :else 2 nil)) (cljw's full form), and `when-expands-like-clj`/`when-not-expands-like-clj` lock when's and when-not's byte-match with clj"
   - id: "AD-041"
     summary: "clojure.test's FAIL/ERROR ` (file:line)` suffix points at the DEFTEST var's line (from Var source meta, D-563b) where clj points at the failing assertion's line (JVM stack frame); and `report :error` prints the exception's value instead of clj's JVM cause trace. Names, expected/actual, context, and counts all match clj."
     example: "(deftest a (is (= 1 2))) in f.clj: cljw `FAIL in (a) (f.clj:LINE-OF-DEFTEST)` / clj `FAIL in (a) (f.clj:LINE-OF-IS)`. An erroring test: cljw `  actual: #error {…}` (the ex value) / clj a multi-line `clojure.lang.ExceptionInfo … at …` cause trace."
@@ -686,7 +686,7 @@ accepted:
       accepted divergence. `displayClassName` (runtime/class_name.zig) is the SSOT;
       the names are NOT `instance?` targets (no `clojure.lang.*` FQCN to resolve).
     derives_from: "ADR-0059 (no JVM Class) + AD-003 (simple class name, no JVM FQCN) — extended to callables/seq-views/refs which clj backs with generated/reify classes."
-    pin: "test/e2e/phase14_class_type.sh — class_fn_anon/class_fn_builtin => Fn, class_multifn => MultiFn, class_lazyseq/range/chunkseq/future/agent/atom/ref/volatile/delay/reduced/tvec, and class_fn_isa_ifn (the IFn isa? still resolves through the renamed callable classes)."
+    pin: "test/clj/suites/class_type_test.clj — the `class-of-callables-and-refs` deftest: anon fn/builtin => Fn, multifn => MultiFn, lazyseq/range/chunkseq/future/agent/atom/ref/volatile/delay/reduced/tvec, and the class-level `(isa? (class +) clojure.lang.IFn)` (the IFn isa? still resolves through the renamed callable classes)."
   - id: "AD-045"
     summary: "`send-via` / `set-agent-send-executor!` / `set-agent-send-off-executor!` RAISE (`value_error`) instead of dispatching on / configuring a user-supplied executor — cljw has no `java.util.concurrent.ExecutorService` type, so there is no executor to pass or configure. clj runs these for real against its global agent thread pools."
     example: '(send-via my-executor a inc) / (set-agent-send-executor! my-executor) => cljw raises "ClojureWasm has no configurable executor — agents run on a per-agent worker …" / clj dispatches-via / mutates the pool.'
@@ -1109,4 +1109,4 @@ accepted:
       matches clj, so no code that was portable has been broken.
     example: '(class (seq [1 2 3])) => cljw ArraySeq / clj clojure.lang.PersistentVector$ChunkedSeq. Also `(class (seq (into-array [1 2])))` would be ArraySeq in BOTH — the one backing for which the shared name is exact.'
     derives_from: "AD-003 (simple class name for cljw-native types) + F-004 A14 slot reservation + the F-005 family-collapse precedent."
-    pin: "test/e2e/vector_seq_view.sh — class_name."
+    pin: "test/clj/suites/vector_seq_view_test.clj — the `the-class-name-is-the-reserved-slot-name` deftest (case class_name), asserting (str (class (seq [1 2]))) => \"ArraySeq\"."

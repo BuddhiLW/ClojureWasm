@@ -124,7 +124,21 @@ for site in "${EVAL_STREAM_SITES[@]}"; do
 done
 
 # --- 4: the default (file / -e / bare) path resolves the classpath too ---
-if ! awk '/fn dispatchArgsRest\(/,0' "$CLI" | grep -qE 'resolveClasspath|resolveDefaultClasspath|splitClasspath'; then
+# The slice is captured first so an EMPTY extraction is distinguishable from a
+# non-resolving one. Both used to render as the same sentence and the same exit
+# 1, so a run where the extraction simply produced nothing accused the source of
+# a violation it did not have (observed 2026-08-31: this step failed inside a
+# smoke run and passed standalone on the identical tree, while
+# `fn dispatchArgsRest(` was present and its slice reached a resolver 8 times).
+# Section 1 already guards its own extraction against vacuity; this is the same
+# discipline — a broken extraction must be re-taught, not reported as drift.
+rest=$(awk '/fn dispatchArgsRest\(/,0' "$CLI")
+if [ -z "$rest" ]; then
+    echo "check_entrypoint_surface: could not extract the dispatchArgsRest slice from $CLI."
+    echo "  Either the fn was renamed (re-teach this script) or the extraction itself failed."
+    echo "  This is NOT a classpath finding — do not 'fix' $CLI on the strength of it."
+    fail=1
+elif ! printf '%s' "$rest" | grep -qE 'resolveClasspath|resolveDefaultClasspath|splitClasspath'; then
     echo "check_entrypoint_surface: dispatchArgsRest no longer reaches the shared classpath resolution."
     fail=1
 fi
