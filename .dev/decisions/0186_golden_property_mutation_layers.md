@@ -124,10 +124,19 @@ would be indistinguishable from a real edit.
 - `test/prop/**`
 - `scripts/mutation/**` (including `report.py` and `.dev/mutation_equivalent.jsonl`)
 - `test/run_all.sh` (the `golden` and `prop` steps)
+- `test/cljw-test`, `test/units.list` (Layer 8 entry point and lock ownership)
 - `test/README.md`, `.claude/rules/test_taxonomy.md` (the layer table)
 
 ## Revision history
 
+- 2026-09-03: Marked the mutation unit `self-locking`. Its harness acquires the
+  shared build lock around each build; an outer `cljw-test` lock recursively
+  waited on itself and could never reach the baseline. Replayed the seven
+  `print.zig` baseline survivors through the `unit+golden` oracle: five died,
+  one matched its registered equivalence proof, and the remaining LocalDate
+  typed-instance discriminator died after adding the focused
+  `printer_local_date` whole-program snapshot. Zero unexplained baseline
+  survivors remain.
 - 2026-08-12: Status: Proposed -> Accepted. Layers 6 and 7 land with the ADR;
   Layer 8's harness lands beside them and its first sweep report follows.
 - 2026-08-12: Layer 8 gains an equivalence register

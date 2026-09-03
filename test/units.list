@@ -6,7 +6,7 @@
 #   gated   yes  = part of "the suite is green"
 #           no   = deliberately outside the gate; the tags say why
 #   tags    comma-separated; `network`, `timing`, `measurement`, `slow`,
-#           `failfast`, `config` are meaningful to the runner
+#           `failfast`, `config`, `self-locking` are meaningful to the runner
 #   command run from the repository root
 #
 # A runnable script with no row here FAILS scripts/check_runner_reach.sh.
@@ -41,7 +41,7 @@ verify_projects|5|no|network,failfast|bash scripts/verify_projects.sh
 golden|6|yes||bash test/golden/run.sh
 
 # --- layer 8: mutation — a measurement, never a gate ------------------------
-mutation|8|no|measurement,slow|bash scripts/mutation/run.sh
+mutation|8|no|measurement,slow,self-locking|bash scripts/mutation/run.sh
 
 # --- layer 4: bench — timing, never a gate ----------------------------------
 bench_langs|4|no|timing|bash bench/compare_langs.sh
