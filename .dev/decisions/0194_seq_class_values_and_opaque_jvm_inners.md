@@ -80,3 +80,6 @@ value can have those exact JVM types.
 ## Revision history
 
 - 2026-09-01: Status: Proposed -> Accepted (initial landing).
+- 2026-09-03: Follow-up: preserve PersistentList identity in `conj`, and add
+  `.cons` to every seq-key hash/equality gate. Distinct class identity must not
+  drop pre-existing collection semantics.

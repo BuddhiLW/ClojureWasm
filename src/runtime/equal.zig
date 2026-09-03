@@ -614,7 +614,7 @@ inline fn isSeqKeyTag(t: Value.Tag) bool {
     // `.array_seq` qualifies for the rt-FREE path because `SeqKeyCursor` walks
     // it by index with no forcing — the reason `.lazy_seq`/`.range` are absent
     // does not apply to a view over an immutable vector.
-    return t == .vector or t == .sub_vector or t == .list or t == .map_entry or t == .array_seq or t == .string_seq;
+    return t == .vector or t == .sub_vector or t == .list or t == .cons or t == .map_entry or t == .array_seq or t == .string_seq;
 }
 
 /// Symbol equality (ADR-0110): ns+name structural, metadata IGNORED — symbol
@@ -1180,7 +1180,7 @@ pub fn hashDispatch(rt: *Runtime, env: *Env, v: Value) ClojureWasmError!u32 {
         // A cons over a lazy tail (syntax-quote) hashes rt-free until the lazy
         // tail truncates the walk; realize + content-hash only then (D-408) so a
         // fully-realized list keeps the fast path.
-        .list => return seqHashChecked(v) orelse blk: {
+        .list, .cons => return seqHashChecked(v) orelse blk: {
             const realized = realizeSeqToList(rt, env, v) catch |e| return @errorCast(e);
             break :blk seqHash(realized);
         },
@@ -1224,7 +1224,7 @@ pub fn hashDispatch(rt: *Runtime, env: *Env, v: Value) ClojureWasmError!u32 {
 pub fn hashConsult(v: Value) ClojureWasmError!u32 {
     if (dispatch_mod.current_env) |env| {
         switch (v.tag()) {
-            .typed_instance, .reified_instance, .lazy_seq, .range, .chunked_cons, .list => return hashDispatch(env.rt, env, v),
+            .typed_instance, .reified_instance, .lazy_seq, .range, .chunked_cons, .list, .cons => return hashDispatch(env.rt, env, v),
             else => {},
         }
     }
@@ -1239,7 +1239,7 @@ pub fn hashConsult(v: Value) ClojureWasmError!u32 {
 /// `.persistent_queue => seqHash` arm — closes a hash/eq inconsistency).
 fn isSeqKeyValue(v: Value) bool {
     return switch (v.tag()) {
-        .vector, .sub_vector, .list, .map_entry, .persistent_queue, .lazy_seq, .range, .chunked_cons, .array_seq, .string_seq => true,
+        .vector, .sub_vector, .list, .cons, .map_entry, .persistent_queue, .lazy_seq, .range, .chunked_cons, .array_seq, .string_seq => true,
         .typed_instance, .reified_instance => isSequential(v),
         else => false,
     };
@@ -1264,7 +1264,7 @@ fn isSimpleEqKey(v: Value) bool {
 /// (they already walk rt-free). Partner of `realizeKeyForCompare`'s callers.
 fn realizeKeyForCompare(rt: *Runtime, env: *Env, v: Value) anyerror!Value {
     return switch (v.tag()) {
-        .lazy_seq, .range, .chunked_cons, .list => try realizeSeqToList(rt, env, v),
+        .lazy_seq, .range, .chunked_cons, .list, .cons => try realizeSeqToList(rt, env, v),
         .typed_instance, .reified_instance => if (isSequential(v)) try realizeSequentialInstance(rt, env, v) else v,
         else => v,
     };

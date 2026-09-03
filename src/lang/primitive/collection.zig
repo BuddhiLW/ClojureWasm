@@ -127,11 +127,12 @@ fn conjOne(rt: *Runtime, env: *Env, coll: Value, x: Value, loc: SourceLocation) 
             vec = try vector.conj(rt, vec, map_entry.valOf(coll));
             break :blk try vector.conj(rt, vec, x);
         },
-        // conj onto any ISeq is a prepend ≡ `(cons x coll)`. Delegate to
-        // the cons primitive so per-seq-tag handling (unforced lazy_seq
-        // tail / seq-view over range / string_seq / array_seq) stays
-        // single-sourced (F-011) instead of being re-encoded here.
-        .list, .cons, .lazy_seq, .chunked_cons, .range, .string_seq, .array_seq => try sequence.consFn(rt, env, &.{ x, coll }, loc),
+        // PersistentList.cons preserves PersistentList identity; routing this
+        // through public `cons` would mint a clojure.lang.Cons and break the
+        // list-only IPersistentStack contract (`peek`/`pop`). Other ISeqs use
+        // public cons so their distinct tail/class semantics stay centralized.
+        .list => try list.consHeap(rt, x, coll),
+        .cons, .lazy_seq, .chunked_cons, .range, .string_seq, .array_seq => try sequence.consFn(rt, env, &.{ x, coll }, loc),
         .hash_set => try set.conj(rt, coll, x),
         // conj on a queue appends to the rear (FIFO, ADR-0087).
         .persistent_queue => try persistent_queue.conj(rt, coll, x),
@@ -1330,8 +1331,18 @@ test "conj nil x → (x)" {
     try fix.init(testing.allocator);
     defer fix.deinit();
     const r = try conjFn(&fix.rt, &fix.env, &.{ .nil_val, Value.initInteger(42) }, .{ .line = 0, .column = 0 });
-    try testing.expect(r.tag() == .list or r.tag() == .cons);
+    try testing.expectEqual(Value.Tag.list, r.tag());
     try testing.expectEqual(@as(i64, 42), list.first(r).asInteger());
+}
+
+test "conj PersistentList preserves list identity" {
+    var fix: TestFixture = undefined;
+    try fix.init(testing.allocator);
+    defer fix.deinit();
+    const existing = try list.consHeap(&fix.rt, Value.initInteger(1), .nil_val);
+    const r = try conjFn(&fix.rt, &fix.env, &.{ existing, Value.initInteger(2) }, .{ .line = 0, .column = 0 });
+    try testing.expectEqual(Value.Tag.list, r.tag());
+    try testing.expectEqual(@as(i64, 2), list.first(r).asInteger());
 }
 
 test "conj vector appends" {
