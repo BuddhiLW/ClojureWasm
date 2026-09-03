@@ -129,6 +129,10 @@ would be indistinguishable from a real edit.
 
 ## Revision history
 
+- 2026-09-03: Made mutant IDs relocation-stable. Replay handles now derive
+  from enclosing function plus mutation content, not path and line; legacy
+  handles may be mapped through `.dev/mutation_id_aliases.jsonl`. This makes
+  the documented `--ids` loop survive refactors and printer file splits.
 - 2026-09-03: Marked the mutation unit `self-locking`. Its harness acquires the
   shared build lock around each build; an outer `cljw-test` lock recursively
   waited on itself and could never reach the baseline. Replayed the seven

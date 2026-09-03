@@ -28,6 +28,7 @@ unit_tree_walk|1,3,7|yes|fast|zig build test -Dwasm -Dbackend=tree_walk -Doptimi
 prop_engine|7|yes|fast|zig test src/testing/prop.zig
 lint|-|yes|fast|zig build lint -- --max-warnings 0
 fmt|-|yes|fast|zig fmt --check src/
+mutation_harness|-|yes|fast,via-gate|python3 -m unittest scripts/mutation/test_mutate.py
 
 # --- layer 2: e2e -----------------------------------------------------------
 # The ~400 e2e steps run inside `gate`. One of them: cljw-test --step <name>.
