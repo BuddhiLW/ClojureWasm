@@ -196,6 +196,29 @@ rule itself.
 - Native proposal: [ziglang/zig#22822 — `@deprecated()`
   builtin](https://github.com/ziglang/zig/issues/22822)
 
+## Update — 2026-09-03 (release builds are offline-safe)
+
+The original top-level `@import("zlinter")` made every build-script configure
+resolve zlinter and its transitive zls tree, including release builds that never
+selected `lint`. Two v1.10.2 release attempts died on those unused fetches.
+
+The lint rules now live in `build-lint.zig`; `build.zig` delegates its public
+`zig build lint` step to that sub-build, and `build.zig.zon` marks zlinter lazy.
+Normal and release builds therefore never configure or fetch the linter, while
+the command and strict `--max-warnings 0` contract stay unchanged. The gate
+probes the delegated linter help, not main-build help, so an unavailable lint
+dependency still produces the intended skip.
+
+`scripts/check_release_deps.sh` configures the default build against an empty
+`--system` package directory and fresh local/global caches. Any future eager
+development dependency fails that check before a release can discover it.
+
+Affected files: `build.zig`, `build-lint.zig`, `build.zig.zon`,
+`scripts/check_release_deps.sh`, `test/run_all.sh`, `test/units.list`, and
+`legal/THIRD_PARTY.md`.
+
 ## Revision history
 
+- 2026-09-03: Moved zlinter behind a lazy lint-only sub-build; added cold,
+  fetching-disabled regression check.
 - 2026-05-03: Status: Proposed -> Accepted (initial landing, retroactive history added 2026-05-23)

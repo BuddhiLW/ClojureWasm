@@ -382,10 +382,11 @@ run_step "zig_fmt_check"        "zig fmt --check src/"
 # Linux never ran the linter at all. A deprecated-stdlib call could then ride
 # a green Linux gate all the way to the macOS leg, which is exactly how
 # `std.mem.indexOfPos` reached CI: Linux green, macOS red, on one commit.
-# The dep resolves offline once it is in the global zig cache, so `zig fetch`
-# is the honest probe: it succeeds from cache OR from network.
-if zig build lint -Dwasm --help >/dev/null 2>&1; then
-    run_step "zlinter"          "zig build lint -Dwasm -- --max-warnings 0"
+# The dep resolves offline once it is in the global Zig cache. Probe the
+# delegated lint build itself: main-build `--help` intentionally never resolves
+# zlinter now, while forwarded linter `--help` stops after proving availability.
+if zig build lint -- --help >/dev/null 2>&1; then
+    run_step "zlinter"          "zig build lint -- --max-warnings 0"
 else
     echo "run_all: SKIP zlinter — the zlinter dependency could not be resolved (no cache, no network)"
 fi
@@ -448,6 +449,10 @@ run_step "portable_timeout"      "bash scripts/check_portable_timeout.sh"
 # The local full gate and CI's must be the SAME run. ci_gate.sh claimed they
 # were; nothing checked, and they were not (parallel vs serial e2e).
 run_step "gate_parity"          "bash scripts/check_gate_parity.sh"
+# A release/default build must configure with package fetching disabled. This
+# pins zlinter as a lint-only lazy dependency instead of making every release
+# resolve its transitive zls dependency tree (CLJW-RELEASE-FETCH).
+run_step "release_deps"         "bash scripts/check_release_deps.sh"
 
 # clj-diff corpus regression (cljw-only replay of golden `;;=> …` pairs —
 # no clj/network). Makes a "X/Y landed" discharge claim mechanically
