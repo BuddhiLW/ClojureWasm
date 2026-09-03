@@ -2890,14 +2890,34 @@ standing:
       Dec B, gc_rooting.md §H.
     last_reviewed: "2026-06-07"
   - id: "D-350"
-    status: "open — structural (Phase 16 / D-036 territory). The finished-form-clean wasm embedding (DA alternative-b, F-002) is a UNIFIED `(wasm/load path {:wasi {…}})` returning a handle, with `wasm/run`/`wasm/call` as operations on it — one 'embed a wasm module' concept, WASI config as the definition-derived closed set, reusable persistent WASI instances. The current one-shot `wasm/run` (compile+instantiate+run+teardown per call) is the smallest honest shape that captures output today. The unified form is gated on a zwasm API addition (instantiate-with-WASI separated from run-entry on the public Engine/Instance surface). Recorded + deferred to the Phase-16 owner per F-003. Surfaced 2026-06-09 (ADR-0124)."
+    status: "RE-BARRIERED 2026-09-01 — the upstream half of the barrier is DISSOLVED, and the row is now a cljw-side design decision rather than a wait (see barrier). Also note the body below predates `wasm/load`/`wasm/call`: those ship, so 'the current one-shot wasm/run' understates what exists. Structural (gap area II / D-036 territory). The finished-form-clean wasm embedding (DA alternative-b, F-002) is a UNIFIED `(wasm/load path {:wasi {…}})` returning a handle, with `wasm/run`/`wasm/call` as operations on it — one 'embed a wasm module' concept, WASI config as the definition-derived closed set, reusable persistent WASI instances. The current one-shot `wasm/run` (compile+instantiate+run+teardown per call) is the smallest honest shape that captures output today. The unified form is gated on a zwasm API addition (instantiate-with-WASI separated from run-entry on the public Engine/Instance surface). Recorded + deferred to the Phase-16 owner per F-003. Surfaced 2026-06-09 (ADR-0124)."
     category: "structural"
     barrier: |-
-      blocked-by: Phase 16 wasm-component/instance-lifetime design (D-036) +
-      zwasm exposing persistent instantiate-with-WASI vs run-entry separately.
-      Imagined-and-deferred per F-003; do not seize in a demo-hardening cycle.
-      Cross-ref ADR-0124 Alternatives considered (b).
-    last_reviewed: "2026-06-09"
+      NO LONGER blocked-by zwasm. Measured 2026-09-01 against the v2.5.0 pin
+      (the FINAL pin — zwasm moved to its own org and froze, so this answer
+      cannot change upstream). The clause this row waited on — "zwasm exposing
+      persistent instantiate-with-WASI vs run-entry separately" — is satisfied:
+      `src/api/component.zig` exports
+      `open(engine, alloc, bytes, host: *wasi_host.Host, opts: InstantiateOpts)
+      -> Opened`, i.e. instantiate WITH a WASI host, returning a live handle,
+      with `runWasiP2Main` / `runWasiP3Main` as the separate run-entry forms.
+      cljw ALREADY calls it: `src/runtime/cljw/wasm/component.zig:148`
+      `openComponent(rt, engine, host: *WasiHost, bytes, loc) -> comp.Opened`.
+      What is left is entirely cljw-side: the CORE-MODULE path reaches WASI only
+      through the one-shot `zwasm.cli.run.runWasmCapturedFull`
+      (`engine.zig:166`), while `Module.InstantiateOpts` carries no wasi field
+      (fuel / max_memory_pages / max_table_elements / engine only). So cljw has
+      two embedding shapes — component (persistent + WASI) and core module
+      (persistent, WASI only at run-entry) — and D-350's unified
+      `(wasm/load path {:wasi {…}})` is the decision to collapse them.
+      Because the upstream is frozen, this is now a DECISION row, not a wait:
+      either build WASI-on-instantiate for the core path over zwasm's own
+      primitives, or accept the component/core split as the finished form and
+      record it as an accepted divergence. It must not sit as "deferred,
+      waiting" — nothing upstream will arrive to resolve it.
+      Cross-ref ADR-0124 Alternatives considered (b); F-003 imagined-and-
+      deferred still governs HOW, not WHETHER.
+    last_reviewed: "2026-09-01"
   - id: "D-354"
     status: "open — crash isolation is IMPOSSIBLE in-process (isolation dim (d)). A Zig panic / UAF in cljw takes the whole process down, so a single-binary playground evaluating untrusted code cannot contain a runtime crash. Only a PROCESS boundary (subprocess) or a WASM boundary (cljw-as-wasm-guest in zwasm) gives true crash isolation. This is the structural argument for keeping a subprocess shell (or the eventual cljw-as-wasm endgame) even after D-351/D-352/D-353 land. cljw also has NO process-spawn API, so 'make the supervisor a cljw program' is itself blocked. Surfaced 2026-06-09 (isolation scope study)."
     category: "isolation"
