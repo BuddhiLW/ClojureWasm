@@ -44,6 +44,8 @@ A **two-tier gate split on the unit-vs-e2e axis**:
    - `zlinter` (Mac, catches deprecated-API rot),
    - `build_cljw` (a broken release build must never batch),
    - `corpus_regression` (cljw-only clj-parity replay, no network, fast),
+   - near-zero static invariants selected by measured cost, not category:
+     `doc_coverage`, `epipe_head`, and `gate_parity`,
    - PLUS the changed/new e2e step(s) for the unit at hand (passed to `--smoke`).
    On full success it stamps `.dev/.smoke_pass` with the
    `scripts/gate_state_hash.sh` content fingerprint.
@@ -166,6 +168,8 @@ background machinery. Adopted.
   (every ≤5 smoke commits + Phase/tag boundaries).
 - New: `run_all.sh --smoke` + `.dev/.smoke_pass`; `check_gate_cadence.sh` accepts
   smoke authorization + a smoke-batch ceiling. No async/concurrency machinery.
+- Cheap static regressions fail in the per-commit smoke instead of consuming a
+  full CI cycle before discovery.
 
 ## Affected files
 
@@ -188,6 +192,16 @@ the autonomous loop**. Surfaced to the user. The scripts + this ADR carry the
 enforceable policy in the meantime.
 
 ## Revision history
+
+### 2026-09-03 — Near-zero static invariants move into smoke
+
+The smoke split is by **measured cost**, never test category. Re-measured the
+`via-gate` candidates through `test/run_all.sh --only`: `doc_coverage` 2 s,
+`epipe_head` 2 s, `gate_parity` 0 s, `e2e_reach` 10 s, and
+`portable_timeout` 13 s (step time, excluding runner setup). Added the three
+0–2 s static invariants to `SMOKE_CORE`; `e2e_reach` was already present for
+orphan prevention, and `portable_timeout` remains full-only at its current
+cost.
 
 ### 2026-07-21 — CI runs the full gate on push-to-main (not just nightly)
 

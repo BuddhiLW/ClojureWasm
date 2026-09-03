@@ -55,7 +55,10 @@ SMOKE_E2E=""
 # unregistered on 2026-08-05 (the full gate caught it, one push too late) —
 # a green smoke should not be able to say "the tests pass" about a test that
 # is not wired in.
-SMOKE_CORE="zig_fmt_check,zig_build_test_vm,zig_build_test_tree_walk,zlinter,build_cljw,lazy_ns_replay,corpus_regression,test_clj_suites,test_reach,e2e_reach,entrypoint_surface,repr_decode"
+# Static invariants belong here by COST, not category. Measured via --only on
+# 2026-09-03: doc_coverage 2s, epipe_head 2s, gate_parity 0s. portable_timeout
+# remains full-only at 13s; e2e_reach was already present and measured 10s.
+SMOKE_CORE="zig_fmt_check,zig_build_test_vm,zig_build_test_tree_walk,zlinter,build_cljw,lazy_ns_replay,corpus_regression,test_clj_suites,test_reach,e2e_reach,entrypoint_surface,repr_decode,doc_coverage,epipe_head,gate_parity"
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
