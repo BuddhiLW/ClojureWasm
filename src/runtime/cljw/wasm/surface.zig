@@ -30,9 +30,13 @@ const keyword_mod = @import("../../keyword.zig");
 const file_io = @import("../../file_io.zig");
 
 /// `(wasm/load "path.wasm")` / `(wasm/load "path.wasm" {:fuel N :max-memory-pages M
-/// :engine :jit})` — read the file, compile + instantiate it via zwasm v2, and
-/// return an opaque instance handle. F-006: the engine is given `rt.gpa` (the
-/// layer-1 backing allocator), keeping zwasm's space separate from the cljw GC heap.
+/// :engine :jit})` — read the file, compile + instantiate a non-WASI library
+/// module via zwasm v2, and return an opaque, re-invokable instance handle.
+/// WASI command modules use the deliberately one-shot `wasm/run` surface;
+/// `:wasi` is rejected here so the command/handle lifecycle split is explicit
+/// rather than a silently ignored option (ADR-0124 / D-350). F-006: the engine
+/// is given `rt.gpa` (the layer-1 backing allocator), keeping zwasm's space
+/// separate from the cljw GC heap.
 /// With no opts the module runs under zwasm's FINITE default budget (fuel 1e9 /
 /// 256 MiB) so an untrusted module is bounded out of the box (SE-1 / ZE-1); an opts
 /// map overrides either budget axis (`:fuel` / `:max-memory-pages`), where `0` or a
@@ -74,6 +78,9 @@ fn parseLoadOpts(rt: *Runtime, m: Value, loc: SourceLocation) anyerror!engine.Lo
     const tag = m.tag();
     if (tag != .array_map and tag != .hash_map)
         return error_catalog.raise(.wasm_opts_invalid, loc, .{ .detail = "the options argument must be a map" });
+    const wasi_kw = try keyword_mod.intern(rt, null, "wasi");
+    if (try map_mod.contains(m, wasi_kw))
+        return error_catalog.raise(.wasm_opts_invalid, loc, .{ .detail = "the :wasi option is not supported on persistent handles; use wasm/run for WASI commands or a Wasm component for reusable WASI state" });
     var opts: engine.LoadOpts = .{};
     if (try axisFromMap(rt, m, "fuel", loc)) |b| opts.fuel = b;
     if (try axisFromMap(rt, m, "max-memory-pages", loc)) |b| opts.max_memory_pages = b;

@@ -1,6 +1,7 @@
 # ADR-0124 — `(wasm/run …)`: run a WASI command module from Clojure
 
-- **Status**: Proposed → Accepted (2026-06-09)
+- **Status**: Proposed → Accepted (2026-06-09) → Amended (2026-09-03,
+  D-350 command/handle split accepted as finished form)
 - **Adds**: a third var to the `wasm` ns — `(wasm/run "path.wasm" opts)` — that
   runs a WASI command module (Rust / Go / … compiled to `wasm32-wasip1`),
   capturing stdout / stderr / exit. Complements `wasm/load` + `wasm/call`
@@ -9,9 +10,8 @@
   `runWasmCapturedFull` (the old `runWasmCapturedOpts` became a back-compat
   shim) + a `capture_alloc` field on the WASI `Host` so capture buffers grow
   with the caller's allocator.
-- **Schedules**: D-347 (budgets through the C-API WASI run path), D-348 (`:env`),
-  D-349 (unbounded capture buffer), D-350 (unified `wasm/load`+handle finished
-  form — DA alternative-b, deferred to Phase 16 per F-003).
+- **Resolved follow-ups**: D-347 (budgets), D-348 (`:env`), D-349 (bounded
+  capture), and D-350 (the command/handle split is the finished form).
 - **Composes with**: F-009 (surface in `runtime/cljw/wasm/`, impl-thin),
   F-013 (preopens surfaced as the full `:dir`/`:dirs` class, not one-mount),
   ADR-0123 (FS-jail confines the module path AND every preopen `:dir`).
@@ -58,6 +58,30 @@ returning an array-map `{:out <stdout-string> :err <stderr-string> :exit <int>}`
   capture buffers + optional stdin. The captured bytes are copied into GC
   strings for the result map.
 
+### D-350 resolution: two lifecycles, two explicit surfaces (2026-09-03)
+
+The split above is the finished form, not an interim API:
+
+- `wasm/load` + `wasm/call` is a persistent, re-invokable **library-instance**
+  lifecycle. `wasm/load` rejects a present `:wasi` key, including `nil`, instead
+  of silently implying support.
+- `wasm/run` is a single-shot, captured **command** lifecycle: start the guest,
+  collect stdout/stderr/exit, then tear the instance down.
+- Reusable WASI state belongs to the component path, whose open handle already
+  owns a persistent WASI host and instance.
+
+This was decided against the final zwasm v2.5.0 pin, not against the older API
+assumption recorded in alternative (b). The public core-module `Linker` now has
+`defineWasi` and `instantiate`, so persistent WASI imports are possible, but its
+public `WasiConfig` exposes args/env/preopens only. Captured stdin/stdout/stderr
+and exit remain explicitly facade-unwired. Unifying the surfaces would therefore
+either discard `wasm/run`'s result contract or make cljw depend on zwasm's private
+WASI `Host` state, violating the thin/stable dependency boundary (F-009).
+
+The related D-039 responsibility choice follows directly: cljw's Tier-1
+`io_interface` remains cljw-internal I/O; zwasm's WASI host remains isolated in
+the Wasm integration layer. Neither implements the other.
+
 ### The zwasm extension (capture_alloc)
 
 The WASI host's `fd_write` appends guest stdout/stderr to a caller-supplied
@@ -78,10 +102,9 @@ preopen/diagnostic sequence and reach across the F-009 boundary).
   (the substrate for a sqlite-via-wasm store).
 - `wasm/call` is unchanged (and its no-leak guard still passes — the
   capture_alloc change does not touch the FFI path).
-- Known bounds, all tracked: wasm/run is currently **unmetered** (D-347 —
-  budgets are not threaded through the C-API run path; the playground bounds it
-  with an OS sandbox), buffers the whole output (D-349), and omits `:env`
-  (D-348). The unified-handle finished form is recorded as D-350 (Phase 16).
+- The formerly tracked command gaps are closed: `wasm/run` accepts fuel,
+  memory, output, and wall-time budgets plus `:env`; D-347/D-348/D-349 are
+  discharged. D-350 is discharged by the explicit lifecycle split above.
 
 ## Alternatives considered
 
@@ -106,9 +129,10 @@ panics) becomes uncapturable, and throw-on-nonzero is wrong for a process
 runner (exit codes are data — `grep` exits 1 normally). Rejected on F-002
 (different/worse finished form), not on diff size.
 
-### (b) Finished-form-clean — unified `wasm/load` with `:wasi {…}`, return a handle
+### (b) Historical leading candidate — unified `wasm/load` with `:wasi {…}`
 
-One "embed a module" concept: `(wasm/load path {:wasi {:args :env :dirs :stdin}})`
+At the 2026-06-09 decision point, one "embed a module" concept was proposed:
+`(wasm/load path {:wasi {:args :env :dirs :stdin}})`
 → handle; `wasm/run`/`wasm/call` are operations on it; reusable persistent WASI
 instances; `:env`/`:dirs` fall out of the config map (F-013 structural). This is
 the cleaner *eventual* finished form (F-002), and is **not** downgraded on
@@ -118,7 +142,9 @@ separately from run-entry on the public Engine/Instance surface. Per **F-003**
 (structural-plan deferral) this cw↔zwasm instance-lifetime split is recorded as
 **D-350** and deferred to the Phase-16 owner (D-036 territory) rather than
 seized in a demo-hardening cycle — so the clean form is named and owned, not
-lost, while the live demo is not blocked on a zwasm rewrite.
+lost, while the live demo is not blocked on a zwasm rewrite. The D-350
+2026-09-03 amendment above supersedes this candidate after inspection of the
+final zwasm v2.5.0 facade and the two distinct lifecycles.
 
 ### (c) Wildcard — streaming process handle (deref for exit, lazy out/err)
 
@@ -135,4 +161,13 @@ its one real insight (unbounded buffer) is tracked, not built.
 finished-form-clean — kept. (v) `:dir`→`:dirs` and (iii)-env were smallest-diff
 seams: `:dirs` fixed in-cycle, `:env` tracked (D-348). (iii)-budgets is a real
 `wasm/load`-bounded-vs-`wasm/run`-unbounded asymmetry → D-347 + a zwasm
-feed-back. (i) unified-handle is the true finished form → D-350 (Phase 16).
+feed-back. The 2026-09-03 D-350 amendment supersedes verdict (i): the explicit
+command/handle split is the finished form.
+
+## Revision history
+
+- 2026-06-09: Status: Proposed → Accepted; introduced the one-shot captured
+  WASI command surface.
+- 2026-09-03: Status: Accepted → Amended; discharged D-350 by accepting and
+  mechanically enforcing the command/handle lifecycle split, and discharged
+  the resulting D-039 I/O responsibility decision.

@@ -130,8 +130,10 @@ not (they stayed interp-pinned on the zwasm side, D-500). The record:
    CODEV / F-002). Components stay interp-pinned on the zwasm side (D-500), so the north-star
    "components through the JIT" awaits zwasm's component-on-JIT (Win64 wrapper-thunk gap).
 
-D-036 is the master integration row; D-350 the embedding-API shape; D-488 (DISCHARGED)
-was the `.auto`-default flip; this ledger tracks adoption status per capability.
+D-036 is the remaining JIT-coordination master row; D-350's embedding-API shape is
+DISCHARGED by ADR-0124's explicit command/handle lifecycle split; D-488
+(DISCHARGED) was the `.auto`-default flip. This ledger tracks adoption status per
+capability.
 
 ## Known zwasm blockers on cljw features (read before promising a capability)
 

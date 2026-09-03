@@ -1859,17 +1859,11 @@ standing:
       `vm.installVTable` currently reuses `tree_walk.treeWalkCall` + `valueTypeKey` + `callFunction` (4.8 design — single seam is the `evalChunk` vtable hook). Phase 17 adds a 3rd backend (JIT per ADR-0005); 3-backend reuse of TreeWalk's `callFunction` skews the dependency graph. Extract a backend-shared "callable dispatch" layer (likely `src/runtime/dispatch/callable.zig`) at Phase 17 entry before adding the JIT vtable. Owner picks exact extraction shape **within F-NNN envelope** (= F-004 type set + F-005 numeric tower dispatch + F-006 GC root through callable dispatch must work unchanged through the new layer). | gap area III — before the JIT vtable lands (was 'Phase 17 entry'; §9.0/ADR-0142)
     last_reviewed: "2026-05-23"
   - id: "D-036"
-    status: "gap area II — Wasm/edge-native (§9.18): zwasm v2 integration master row. Direction confirmed (F-001/004/006/008); zwasm is SHA-pinned + interp-embedded (done). Remaining: the finished-form embedding shape (D-350) + JIT-coordination (D-035). (Was 'Phase 16 entry'; ADR-0142.)"
+    status: "gap area II — Wasm/edge-native (§9.18): zwasm v2 integration master row. Direction confirmed (F-001/004/006/008); zwasm v2.5.0 is pinned + embedded and the finished-form embedding shape is settled (D-350 discharged). Remaining: JIT coordination (D-035). (Was 'Phase 16 entry'; ADR-0142.)"
     category: "scope"
     barrier: |-
-      wasm FFI confirmed **unavoidable**. **Direction confirmed (F-001 + F-004 + F-006 + F-008)**: F-004 day-1 reserves NaN-box `funcref` / `externref` inline slots in Group D for zwasm-v2 reference types. F-006 keeps cw heap and Wasm linear memory in **separate spaces**; zwasm internal bookkeeping accepts cw GC allocator via `Engine.init(allocator)` (cw v0 D110 dual-GC leak does not recur). F-008 pins zwasm v2 spec (ADR-0109) review + cw v1 stances. JIT-coordination with the gap-area-III JIT (D-035) lands with the gap-area-II embedding unit. | gap area II unit start + zwasm v2 rewrite (ADR-0109) completion — the latter is DONE (v2.1.0 pinned)
-    last_reviewed: "2026-05-24"
-  - id: "D-039"
-    status: "gap area II — Wasm/edge-native (§9.18): cw io_interface (Tier 1) vs zwasm WASI responsibility split. Future — decided when the unified wasm embedding (D-350) lands. (Was 'Phase 16 entry'; ADR-0142.)"
-    category: "structure"
-    barrier: |-
-      cw v1 `io_interface.zig` (Tier 1) と zwasm v2 WASI (`linker.defineWasi(cfg)`) の責務分離。 (a) 別 layer に分離 default (cw io_interface は cw v1 内部 I/O 抽象、 WASI は wasm 統合用に独立)、 vs (b) cw `io_default.zig` (Tier 2) の実装を WASI 経由にする option。 The gap-area-II unit owner decides against `structure_plan.md`'s `runtime/wasm/` + `runtime/io_default.zig` placement. | gap area II unit start (was 'Phase 16 entry'; §9.0/ADR-0142)
-    last_reviewed: "2026-05-24"
+      wasm FFI confirmed **unavoidable**. **Direction confirmed (F-001 + F-004 + F-006 + F-008)**: F-004 day-1 reserves NaN-box `funcref` / `externref` inline slots in Group D for zwasm-v2 reference types. F-006 keeps cw heap and Wasm linear memory in **separate spaces**; zwasm internal bookkeeping accepts cw GC allocator via `Engine.init(allocator)` (cw v0 D110 dual-GC leak does not recur). F-008 pins zwasm v2 spec (ADR-0109) review + cw v1 stances. D-350 settled the embedding lifecycle and D-039 settled the I/O responsibility split in ADR-0124. JIT coordination with the gap-area-III JIT (D-035) is the remaining trigger. | when the narrow cljw JIT begins; zwasm v2.5.0 integration itself is DONE
+    last_reviewed: "2026-09-03"
   - id: "D-210"
     status: "STANDING FLOOR (quality-loop floor: clj-parity) — the clj-parity root-cause campaign C1..C7 is **COMPLETE 2026-06-03** (ROADMAP §9.2.P, ADR-0076, user-directed 2026-06-02): C1 (D-164) + C2 (D-205) + C3 (D-207) + C4 (D-209) + C6 (D-200) + C5 (D-198) + **C7 (D-165, ADR-0080) DISCHARGED**. The anchor now persists ONLY as the standing `quality-loop floor: clj-parity` that drains any NEW cljw↔clj DIFF a future sweep surfaces (drain highest-value-first, per CLAUDE.md Step 0.5 floor-drain). No remaining campaign units. C7 spun off **D-214** (bit-ops on heap-Long, pre-existing i48-only gap)."
     category: "runtime"
@@ -2889,35 +2883,6 @@ standing:
       the host_instance state[] GC-ROOT comment). Cross-ref ADR-0106, ADR-0114
       Dec B, gc_rooting.md §H.
     last_reviewed: "2026-06-07"
-  - id: "D-350"
-    status: "RE-BARRIERED 2026-09-01 — the upstream half of the barrier is DISSOLVED, and the row is now a cljw-side design decision rather than a wait (see barrier). Also note the body below predates `wasm/load`/`wasm/call`: those ship, so 'the current one-shot wasm/run' understates what exists. Structural (gap area II / D-036 territory). The finished-form-clean wasm embedding (DA alternative-b, F-002) is a UNIFIED `(wasm/load path {:wasi {…}})` returning a handle, with `wasm/run`/`wasm/call` as operations on it — one 'embed a wasm module' concept, WASI config as the definition-derived closed set, reusable persistent WASI instances. The current one-shot `wasm/run` (compile+instantiate+run+teardown per call) is the smallest honest shape that captures output today. The unified form is gated on a zwasm API addition (instantiate-with-WASI separated from run-entry on the public Engine/Instance surface). Recorded + deferred to the Phase-16 owner per F-003. Surfaced 2026-06-09 (ADR-0124)."
-    category: "structural"
-    barrier: |-
-      NO LONGER blocked-by zwasm. Measured 2026-09-01 against the v2.5.0 pin
-      (the FINAL pin — zwasm moved to its own org and froze, so this answer
-      cannot change upstream). The clause this row waited on — "zwasm exposing
-      persistent instantiate-with-WASI vs run-entry separately" — is satisfied:
-      `src/api/component.zig` exports
-      `open(engine, alloc, bytes, host: *wasi_host.Host, opts: InstantiateOpts)
-      -> Opened`, i.e. instantiate WITH a WASI host, returning a live handle,
-      with `runWasiP2Main` / `runWasiP3Main` as the separate run-entry forms.
-      cljw ALREADY calls it: `src/runtime/cljw/wasm/component.zig:148`
-      `openComponent(rt, engine, host: *WasiHost, bytes, loc) -> comp.Opened`.
-      What is left is entirely cljw-side: the CORE-MODULE path reaches WASI only
-      through the one-shot `zwasm.cli.run.runWasmCapturedFull`
-      (`engine.zig:166`), while `Module.InstantiateOpts` carries no wasi field
-      (fuel / max_memory_pages / max_table_elements / engine only). So cljw has
-      two embedding shapes — component (persistent + WASI) and core module
-      (persistent, WASI only at run-entry) — and D-350's unified
-      `(wasm/load path {:wasi {…}})` is the decision to collapse them.
-      Because the upstream is frozen, this is now a DECISION row, not a wait:
-      either build WASI-on-instantiate for the core path over zwasm's own
-      primitives, or accept the component/core split as the finished form and
-      record it as an accepted divergence. It must not sit as "deferred,
-      waiting" — nothing upstream will arrive to resolve it.
-      Cross-ref ADR-0124 Alternatives considered (b); F-003 imagined-and-
-      deferred still governs HOW, not WHETHER.
-    last_reviewed: "2026-09-01"
   - id: "D-354"
     status: "open — crash isolation is IMPOSSIBLE in-process (isolation dim (d)). A Zig panic / UAF in cljw takes the whole process down, so a single-binary playground evaluating untrusted code cannot contain a runtime crash. Only a PROCESS boundary (subprocess) or a WASM boundary (cljw-as-wasm-guest in zwasm) gives true crash isolation. This is the structural argument for keeping a subprocess shell (or the eventual cljw-as-wasm endgame) even after D-351/D-352/D-353 land. cljw also has NO process-spawn API, so 'make the supervisor a cljw program' is itself blocked. Surfaced 2026-06-09 (isolation scope study)."
     category: "isolation"
@@ -2997,6 +2962,29 @@ standing:
       fail on B, C and D, which are all correct as written.
     last_reviewed: "2026-08-20"
 discharged:
+  - id: "D-350"
+    discharged_at: "ADR-0124 amendment (2026-09-03)"
+    resolution: |-
+      The explicit lifecycle split is the finished form. `wasm/load` +
+      `wasm/call` owns persistent, re-invokable core-library instances;
+      `wasm/run` owns single-shot WASI commands with captured stdout, stderr,
+      and exit; the component path owns persistent reusable WASI state.
+      Measured against the final zwasm v2.5.0 facade: public `Linker.defineWasi`
+      + `instantiate` can build a persistent WASI core instance, but public
+      `WasiConfig` exposes only args/env/preopens. Captured stdio and exit are
+      explicitly facade-unwired. A unified `wasm/load {:wasi ...}` would lose
+      the command result contract or reach through zwasm's private WASI Host,
+      violating F-009. `wasm/load` now rejects any present `:wasi` option so the
+      split cannot be mistaken for silently incomplete support; the phase16
+      Wasm FFI catchability fixture pins the rejection and exception class.
+  - id: "D-039"
+    discharged_at: "ADR-0124 amendment / D-350 (2026-09-03)"
+    resolution: |-
+      Keep the responsibilities separate. cw Tier-1 `io_interface` remains the
+      runtime's internal I/O abstraction; zwasm's WASI host remains isolated in
+      `runtime/cljw/wasm`. Neither becomes the implementation of the other.
+      This follows the accepted command/handle lifecycle split and avoids
+      coupling general cw I/O to an opt-in Wasm dependency (F-001/F-009).
   - id: "D-583"
     status: "DISCHARGED 2026-08-21 (O-059) — `.sub_vector` (slot 59, F-004 amend) SubVector VIEW landed: `runtime/collection/sub_vector.zig` {start,end,parent,meta} with JVM APersistentVector$SubVector semantics (flatten-on-nest, never-empty→EMPTY, write ops via parent.assocN stay SubVectors). `clojure.core/subvec` fast-paths vectors through `cljw.internal/__subvec`; `vector.subvec` renamed `copyRange` (LBQ compaction still needs a materializing copy). ~30 consumer sites carry `.sub_vector` arms (interface_membership 16 arrays skip EDITABLE/IREDUCEINIT per JVM ground truth; count/nth/conj/assoc/pop/seq/rseq/first/rest/next/empty/print/equal+hash/compare/meta/with-meta/lookup-IFn/reduce/walk/json/serialize/lazy-realize/class-name=SubVector). MEASURED ReleaseSafe: 2000 subvec ops @ n=16000 **9215 → 0.77 ms (~11967x)**, now at clj parity (1.06 ms). 52-assertion e2e `subvec_view.sh` + corpus `subvec.txt` (31 exprs) green vs clj; F-012 diff oracle green. Was: open USER-GATED, design at private/notes/subvec-seqview-design.md."
     category: "perf"
