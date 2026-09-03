@@ -22,7 +22,7 @@
 //!   `Character`, `Keyword`, `Symbol`, `PersistentList`,
 //!   `PersistentVector`, `MapEntry`, `PersistentArrayMap`,
 //!   `PersistentHashMap`, `PersistentHashSet`, `PersistentQueue`,
-//!   `Pattern`, `UUID`, `BigInt`, `Ratio`, `BigDecimal`).
+//!   `LazySeq`, `Cons`, `Pattern`, `UUID`, `BigInt`, `Ratio`, `BigDecimal`).
 //! - **Interface-shaped classes** (multi-tag match): `IFn`, `Number`,
 //!   `IPersistentMap`, `IPersistentSet`, `IPersistentCollection`.
 //! - **Throwable hierarchy**: delegates to `host_class.matches`
@@ -83,6 +83,11 @@ const NATIVE_ENTRIES = [_]NativeEntry{
     .{ .name = "PersistentArrayMap", .tag = .array_map },
     .{ .name = "PersistentHashMap", .tag = .hash_map },
     .{ .name = "PersistentHashSet", .tag = .hash_set },
+    // ADR-0194: these are real cljw value classes, not display-only labels.
+    // Making the name↔tag relation exact lets tools.reader dispatch on the
+    // clojure.lang interface spelling and makes instance? JVM-faithful.
+    .{ .name = "LazySeq", .tag = .lazy_seq },
+    .{ .name = "Cons", .tag = .cons },
     // ADR-0109: clj-faithful class names for sorted colls + Var (were raw
     // @tagName "sorted_map"/"sorted_set"/"var_ref" — fqcnForTag gap). Each maps
     // 1:1 to a clj class, so `(class (sorted-map …))` → "PersistentTreeMap" etc.
@@ -143,6 +148,8 @@ const FQCN_MAP = std.StaticStringMap([]const u8).initComptime(.{
     .{ "clojure.lang.PersistentArrayMap", "PersistentArrayMap" },
     .{ "clojure.lang.PersistentHashMap", "PersistentHashMap" },
     .{ "clojure.lang.PersistentHashSet", "PersistentHashSet" },
+    .{ "clojure.lang.LazySeq", "LazySeq" },
+    .{ "clojure.lang.Cons", "Cons" },
     .{ "clojure.lang.PersistentTreeMap", "PersistentTreeMap" },
     .{ "clojure.lang.PersistentTreeSet", "PersistentTreeSet" },
     .{ "clojure.lang.Var", "Var" },
@@ -241,8 +248,6 @@ pub fn displayClassName(tag: Tag) ?[]const u8 {
         // `.multi_fn` is NOT here: it is a NATIVE_ENTRIES exact-tag class
         // ("MultiFn"), resolved by `fqcnForTag` before this fallback, so a
         // multimethod is an `instance?` target (see NATIVE_ENTRIES).
-        .lazy_seq => "LazySeq",
-        .cons => "Cons",
         .chunked_cons => "ChunkedSeq",
         .range => "LongRange",
         .string_seq => "StringSeq",
@@ -614,4 +619,15 @@ test "MultiFn is an exact-tag native class (blocker 4: instance? clojure.lang.Mu
     try testing.expect(isCallableClassName("MultiFn"));
     // `Fn` remains ambiguous (3 tags share it) and stays a NON-instance? name.
     try testing.expectEqual(@as(?Tag, null), nativeTagFor("Fn"));
+}
+
+test "LazySeq and Cons are exact-tag native classes (ADR-0194)" {
+    try testing.expectEqual(@as(?Tag, .lazy_seq), nativeTagFor("LazySeq"));
+    try testing.expectEqual(@as(?Tag, .lazy_seq), nativeTagFor("clojure.lang.LazySeq"));
+    try testing.expectEqualStrings("LazySeq", fqcnForTag(.lazy_seq).?);
+    try testing.expectEqual(@as(?Tag, .cons), nativeTagFor("Cons"));
+    try testing.expectEqual(@as(?Tag, .cons), nativeTagFor("clojure.lang.Cons"));
+    try testing.expectEqualStrings("Cons", fqcnForTag(.cons).?);
+    try testing.expect(isKnown("clojure.lang.LazySeq"));
+    try testing.expect(isKnown("clojure.lang.Cons"));
 }

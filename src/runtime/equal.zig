@@ -230,7 +230,7 @@ const Cursor = union(enum) {
                 return null;
             },
             .lst => |*node| {
-                if (node.tag() != .list or list.countOf(node.*) == 0) return null;
+                if ((node.tag() != .list and node.tag() != .cons) or list.countOf(node.*) == 0) return null;
                 const e = list.first(node.*);
                 node.* = list.rest(node.*);
                 return e;
@@ -991,7 +991,7 @@ const SeqKeyCursor = struct {
                 return null;
             },
             .lst => |*node| {
-                if (node.tag() != .list) {
+                if (node.tag() != .list and node.tag() != .cons) {
                     if (!node.isNil()) self.truncated = true;
                     return null;
                 }

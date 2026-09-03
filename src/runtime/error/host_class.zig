@@ -189,6 +189,11 @@ pub fn isKnownException(class_name: []const u8) bool {
 /// subtypes still matches through its `host_supertypes` (java.util.ArrayList
 /// declares java.util.AbstractList), so membership stays JVM-faithful.
 ///
+/// The three `$` seq classes are JVM implementation classes; cljw's seq views
+/// use different native tags, so no cljw value has one of those exact types.
+/// Keep their full dotted names: splitting on the last `.` preserves the `$`
+/// suffix and cannot derive a usable simple class name (ADR-0194).
+///
 /// `LineNumberingPushbackReader` is a JVM reader type; cljw's readers are not
 /// instances of it, so `instance?` is uniformly false and an `extend` on it
 /// registers a branch nothing dispatches to. Listed under the bare name too,
@@ -207,6 +212,9 @@ const OPAQUE_CLASSES = std.StaticStringMap(void).initComptime(.{
     .{"java.util.Vector"},
     .{"LineNumberingPushbackReader"},
     .{"clojure.lang.LineNumberingPushbackReader"},
+    .{"clojure.lang.PersistentVector$ChunkedSeq"},
+    .{"clojure.lang.PersistentArrayMap$Seq"},
+    .{"clojure.lang.PersistentHashMap$NodeSeq"},
 });
 
 /// True iff `class_name` is a recognised OPAQUE host class (ADR-0109). Such a
@@ -214,6 +222,14 @@ const OPAQUE_CLASSES = std.StaticStringMap(void).initComptime(.{
 /// `instance?` is uniformly false and `extend-type` on it is a load-only no-op.
 pub fn isKnownOpaqueClass(class_name: []const u8) bool {
     return OPAQUE_CLASSES.has(class_name);
+}
+
+test "JVM inner seq implementation classes are opaque (ADR-0194)" {
+    try std.testing.expect(isKnownOpaqueClass("clojure.lang.PersistentVector$ChunkedSeq"));
+    try std.testing.expect(isKnownOpaqueClass("clojure.lang.PersistentArrayMap$Seq"));
+    try std.testing.expect(isKnownOpaqueClass("clojure.lang.PersistentHashMap$NodeSeq"));
+    try std.testing.expect(!isKnownOpaqueClass("clojure.lang.LazySeq"));
+    try std.testing.expect(!isKnownOpaqueClass("clojure.lang.Cons"));
 }
 
 /// True iff `class_name` is `java.lang.Object` — the UNIVERSAL supertype

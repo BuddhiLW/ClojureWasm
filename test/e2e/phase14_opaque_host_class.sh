@@ -33,6 +33,12 @@ assert_eq 'bigint_ne_bigintgr' "$(last_line "$("$BIN" -e '(= (type (bigint 5)) j
 assert_eq 'inst_integer_false'  "$(last_line "$("$BIN" -e '(instance? Integer 5)' 2>&1)")" 'false'
 assert_eq 'inst_bigintgr_false' "$(last_line "$("$BIN" -e '(instance? java.math.BigInteger (bigint 5))' 2>&1)")" 'false'
 assert_eq 'inst_short_false'    "$(last_line "$("$BIN" -e '(instance? Short 5)' 2>&1)")" 'false'
+# ADR-0194: tools.reader names three JVM inner seq implementation classes.
+# cljw has no values of these exact types, so their class values resolve but
+# remain uniformly false and their extensions are dead-by-construction.
+assert_eq 'inner_vector_seq_resolves' "$(last_line "$("$BIN" -e 'clojure.lang.PersistentVector$ChunkedSeq' 2>&1)")" 'clojure.lang.PersistentVector$ChunkedSeq'
+assert_eq 'inner_array_map_seq_false' "$(last_line "$("$BIN" -e '(instance? clojure.lang.PersistentArrayMap$Seq (seq {:a 1}))' 2>&1)")" 'false'
+assert_eq 'inner_hash_map_seq_false'  "$(last_line "$("$BIN" -e '(instance? clojure.lang.PersistentHashMap$NodeSeq (seq (hash-map :a 1)))' 2>&1)")" 'false'
 # cljw-native types still match instance? (unchanged)
 assert_eq 'inst_long_true'     "$(last_line "$("$BIN" -e '(instance? Long 5)' 2>&1)")" 'true'
 assert_eq 'inst_string_true'   "$(last_line "$("$BIN" -e '(instance? String "x")' 2>&1)")" 'true'
@@ -40,6 +46,7 @@ assert_eq 'inst_string_true'   "$(last_line "$("$BIN" -e '(instance? String "x")
 # extension on the same protocol still dispatches — the Integer impl is dead in
 # BOTH cljw and clj (verified: (m 5) → :long, not :int)
 assert_eq 'extend_opaque_noop_dispatch' "$(last_line "$("$BIN" -e '(do (defprotocol P (m [x])) (extend-type Integer P (m [_] :int)) (extend-type Long P (m [_] :long)) (m 5))' 2>&1)")" ':long'
+assert_eq 'extend_inner_seq_noop' "$(last_line "$("$BIN" -e '(do (defprotocol InnerP (inner-m [x])) (extend-type clojure.lang.PersistentVector$ChunkedSeq InnerP (inner-m [_] :inner)) (extend-type Object InnerP (inner-m [_] :object)) (inner-m [1 2]))' 2>&1)")" ':object'
 # ADR-0109: java.lang.Object is the UNIVERSAL supertype (resolves as a value;
 # (isa? <any> Object)→true; (instance? Object x)→true for non-nil; nil→false).
 # Unblocks algo.generic's `(derive Object root-type)`.

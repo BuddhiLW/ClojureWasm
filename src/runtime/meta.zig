@@ -44,7 +44,7 @@ pub fn metaOf(rt: *Runtime, env: *Env, v: Value, loc: SourceLocation) anyerror!V
         .sub_vector => sub_vector.metaOf(v),
         .array_map, .hash_map => map.metaOf(v),
         .hash_set => set.metaOf(v),
-        .list => list.metaOf(v),
+        .list, .cons => list.metaOf(v),
         .lazy_seq => lazy_seq.metaOf(v),
         .array_seq => array_seq.metaOf(v),
         .string_seq => string_seq.metaOf(v),
