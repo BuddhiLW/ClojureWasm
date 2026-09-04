@@ -113,7 +113,9 @@ pub fn workerEntry(context: *anyopaque, registered: bool) void {
                     runTask(st, task, true);
                     continue;
                 }
-            } else |_| {}
+            } else |_| {
+                // A failed poll is an empty observation for this worker loop.
+            }
         }
 
         io_default.lockMutex(&st.mutex);

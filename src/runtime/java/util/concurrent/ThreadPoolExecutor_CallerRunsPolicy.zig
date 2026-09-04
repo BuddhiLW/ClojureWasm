@@ -1,5 +1,9 @@
 // SPDX-License-Identifier: EPL-2.0
 //! Marker value for `ThreadPoolExecutor$CallerRunsPolicy`.
+//!
+//! Backend: impl-only
+//! Impl deps: host_instance
+//! Clojure peer: none
 
 const std = @import("std");
 const host_api = @import("../../_host_api.zig");

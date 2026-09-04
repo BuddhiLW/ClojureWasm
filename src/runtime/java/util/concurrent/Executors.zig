@@ -1,5 +1,9 @@
 // SPDX-License-Identifier: EPL-2.0
 //! Static factories for fixed and single-thread executors.
+//!
+//! Backend: impl-only
+//! Impl deps: LinkedBlockingQueue, ThreadPoolExecutor
+//! Clojure peer: none
 
 const std = @import("std");
 const host_api = @import("../../_host_api.zig");

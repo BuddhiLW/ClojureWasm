@@ -1,5 +1,9 @@
 // SPDX-License-Identifier: EPL-2.0
 //! Java adapter for the bounded fixed-worker executor core.
+//!
+//! Backend: impl-only
+//! Impl deps: thread_pool, Thread, LinkedBlockingQueue, TimeUnit, CallerRunsPolicy
+//! Clojure peer: none
 
 const std = @import("std");
 const host_api = @import("../../_host_api.zig");
