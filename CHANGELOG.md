@@ -40,6 +40,12 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 
 ### Fixed
 
+- **`clojure.string/replace` and `split-lines` match JVM edge semantics.**
+  `replace` now applies the source object's string representation while still
+  rejecting `nil`, and an empty string match inserts at every codepoint
+  boundary. `split-lines` now removes every trailing empty field, including
+  inputs made entirely of line terminators.
+
 - **`when-not` expands to clj's shape.** `(macroexpand '(when-not c x))` was
   `(if c nil x)` where clj gives `(if c nil (do x))`, and `(when-not c)` was
   `(if c nil nil)` against clj's `(if c nil (do))` — the body wrapper was

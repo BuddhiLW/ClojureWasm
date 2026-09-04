@@ -473,11 +473,22 @@ pub fn codepointLastIndexOf(haystack: []const u8, needle: []const u8) ?usize {
 /// Replace every non-overlapping `needle` with `replacement` (string ⇒
 /// string semantics). Allocates a fresh slice on `alloc`; on `needle`
 /// match the substitution does NOT recurse (a la JVM
-/// `String.replace` — replacement bytes are not re-scanned). Empty
-/// `needle` returns a copy of `haystack` (matches JVM behaviour of
-/// not infinite-looping on empty needle).
+/// `String.replace` — replacement bytes are not re-scanned). An empty
+/// `needle` matches at every codepoint boundary, including both ends.
 pub fn replaceAllStringAlloc(alloc: std.mem.Allocator, haystack: []const u8, needle: []const u8, replacement: []const u8) ![]u8 {
-    if (needle.len == 0) return try alloc.dupe(u8, haystack);
+    if (needle.len == 0) {
+        var out: std.ArrayList(u8) = .empty;
+        defer out.deinit(alloc);
+        try out.appendSlice(alloc, replacement);
+        var iter = std.unicode.Utf8Iterator{ .bytes = haystack, .i = 0 };
+        var byte_start: usize = 0;
+        while (iter.nextCodepoint()) |_| {
+            try out.appendSlice(alloc, haystack[byte_start..iter.i]);
+            try out.appendSlice(alloc, replacement);
+            byte_start = iter.i;
+        }
+        return try out.toOwnedSlice(alloc);
+    }
     var out: std.ArrayList(u8) = .empty;
     defer out.deinit(alloc);
     var i: usize = 0;
@@ -498,7 +509,12 @@ pub fn replaceAllStringAlloc(alloc: std.mem.Allocator, haystack: []const u8, nee
 /// Replace the FIRST occurrence of `needle` with `replacement`.
 /// Allocation rules match `replaceAllStringAlloc`.
 pub fn replaceFirstStringAlloc(alloc: std.mem.Allocator, haystack: []const u8, needle: []const u8, replacement: []const u8) ![]u8 {
-    if (needle.len == 0) return try alloc.dupe(u8, haystack);
+    if (needle.len == 0) {
+        var out = try alloc.alloc(u8, replacement.len + haystack.len);
+        @memcpy(out[0..replacement.len], replacement);
+        @memcpy(out[replacement.len..], haystack);
+        return out;
+    }
     const hit = std.mem.find(u8, haystack, needle) orelse return try alloc.dupe(u8, haystack);
     var out: std.ArrayList(u8) = .empty;
     defer out.deinit(alloc);
@@ -666,10 +682,16 @@ test "replaceAllStringAlloc replaces every occurrence" {
     try testing.expectEqualStrings("heLLo worLd", out);
 }
 
-test "replaceAllStringAlloc returns copy when needle empty" {
+test "replaceAllStringAlloc inserts at every boundary when needle empty" {
     const out = try replaceAllStringAlloc(testing.allocator, "hi", "", "x");
     defer testing.allocator.free(out);
-    try testing.expectEqualStrings("hi", out);
+    try testing.expectEqualStrings("xhxix", out);
+}
+
+test "replaceFirstStringAlloc inserts before input when needle empty" {
+    const out = try replaceFirstStringAlloc(testing.allocator, "hi", "", "x");
+    defer testing.allocator.free(out);
+    try testing.expectEqualStrings("xhi", out);
 }
 
 test "replaceFirstStringAlloc replaces only first" {

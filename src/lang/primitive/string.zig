@@ -296,15 +296,15 @@ pub fn replaceFirst(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLoc
 //     are private (`zig_leaf = true`) so user code does not depend on
 //     them directly. ---
 
-fn strReplaceStringImpl(rt: *Runtime, fn_name: []const u8, kind: ReplaceKind, args: []const Value, loc: SourceLocation) anyerror!Value {
+fn strReplaceStringImpl(rt: *Runtime, env: *Env, fn_name: []const u8, kind: ReplaceKind, args: []const Value, loc: SourceLocation) anyerror!Value {
     try error_catalog.checkArity(fn_name, args, 3, loc);
-    if (args[0].tag() != .string)
-        return error_catalog.raise(.type_arg_not_string, loc, .{ .fn_name = fn_name, .actual = @tagName(args[0].tag()) });
+    var aw: std.Io.Writer.Allocating = .init(rt.gpa);
+    defer aw.deinit();
+    const haystack = try toStringArg(rt, env, args[0], fn_name, loc, &aw);
     if (args[1].tag() != .string)
         return error_catalog.raise(.type_arg_not_string, loc, .{ .fn_name = fn_name, .actual = @tagName(args[1].tag()) });
     if (args[2].tag() != .string)
         return error_catalog.raise(.type_arg_not_string, loc, .{ .fn_name = fn_name, .actual = @tagName(args[2].tag()) });
-    const haystack = string_collection.asString(args[0]);
     const needle = string_collection.asString(args[1]);
     const replacement = string_collection.asString(args[2]);
     const out = switch (kind) {
@@ -316,46 +316,42 @@ fn strReplaceStringImpl(rt: *Runtime, fn_name: []const u8, kind: ReplaceKind, ar
 }
 
 pub fn strReplaceString(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
-    _ = env;
-    return strReplaceStringImpl(rt, "-str-replace-string", .all, args, loc);
+    return strReplaceStringImpl(rt, env, "-str-replace-string", .all, args, loc);
 }
 
 pub fn strReplaceFirstString(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
-    _ = env;
-    return strReplaceStringImpl(rt, "-str-replace-first-string", .first, args, loc);
+    return strReplaceStringImpl(rt, env, "-str-replace-first-string", .first, args, loc);
 }
 
-fn strReplaceCharImpl(rt: *Runtime, fn_name: []const u8, kind: ReplaceKind, args: []const Value, loc: SourceLocation) anyerror!Value {
+fn strReplaceCharImpl(rt: *Runtime, env: *Env, fn_name: []const u8, kind: ReplaceKind, args: []const Value, loc: SourceLocation) anyerror!Value {
     try error_catalog.checkArity(fn_name, args, 3, loc);
-    if (args[0].tag() != .string)
-        return error_catalog.raise(.type_arg_not_string, loc, .{ .fn_name = fn_name, .actual = @tagName(args[0].tag()) });
+    var aw: std.Io.Writer.Allocating = .init(rt.gpa);
+    defer aw.deinit();
+    const haystack = try toStringArg(rt, env, args[0], fn_name, loc, &aw);
     if (args[1].tag() != .char)
         return error_catalog.raise(.type_arg_invalid, loc, .{ .fn_name = fn_name, .expected = "char", .actual = @tagName(args[1].tag()) });
     if (args[2].tag() != .char)
         return error_catalog.raise(.type_arg_invalid, loc, .{ .fn_name = fn_name, .expected = "char", .actual = @tagName(args[2].tag()) });
-    const haystack = string_collection.asString(args[0]);
     const out = try charset.replaceCharAlloc(rt.gc.infra, haystack, args[1].asChar(), args[2].asChar(), kind == .first);
     defer rt.gc.infra.free(out);
     return try string_collection.alloc(rt, out);
 }
 
 pub fn strReplaceChar(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
-    _ = env;
-    return strReplaceCharImpl(rt, "-str-replace-char", .all, args, loc);
+    return strReplaceCharImpl(rt, env, "-str-replace-char", .all, args, loc);
 }
 
 pub fn strReplaceFirstChar(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
-    _ = env;
-    return strReplaceCharImpl(rt, "-str-replace-first-char", .first, args, loc);
+    return strReplaceCharImpl(rt, env, "-str-replace-first-char", .first, args, loc);
 }
 
 fn strReplacePatternImpl(rt: *Runtime, env: *Env, fn_name: []const u8, kind: ReplaceKind, args: []const Value, loc: SourceLocation) anyerror!Value {
     try error_catalog.checkArity(fn_name, args, 3, loc);
-    if (args[0].tag() != .string)
-        return error_catalog.raise(.type_arg_not_string, loc, .{ .fn_name = fn_name, .actual = @tagName(args[0].tag()) });
+    var aw: std.Io.Writer.Allocating = .init(rt.gpa);
+    defer aw.deinit();
+    const haystack = try toStringArg(rt, env, args[0], fn_name, loc, &aw);
     if (args[1].tag() != .regex)
         return error_catalog.raise(.type_arg_invalid, loc, .{ .fn_name = fn_name, .expected = "regex (Pattern)", .actual = @tagName(args[1].tag()) });
-    const haystack = string_collection.asString(args[0]);
     const program = regex_value.asRegex(args[1]).program;
 
     // String replacement: delegate to the shared neutral leaf
@@ -555,24 +551,31 @@ pub fn splitLines(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocat
         return error_catalog.raise(.type_arg_not_string, loc, .{ .fn_name = "split-lines", .actual = @tagName(args[0].tag()) });
     const s = string_collection.asString(args[0]);
 
-    var result = vector_collection.empty();
     if (s.len == 0) {
         const empty_s = try string_collection.alloc(rt, "");
-        return try vector_collection.conj(rt, result, empty_s);
+        return try vector_collection.conj(rt, vector_collection.empty(), empty_s);
     }
 
+    var parts: std.ArrayList(Value) = .empty;
+    defer parts.deinit(rt.gpa);
     var pos: usize = 0;
     while (pos < s.len) {
         const nl_off = std.mem.findScalarPos(u8, s, pos, '\n');
         const line_end_excl = nl_off orelse s.len;
         var line_strip_end = line_end_excl;
-        if (line_strip_end > pos and s[line_strip_end - 1] == '\r') line_strip_end -= 1;
-        const v = try string_collection.alloc(rt, s[pos..line_strip_end]);
-        result = try vector_collection.conj(rt, result, v);
+        if (nl_off != null and line_strip_end > pos and s[line_strip_end - 1] == '\r') line_strip_end -= 1;
+        try parts.append(rt.gpa, try string_collection.alloc(rt, s[pos..line_strip_end]));
         if (nl_off) |i| pos = i + 1 else break;
     }
-    // Drop trailing empty from a final \n (JVM convention).
-    // (No-op when split-lines was called on input without trailing \n.)
+
+    while (parts.items.len > 0 and
+        string_collection.asString(parts.items[parts.items.len - 1]).len == 0)
+    {
+        _ = parts.pop();
+    }
+
+    var result = vector_collection.empty();
+    for (parts.items) |part| result = try vector_collection.conj(rt, result, part);
     return result;
 }
 
