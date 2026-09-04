@@ -75,6 +75,6 @@
   ;; --- differential probing against the clj oracle ------------------------
   ;; Bound every sequence producer with (take N …) before it reaches either
   ;; runtime; an unbounded seq pins a core and an uncapped JVM eats the box.
-  ;; The harness is scripts/clj_diff_sweep.sh — do not hand-roll the loop.
+  ;; The harness is scripts/clj_diff_sweep.clj — do not hand-roll the loop.
   (take 5 (map inc (range)))
   )

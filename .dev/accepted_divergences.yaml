@@ -1083,7 +1083,7 @@ accepted:
       already realised or was already cancelled — the JVM's contract.
     example: '(let [f (future (Thread/sleep 5000))] [(.cancel f false) (.isCancelled f)]) => cljw [true true] / clj [false false] — the JVM refuses to cancel a running task when the flag is false.'
     derives_from: "D-442 / ADR-0153 (cooperative cancellation) + ADR-0059 (no JVM thread interrupt)."
-    pin: "test/e2e/future_methods.sh — cancel_flag_is_ignored_ad065."
+    pin: "test/clj/suites/future_methods_test.clj — cancel_flag_is_ignored_ad065."
 
   - id: "AD-066"
     area: "collections"

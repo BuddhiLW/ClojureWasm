@@ -59,6 +59,9 @@ pub const Kind = enum {
     /// RuntimeException via IllegalStateException), distinct from the worker's
     /// uncatchable cancel-abort signal and the stale `future_thunk_failed` trap.
     cancellation_error,
+    /// A saturated or shut-down executor rejected a submission.  Catchable as
+    /// java.util.concurrent.RejectedExecutionException.
+    rejected_execution_error,
     /// An operation called in the wrong STATE — clj's `IllegalStateException`
     /// (e.g. `(re-groups m)`/`(.group m)` before a match → "No match found"; a
     /// transaction op outside `dosync`). Distinct from `value_error`
@@ -217,6 +220,7 @@ fn kindToError(kind: Kind) ClojureWasmError {
         .arithmetic_error => ClojureWasmError.ArithmeticError,
         .index_error => ClojureWasmError.IndexError,
         .cancellation_error => ClojureWasmError.CancellationError,
+        .rejected_execution_error => ClojureWasmError.ValueError,
         .state_error => ClojureWasmError.StateError,
         .io_error => ClojureWasmError.IoError,
         .file_not_found => ClojureWasmError.FileNotFound,

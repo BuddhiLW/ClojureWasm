@@ -101,7 +101,7 @@ fn sizeLocked(recv: Value) u32 {
 }
 
 /// Enqueue without blocking. False when a bounded queue is full.
-fn tryOffer(rt: *Runtime, recv: Value, x: Value) !bool {
+pub fn tryOffer(rt: *Runtime, recv: Value, x: Value) !bool {
     lock(recv);
     defer unlock(recv);
     const cap = capOf(recv);
@@ -112,7 +112,7 @@ fn tryOffer(rt: *Runtime, recv: Value, x: Value) !bool {
 
 /// Dequeue without blocking. Null when empty. Compacts the dead prefix once it
 /// dominates the backing vector, so the retained garbage stays bounded.
-fn tryPoll(rt: *Runtime, recv: Value) !?Value {
+pub fn tryPoll(rt: *Runtime, recv: Value) !?Value {
     lock(recv);
     defer unlock(recv);
     const v = vecOf(recv);
@@ -172,8 +172,18 @@ fn initQueue(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) 
             return error_catalog.raise(.type_arg_invalid, loc, .{ .fn_name = "java.util.concurrent.LinkedBlockingQueue.", .expected = "a positive capacity", .actual = "a non-positive capacity" });
         cap = @intCast(n);
     }
+    return make(rt, cap);
+}
+
+pub fn make(rt: *Runtime, capacity: u64) !Value {
     const td = lbq_descriptor orelse return error.NoVTable;
-    return host_instance.alloc(rt, td, .{ @intFromEnum(vector_mod.empty()), cap, 0, 0 });
+    return host_instance.alloc(rt, td, .{ @intFromEnum(vector_mod.empty()), capacity, 0, 0 });
+}
+
+pub fn isQueue(v: Value) bool {
+    if (v.tag() != .host_instance) return false;
+    const fqcn = host_instance.asHostInstance(v).descriptor.fqcn orelse return false;
+    return std.mem.eql(u8, fqcn, "java.util.concurrent.LinkedBlockingQueue");
 }
 
 /// `(.offer q x)` immediate / `(.offer q x timeout unit)` timed.

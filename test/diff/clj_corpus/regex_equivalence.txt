@@ -1,7 +1,7 @@
 ;; SPDX-License-Identifier: EPL-2.0
 ;; Regex cljw/clj equivalence goldens (ADR-0145 equivalence audit, 9.2.S).
 ;; Format: expr line, then ";;=> <clj pr-str output>" golden line
-;; (per check_corpus_regression.sh). All 48 verified cljw==clj.
+;; (per corpus_regression.clj). All 48 verified cljw==clj.
 ;; Divergences (reluctant quantifiers / lookbehind / named groups /
 ;; backreferences / \A \z \Z / POSIX [[:class:]]) are EXCLUDED — they are
 ;; D-051/D-447 parity gaps (cljw raises NotImplemented), not goldens.

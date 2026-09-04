@@ -328,6 +328,7 @@ pub fn kindToHostClass(kind: Kind) ?[]const u8 {
         .value_error => "IllegalArgumentException",
         .state_error => "IllegalStateException",
         .cancellation_error => "CancellationException",
+        .rejected_execution_error => "RejectedExecutionException",
         .arity_error => "ArityException",
         .number_error => "NumberFormatException",
         .name_error, .syntax_error, .string_error => "RuntimeException",

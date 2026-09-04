@@ -163,6 +163,7 @@ pub const Code = enum {
     future_thunk_failed,
     future_cancelled,
     future_cancel_abort,
+    executor_rejected,
     stm_no_transaction,
     stm_retry_limit,
     locking_needs_object,
@@ -1015,6 +1016,11 @@ pub fn entry(comptime code: Code) Entry {
             .kind = .cancellation_abort,
             .phase = .eval,
             .template = "future cancelled at a blocking point",
+        },
+        .executor_rejected => .{
+            .kind = .rejected_execution_error,
+            .phase = .eval,
+            .template = "executor rejected task submission ({[reason]s})",
         },
         .stm_no_transaction => .{
             // clj: IllegalStateException "No transaction running" — a STATE error

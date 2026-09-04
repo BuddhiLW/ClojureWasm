@@ -61,7 +61,7 @@ check_capability_claims|-|yes|via-gate|bash scripts/check_capability_claims.sh
 check_clj_attribution|-|yes|via-gate|bash scripts/check_clj_attribution.sh --gate
 check_compat_members|-|yes|via-gate|bash scripts/check_compat_members.sh
 check_core_surface|-|yes|via-gate|bash scripts/check_core_surface.sh
-check_corpus_regression|-|yes|via-gate|bash scripts/check_corpus_regression.sh
+check_corpus_regression|-|yes|via-gate,native-clojure|bb scripts/corpus_regression.clj
 check_debt_id_refs|-|yes|via-gate|bash scripts/check_debt_id_refs.sh --gate
 check_doc_coverage|-|yes|via-gate|bash scripts/check_doc_coverage.sh
 check_changelog_reachability|-|yes|via-gate|bash scripts/check_changelog_reachability.sh --gate

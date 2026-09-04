@@ -9,9 +9,21 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 
 ### Changed
 
-- **Behaviour tests move to a cljw-native tier.** 24 bash e2e scripts that
+- **hive-test trifecta is verified natively on cljw.** A committed
+  source-coordinate project runs hive-test's `.cljc` golden, property, and
+  mutation facets inside cljw: 100 generated cases and two caught mutants.
+  This uses pinned Git sources for both hive-test and test.check; no Maven JAR
+  enters cljw's source-only dependency closure.
+
+- **Differential and corpus harnesses are Clojure-native.** Babashka now owns
+  process supervision while shared `.cljc` code owns bencode/nREPL exchange.
+  Corpus replay uses one live cljw runtime per corpus and a fresh session per
+  expression; only the CLI-binding corpus uses cljw's CLI context. The old
+  Bash replay/sweep and Python nREPL clients are gone.
+
+- **Behaviour tests move to a cljw-native tier.** 25 bash e2e scripts that
   spent one `cljw` process per assertion became `clojure.test` suites under
-  `test/clj/suites/`, run by cljw itself — 781 process spawns out of the gate,
+  `test/clj/suites/`, run by cljw itself — 803 process spawns out of the gate,
   and the suites re-run over an nREPL with no rebuild. What stays in bash is
   the CLI surface (exit code, stderr, argv) and anything that needs the
   process itself. No runtime behaviour changes.

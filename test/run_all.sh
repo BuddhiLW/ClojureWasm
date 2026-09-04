@@ -463,7 +463,7 @@ run_step "release_deps"         "bash scripts/check_release_deps.sh"
 # re-checkable (anti D-177 false-positive-discharge) + catches behaviour
 # drift. See .claude/rules/clj_diff_sweep.md.
 run_step "lazy_ns_replay"      "bash scripts/check_lazy_ns_replay.sh"
-run_step "corpus_regression"   "bash scripts/check_corpus_regression.sh"
+run_step "corpus_regression"   "bb scripts/corpus_regression.clj"
 
 # Host-class member truth (ADR-0174 D9): compat_tiers.yaml per-class member
 # lists must match the registered descriptors (both directions). Runs AFTER
@@ -555,7 +555,7 @@ run_step "test_clj_tier_a"                   "bash test/clj/run_tier_a.sh"
 # cljw process (auto-discovered; see test/clj/run_suites.clj's header for the
 # measured 8.5x over the per-assertion process spawns the bash e2e tier pays).
 # In SMOKE_CORE: at tens of ms it belongs in every per-commit loop.
-run_step "test_clj_suites"                   "zig-out/bin/cljw -cp test/clj test/clj/run_suites.clj"
+run_step "test_clj_suites"                   "zig-out/bin/cljw -cp test/clj:scripts test/clj/run_suites.clj"
 run_step "e2e_phase11_exit_smoke"            "bash test/e2e/phase11_exit_smoke.sh"
 run_step "e2e_phase13_exit_smoke"            "bash test/e2e/phase13_exit_smoke.sh"
 run_step "e2e_phase14_catch_keyword"         "bash test/e2e/phase14_catch_keyword.sh"
@@ -813,7 +813,6 @@ run_step "e2e_semaphore"                     "bash test/e2e/semaphore.sh"
 run_step "e2e_concurrent_atomics"            "bash test/e2e/concurrent_atomics.sh"
 run_step "e2e_concurrent_interfaces"         "bash test/e2e/concurrent_interfaces.sh"
 run_step "e2e_linked_blocking_queue"         "bash test/e2e/linked_blocking_queue.sh"
-run_step "e2e_future_methods"                "bash test/e2e/future_methods.sh"
 run_step "e2e_vector_seq_view"               "bash test/e2e/vector_seq_view.sh"
 run_step "e2e_phase14_fn_prepost"            "bash test/e2e/phase14_fn_prepost.sh"
 run_step "e2e_phase14_deftype_ideref"        "bash test/e2e/phase14_deftype_ideref.sh"

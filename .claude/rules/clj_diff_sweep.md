@@ -6,20 +6,21 @@ two disciplines that keep that work honest.
 
 ## The harness — don't hand-roll the loop
 
-`scripts/clj_diff_sweep.sh` is the SSOT for "run these exprs through both
+`scripts/clj_diff_sweep.clj` is the SSOT for "run these exprs through both
 runtimes and show me the diffs". Do NOT write ad-hoc
-`for e in …; cljw vs clj` shell loops — they are unreviewable, throw away
+`for e in …; cljw vs clj` loops — they are unreviewable, throw away
 the result, and repeatedly re-derive the same methodology.
 
 ```sh
-bash scripts/clj_diff_sweep.sh exprs.txt              # one bare value-expr per line
-printf '%s\n' '(map inc [1])' | bash scripts/clj_diff_sweep.sh -
-bash scripts/clj_diff_sweep.sh exprs.txt --corpus seqfns   # append OKs to a corpus
+bb scripts/clj_diff_sweep.clj exprs.txt              # one bare value-expr per line
+printf '%s\n' '(map inc [1])' | bb scripts/clj_diff_sweep.clj -
+bb scripts/clj_diff_sweep.clj exprs.txt --corpus seqfns   # append OKs to a corpus
 ```
 
-Methodology baked into the script (header has the detail): clj runs ONCE
-over a batch (one `(prn EXPR)` per line); cljw runs one expr at a time;
-both are `timeout`-wrapped; bound every seq producer with `(take N …)`.
+Methodology baked into the Clojure harness: persistent clj and cljw nREPL
+servers receive one bounded request per expression; process ownership and
+cleanup stay in one babashka boundary. Bound every seq producer with
+`(take N …)`.
 
 ## Discipline 1 — corpus-backed discharge (anti D-177)
 
@@ -30,7 +31,7 @@ mechanically re-checkable. The 2026-06-02 audit found **D-177 discharged
 with `take-while`/`take-nth`/`partition-by` listed as done when they were
 not** — a false-positive-discharge lie. The fix for that lie class is:
 *never list coverage you did not probe*, and leave the probe behind as a
-corpus line. `scripts/check_corpus_regression.sh` re-runs every corpus and
+corpus line. `scripts/corpus_regression.clj` re-runs every corpus and
 fails on any DIFF, so a regression (or an over-claim) surfaces.
 
 ## Discipline 2 — big-bang, don't drip-feed
