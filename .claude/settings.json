@@ -1,6 +1,5 @@
 {
   "defaultMode": "acceptEdits",
-  "outputStyle": "Japanese",
   "model": "claude-opus-4-8",
   "permissions": {
     "allow": [
