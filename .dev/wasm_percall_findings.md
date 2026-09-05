@@ -1,7 +1,11 @@
 # Wasm per-call cost: findings, and the fix
 
-Written 2026-09-05. Durable copy of work that would otherwise live only in hive
-kanban, which was down when this was written. If hive is up, the cards
+Written 2026-09-05. Tracked as GitHub issues
+[#13](https://github.com/BuddhiLW/ClojureWasm/issues/13) (the cost),
+[#14](https://github.com/BuddhiLW/ClojureWasm/issues/14) (the fix) and
+[#15](https://github.com/BuddhiLW/ClojureWasm/issues/15) (the blind spot).
+Durable copy of work that would otherwise live only in hive kanban, which was
+down when this was written. If hive is up, the cards
 `[CLJW-WASM-ENGINE-DEFAULT]`, `[CLJW-WASM-WORKER-THREAD]`,
 `[CLJW-WASM-BENCH-BLIND]`, `[CLJW-WASM-EXPORTSIG-CACHE]` and
 `[ZWASM-PERCALL-TRACK]` carry the same content.

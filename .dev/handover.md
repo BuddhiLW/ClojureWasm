@@ -74,9 +74,9 @@
   Confirmed against zwasm's own `zig build bench-latency` on this host, not
   inferred. Cards: `[CLJW-WASM-ENGINE-DEFAULT]`, `[CLJW-WASM-WORKER-THREAD]`
   (worker threads pay 561 ns instead of 26.8 us, so ~47x may be available
-  cljw-side, CONFIRMED at 14x), `[CLJW-WASM-BENCH-BLIND]`. **Full write-up incl.
-  the proposed fix and its feasibility check: `.dev/wasm_percall_findings.md`**
-  (durable, written while hive was down). Probes: `.dev/bench/ffi_boundary/`.
+  cljw-side, CONFIRMED at 14x). Filed as **issues #13 (cost), #14 (fix), #15
+  (the benchmark blind spot)**. Full write-up incl. the feasibility check:
+  `.dev/wasm_percall_findings.md`. Probes: `.dev/bench/ffi_boundary/`.
 - **`bench/` is stratified and noise-guarded.** shell measures / YAML is the
   datum / Python renders, with `bench/bench_domain.py` owning the vocabulary.
   Harnesses emit `--yaml`; `gen_cross_table.py` (Markdown) and `gen_charts.py`
