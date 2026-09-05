@@ -9,13 +9,16 @@
 - **FIRST MOVE ON RESUME: spawn a cljw nREPL and work through it**
   (`mcp__hive__code cider spawn repl_type="cljw"`, then `cider eval`). Reap by
   scoped pattern per `orphan_prevention.md` rule 4; never before a wrap.
-- **First commit on resume MUST be**: the next unit of
-  `[CLJW-E2E-TO-SUITES]` (`20260831204206-0eed020c`) — port the next stateless
-  bash e2e to `test/clj/suites/`. That card carries the method AND the three
-  hazards (state, process-bound cases, dangling pin/ledger pointers); read it
-  before deleting any script.
-- **Gate state 2026-08-31: FULL gate GREEN (436 passed, 0 failed, 0 skipped,
-  907s); cadence counter reset.**
+- **First commit on resume MUST be**: finish `[CLJW-ZWASM-PIN-26]`
+  (`20260905012148-6489702d`, status doing). zwasm is unpinned from v2.5.0 to
+  **v2.6.0** by user direction; `build.zig.zon` + `src/runtime/cljw/wasm/engine.zig`
+  are edited and UNCOMMITTED. Build is clean and all 8 `phase16_wasm_*` e2e pass;
+  a full gate was launched 2026-09-05 and its result was not seen. `build.zig.zon`
+  is risky-tier, so the commit needs a fresh green gate. The card lists the four
+  doc follow-ups (F-001 Revision entry, `zwasm_capabilities.md` de-FROZEN,
+  `build.zig.zon` comment, CHANGELOG).
+- **Gate state: UNKNOWN on `staging`.** Last recorded green was 2026-08-31 (436
+  passed, 907s) on the v2.5.0 pin. Re-establish before any release.
 - **Pick the smoke selector by COVERAGE, not topic**: grep the e2e tier for the
   file you changed and name that step. A bare `--smoke` on a `walk.clj` change
   ran zero walk e2e and shipped a stale stub assertion for 11 commits
@@ -35,8 +38,10 @@
 
 ## Project invariants (stable)
 
-- **zwasm** = tag pin **v2.5.0** (`278587f6`, FINAL) at `github.com/zwasm/zwasm`,
-  separately maintained; co-development RETIRED (`.dev/zwasm_capabilities.md`).
+- **zwasm** = tag pin **v2.6.0** (`3831e68b`) at `github.com/zwasm/zwasm`,
+  separately maintained. The "v2.5.0 is FINAL" framing is RETIRED by user
+  direction 2026-09-05; `.dev/zwasm_capabilities.md` still says FROZEN and needs
+  updating. Read-only clone for source questions: `~/PP/referential-projects/zwasm`.
 - **This repository is a MAINTAINED FORK.** Upstream `clojurewasm/ClojureWasm`
   (chaploud) stopped at v1.10.1 and invited forks under EPL-2.0. `origin` is
   this fork; `main` tracks it. The archive is the `clojurewasm` remote,
@@ -52,8 +57,7 @@
   (`TAP_DEPLOY_KEY`). An EMPTY `[Unreleased]` body is not stamped — write the
   changelog entry in the same landing as the source.
 - **Release hazard**: cutting the GitHub release BY HAND before the tag
-  workflow runs breaks artifact upload (zwasm #160). The matrix-leg
-  `gh release view || gh release create` TOCTOU is FIXED.
+  workflow runs breaks artifact upload (zwasm #160).
 - **PERF CAMPAIGN (D-450) stays stopped** — findings remain in the row.
 
 ## Current state (details = CHANGELOG + git log)
@@ -61,22 +65,33 @@
 - **Issues, PRs and Discussions are all OPEN here.** CONTRIBUTING exempts
   outside contributors from the loop's conventions. Each `scripts/check_*.sh`
   header is its own SSOT.
-- **Shipped through v1.13.2.** On `staging` since: `slurp` drains `System/in`;
-  two silent gate verdicts made honest; `clojure.walk/macroexpand-all`
-  implemented; `when-not` now wraps its body in `(do …)` like clj.
-- **Active unit — bash e2e → cljw-native suites (Layer 5b).**
-  `test/clj/run_suites.clj` runs `test/clj/suites/*_test.clj` by DISCOVERY
-  (drop a file in, it runs) and is gated in SMOKE_CORE as `test_clj_suites`.
-  2026-08-31: 18 scripts ported, **651 spawns removed**, suite tier 12 → **23
-  suites / 195 tests / 1116 assertions**, e2e 410 → 395. What stays in bash is
-  the CLI surface (exit code, stderr, argv) and anything needing the PROCESS
-  (e.g. `CLJW_GC_TORTURE=1`, which is read at process start).
-- **Test layers 6/7/8 OPEN** (ADR-0186): golden (`test/golden/`, gated),
-  properties (`src/testing/prop_*.zig`, `-Dprop-seed`/`-Dprop-iters`), mutation
-  (`scripts/mutation/run.sh`, on demand, NEVER gated; `--oracle` defaults to
-  `unit` and never builds the CLI — a rendering path needs `unit+golden`).
-  First task **D-577**: rule out equivalence before writing a test for a
-  survivor (`.dev/mutation_equivalent.jsonl`).
+- **Shipped through v1.13.2.** Unreleased work on `staging`: see CHANGELOG.
+- **Wasm FFI is measured for the first time, and the default engine is wrong on
+  Linux.** One `wasm/call` costs 392 ns on `:engine :interp` (2.1x a Clojure fn
+  call, so the boundary is cheap) and **18,875 ns on the `.auto` default**. That
+  48x is zwasm **D-584**: `computeStackLimit` runs per JIT invocation and on
+  Linux/glibc on the INITIAL thread glibc answers by parsing `/proc/self/maps`.
+  Confirmed against zwasm's own `zig build bench-latency` on this host, not
+  inferred. Cards: `[CLJW-WASM-ENGINE-DEFAULT]`, `[CLJW-WASM-WORKER-THREAD]`
+  (worker threads pay 561 ns instead of 26.8 us, so ~47x may be available
+  cljw-side), `[CLJW-WASM-BENCH-BLIND]`. Probes + numbers:
+  `.dev/bench/ffi_boundary/README.md`.
+- **`bench/` is stratified and noise-guarded.** shell measures / YAML is the
+  datum / Python renders, with `bench/bench_domain.py` owning the vocabulary.
+  Harnesses emit `--yaml`; `gen_cross_table.py` (Markdown) and `gen_charts.py`
+  (SVG, no deps) render from it. A Suite now carries its own dispersion and the
+  renderers refuse to claim a difference inside the noise floor. `wasm_bench.sh`
+  was DEAD (called `wasm/load-wasi` + `wasm/fn`, neither exists) and is repaired.
+- **bash e2e → cljw-native suites (Layer 5b), paused mid-arc.**
+  `test/clj/run_suites.clj` runs `test/clj/suites/*_test.clj` by DISCOVERY and is
+  gated in SMOKE_CORE as `test_clj_suites`. 18 scripts ported, 651 spawns
+  removed, e2e 410 → 395. What stays in bash: the CLI surface (exit code,
+  stderr, argv) and anything needing the PROCESS (`CLJW_GC_TORTURE=1`).
+  Card `[CLJW-E2E-TO-SUITES]` (`20260831204206-0eed020c`) carries the method
+  and the three hazards.
+- **Test layers 6/7/8 OPEN** (ADR-0186): golden (gated), properties
+  (`-Dprop-seed`/`-Dprop-iters`), mutation (on demand, NEVER gated). First task
+  **D-577**: rule out equivalence before writing a test for a survivor.
 - Deferred with a design memo: **[CLJW-DEF-NS]** (Capture-by-Var, multi-backend
   + AOT — memory `20260825160952-2e68811c`).
 
