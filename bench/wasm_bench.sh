@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
-# wasm_bench.sh — Wasm runtime benchmark: ClojureWasm's embedded zwasm vs wasmtime
+# wasm_bench.sh: Wasm runtime benchmark, ClojureWasm's embedded zwasm vs wasmtime
 #
 # Uses TinyGo-compiled .wasm modules with built-in iteration loops.
 # Both CW and wasmtime execute the SAME wasm function with the SAME
 # loop count, making the comparison fair (apples-to-apples).
 #
-# The cljw side goes through the ordinary FFI surface — `(wasm/load path opts)`
-# + `(wasm/call m "fn" args…)` (ADR-0192). `:fuel 0` is unmetered: these loops
+# The cljw side goes through the ordinary FFI surface, `(wasm/load path opts)`
+# + `(wasm/call m "fn" args)` (ADR-0192). `:fuel 0` is unmetered: these loops
 # run past the finite default fuel budget, and metering is not what is being
-# measured. `:engine` selects zwasm's execution tier — the cljw default is
+# measured. `:engine` selects zwasm's execution tier, the cljw default is
 # `.auto` (JIT-first with interp fallback, .dev/zwasm_capabilities.md D-488),
 # so the default column is JIT-vs-JIT against wasmtime, NOT interpreter-vs-JIT.
 # `--engine=interp` measures the fallback tier instead.
@@ -126,7 +126,7 @@ fi
 for entry in "${BENCHMARKS[@]}"; do
   IFS=: read -r name wasm_file _ _ _ <<< "$entry"
   if [[ ! -f "$WASM_DIR/$wasm_file" ]]; then
-    echo -e "${RED}Missing: $WASM_DIR/$wasm_file — run with --rebuild${RESET}" >&2
+    echo -e "${RED}Missing: $WASM_DIR/$wasm_file. Run with --rebuild${RESET}" >&2
     exit 1
   fi
 done
@@ -159,7 +159,7 @@ print(f'{mean_s * 1000:.1f}')
 echo -e "${CYAN}Measuring startup overhead...${RESET}"
 
 # CW startup: load a wasm module and call a trivial function. This is the
-# subtrahend for "warm", so it must carry the SAME engine as the timed runs —
+# subtrahend for "warm", so it must carry the SAME engine as the timed runs,
 # JIT compilation happens at load, and charging it to compute would flatter the
 # interp column by exactly the JIT's compile time.
 cat > "$TMPDIR_WASM/noop.clj" << CEOF

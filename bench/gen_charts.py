@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Render a benchmark Suite as standalone SVG charts — one renderer, one job (SRP).
+"""Render a benchmark Suite as standalone SVG charts, one renderer, one job (SRP).
 
 Sibling of `gen_cross_table.py`: both read the same `bench_domain.Suite`, so a
 chart and a table can never disagree about what was measured. Neither knows the
 producer's YAML shape (DIP); the adapters in `bench_domain` own that.
 
-No dependencies — the SVG is emitted as text. gnuplot/matplotlib are not
+No dependencies, the SVG is emitted as text. gnuplot/matplotlib are not
 installed in this project's shell and a chart is not worth a toolchain: the
 output is a file anyone can open, diff, and (unlike a PNG) read in review.
 
@@ -19,7 +19,7 @@ choose (and cannot mis-choose) a chart the data does not support.
 Colors come from the validated reference palette (dataviz skill,
 references/palette.md). Both modes ship: the light step is painted onto the
 element, the dark step overrides it under `prefers-color-scheme: dark`. Every
-bar carries a direct value label — the light aqua step sits below 3:1 on the
+bar carries a direct value label, the light aqua step sits below 3:1 on the
 light surface, and the palette's relief rule makes visible labels the
 mitigation, not an option.
 """
@@ -29,7 +29,7 @@ import sys
 import bench_domain as dom
 
 # --- Palette (validated: see dataviz references/palette.md) ---------------
-# Categorical slots 1-3 — the only three that clear the all-pairs floors in
+# Categorical slots 1-3, the only three that clear the all-pairs floors in
 # both modes. A fourth series folds into "Other" or faceting rather than
 # taking slot 4.
 #
@@ -38,7 +38,7 @@ import bench_domain as dom
 # override, because that is the ordering that degrades correctly: librsvg
 # renders `var(--x)` as black, and GitHub strips `<style>` out of Markdown-
 # embedded SVG. A chart whose colours live only in CSS is a black rectangle in
-# both of those renderers — measured, not assumed.
+# both of those renderers, measured, not assumed.
 ROLES = {
     "surface": ("#fcfcfb", "#1a1a19"),
     "ink":     ("#0b0b0b", "#ffffff"),
@@ -62,7 +62,7 @@ STROKE_ROLES = {"grid", "axis"}
 FONT = 'system-ui, -apple-system, "Segoe UI", sans-serif'
 
 # Family -> categorical slot. Colour follows the ENTITY (what kind of runtime
-# this is), never its rank in the chart — a re-sort must not repaint anything.
+# this is), never its rank in the chart, a re-sort must not repaint anything.
 FAMILY_SLOT = {dom.SUBJECT: "s1", dom.INTERPRETER: "s2", dom.COMPILED: "s3",
                dom.WASM_HOST: "s2"}
 FAMILY_LABEL = {dom.SUBJECT: "ClojureWasm (subject)",
@@ -240,14 +240,14 @@ def chart_runtime_medians(suite, mode=dom.COLD):
 
 def chart_subject_vs_peers(suite, mode=dom.COLD, family=dom.INTERPRETER):
     """Per workload: how the subject lands against the FASTEST runtime of a peer
-    family. Polarity is the job, so this is a diverging chart around 1.0 — two
+    family. Polarity is the job, so this is a diverging chart around 1.0, two
     hues with a neutral midline, never a rainbow. Plotted on log2 so "half the
     time" and "twice the time" are the same distance from the midline; a linear
     ratio axis squashes every win into the left tenth of the plot.
 
     The axis is only made SYMMETRIC when both polarities actually occur. A
     dataset that lands entirely on one side gets a one-sided axis, because a
-    symmetric one would spend half the canvas — and half the legend — on a
+    symmetric one would spend half the canvas, and half the legend, on a
     polarity the data does not contain.
     """
     import math
@@ -297,13 +297,20 @@ def chart_subject_vs_peers(suite, mode=dom.COLD, family=dom.INTERPRETER):
         body.append(text(x, bottom + 16,
                          "1.0×" if lg == 0 else f"{2 ** lg:g}×", "ax", "middle"))
 
+    # A difference smaller than the Suite's own dispersion is not a result.
+    # Draw those neutral and say so, rather than painting noise as a win or a
+    # loss: the colour is the claim, and the claim would be unsupported.
+    floor = suite.noise_floor(mode)
+
     for i, (w, ratio) in enumerate(rows):
         y = pad_t + i * row
         x = x_of(math.log2(ratio))
         faster = ratio < 1.0
-        role = "pos" if faster else "neg"
-        label = (f"{1 / ratio:.1f}× faster" if faster
-                 else f"{ratio:.1f}× slower")
+        noise = (1.0 / floor) <= ratio <= floor
+        role = "mid" if noise else ("pos" if faster else "neg")
+        label = ("within noise" if noise else
+                 (f"{1 / ratio:.1f}× faster" if faster
+                  else f"{ratio:.1f}× slower"))
         wpx = 6.2 * len(label)
         if faster:
             body.append(bar(x, y, mid - x, row - 7, role, flip=True))
@@ -311,21 +318,25 @@ def chart_subject_vs_peers(suite, mode=dom.COLD, family=dom.INTERPRETER):
             # Move that one label onto the fill rather than shortening the scale
             # for every row: the collision is the label's problem, not the axis's.
             if x - 8 - wpx < left:
-                body.append(text(x + 8, y + row / 2 - 1, label, "valon"))
+                body.append(text(x + 8, y + row / 2 - 1, label,
+                                 "val" if noise else "valon"))
             else:
                 body.append(text(x - 8, y + row / 2 - 1, label, "val", "end"))
         else:
             body.append(bar(mid, y, x - mid, row - 7, role))
             if x + 8 + wpx > width - 12:
-                body.append(text(x - 8, y + row / 2 - 1, label, "valon", "end"))
+                body.append(text(x - 8, y + row / 2 - 1, label,
+                                 "val" if noise else "valon", "end"))
             else:
                 body.append(text(x + 8, y + row / 2 - 1, label, "val"))
         body.append(text(left - 12, y + row / 2 - 1, w, "lab", "end"))
 
-    # Only the polarities the data contains get a legend entry — a swatch for an
+    # Only the polarities the data contains get a legend entry, a swatch for an
     # absent series invites the reader to look for marks that are not there.
     entries = ([("ClojureWasm faster", "pos")] if any_faster else []) + \
               ([("ClojureWasm slower", "neg")] if any_slower else [])
+    if any(1.0 / floor <= r <= floor for _, r in rows):
+        entries.append((f"within noise (<{floor:.2f}x)", "mid"))
     body.append(legend(20, 78, entries))
 
     # With one peer the honest headline names it; with several, the bar is the
@@ -358,7 +369,7 @@ def chart_head_to_head(suite, mode=dom.WARM, a="cw", b="wasmtime"):
     vmax, vmin = max(vals), min(v for v in vals if v > 0)
     # A shared linear axis is only readable while the values stay within about
     # 1.5 orders of magnitude. Past that the largest workload owns the axis and
-    # every other bar collapses to a sliver that encodes nothing — the classic
+    # every other bar collapses to a sliver that encodes nothing, the classic
     # magnitude-span anti-pattern. Rather than eyeball it per dataset, refuse:
     # the ratio chart answers the same question scale-free, and the absolute
     # numbers stay in the table where four orders read fine.

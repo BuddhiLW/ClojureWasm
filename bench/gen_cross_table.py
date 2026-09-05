@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
-"""Render a benchmark Suite as Markdown tables — one renderer, one job (SRP).
+"""Render a benchmark Suite as Markdown tables, one renderer, one job (SRP).
 
 The bench/README.md tables are GENERATED, never hand-maintained (v0's
-hand-curated table drifted from meta.yaml — see private/notes/v0-bench-survey.md).
+hand-curated table drifted from meta.yaml, see private/notes/v0-bench-survey.md).
 This writes ONLY into bench/README.md, never the repository-root README.md.
 
-The vocabulary — which runtimes exist, what they are called, what order they go
+The vocabulary, which runtimes exist, what they are called, what order they go
 in, which workloads are cross-language-comparable, milliseconds-to-microseconds
-— lives in `bench_domain.py`, not here. This file knows Markdown and nothing
+lives in `bench_domain.py`, not here. This file knows Markdown and nothing
 else; `gen_charts.py` knows SVG and nothing else. Both read the same Suite, so
 a table and a chart can never disagree about what was measured.
 
@@ -18,7 +18,7 @@ Usage:
 
 Emits a Markdown fragment on stdout: a Cold table (startup included) and, when
 the datum carries warm data (compare_langs.sh --both), Warm and Startup tables
-— all honestly, since no single number tells the whole story. Pipe through
+all honestly, since no single number tells the whole story. Pipe through
 `md-table-align` (or let the commit hook align) before committing.
 """
 import sys
@@ -38,7 +38,7 @@ def render_table(suite, mode):
 
 
 def render_startup(suite):
-    """One-row table of per-runtime process-spawn + init time — the fixed
+    """One-row table of per-runtime process-spawn + init time, the fixed
     overhead the warm table subtracts out."""
     order = (dom.WASM_FFI_ORDER if suite.kind == dom.WASM_FFI
              else dom.CROSS_LANG_ORDER)
@@ -54,9 +54,13 @@ def render_startup(suite):
 def main():
     suite = dom.load(sys.argv[1:], sys.stdin)
     if not suite.has(dom.COLD):
-        sys.exit("no cw cold data in yaml — nothing to table")
+        sys.exit("no cw cold data in yaml, nothing to table")
 
-    out = [suite.conditions(), "", suite.caveat(), "",
+    out = [suite.conditions(), "", suite.caveat(), ""]
+    q = suite.quality(dom.COLD)
+    if q:
+        out += [q, ""]
+    out += [
            f"#### {suite.mode_label(dom.COLD)} ({suite.unit}, lower is better)", "",
            "\n".join(render_table(suite, dom.COLD))]
 
@@ -68,7 +72,7 @@ def main():
 
     startup_lines = render_startup(suite)
     if startup_lines:
-        out += ["", f"#### Startup — process spawn + runtime init ({suite.unit}, lower is better)",
+        out += ["", f"#### Startup, process spawn + runtime init ({suite.unit}, lower is better)",
                 "", "\n".join(startup_lines)]
 
     if suite.has(dom.WARM):

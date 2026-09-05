@@ -1,12 +1,10 @@
 #!/usr/bin/env python3
-"""Domain model for the benchmark tier — the CALCULATION stratum.
+"""Domain model for the benchmark tier, the CALCULATION stratum.
 
-This module is pure: it does no I/O, spawns nothing, reads no clock, and knows
-nothing about Markdown or SVG. It owns exactly one thing — the vocabulary in
-which a benchmark result is expressed — so that every renderer above it speaks
-the same language and no renderer re-derives it.
+Pure: no I/O, no clock, no knowledge of Markdown or SVG. It owns one thing,
+the vocabulary a benchmark result is expressed in, so no renderer re-derives it.
 
-Stratification of `bench/` (see .claude/rules — bench tier stratification):
+Stratification of `bench/`:
 
     boundary (actions)      bench/*.sh          spawn runtimes, read the clock,
                                                 write the datum
@@ -23,7 +21,7 @@ Measurement   one (workload, runtime, mode) -> microseconds.
 Suite         a machine + toolchain + date under which measurements are
               comparable. THE AGGREGATE ROOT: measurements from two Suites are
               not comparable and must never share a table or a chart. This is
-              why a Linux dataset cannot "top up" a Mac one — it is a different
+              why a Linux dataset cannot "top up" a Mac one, it is a different
               Suite, not more rows.
 
 Adapters (`from_cross_lang`, `from_wasm_ffi`) map a producer's YAML shape onto
@@ -35,13 +33,13 @@ from typing import Dict, Iterable, List, Optional, Tuple
 
 # --- Runtimes -------------------------------------------------------------
 # Order is deliberate, not a leaderboard. cljw is the subject (first). Then the
-# interpreter peers it actually compares against — Python, Ruby, Node.js, and
+# interpreter peers it actually compares against, Python, Ruby, Node.js, and
 # Babashka (a fellow JVM-free Clojure). cljw and Babashka are NOT adjacent: out
 # of respect, and because the honest peer set is "interpreters", not a
 # head-to-head. The compiled baselines (Java JIT, Go gc, C native) come last as
 # a reference floor. TinyGo and Zig are intentionally absent: TinyGo is a Go
-# variant whose role is the wasm comparison, and Zig — cljw's own
-# implementation language — only restates the floor C already provides.
+# variant whose role is the wasm comparison, and Zig, cljw's own
+# implementation language, only restates the floor C already provides.
 
 SUBJECT = "subject"
 INTERPRETER = "interpreter"
@@ -105,7 +103,7 @@ def family(rid: str) -> str:
 # A workload's kind decides which table it may appear in. `wasm_*` workloads
 # exercise cljw's FFI surface and have no other-language source at all, so in a
 # cross-language table they render as a cljw-only row with every other column
-# empty — a shape that invites a comparison that was never measured. They are
+# empty, a shape that invites a comparison that was never measured. They are
 # the wasm harness's workloads, and belong to its Suite.
 
 CROSS_LANG = "cross-language"
@@ -142,8 +140,12 @@ class Suite:
     cells: Dict[str, Dict[str, Dict[str, float]]]
     startup: Dict[str, float] = field(default_factory=dict)
     unit: str = "µs"
+    # sd[mode][workload][runtime_id] = microseconds of run-to-run dispersion,
+    # when the producer recorded it. Empty for a Suite taken before harnesses
+    # carried stddev.
+    sd: Dict[str, Dict[str, Dict[str, float]]] = field(default_factory=dict)
 
-    def fmt(self, v: Optional[float], absent: str = "—") -> str:
+    def fmt(self, v: Optional[float], absent: str = "-") -> str:
         """Microseconds -> the Suite's display unit, as a string."""
         if v is None:
             return absent
@@ -174,6 +176,47 @@ class Suite:
     def has(self, mode: str) -> bool:
         return bool(self.workloads(mode))
 
+    # -- measurement quality --
+
+    def rel_sd(self, mode: str = COLD) -> Optional[float]:
+        """Median relative dispersion across every measurement in `mode`.
+        None when the producer recorded no stddev."""
+        vals = []
+        for w, cells in self.sd.get(mode, {}).items():
+            for rid, s in cells.items():
+                m = self.micros(mode, w, rid)
+                if m and s is not None:
+                    vals.append(s / m)
+        if not vals:
+            return None
+        vals.sort()
+        n = len(vals)
+        return vals[n // 2] if n % 2 else (vals[n // 2 - 1] + vals[n // 2]) / 2
+
+    def noise_floor(self, mode: str = COLD) -> float:
+        """The ratio below which two measurements in this Suite are not
+        distinguishable. Two independent draws each carrying sigma give a
+        difference with sigma*sqrt(2), and 2 sigma is the usual bar for calling
+        it real, so the floor is 1 + 2*sqrt(2)*rel_sd. A Suite with no recorded
+        dispersion gets 1.0, meaning every difference is taken at face value,
+        which is what the older Suites always did implicitly."""
+        r = self.rel_sd(mode)
+        return 1.0 if r is None else 1.0 + 2.828 * r
+
+    def quality(self, mode: str = COLD) -> str:
+        """One line a reader needs before believing any ranking here."""
+        r = self.rel_sd(mode)
+        bits = []
+        if self.env.get("governor") and self.env["governor"] not in ("n/a", "performance"):
+            bits.append(f"CPU governor `{self.env['governor']}`")
+        if self.env.get("pinned") and self.env["pinned"] != "none":
+            bits.append(f"pinned to `{self.env['pinned']}`")
+        if r is not None:
+            bits.append(f"median run-to-run dispersion **{r:.0%}**, so ratios "
+                        f"under **{self.noise_floor(mode):.2f}x** are not "
+                        f"distinguishable from noise")
+        return "" if not bits else "_Measurement conditions: " + "; ".join(bits) + "._"
+
     def conditions(self) -> str:
         """One line naming what makes these measurements comparable. A chart or
         table without it is a number without a Suite."""
@@ -193,10 +236,10 @@ class Suite:
         whole runtime starting up, and the wrong one when both sides are
         already-running hosts executing the same module."""
         if self.kind == WASM_FFI:
-            return ("Total wall-clock — module load + execution" if mode == COLD
-                    else "Execution — load and startup subtracted")
+            return ("Total wall-clock, module load + execution" if mode == COLD
+                    else "Execution, load and startup subtracted")
         return ("Cold-start wall-clock" if mode == COLD
-                else "Warm — startup subtracted")
+                else "Warm, startup subtracted")
 
     def caveat(self) -> str:
         """The sentence that keeps the numbers from being over-read. It differs
@@ -230,14 +273,17 @@ def from_cross_lang(data: dict) -> Suite:
         startup_ms: {<lang>: ms}
     """
     cells: Dict[str, Dict[str, Dict[str, float]]] = {COLD: {}, WARM: {}}
+    sd: Dict[str, Dict[str, Dict[str, float]]] = {COLD: {}, WARM: {}}
     for name, modes in (data.get("benchmarks") or {}).items():
         if workload_kind(name) != CROSS_LANG:
             continue
         for mode in (COLD, WARM):
             row = ((modes or {}).get(mode) or {})
-            if not row:
-                continue
-            cells[mode][name] = {runtime_id(k): _us(v) for k, v in row.items()}
+            if row:
+                cells[mode][name] = {runtime_id(k): _us(v) for k, v in row.items()}
+            srow = ((modes or {}).get(f"{mode}_sd") or {})
+            if srow:
+                sd[mode][name] = {runtime_id(k): _us(v) for k, v in srow.items()}
     return Suite(
         kind=CROSS_LANG,
         env=data.get("env") or {},
@@ -245,6 +291,7 @@ def from_cross_lang(data: dict) -> Suite:
         cells=cells,
         startup={runtime_id(k): _us(v)
                  for k, v in (data.get("startup_ms") or {}).items()},
+        sd=sd,
     )
 
 
