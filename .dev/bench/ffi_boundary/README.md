@@ -34,4 +34,32 @@ Do not re-derive this from the source. An earlier pass read the call graph, foun
 the cause. It is real (zwasm D-585) but sits in the ~1.2 us remainder. See hive
 memory 20260905010714-4c94602c.
 
-Follow-ups: kanban [CLJW-WASM-ENGINE-DEFAULT], [CLJW-WASM-WORKER-THREAD].
+## The engine x thread matrix, measured 2026-09-05
+
+`engine_thread_matrix.clj`, 20k calls per cell, same trivial `add` export, same
+process. Run it directly: `./zig-out/bin/cljw .dev/bench/ffi_boundary/engine_thread_matrix.clj`
+
+    cell                     ns/call
+    JIT    main thread         16547
+    JIT    worker thread        1181
+    interp main thread           399
+    interp worker thread         413
+
+Three readings, and each names a different fix:
+
+1. **The 14x JIT penalty is entirely the initial thread.** Nothing else differs
+   between rows 1 and 2. This is D-584 and it is dodgeable without touching
+   zwasm: run the invocation on any thread that is not the process's first one.
+   `@(future ...)` already does it today, measured at 12.5x on a separate run.
+2. **The interpreter is thread-indifferent** (399 vs 413), which confirms it
+   caches the stack limit rather than re-querying per call.
+3. **Even on a worker thread the JIT is 2.9x the interpreter** on a trivial
+   callee. That residual is D-585, the per-call module re-parse, now visible
+   because D-584 has stopped swamping it.
+
+So the engine choice and the thread choice are independent levers, and the right
+engine still depends on call shape: the JIT wins 15.5x on compute-in-wasm
+(`bench/wasm_jit_vs_interp.sh`) and loses on crossing-heavy work at any thread.
+
+Follow-ups: kanban [CLJW-WASM-ENGINE-DEFAULT], [CLJW-WASM-WORKER-THREAD],
+[CLJW-WASM-EXPORTSIG-CACHE].
