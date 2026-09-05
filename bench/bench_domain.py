@@ -187,6 +187,17 @@ class Suite:
         tail = f", {self.date}" if self.date else ""
         return f"**Conditions:** {head}, {tool}{tail}."
 
+    def mode_label(self, mode: str) -> str:
+        """What a mode is CALLED in this Suite. "Cold-start" is a
+        process-launch word: it is the right name when the thing measured is a
+        whole runtime starting up, and the wrong one when both sides are
+        already-running hosts executing the same module."""
+        if self.kind == WASM_FFI:
+            return ("Total wall-clock — module load + execution" if mode == COLD
+                    else "Execution — load and startup subtracted")
+        return ("Cold-start wall-clock" if mode == COLD
+                else "Warm — startup subtracted")
+
     def caveat(self) -> str:
         """The sentence that keeps the numbers from being over-read. It differs
         per Suite kind because the two Suites have different confounds, and a

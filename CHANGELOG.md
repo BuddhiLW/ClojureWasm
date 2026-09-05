@@ -9,6 +9,22 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 
 ### Changed
 
+- **The wasm FFI benchmark measures again, and now says what it measures.**
+  `bench/wasm_bench.sh` had been driving `cljw.wasm/load-wasi` + `wasm/fn` —
+  an API that does not exist — so every workload failed its output check and
+  the harness reported SKIP for all six. Ported to the shipped `(wasm/load path
+  opts)` + `(wasm/call m "fn" args…)` surface, given an `--engine=` selector,
+  and its banner corrected: cljw's zwasm default is JIT-first, so the default
+  column was never "interpreter vs wasmtime JIT". First numbers: cljw's
+  embedded zwasm lands **1.4-4.4x wasmtime** on the compute-bound workloads,
+  and the JIT tier is **15.5x** its own interpreter fallback.
+
+- **Benchmark tables and charts are generated from a committed datum.** Each
+  harness writes a `--yaml` measurement file; `bench/gen_cross_table.py`
+  (Markdown) and the new `bench/gen_charts.py` (dependency-free SVG) render
+  from it through a shared domain model, `bench/bench_domain.py`. Numbers from
+  two machines can no longer end up in one table.
+
 - **hive-test trifecta is verified natively on cljw.** A committed
   source-coordinate project runs hive-test's `.cljc` golden, property, and
   mutation facets inside cljw: 100 generated cases and two caught mutants.

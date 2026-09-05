@@ -57,13 +57,13 @@ def main():
         sys.exit("no cw cold data in yaml — nothing to table")
 
     out = [suite.conditions(), "", suite.caveat(), "",
-           f"#### Cold-start wall-clock ({suite.unit}, lower is better)", "",
+           f"#### {suite.mode_label(dom.COLD)} ({suite.unit}, lower is better)", "",
            "\n".join(render_table(suite, dom.COLD))]
 
     # Warm / startup tables appear ONLY when the datum carries that data
     # (compare_langs.sh --both). The default --cold run omits them by design.
     if suite.has(dom.WARM):
-        out += ["", f"#### Warm — startup subtracted ({suite.unit}, lower is better)", "",
+        out += ["", f"#### {suite.mode_label(dom.WARM)} ({suite.unit}, lower is better)", "",
                 "\n".join(render_table(suite, dom.WARM))]
 
     startup_lines = render_startup(suite)

@@ -211,8 +211,9 @@ Then the rest:
 - [`docs/works/collection_performance.md`](./docs/works/collection_performance.md)
   — measured collection performance against JVM Clojure, and the honest split
   between interpreter speed and data-structure speed.
-- [`bench/README.md`](./bench/README.md) — the benchmark catalogue and
-  cross-language cold-start numbers.
+- [`bench/README.md`](./bench/README.md) — the benchmark catalogue, the
+  cross-language cold-start numbers, and the **wasm FFI measurement**: cljw's
+  embedded zwasm engine against wasmtime on the same module.
 
 ## License
 
