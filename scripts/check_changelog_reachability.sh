@@ -23,13 +23,13 @@ if [ ! -f "$CHANGELOG" ]; then
   exit 0
 fi
 
-# Body of the `## [Unreleased]` section, content lines only (blank lines and
-# the heading itself carry no claim).
+# Body of the `## [Unreleased]` section, content lines only. Blank lines and
+# structural headings (including Added/Changed/Fixed) carry no release claim.
 unreleased_body() {
   awk '
     /^## \[Unreleased\]/ { in_section = 1; next }
     /^## / { in_section = 0 }
-    in_section && NF { print }
+    in_section && NF && $0 !~ /^[[:space:]]*#+[[:space:]]/ { print }
   '
 }
 
