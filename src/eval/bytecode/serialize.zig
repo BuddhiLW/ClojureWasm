@@ -77,7 +77,10 @@ const tree_walk = @import("../backend/tree_walk.zig");
 const Function = tree_walk.Function;
 
 pub const MAGIC: [4]u8 = .{ 'C', 'L', 'J', 'W' };
-pub const VERSION: u16 = 9; // v9 (D-563b): op_var_meta — def meta (:doc + :line/:column/:file) rides the wire, fixing the user-AOT docstring loss; v8 (ADR-0174): host-class fqcn identity unification — baked class-value constants carry JVM FQCNs ("java.util.Date", was "Date"/"cljw.java.*"), so ≤v7 artifacts are version-rejected; v7 (ADR-0173 C2'): 4B WireInstr wire + 4B-aligned instr sections + source_file/has_handlers in the chunk + interned-name constant pool (pool_ref) + headerless nested fn-method chunks; v6: rt ns merged into clojure.core (ADR-0171)
+// v10: def operands capture Var constants instead of caller-relative names.
+// v9 added op_var_meta; v8 unified host-class FQCNs; v7 compacted WireInstr
+// and interned the name pool; v6 merged rt into clojure.core.
+pub const VERSION: u16 = 10;
 
 pub const SerializeError = error{
     OutOfMemory,
@@ -630,14 +633,10 @@ fn readValue(ctx: *ReadCtx, r: *ByteReader) DeserializeError!Value {
             // self-recursive `(def map (fn … (map …)))` whose constant
             // pool is read before the chunk's `op_def` runs — or a
             // forward ref to a not-yet-run later chunk. Forward-declare
-            // it: `env.intern` is get-or-create, so the eventual `op_def`
-            // binds this very var, and the captured var_ref points at it.
-            // cljw has no unbound sentinel, so the placeholder root is
-            // nil until the def runs — consistent with any not-yet-def'd
-            // var's nil-root default (ADR-0056 Cycle 1; this also fixes a
-            // latent recursive-fn gap in the `cljw build` embedded-run).
-            const v_ptr = ns.resolve(name_bytes) orelse
-                (env.intern(ns, name_bytes, .nil_val, null) catch return DeserializeError.OutOfMemory);
+            // it without binding its root. The serialized namespace is the
+            // Var's owner, so a referred name must not replace its local Var.
+            const v_ptr = env.internDeclare(ns, name_bytes) catch
+                return DeserializeError.OutOfMemory;
             return Value.encodeHeapPtr(.var_ref, v_ptr);
         },
         .regex => {
@@ -1769,6 +1768,39 @@ test "embedded component table round-trips; chunk + entry readers skip it (ADR-0
     const bytes_empty = try serializeEnvelope(testing.allocator, &.{chunk}, null, &.{}, null, false);
     defer testing.allocator.free(bytes_empty);
     try testing.expectEqual(@as(usize, 0), (try readComponentTable(arena, bytes_empty)).len);
+}
+
+test "restored Var constants declare an unbound local even when the name is referred" {
+    var th = std.Io.Threaded.init(testing.allocator, .{});
+    defer th.deinit();
+    var rt = Runtime.init(th.io(), testing.allocator);
+    defer rt.deinit();
+    const env_mod = @import("../../runtime/env.zig");
+    var env = try env_mod.Env.init(&rt);
+    defer env.deinit();
+    const user_ns = env.current_ns.?;
+    const foreign = try env.intern(user_ns, "target", Value.initInteger(99), null);
+    const owner = try env.findOrCreateNs("restored.owner");
+    _ = try env.referOne(user_ns, owner, "target");
+
+    var source_ns: env_mod.Namespace = .{ .name = "restored.owner" };
+    var source_var: env_mod.Var = .{ .ns = &source_ns, .name = "target" };
+    const constants = [_]Value{Value.encodeHeapPtr(.var_ref, &source_var)};
+    const chunk: BytecodeChunk = .{ .instructions = &.{}, .constants = &constants };
+    const bytes = try serializeChunk(testing.allocator, chunk, 0, null);
+    defer testing.allocator.free(bytes);
+    var af: root_set.AnalysisFrame = undefined;
+    root_set.beginAnalysis(&af, testing.allocator);
+    defer root_set.endAnalysis(&af);
+    const restored = try deserializeChunk(testing.allocator, &rt, &env, bytes, null, false);
+    defer freeChunk(testing.allocator, restored);
+
+    const target = restored.constants[0].decodePtr(*env_mod.Var);
+    try testing.expect(target != foreign);
+    try testing.expectEqual(owner, target.ns);
+    try testing.expectEqual(target, owner.mappings.get("target").?);
+    try testing.expect(!target.bound);
+    try testing.expectEqual(@as(i64, 99), foreign.root.asInteger());
 }
 
 test "every wire ValueTag has BOTH a write and a read arm (symmetry gate)" {

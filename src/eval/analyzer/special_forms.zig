@@ -583,7 +583,7 @@ pub fn analyzeDefmacro(
 
     const n = try arena.create(Node);
     n.* = .{ .def_node = .{
-        .name = name_sym.name,
+        .var_ptr = placeholder_var,
         .value_expr = value_node,
         .is_macro = true,
         .is_private = is_private,
@@ -625,11 +625,9 @@ pub fn analyzeDef(
             break :blk 3;
         },
     };
-    // ADR-0038: pre-register the Var at analyze time so recursive
-    // defns + forward references inside `(do ...)` resolve. Var lands
-    // with placeholder nil; `evalDef` (tree_walk.zig:466) and the VM
-    // op_def arm re-intern with the actual value at runtime. env.intern
-    // is idempotent (env.zig:353-357 updates root in place).
+    // ADR-0038: declare and capture the Var before analyzing its initializer,
+    // so recursive definitions and forward references resolve. Both backends
+    // bind this exact Var even if the caller later changes namespaces.
     const ns = env.current_ns orelse
         return error_catalog.raiseInternal(form.location, "def: no current namespace");
     // ADR-0038 amendment (D-184): declare-if-absent — pre-register so
@@ -719,7 +717,7 @@ pub fn analyzeDef(
     }
     const n = try arena.create(Node);
     n.* = .{ .def_node = .{
-        .name = name_sym.name,
+        .var_ptr = var_ptr,
         .value_expr = value_node,
         .is_dynamic = is_dynamic,
         .is_private = is_private,

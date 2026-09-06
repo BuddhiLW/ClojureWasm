@@ -870,17 +870,16 @@ const Compiler = struct {
 
     fn compileDef(self: *Compiler, n: node_mod.DefNode) Error!void {
         // Emit the value expression first, then `op_def <packed>` where
-        // the low 13 bits index the symbol-name String constant and
+        // the low 13 bits index the analyzed Var constant and
         // the high 3 bits carry the dynamic / macro / private flags
         // (see `opcode.zig` for the layout). The constant-pool ceiling
-        // shrinks from u16 to `DEF_NAME_IDX_MAX` only for def name
+        // shrinks from u16 to `DEF_VAR_IDX_MAX` only for def target
         // slots — call / let / get_var indices keep the full u16.
         // A no-init `(def x)` emits no value and uses op_def_unbound (unbound
         // placeholder, no-clobber); `(def x v)` compiles the value then op_def.
         if (n.has_init) try self.compileNode(n.value_expr);
-        const name_val = try string_mod.alloc(self.rt, n.name);
-        const idx = try self.addConstant(name_val);
-        if (idx > opcode_mod.DEF_NAME_IDX_MAX) return error.TooManyConstants;
+        const idx = try self.addConstant(Value.encodeHeapPtr(.var_ref, n.var_ptr));
+        if (idx > opcode_mod.DEF_VAR_IDX_MAX) return error.TooManyConstants;
         var packed_operand: u16 = idx;
         if (n.is_dynamic) packed_operand |= opcode_mod.DEF_FLAG_DYNAMIC;
         if (n.is_macro) packed_operand |= opcode_mod.DEF_FLAG_MACRO;
@@ -976,8 +975,7 @@ const Compiler = struct {
 const testing = std.testing;
 
 /// Minimal fixture that builds the Runtime + arena needed to call
-/// `compile`. Heap Values allocated during compilation (e.g. the
-/// symbol-name String emitted by `compileDef`) are tracked by
+/// `compile`. Heap Values allocated during compilation are tracked by
 /// `rt.trackHeap` and freed in `rt.deinit`.
 const Fixture = struct {
     threaded: std.Io.Threaded,
@@ -1260,25 +1258,27 @@ test "compile fn* with slot_base > 0 emits a template Function (closure capture 
     try testing.expect(fn_ptr.closure_bindings == null);
 }
 
-test "compile def emits value-expr then op_def with symbol-name String" {
+test "compile def emits value-expr then op_def with the analyzed Var" {
     var f = Fixture.init(testing.allocator);
     defer f.deinit();
 
     const value_expr: Node = .{ .constant = .{ .value = Value.true_val } };
-    const node: Node = .{ .def_node = .{ .name = "hello", .value_expr = &value_expr } };
+    var ns: env_mod.Namespace = undefined;
+    var target: env_mod.Var = .{ .ns = &ns, .name = "hello" };
+    const node: Node = .{ .def_node = .{ .var_ptr = &target, .value_expr = &value_expr } };
     const chunk = try f.compile(&node);
 
-    // op_const true ; op_def <idx-of-"hello"> ; op_ret
+    // op_const true ; op_def <idx-of-Var> ; op_ret
     try testing.expectEqual(@as(usize, 3), chunk.instructions.len);
     try testing.expectEqual(Opcode.op_const, chunk.instructions[0].op());
     try testing.expectEqual(Opcode.op_def, chunk.instructions[1].op());
     try testing.expectEqual(Opcode.op_ret, chunk.instructions[2].op());
 
     const operand = chunk.instructions[1].operand;
-    try testing.expectEqual(@as(u16, 0), operand & ~opcode_mod.DEF_NAME_IDX_MASK);
-    const name_val = chunk.constants[operand & opcode_mod.DEF_NAME_IDX_MASK];
-    try testing.expect(name_val.isString());
-    try testing.expectEqualStrings("hello", string_mod.asString(name_val));
+    try testing.expectEqual(@as(u16, 0), operand & ~opcode_mod.DEF_VAR_IDX_MASK);
+    const var_val = chunk.constants[operand & opcode_mod.DEF_VAR_IDX_MASK];
+    try testing.expectEqual(Value.Tag.var_ref, var_val.tag());
+    try testing.expectEqual(&target, var_val.decodePtr(*env_mod.Var));
 }
 
 test "compile def packs dynamic / macro / private flags into op_def operand" {
@@ -1286,8 +1286,10 @@ test "compile def packs dynamic / macro / private flags into op_def operand" {
     defer f.deinit();
 
     const value_expr: Node = .{ .constant = .{ .value = Value.true_val } };
+    var ns: env_mod.Namespace = undefined;
+    var target: env_mod.Var = .{ .ns = &ns, .name = "foo" };
     const node: Node = .{ .def_node = .{
-        .name = "foo",
+        .var_ptr = &target,
         .value_expr = &value_expr,
         .is_dynamic = true,
         .is_macro = false,
@@ -1296,11 +1298,11 @@ test "compile def packs dynamic / macro / private flags into op_def operand" {
     const chunk = try f.compile(&node);
 
     const operand = chunk.instructions[1].operand;
-    const name_idx = operand & opcode_mod.DEF_NAME_IDX_MASK;
+    const var_idx = operand & opcode_mod.DEF_VAR_IDX_MASK;
     try testing.expectEqual(@as(u16, opcode_mod.DEF_FLAG_DYNAMIC), operand & opcode_mod.DEF_FLAG_DYNAMIC);
     try testing.expectEqual(@as(u16, 0), operand & opcode_mod.DEF_FLAG_MACRO);
     try testing.expectEqual(@as(u16, opcode_mod.DEF_FLAG_PRIVATE), operand & opcode_mod.DEF_FLAG_PRIVATE);
-    try testing.expectEqualStrings("foo", string_mod.asString(chunk.constants[name_idx]));
+    try testing.expectEqual(&target, chunk.constants[var_idx].decodePtr(*env_mod.Var));
 }
 
 test "compile loop* emits initial bindings then body without exit op" {

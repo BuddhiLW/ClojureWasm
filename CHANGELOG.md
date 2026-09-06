@@ -9,6 +9,11 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 
 ### Fixed
 
+- **A `def` inside a function binds the Var declared in that function's
+  namespace**, even when called from another namespace. Both backends retain
+  the analyzed Var identity, including unbound declarations and restored AOT
+  functions. Bytecode format v10 records that identity; rebuild older compiled
+  artifacts. This also fixes the upstream Var watch tests.
 - **`slurp`, `clojure.java.io/reader` and `line-seq` read procfs, sysfs and
   FIFO files to the end.** They returned empty for any file whose reported size
   is 0 but which yields bytes (`(slurp "/proc/loadavg")` was `""`), because the

@@ -2071,13 +2071,14 @@ test "(fn* [x & rest] x) — has_rest is true; params include rest" {
     try testing.expectEqualStrings("rest", v.params[1]);
 }
 
-test "(def x 1) records name + value expr" {
+test "(def x 1) captures the declared Var + value expr" {
     var fix: TestFixture = undefined;
     try fix.init(testing.allocator);
     defer fix.deinit();
 
     const n = try fix.analyzeStr("(def x 1)");
-    try testing.expectEqualStrings("x", n.def_node.name);
+    try testing.expectEqualStrings("x", n.def_node.var_ptr.name);
+    try testing.expectEqual(fix.env.current_ns.?, n.def_node.var_ptr.ns);
     try testing.expect(n.def_node.value_expr.constant.value.tag() == .integer);
 }
 

@@ -851,15 +851,13 @@ fn evalStaticMethodCall(rt: *Runtime, env: *Env, locals: []Value, n: node_mod.In
 }
 
 fn evalDef(rt: *Runtime, env: *Env, locals: []Value, n: node_mod.DefNode) !Value {
-    const ns = env.current_ns orelse
-        return error_catalog.raiseInternal(n.loc, "def: no current namespace");
-    // A no-init `(def x)` interns an UNBOUND placeholder (does not clobber an
-    // existing root — clj parity; leaves `Var.bound` false). `(def x v)`
-    // assigns the value via `intern` (sets `Var.bound`).
-    const var_ptr = if (n.has_init) blk: {
-        const v = try eval(rt, env, locals, n.value_expr);
-        break :blk try env.intern(ns, n.name, v, null);
-    } else try env.internDeclare(ns, n.name);
+    const var_ptr = n.var_ptr;
+    // Evaluate first: a throwing initializer leaves the previous root intact.
+    // A no-init def returns the declared Var without changing its bound state.
+    if (n.has_init) {
+        var_ptr.root = try eval(rt, env, locals, n.value_expr);
+        var_ptr.bound = true;
+    }
     var_ptr.flags.dynamic = n.is_dynamic;
     var_ptr.flags.macro_ = n.is_macro;
     var_ptr.flags.private = n.is_private;

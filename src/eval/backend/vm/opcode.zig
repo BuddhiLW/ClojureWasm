@@ -29,14 +29,13 @@ const TypeDescriptor = @import("../../../runtime/type_descriptor.zig").TypeDescr
 ///                          `Var` Value (analyzer pre-resolves the
 ///                          pointer; the VM decodes and calls
 ///                          `Var.deref`)
-///   - `op_def`             operand = packed `(flags << 13) | name_idx`
+///   - `op_def`             operand = packed `(flags << 13) | var_idx`
 ///                          where the low 13 bits are the constants
-///                          index of the symbol-name `String` Value
-///                          (max `DEF_NAME_IDX_MAX`) and the high
+///                          index of the analyzed `Var` Value
+///                          (max `DEF_VAR_IDX_MAX`) and the high
 ///                          3 bits carry `DEF_FLAG_DYNAMIC /
 ///                          DEF_FLAG_MACRO / DEF_FLAG_PRIVATE`. The
-///                          VM passes the name bytes to `env.intern`
-///                          and stamps the flags on the resulting Var.
+///                          VM binds that Var and stamps its flags.
 ///   - `op_jump` /
 ///     `op_jump_if_false`   operand = signed instruction offset (bitcast to i16)
 ///   - `op_call` /
@@ -217,11 +216,10 @@ pub const Opcode = enum(u8) {
     /// the current ns and pushes nil. (D-235.)
     op_ns_import = 0x25,
 
-    /// `(def x)` no-init: intern an UNBOUND placeholder (operand layout = op_def:
-    /// name-idx + flag bits, but consumes NO stack value). Leaves an existing
-    /// root intact and `Var.bound` false (the unbound sentinel for `bound?` /
-    /// `defonce`). Pushes the Var ref. Distinct opcode because op_def's u16 is
-    /// full (13-bit name-idx + 3 flag bits, no spare bit for has_init).
+    /// `(def x)` no-init: return the captured Var without changing its root
+    /// or bound state. Operand layout = op_def (13-bit Var constant index +
+    /// 3 flag bits), but consumes NO stack value. A separate opcode carries
+    /// has_init because the packed operand has no spare bit.
     op_def_unbound = 0x26,
 
     /// `(set! field v)` on a deftype mutable field (ADR-0104 / D-288).
@@ -561,8 +559,8 @@ pub const Opcode = enum(u8) {
 };
 
 /// `op_def` operand layout — see the Opcode docstring.
-pub const DEF_NAME_IDX_MASK: u16 = 0x1FFF;
-pub const DEF_NAME_IDX_MAX: u16 = DEF_NAME_IDX_MASK;
+pub const DEF_VAR_IDX_MASK: u16 = 0x1FFF;
+pub const DEF_VAR_IDX_MAX: u16 = DEF_VAR_IDX_MASK;
 pub const DEF_FLAG_DYNAMIC: u16 = 1 << 13;
 pub const DEF_FLAG_MACRO: u16 = 1 << 14;
 pub const DEF_FLAG_PRIVATE: u16 = 1 << 15;
