@@ -501,7 +501,7 @@ if [[ -n "$YAML_FILE" ]]; then
       env_os="$(sw_vers -productName 2>/dev/null) $(sw_vers -productVersion 2>/dev/null) ($(sw_vers -buildVersion 2>/dev/null))"
     else
       env_machine="$(cat /sys/devices/virtual/dmi/id/product_name 2>/dev/null || uname -m)"
-      env_cpu="$(sed -n 's/^model name[[:space:]]*: //p' /proc/cpuinfo 2>/dev/null | head -1), $(nproc 2>/dev/null)-core"
+      env_cpu="$(awk -F': *' '/^model name/ {print $2; exit}' /proc/cpuinfo 2>/dev/null), $(nproc 2>/dev/null)-core"
       env_ram="$(awk '/^MemTotal:/ {printf "%d", $2/1048576}' /proc/meminfo 2>/dev/null) GB"
       env_os="$(. /etc/os-release 2>/dev/null && echo "$PRETTY_NAME")"
     fi

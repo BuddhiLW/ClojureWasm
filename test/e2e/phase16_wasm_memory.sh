@@ -24,7 +24,7 @@ out="$("$BIN" "$FIX" 2>&1)" || fail "cljw exited non-zero running $FIX:
 $out"
 
 want() {
-  echo "$out" | grep -qF "$1" || fail "expected '$1' in the probe output, got:
+  grep -qF "$1" <<<"$out" || fail "expected '$1' in the probe output, got:
 $out"
 }
 
@@ -59,7 +59,7 @@ echo "PASS wasm-memory-dtypes -> signedness + unaligned access"
 # (6) Every failure is CATCHABLE and names the fn the user wrote. A NOT-CAUGHT
 #     means the error escaped (catch …); an uncatchable one would have exited
 #     70 above and never reached here.
-echo "$out" | grep -q "NOT-CAUGHT" && fail "a wasm/mem-* error was not raised or not caught:
+grep -q "NOT-CAUGHT" <<<"$out" && fail "a wasm/mem-* error was not raised or not caught:
 $out"
 want "no-memory wasm/mem-size: this module exports no linear memory"
 want "bad-handle wasm/mem-size: the first argument must be a loaded wasm module"
@@ -74,7 +74,7 @@ want "element-range wasm/mem-write!: element 1 is outside this element type's ra
 want "element-fraction wasm/mem-write!: element 0 is not an integer"
 echo "PASS wasm-memory-catchable -> negative offset / overflow / bad element all raise, none panic"
 
-echo "$out" | grep -q "^DONE$" || fail "the probe did not run to completion:
+grep -q "^DONE$" <<<"$out" || fail "the probe did not run to completion:
 $out"
 
 echo

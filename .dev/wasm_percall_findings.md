@@ -33,13 +33,13 @@ zwasm ADR-0209 (`.dev/decisions/0209_percall_latency_bench.md` in the zwasm
 tree; clone at `~/PP/referential-projects/zwasm`) names both. Do not re-report
 them upstream.
 
-- **D-584** dominates on Linux. `computeStackLimit` runs on every JIT
+- **zwasm/D-584** dominates on Linux. `computeStackLimit` runs on every JIT
   invocation, and glibc's `pthread_getattr_np` answers for the process's FIRST
   thread by opening and parsing `/proc/self/maps`. Any other thread answers from
   the thread descriptor. zwasm measures 26.8 us initial thread, 561-578 ns
   worker thread, 3.1-3.4 ns on aarch64-macos. The interpreter caches the value,
   which is why it is thread-indifferent above.
-- **D-585** is the residual. The embedding API resolves the export by name on
+- **zwasm/D-585** is the residual. The embedding API resolves the export by name on
   every call and `findExportFunc` parses the whole module to do it. Linear in
   module size (687-859 ns/KiB upstream). Public issue zwasm#208.
 
@@ -49,8 +49,8 @@ still called at `entry.zig` 248 and 272 and `entry_buffer_write.zig` 86.
 A warning worth repeating, because this session walked into it. ADR-0209 says:
 
 > "A reviewer checking this on Linux alone will find the two paths agree within
-> 2%, which reads as 'the re-parse does not matter'. That agreement is D-584's
-> constant, well over 100x larger, swamping D-585."
+> 2%, which reads as 'the re-parse does not matter'. That agreement is zwasm/D-584's
+> constant, well over 100x larger, swamping zwasm/D-585."
 
 The mirror-image error is just as easy: attributing the whole Linux cost to the
 re-parse because the re-parse is the part you read. Two costs on one path cannot
@@ -61,7 +61,7 @@ be separated by reading either one. Get a number that isolates the candidate.
 Spawn one thread in `main.zig` with an explicit stack size, run the existing
 main body on it, join. The runtime stays SINGLE-THREADED; it just stops being
 thread 1. One spawn at startup, tens of microseconds, once. It buys ~14x on
-every JIT wasm invocation on Linux and costs nothing on macOS, where D-584 does
+every JIT wasm invocation on Linux and costs nothing on macOS, where zwasm/D-584 does
 not exist.
 
 The win is already reachable from Clojure with no cljw change: wrapping
@@ -97,7 +97,7 @@ a full gate.
 ### What it does not fix
 
 Even on a worker thread the JIT is 2.9x the interpreter on a trivial callee.
-That is D-585, untouched by this change. Engine choice stays shape-dependent:
+That is zwasm/D-585, untouched by this change. Engine choice stays shape-dependent:
 the JIT wins 15.5x on compute-in-wasm (`bench/wasm_jit_vs_interp.sh`) and loses
 on crossing-heavy work at any thread. A single default cannot serve both, which
 is the open question in `[CLJW-WASM-ENGINE-DEFAULT]`.

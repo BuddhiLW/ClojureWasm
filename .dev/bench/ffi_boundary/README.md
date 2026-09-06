@@ -22,7 +22,7 @@ separates "the crossing is expensive" from "the loop is expensive".
     wasm/call :engine interp          392 ns    (2.1x a Clojure call)
     wasm/call :engine auto (JIT)   18,875 ns    (48x the interp path)
 
-The 18.9 us is not the cost of crossing. It is zwasm D-584: `computeStackLimit`
+The 18.9 us is not the cost of crossing. It is zwasm/D-584: `computeStackLimit`
 runs on every JIT invocation, and on Linux/glibc on the INITIAL thread glibc
 answers by opening and parsing `/proc/self/maps`. Confirmed with zwasm's own
 runner on this box (`zig build bench-latency`): `stack_limit_query_ns` 26,262
@@ -31,7 +31,7 @@ interpreter caches the same value, which is why it wins here.
 
 Do not re-derive this from the source. An earlier pass read the call graph, found
 `findExportFunc` re-parsing the module three times per call, and named that as
-the cause. It is real (zwasm D-585) but sits in the ~1.2 us remainder. See hive
+the cause. It is real (zwasm/D-585) but sits in the ~1.2 us remainder. See hive
 memory 20260905010714-4c94602c.
 
 ## The engine x thread matrix, measured 2026-09-05
@@ -48,14 +48,14 @@ process. Run it directly: `./zig-out/bin/cljw .dev/bench/ffi_boundary/engine_thr
 Three readings, and each names a different fix:
 
 1. **The 14x JIT penalty is entirely the initial thread.** Nothing else differs
-   between rows 1 and 2. This is D-584 and it is dodgeable without touching
+   between rows 1 and 2. This is zwasm/D-584 and it is dodgeable without touching
    zwasm: run the invocation on any thread that is not the process's first one.
    `@(future ...)` already does it today, measured at 12.5x on a separate run.
 2. **The interpreter is thread-indifferent** (399 vs 413), which confirms it
    caches the stack limit rather than re-querying per call.
 3. **Even on a worker thread the JIT is 2.9x the interpreter** on a trivial
-   callee. That residual is D-585, the per-call module re-parse, now visible
-   because D-584 has stopped swamping it.
+   callee. That residual is zwasm/D-585, the per-call module re-parse, now visible
+   because zwasm/D-584 has stopped swamping it.
 
 So the engine choice and the thread choice are independent levers, and the right
 engine still depends on call shape: the JIT wins 15.5x on compute-in-wasm
