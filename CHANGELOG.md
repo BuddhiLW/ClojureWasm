@@ -23,6 +23,11 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
   The known engine gaps live in one table (`runtime/cljw/wasm/gaps.zig`); the
   default engine stays `:auto`, and the `wasm/load` docstring states the
   per-call crossing cost of each engine (ADR-0196).
+
+## [1.14.1] - 2026-09-06
+
+### Changed
+
 - **`cljw` runs the program on a runtime thread it spawns, never on the
   process's initial thread** (ADR-0195). On Linux the JIT engine's per-call
   stack query is ~26 us on the initial thread and under 1 us on any other, so
