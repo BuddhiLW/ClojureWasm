@@ -7,6 +7,8 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 
 ## [Unreleased]
 
+## [1.14.2] - 2026-09-06
+
 ### Added
 
 - **`(wasm/engine handle)`** returns the engine selection a handle was loaded
