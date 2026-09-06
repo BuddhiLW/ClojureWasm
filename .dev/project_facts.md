@@ -247,6 +247,21 @@ the ADR); debt D-036 (Phase 16 inline-vs-Pod decision); ROADMAP
   - Earlier entries in this history keep their original wording: they record
     where the tag was pushed and how the two repos related **at the time**, which
     remains true of those dates.
+- **2026-09-05 (user chat — the pin MOVES; "v2.5.0 is FINAL" is retired).**
+  **Verbatim**: "unpin from v2.5.0 - use latest". The 2026-08-12 entry's
+  substance (cljw embeds zwasm v2 through the `build.zig.zon` tag pin, the
+  co-development protocol is over) is unchanged; what changes is the reading
+  that v2.5.0 would be this fork's last pin. The pin now **tracks zwasm's
+  latest stable release on user direction**: a bump is a user act recorded
+  here, never taken by the loop on its own. First such bump: **v2.6.0**
+  (`3831e68b`), 2026-09-05. Per bump the loop re-verifies the embedding
+  surface (ReleaseSafe `-Dwasm` build, all `phase16_wasm_*` e2e, the full
+  gate), adapts any embedding-API delta in `src/runtime/cljw/wasm/` (here:
+  zwasm #257's `StdinSource`), and appends a § History entry to
+  `.dev/zwasm_capabilities.md`, whose FROZEN status is replaced by a pin-record
+  status. The 2026-06-05 finding-handling rule stands in its 2026-08-12 form:
+  a zwasm-side issue is an ordinary upstream report, never worked around by
+  editing zwasm; a cljw-side issue gets a real fix.
 
 ---
 

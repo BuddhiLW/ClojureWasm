@@ -9,6 +9,13 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 
 ### Changed
 
+- **The embedded Wasm engine is zwasm v2.6.0** (was v2.5.0). No change to
+  `wasm/load`, `wasm/call` or `wasm/run`: the one embedding-API difference
+  (zwasm #257 widened the captured-run stdin type) is absorbed internally, and
+  `:stdin` still takes a string. The per-call JIT cost measured in
+  `.dev/wasm_percall_findings.md` is unchanged by this bump; it is addressed
+  separately.
+
 - **The wasm FFI benchmark measures again, and now says what it measures.**
   `bench/wasm_bench.sh` had been driving `cljw.wasm/load-wasi` + `wasm/fn` —
   an API that does not exist — so every workload failed its output check and
