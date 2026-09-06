@@ -1,6 +1,6 @@
-;; Babashka config for the DEV TOOLING only (scripts/dev_repl.clj). ClojureWasm
-;; itself is a Zig project — nothing in src/ or the gate depends on this file or
-;; on bb being installed.
+;; Babashka config for Clojure-native developer and differential tooling.
+;; ClojureWasm itself remains a Zig project; bb supervises processes that cljw
+;; cannot spawn and shares protocol/domain namespaces with cljw through .cljc.
 ;;
 ;; `scripts` is on the path so `scripts/dev/*.cljc` resolves the same way under
 ;; bb as it does under cljw (`cljw -cp scripts`), which is what lets the nREPL

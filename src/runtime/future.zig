@@ -102,6 +102,20 @@ pub const Future = extern struct {
 /// promptly. Threadlocal: each worker sees only its own future.
 pub threadlocal var current_future: ?*Future = null;
 
+/// Thread-local execution state displaced while an executor runs a pending
+/// Future.  CallerRunsPolicy can execute on a thread that is itself evaluating
+/// (or even running another Future), so the prior slots must be restored rather
+/// than blindly cleared as a dedicated worker does.
+pub const PendingExecutionScope = struct {
+    previous_future: ?*Future,
+    previous_budget: ?*eval_budget.EvalBudget,
+
+    pub fn leave(self: PendingExecutionScope) void {
+        current_future = self.previous_future;
+        eval_budget.current = self.previous_budget;
+    }
+};
+
 /// The latch a blocking primitive on THIS worker waits on so a `future-cancel`
 /// wakes it immediately, or null on the main thread / a non-worker thread.
 ///
@@ -126,18 +140,10 @@ pub fn cancelRequested() bool {
     return f.state == .cancelled;
 }
 
-/// Spawn a worker thread to run `thunk`; return a pending Future. `loc` is
-/// accepted for surface symmetry but unused — a thrown thunk is caught on the
-/// worker and re-raised at deref time with a default location (D-115).
-pub fn alloc(rt: *Runtime, env: *Env, thunk: Value, loc: SourceLocation) !Value {
-    _ = loc;
+fn allocCell(rt: *Runtime, env: *Env, thunk: Value) !Value {
     const cell = try rt.gpa.create(FutureCell);
     cell.* = .{};
     const f = rt.gc.alloc(Future) catch |e| {
-        // No Future to own the cell yet → free it here. Past this point the
-        // Future owns `cell`; the finaliser frees it on sweep, so no other path
-        // frees it (a failed pin / spawn just leaves the Future as garbage,
-        // swept later, finaliser-freeing the cell — no double free).
         rt.gpa.destroy(cell);
         return e;
     };
@@ -147,12 +153,79 @@ pub fn alloc(rt: *Runtime, env: *Env, thunk: Value, loc: SourceLocation) !Value 
         .rt = rt,
         .env = env,
         .cell = cell,
-        // Capture on the SPAWNER's thread: the budget follows the work.
         .budget = eval_budget.inherit(),
     };
     const fut_val = Value.encodeHeapPtr(.future, f);
-    // Pin so the worker's write target survives even when no deref'er holds it.
-    try rt.gc.pin(fut_val);
+    rt.gc.pin(fut_val) catch |e| {
+        if (f.budget) |b| b.unref();
+        f.budget = null;
+        return e;
+    };
+    return fut_val;
+}
+
+/// Allocate a Future whose producer is an executor rather than a newly spawned
+/// thread.  The callable is retained in `thunk`, the spawner's eval budget is
+/// retained in `budget`, and the Future remains pinned until exactly one of
+/// `complete`, `completeError`, or `discardPending` releases producer ownership.
+pub fn allocPending(rt: *Runtime, env: *Env, callable: Value) !Value {
+    return allocCell(rt, env, callable);
+}
+
+/// Install a pending Future as the current unit of work.  This makes the same
+/// cooperative cancellation and inherited-budget paths available to pool work
+/// as to an ordinary `(future ...)`.  Pair with `scope.leave()` before settling.
+pub fn enterPending(v: Value) PendingExecutionScope {
+    std.debug.assert(v.tag() == .future);
+    const f = v.decodePtr(*Future);
+    const scope = PendingExecutionScope{
+        .previous_future = current_future,
+        .previous_budget = eval_budget.current,
+    };
+    current_future = f;
+    eval_budget.current = f.budget;
+    return scope;
+}
+
+fn settlePending(v: Value, state: FutureState, value: Value) void {
+    std.debug.assert(v.tag() == .future);
+    const f = v.decodePtr(*Future);
+    io_default.lockMutex(&f.cell.mutex);
+    if (f.state == .pending) {
+        f.cached = value;
+        f.state = state;
+    }
+    f.thunk = .nil_val;
+    io_default.unlockMutex(&f.cell.mutex);
+    f.cell.settled.signal();
+    if (f.budget) |b| b.unref();
+    f.budget = null;
+    _ = f.rt.gc.unpin(v);
+}
+
+/// Publish a successful executor result.  Cancellation wins the state race;
+/// producer ownership is still released.
+pub fn complete(v: Value, value: Value) void {
+    settlePending(v, .realised_value, value);
+}
+
+/// Publish an executor error value marshalled by `worker_error.capture`.
+pub fn completeError(v: Value, err_value: Value) void {
+    settlePending(v, .realised_error, err_value);
+}
+
+/// Release a queued Future that was cancelled before its callable started.
+pub fn discardPending(v: Value) void {
+    settlePending(v, .realised_error, .nil_val);
+}
+
+/// Spawn a worker thread to run `thunk`; return a pending Future. `loc` is
+/// accepted for surface symmetry but unused — a thrown thunk is caught on the
+/// worker and re-raised at deref time with a default location (D-115).
+pub fn alloc(rt: *Runtime, env: *Env, thunk: Value, loc: SourceLocation) !Value {
+    _ = loc;
+    const fut_val = try allocCell(rt, env, thunk);
+    const f = fut_val.decodePtr(*Future);
     // Teardown guard (ADR-0176): account the worker BEFORE spawn so the exit
     // boundary sees it even while the thread is still starting up.
     root_set.noteWorkerSpawned();

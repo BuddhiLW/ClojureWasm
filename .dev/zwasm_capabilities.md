@@ -2,8 +2,9 @@
 
 > **The record of what the zwasm we embed offers, and what cljw adopted.**
 > cljw embeds **zwasm v2** (F-001, unavoidable). The dep is a **tag pin** —
-> **v2.5.0** (see § Pin), pinned 2026-08-12, and this is cljw's **final** pin.
-> Prior pins: v2.4.1 (2026-08-04) the two cljw-found
+> **v2.6.0** (see § Pin), pinned 2026-09-05 by user direction.
+> Prior pins: v2.5.0 (2026-08-12) full WASI 0.3 coverage + the `libzwasm.a`
+> C-API symbols, v2.4.1 (2026-08-04) the two cljw-found
 > component/output fixes, v2.4.0 (2026-08-03) the external-consumer release,
 > v2.3.0 (2026-07-17) the WASI-0.3.0-official inventory sweep, v2.2.1
 > (2026-07-16) the binary-size campaign, v2.2.0 (`cf5d20d7`, 2026-07-09)
@@ -11,35 +12,48 @@
 > default** (`.auto`, D-488 discharged); the north-star step it never reached is
 > components-through-the-JIT (zwasm-side, D-500).
 
-## Status of this file: FROZEN (2026-08-12)
+## Status of this file: a pin record, not a watch list (re-opened 2026-09-05)
 
 This ledger existed to answer "what does zwasm have now, and has cljw adopted
-it?" for a **moving** dependency. Both halves of that question are closed:
+it?" for a **moving** dependency that this repo co-developed. That
+relationship ended on 2026-08-12, when zwasm left the `clojurewasm` org for
+its own, <https://github.com/zwasm/zwasm>, under **separate, joint
+maintainership**. The file was FROZEN at the v2.5.0 pin on that basis; the
+"v2.5.0 is final" framing was **retired by user direction on 2026-09-05**
+(F-001 Revision history), when the pin moved to v2.6.0.
 
-- **cljw pins v2.5.0** — upstream's last pin, and this fork's current one. The
-  pin now moves on this fork's schedule, not in lockstep with zwasm.
-- **zwasm left the `clojurewasm` org** on 2026-08-12 for its own org,
-  <https://github.com/zwasm/zwasm>, where it continues under **separate,
-  joint maintainership**. It is no longer a project this repo co-develops.
+What this file is now:
 
-So everything below is a **record of what cljw's final pin embeds**, not a
-watch list. The obligations this file used to carry are retired: there is no
-per-unit refresh duty, no `dogfooding_handover` mailbox (the `from_cljw_NN` /
-`to_cljw_NN` channel was between two repos under one owner and ended with the
-transfer), and no adoption decisions pending. Capability rows are accurate as
-of the dates they carry and are **not** kept current against zwasm's ongoing
-development — read zwasm's own repo for that.
+- **The pin moves on this fork's schedule, by user direction**, not in
+  lockstep with zwasm releases. Each bump appends a § History entry (date,
+  tag, sha, the embedding-API delta, what was re-verified) and updates § Pin.
+- **Not a watch list.** There is no per-unit refresh duty and no
+  `dogfooding_handover` mailbox (the `from_cljw_NN` / `to_cljw_NN` channel was
+  between two repos under one owner and ended with the transfer). A zwasm-side
+  finding is an ordinary upstream report. Capability rows are accurate as of
+  the dates they carry and are **not** kept current against zwasm's ongoing
+  development; read zwasm's own repo for that.
 
-A forker who wants to move to a newer zwasm should treat this as background,
-bump `build.zig.zon` themselves, and re-verify against the five `phase16_wasm_*`
-e2e — the embedding surface cljw actually depends on is narrow (Engine / Module /
-Instance / `runWasmCapturedFull` / `wasi.host.Host`).
+The embedding surface cljw actually depends on is narrow (Engine / Module /
+Instance / `runWasmCapturedFull` / `wasi.host.Host`). A bump is verified
+against the eight `phase16_wasm_*` e2e plus the full gate; the bump recipe is
+under § Pin.
 
 ## Pin
 
-- **TAG PIN — v2.5.0, pinned 2026-08-12. FINAL.** `build.zig.zon`
+- **TAG PIN — v2.6.0, pinned 2026-09-05 (user direction).** `build.zig.zon`
+  `.zwasm` = `.url = "git+…/zwasm.git?ref=v2.6.0#3831e68b"` +
+  `.hash = "zwasm-2.6.0-FT1Fv3i-…"`. One embedding-API delta: zwasm #257
+  widened `runWasmCapturedFull`'s stdin from `?[]const u8` to a `StdinSource`
+  union so a core module can inherit the host's stdin; `engine.zig` maps
+  cljw's `:stdin` string to `.bytes` and its absence to `.none` (behaviour
+  unchanged; `.inherit` deliberately not wired, a sandbox decision). It does
+  NOT fix zwasm/D-584 / zwasm/D-585, the per-call JIT cost recorded in
+  `.dev/wasm_percall_findings.md`. Verified: `zig build -Dwasm
+  -Doptimize=ReleaseSafe` + all eight `phase16_wasm_*` e2e, then the full gate.
+- Prior: **v2.5.0** (2026-08-12). `build.zig.zon`
   `.zwasm` = `.url = "git+…/zwasm.git?ref=v2.5.0#278587f6"` +
-  `.hash = "zwasm-2.5.0-FT1Fv4KP…"`. Brings full **WASI 0.3** coverage (all
+  `.hash = "zwasm-2.5.0-FT1Fv4KP…"`. Brought full **WASI 0.3** coverage (all
   six proposals, 45/45 on the official `wasm32-wasip3` corpus across
   macOS/Linux/Windows) and the 81 declared-but-unexported C-API symbols in
   `libzwasm.a` (zwasm #161). **Neither reaches cljw's embedding surface**:
@@ -87,9 +101,13 @@ Instance / `runWasmCapturedFull` / `wasi.host.Host`).
   only gates what `cljw.wasm/*` can do.
 - Pin-bump (to a newer tag/SHA): `zig fetch "git+https://github.com/zwasm/zwasm.git?ref=<tag>#<SHA>"`
   prints the content hash; hand-edit `.url` + `.hash` + keep `.lazy` (`--save` mangles the
-  entry). No further bump is planned — v2.5.0 is final for this repo.
+  entry). The `#<SHA>` must be the COMMIT the tag points at, not the annotated
+  tag object: `git rev-parse 'vX.Y.Z^{}'` peels it (`zig fetch` rejects the
+  tag object with `NotACommit`). Bumps are user-directed (F-001 Revision
+  history); each one appends a § History entry and re-verifies the eight
+  `phase16_wasm_*` e2e plus the full gate.
 
-## Capability table (frozen; rows accurate as of the dates they carry)
+## Capability table (rows accurate as of the dates they carry)
 
 | Capability                            | zwasm status (as of 2026-06-22)                                                                                                                            | in cljw's tree? | cljw adoption                                                                                                                   | ref          |
 |---------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------|-----------------|---------------------------------------------------------------------------------------------------------------------------------|--------------|
@@ -130,8 +148,10 @@ not (they stayed interp-pinned on the zwasm side, D-500). The record:
    CODEV / F-002). Components stay interp-pinned on the zwasm side (D-500), so the north-star
    "components through the JIT" awaits zwasm's component-on-JIT (Win64 wrapper-thunk gap).
 
-D-036 is the master integration row; D-350 the embedding-API shape; D-488 (DISCHARGED)
-was the `.auto`-default flip; this ledger tracks adoption status per capability.
+D-036 is the remaining JIT-coordination master row; D-350's embedding-API shape is
+DISCHARGED by ADR-0124's explicit command/handle lifecycle split; D-488
+(DISCHARGED) was the `.auto`-default flip. This ledger tracks adoption status per
+capability.
 
 ## Known zwasm blockers on cljw features (read before promising a capability)
 
@@ -259,6 +279,21 @@ have surfaced it.
   directly rather than riding GitHub's transfer redirect (a redirect is only an
   alias until something else claims the old name — the RepoJacking shape). The
   `.hash` is content-addressed and did not change, verified by `zig fetch`
-  against both URLs. This file is FROZEN as of this entry; the co-development
+  against both URLs. This file was FROZEN as of this entry; the co-development
   protocol it used to carry (per-unit refresh, `dogfooding_handover` mailbox)
   is retired with the transfer, since the two repos no longer share an owner.
+
+- **2026-09-05** — **PIN BUMP v2.5.0 → v2.6.0 (`3831e68b`); the "final pin"
+  framing is retired.** User direction: unpin from v2.5.0 and track the latest
+  release (F-001 Revision history, same date). The FROZEN status above is
+  replaced by § Status: the ledger records each pin and its embedding-API
+  delta, with no watch duty. Delta at this bump: zwasm #257's `StdinSource`
+  union on `runWasmCapturedFull` (mapped in `engine.zig`, behaviour
+  unchanged). Not brought: a fix for zwasm/D-584 (`computeStackLimit` per JIT
+  invocation, the 48x per-call cost on Linux) or zwasm/D-585 (export re-resolved
+  per call); `computeStackLimit` is still called per invocation on upstream main.
+  zwasm's ledger ids are always written `zwasm/D-NNN`: bare `D-NNN` is a cljw
+  row (`check_debt_id_refs.sh`), and the two ledgers collide on D-585.
+  Gotcha recorded under § Pin: `zig fetch` wants the peeled commit, not the
+  annotated tag object. Verified: ReleaseSafe `-Dwasm` build, all eight
+  `phase16_wasm_*` e2e, the full gate.

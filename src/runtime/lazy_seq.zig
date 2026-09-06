@@ -257,7 +257,7 @@ pub fn first(rt: *Runtime, env: *env_mod.Env, v: Value) !Value {
         current = try force(rt, env, current);
     }
     return switch (current.tag()) {
-        .list => list_mod.first(current),
+        .list, .cons => list_mod.first(current),
         // Generic seq head: a lazy tail may realize to / be cons'd over a
         // chunked_cons or a compact range (e.g. `(cons x (range n))`), so
         // these are part of the Layer-0 seq-accessor protocol too.
@@ -279,7 +279,7 @@ pub fn rest(rt: *Runtime, env: *env_mod.Env, v: Value) !Value {
         current = try force(rt, env, current);
     }
     return switch (current.tag()) {
-        .list => list_mod.rest(current),
+        .list, .cons => list_mod.rest(current),
         .chunked_cons => try chunked_cons_mod.rest(rt, current),
         .range => try chunked_cons_mod.rest(rt, try range_mod.seqChunk(rt, current)),
         .array_seq => try array_seq_mod.rest(rt, current),
@@ -294,7 +294,7 @@ pub fn rest(rt: *Runtime, env: *env_mod.Env, v: Value) !Value {
 pub fn next(rt: *Runtime, env: *env_mod.Env, v: Value) !Value {
     const tail = try rest(rt, env, v);
     return switch (tail.tag()) {
-        .list => if (list_mod.countOf(tail) > 0) tail else Value.nil_val,
+        .list, .cons => if (list_mod.countOf(tail) > 0) tail else Value.nil_val,
         else => if (tail.isNil()) Value.nil_val else tail,
     };
 }

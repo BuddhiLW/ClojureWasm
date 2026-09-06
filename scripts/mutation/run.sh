@@ -41,6 +41,7 @@ IDS=""
 REV="HEAD"
 OUT_DIR="$REPO_ROOT/.dev/mutation"
 EQUIV_FILE="$REPO_ROOT/.dev/mutation_equivalent.jsonl"
+ALIASES_FILE="$REPO_ROOT/.dev/mutation_id_aliases.jsonl"
 BUILD_ARGS="-Dwasm -Doptimize=Debug"
 # A timeout counts as KILLED.
 PER_MUTANT_TIMEOUT=900
@@ -59,6 +60,7 @@ while [ $# -gt 0 ]; do
         --rev) REV="$2"; shift ;;
         --out) OUT_DIR="$2"; shift ;;
         --equivalent) EQUIV_FILE="$2"; shift ;;
+        --aliases) ALIASES_FILE="$2"; shift ;;
         --build-args) BUILD_ARGS="$2"; shift ;;
         --timeout) PER_MUTANT_TIMEOUT="$2"; shift ;;
         --oracle) ORACLE="$2"; shift ;;
@@ -148,7 +150,7 @@ ALL_MUTANTS="$OUT_DIR/candidates-$STAMP.jsonl"
 IFS=',' read -ra TARGET_LIST <<< "$TARGETS"
 for t in "${TARGET_LIST[@]}"; do
     [ -f "$WORKTREE/$t" ] || { echo "mutation: no such target $t" >&2; exit 2; }
-    ( cd "$WORKTREE" && python3 "$REPO_ROOT/scripts/mutation/mutate.py" list "$t" ) >> "$ALL_MUTANTS"
+    ( cd "$WORKTREE" && python3 "$REPO_ROOT/scripts/mutation/mutate.py" list "$t" --aliases "$ALIASES_FILE" ) >> "$ALL_MUTANTS"
 done
 
 TOTAL=$(wc -l < "$ALL_MUTANTS" | tr -d ' ')
@@ -159,11 +161,16 @@ src, dst, budget, seed = sys.argv[1], sys.argv[2], int(sys.argv[3]), int(sys.arg
 ids = [i for i in sys.argv[5].split(",") if i] if len(sys.argv) > 5 else []
 rows = [json.loads(l) for l in open(src) if l.strip()]
 if ids:
-    by_id = {r["id"]: r for r in rows}
+    by_id = {}
+    for row in rows:
+        for ident in [row["id"], *row.get("aliases", [])]:
+            if ident in by_id and by_id[ident]["id"] != row["id"]:
+                raise SystemExit("ambiguous mutant id: " + ident)
+            by_id[ident] = row
     missing = [i for i in ids if i not in by_id]
     if missing:
         raise SystemExit("mutants no longer present (did the file change?): " + ", ".join(missing))
-    rows = [by_id[i] for i in ids]
+    rows = [dict(by_id[i], selected_id=i) for i in ids]
     budget = 0
 if budget and len(rows) > budget:
     rows = random.Random(seed).sample(rows, budget)

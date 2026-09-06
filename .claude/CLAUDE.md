@@ -88,23 +88,24 @@ preserved), and `main` is the working branch:
 
 ## Language policy
 
-Public project. **English by default** for code, comments, identifiers,
-commit messages, README, ROADMAP, ADRs, `.dev/`, `.claude/`, all
-configuration. **Japanese** for chat replies, `private/notes/<task>.md`
-per-task notes, and (when re-activated) `docs/ja/learn_clojurewasm/NNNN_*.md`
-learning narratives. The per-chapter cadence is currently **dormant**
-per ADR-0025; existing chapters live read-only under
-[`docs/ja/archive/`](../docs/ja/archive/).
+Public project, **English everywhere**: code, comments, identifiers, commit
+messages, chat replies, `private/notes/<task>.md`, README, ROADMAP, ADRs,
+`.dev/`, `.claude/`, configuration.
 
-Don't mix Japanese into English docs. In `docs/ja/`, body is Japanese;
-code blocks keep their original English identifiers.
+Japanese was the original author's working language. This fork's maintainer
+does not read it, so as of 2026-09-04 the Japanese policy is retired: the
+`outputStyle: "Japanese"` setting is gone from `.claude/settings.json`, and
+per-task notes are written in English.
 
-Chat replies default to Japanese via the project output style
-[`.claude/output_styles/japanese.md`](../.claude/output_styles/japanese.md)
-(activated by `outputStyle: "Japanese"` in `.claude/settings.json`). That
-single setting is sufficient — the redundant SessionStart re-injection was
-removed. To work in another language, override `outputStyle` per-machine in
-`.claude/settings.local.json` (gitignored); code / commits / docs stay English.
+`docs/ja/archive/` stays as it is. It is chaploud's authored work, the
+per-chapter cadence is dormant per ADR-0025, and archived material is not
+retranslated.
+
+### Writing style
+
+No em-dashes, no `...` ellipsis character, no LLM padding. Use a comma, a
+colon, parentheses, or a full stop. State the fact and stop. Long rationale
+goes in an ADR or hive memory, not inline in a README.
 
 ## Working agreement
 
@@ -364,10 +365,10 @@ Then:
 **Step 7 — Per-task note** (written from hot context)
 
 Copy `.claude/skills/code_learning_doc/TEMPLATE_TASK_NOTE.md` to
-`private/notes/<phase>-<task>.md`. Fill in: 一行サマリ / 詰まった
-ポイント (1-3 個) / 教科書との対比 (Step 0 survey の要約) /
-設計判断 / 章を書くときに必ず触れる点. Gitignored. Then immediately
-begin the next task's Step 0.
+`private/notes/<phase>-<task>.md`. Fill in, in English: summary /
+what was non-obvious (1-3 items) / comparison against the textbook
+codebases (the Step 0 survey, condensed) / design decisions / what to cite
+later. Gitignored. Then immediately begin the next task's Step 0.
 
 ### When the active work unit completes (gap-area model, ADR-0142)
 

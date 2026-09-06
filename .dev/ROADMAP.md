@@ -1041,7 +1041,7 @@ audit trail, not as a forward-looking instruction.
 | 16    | **Wasm/edge-native** BUILT (gap area II) · ClojureScript→JS = future                          | component build/run/require ship (`cljw.wasm/*`); CLJS→JS genuinely unbuilt                                                                                       |      |
 | 17    | **VM perf: fusion → JIT** PARTIAL (gap area III)                                               | superinstruction/fusion slice landed (D-386 / O-018/019/021/023); narrow ARM64 JIT = milestone M                                                                   |      |
 | 18    | math + module/deps DONE · **C FFI** = future                                                   | `clojure.math` + deps.edn ship; C FFI (`dlopen`/libffi) genuinely unbuilt                                                                                          |      |
-| 19    | **Wasm/edge-native** cont. — WIT auto-binding (gap area II)                                    | component require BUILT; gap = WIT marshalling (D-404) + zwasm integration shape (D-036/D-350)                                                                     |      |
+| 19    | **Wasm/edge-native** cont. — WIT auto-binding (gap area II)                                    | component require BUILT; gap = WIT marshalling (D-404); command/handle embedding shape settled by ADR-0124/D-350                                                   |      |
 | 20    | **broad JIT** = future (distal; gated on gap-area-III fusion outcome)                           | narrow ARM64 JIT (milestone M) is the near-term scope; broad JIT decided after fusion lands                                                                        |      |
 
 ### 9.0 Completion-grade gap-area model (ADR-0142 / F-015 / D-440)
@@ -1081,8 +1081,9 @@ in ADRs / debt rows / overlays still resolve while R4/R5 rewrite them at source)
   (gated, engine correct without them): D-244 #4a' auto-collect, D-245 Option C
   blocking monitor.
 - **(II) Wasm / edge-native** — `cljw.wasm/*` component build/run/require BUILT
-  (`src/runtime/cljw/wasm/`, embeds zwasm v2 per F-001). Gaps: WIT param marshalling
-  (**D-404**), zwasm integration finished-form (**D-036 / D-350 / D-039**).
+  (`src/runtime/cljw/wasm/`, embeds zwasm v2 per F-001). Gap: WIT param marshalling
+  (**D-404**). The core command/handle shape and I/O responsibility split are
+  settled (**ADR-0124 / D-350 / D-039**); D-036 retains only JIT coordination.
 - **(III) VM perf (fusion → JIT)** — arith/compare-branch superinstructions +
   reduce/lazy-seq fusion landed (**D-386 / O-018/019/021/023**). Gaps: remaining
   fusion surface; **narrow ARM64 JIT (F-010 milestone M)** → broad JIT go/no-go
@@ -1525,10 +1526,12 @@ surface}.zig`, embedding zwasm v2 (`@import("zwasm")`, F-001 — SHA-pinned dep,
 interp-only). e2e `phase16_wasm_{run,component,ffi,require_component}.sh` (real,
 build `-Dwasm`). Gated `-Dwasm` opt-in by design (lazy dep), NOT unimplemented.
 
-**Gaps**: WIT param-type marshalling raises `feature_not_supported`
-(`component.zig`) for some types → **D-404** (full WIT↔EDN table); zwasm
-integration finished-form → **D-036 / D-350 / D-039** (responsibility split,
-embedding shape). Entry facts: F-001 (zwasm unavoidable) · F-004 · F-006 · F-008
+**Gap**: WIT param-type marshalling raises `feature_not_supported`
+(`component.zig`) for some types → **D-404** (full WIT↔EDN table). The integration
+finished form is settled: persistent core-library handles, one-shot captured WASI
+commands, and persistent WASI components (**ADR-0124 / D-350**); cw Tier-1 I/O
+and zwasm WASI remain separate (**D-039**). D-036 retains only JIT coordination.
+Entry facts: F-001 (zwasm unavoidable) · F-004 · F-006 · F-008
 (zwasm v2 spec review). Consult zwasm `docs/zig_api_design.md` +
 `docs/consuming_prerelease_zwasm.md` (the SHA-pin procedure).
 
@@ -1569,8 +1572,8 @@ work, low priority.
 
 **Status: component require BUILT** (see §9.18). **Gap**: full WIT auto-binding
 (`(wasm/component "x.wasm")` → bindgen → Clojure namespace) — some WIT param
-marshalling is fixture-blocked → **D-404**; the zwasm integration shape is
-**D-036 / D-350**. This is the same Wasm/edge-native gap area as §9.18.
+marshalling is fixture-blocked → **D-404**. The zwasm embedding shape is settled
+by **ADR-0124 / D-350**. This is the same Wasm/edge-native gap area as §9.18.
 
 ### 9.22 broad JIT = future bucket (formerly "Phase 20"; distal)
 

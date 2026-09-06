@@ -39,7 +39,7 @@
 # accepted_divergences.md two-way classification; [pending] is the in-push
 # transient only).
 #
-# Methodology (inherited from scripts/clj_diff_sweep.sh — see its header):
+# Methodology (inherited from scripts/clj_diff_sweep.clj — see its header):
 #   - clj runs ONCE per batch: requires prepended (no stdout line), each expr
 #     try/prn-wrapped (1 output line each, errors → `<clj-error> Class`),
 #     `timeout 60` + `-J-Xmx2g` (the 2026-06-12 OOM backstop). Bound every

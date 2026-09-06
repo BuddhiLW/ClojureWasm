@@ -13,7 +13,7 @@ fail() { echo "FAIL $1" >&2; exit 1; }
 
 # Portable bounded run: GNU `timeout`, else coreutils `gtimeout`, else
 # unbounded (hosted mac runners ship neither; same pattern as
-# scripts/check_corpus_regression.sh).
+# scripts/corpus_regression.clj).
 run_bounded() {
     local secs="$1"; shift
     if command -v timeout >/dev/null 2>&1; then timeout "$secs" "$@"

@@ -44,6 +44,7 @@ const SourceLocation = @import("error/info.zig").SourceLocation;
 pub const FQCN = "java.lang.Thread";
 
 pub const RunState = enum(u8) { unstarted = 0, running = 1, done = 2 };
+pub const NativeEntry = *const fn (*anyopaque, bool) void;
 
 /// The blocking join cell (mutex + condition), `rt.gpa`-allocated at
 /// construction, freed by the host_instance finaliser. Same shape as
@@ -71,6 +72,12 @@ pub const ThreadState = struct {
     /// The eval budget inherited from the spawner at `.start` (D-571), or
     /// null. The worker adopts it; the reference drops on worker exit.
     budget: ?*eval_budget.EvalBudget = null,
+    /// Optional runtime-service entry.  A host ThreadFactory still creates the
+    /// actual Thread object (and therefore controls its name/daemon policy),
+    /// then the service attaches its loop before `.start`.  `registered` tells
+    /// the entry whether this OS thread joined the GC root registry.
+    native_entry: ?NativeEntry = null,
+    native_context: ?*anyopaque = null,
 };
 
 /// The Thread object the CURRENT OS thread is running as: set by `worker`
@@ -128,6 +135,19 @@ pub fn isThread(v: Value) bool {
     if (v.tag() != .host_instance) return false;
     const fq = host_instance.asHostInstance(v).descriptor.fqcn orelse return false;
     return std.mem.eql(u8, fq, FQCN);
+}
+
+/// Attach a native runtime-service body to an unstarted Thread.  Used by the
+/// executor adapter so caller-supplied ThreadFactory objects create the real
+/// workers rather than being accepted and ignored.
+pub fn attachNativeEntry(thread_val: Value, entry: NativeEntry, context: *anyopaque, loc: SourceLocation) !void {
+    const st = stateOf(thread_val);
+    io_default.lockMutex(&st.cell.mutex);
+    defer io_default.unlockMutex(&st.cell.mutex);
+    if (st.run_state != .unstarted)
+        return error_catalog.raise(.thread_already_started, loc, .{ .op = "attach executor worker" });
+    st.native_entry = entry;
+    st.native_context = context;
 }
 
 /// `.start` — spawn the detached worker. Second start (or start of a
@@ -202,6 +222,12 @@ fn worker(thread_val: Value) void {
         const w = &fw.interface;
         w.print("Exception in thread \"{s}\" worker registration refused (thread cap); body not run\n", .{st.name}) catch {};
         w.flush() catch {};
+        // A runtime service still needs its non-heap lifecycle bookkeeping
+        // (live-worker decrement / termination edge) even though its body must
+        // not run on an unregistered mutator.
+        if (st.native_entry) |entry| entry(st.native_context.?, false);
+    } else if (st.native_entry) |entry| {
+        entry(st.native_context.?, true);
     } else if (st.rt.vtable) |vt| {
         if (vt.callFn(st.rt, st.env, st.thunk, &.{}, .{})) |_| {
             // A thread's return value is discarded (JVM Runnable.run is void).

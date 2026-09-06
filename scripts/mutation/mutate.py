@@ -66,6 +66,9 @@ SKIP_LINE = re.compile(
     re.VERBOSE,
 )
 
+FN_DECL = re.compile(r"\bfn\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(")
+ALIAS_FIELDS = ("scope", "op", "before", "after")
+
 
 def mask_literals(line: str) -> str:
     """Replace string/char literal CONTENT with placeholders of equal length, so
@@ -111,11 +114,48 @@ def in_test_block(lines, idx: int) -> bool:
     return False
 
 
+def enclosing_function(lines, idx: int) -> str:
+    """Return stable function anchor for a source line.
+
+    Walking backward with inverse brace depth finds function whose body owns
+    the line without making physical line number or file path part of identity.
+    """
+    depth = 0
+    for i in range(idx, -1, -1):
+        masked = mask_literals(lines[i])
+        if i != idx:
+            depth += masked.count("}") - masked.count("{")
+        match = FN_DECL.search(masked)
+        if match and depth <= 0:
+            return match.group(1)
+    return "<top-level>"
+
+
+def attach_aliases(mutants, aliases_path: str):
+    """Attach retired IDs to their relocation-stable mutant locator."""
+    if not aliases_path:
+        return mutants
+    with open(aliases_path, "r", encoding="utf-8") as fh:
+        aliases = [json.loads(line) for line in fh if line.strip() and not line.lstrip().startswith("#")]
+    for alias in aliases:
+        matches = [
+            mutant
+            for mutant in mutants
+            if all(mutant[field] == alias[field] for field in ALIAS_FIELDS)
+        ]
+        if len(matches) > 1:
+            raise SystemExit(f"mutation alias {alias['id']} is ambiguous")
+        if matches:
+            matches[0].setdefault("aliases", []).append(alias["id"])
+    return mutants
+
+
 def enumerate_mutants(path: str):
     with open(path, "r", encoding="utf-8") as fh:
         lines = fh.read().split("\n")
 
     mutants = []
+    identity_counts = {}
     for idx, raw in enumerate(lines):
         if not raw.strip() or SKIP_LINE.match(raw):
             continue
@@ -128,18 +168,26 @@ def enumerate_mutants(path: str):
                 mutated = raw[:start] + _replacement(op_name, m, repl) + raw[end:]
                 if mutated == raw:
                     continue
-                ident = hashlib.sha1(
-                    f"{path}:{idx}:{start}:{op_name}".encode()
-                ).hexdigest()[:12]
+                scope = enclosing_function(lines, idx)
+                before = raw.strip()[:120]
+                after = mutated.strip()[:120]
+                # IDs are replay handles, so they must survive a function moving
+                # to another line or split file. Exact duplicate mutations inside
+                # one function receive a deterministic occurrence suffix.
+                identity = f"{scope}:{op_name}:{before}:{after}"
+                occurrence = identity_counts.get(identity, 0)
+                identity_counts[identity] = occurrence + 1
+                ident = hashlib.sha1(f"{identity}:{occurrence}".encode()).hexdigest()[:12]
                 mutants.append(
                     {
                         "id": ident,
                         "file": path,
                         "line": idx + 1,
                         "col": start + 1,
+                        "scope": scope,
                         "op": op_name,
-                        "before": raw.strip()[:120],
-                        "after": mutated.strip()[:120],
+                        "before": before,
+                        "after": after,
                     }
                 )
     return mutants
@@ -177,6 +225,7 @@ def main() -> int:
     lst.add_argument("file")
     lst.add_argument("--seed", type=int, default=0)
     lst.add_argument("--limit", type=int, default=0)
+    lst.add_argument("--aliases", default="")
 
     app = sub.add_parser("apply")
     app.add_argument("file")
@@ -185,7 +234,7 @@ def main() -> int:
     args = ap.parse_args()
 
     if args.cmd == "list":
-        mutants = enumerate_mutants(args.file)
+        mutants = attach_aliases(enumerate_mutants(args.file), args.aliases)
         if args.limit and len(mutants) > args.limit:
             random.Random(args.seed).shuffle(mutants)
             mutants = mutants[: args.limit]

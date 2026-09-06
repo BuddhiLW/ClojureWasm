@@ -2,8 +2,8 @@
 paths:
   - "src/**/*.zig"
   - "src/lang/clj/**"
-  - "scripts/clj_diff_sweep.sh"
-  - "scripts/check_corpus_regression.sh"
+  - "scripts/clj_diff_sweep.clj"
+  - "scripts/corpus_regression.clj"
   - "scripts/check_accepted_divergences.sh"
   - ".dev/accepted_divergences.yaml"
   - "test/diff/clj_corpus/**"

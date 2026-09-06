@@ -201,7 +201,13 @@ pub fn run(alloc: std.mem.Allocator, io: std.Io, bytes: []const u8, opts: RunOpt
         opts.argv,
         &out_list,
         &err_list,
-        opts.stdin,
+        // zwasm 2.6.0 (#257) widened fd 0 from `?[]const u8` to a `StdinSource`
+        // union so a core module can INHERIT the host's stdin. cljw's
+        // `(wasm/run … {:stdin "…"})` is a byte slice by contract, so the two
+        // pre-2.6 states map straight across and behaviour is unchanged.
+        // `.inherit` is a new capability, not wired: handing an untrusted guest
+        // the host's terminal is a sandbox decision, not a build fix.
+        if (opts.stdin) |b| .{ .bytes = b } else .none,
         null, // invoke_name → _start / main / first export
         opts.preopens,
         opts.env_keys,

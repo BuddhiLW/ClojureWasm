@@ -24,7 +24,7 @@
 ;;
 ;; It is NOT for running the suites: cljw cold-starts in ~21 ms, which beats any
 ;; warm-image round trip. Run those directly:
-;;     zig-out/bin/cljw -cp test/clj test/clj/run_suites.clj
+;;     zig-out/bin/cljw -cp test/clj:scripts test/clj/run_suites.clj
 ;;
 ;; Usage:
 ;;   bb scripts/dev_repl.clj start|stop|status
@@ -104,7 +104,7 @@
                              " (clojure.test/run-tests '" arg "))"))
                  ;; No ns given: run every suite the way the gate does — one
                  ;; cold cljw process, which is faster than the warm round trip.
-                 (let [r (p/shell {:continue true} bin "-cp" "test/clj" "test/clj/run_suites.clj")]
+                 (let [r (p/shell {:continue true} bin "-cp" "test/clj:scripts" "test/clj/run_suites.clj")]
                    (System/exit (:exit r))))
       (do (println (str/join "\n" ["usage: bb scripts/dev_repl.clj <cmd>"
                                    "  start | stop | status"

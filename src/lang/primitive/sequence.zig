@@ -606,11 +606,11 @@ pub fn consFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation)
         // `.lazy_seq` tail is kept UNFORCED — `(cons x (lazy-seq …))`
         // must not realize the tail, else lazy producers (e.g. iterate)
         // recurse infinitely at cons time (ADR-0054 cycle 1).
-        .list, .cons, .lazy_seq => try list.consHeap(rt, head, tail),
+        .list, .cons, .lazy_seq => try list.consSeqHeap(rt, head, tail),
         else => blk: {
             // Cons over a seq view of the tail (JVM's RT.cons fallback).
             const sv = try seqFn(rt, env, args[1..2], loc);
-            break :blk try list.consHeap(rt, head, sv);
+            break :blk try list.consSeqHeap(rt, head, sv);
         },
     };
 }
@@ -993,8 +993,20 @@ test "cons: prepend onto nil yields one-element list" {
     try fix.init(testing.allocator);
     defer fix.deinit();
     const r = try consFn(&fix.rt, &fix.env, &.{ Value.initInteger(42), Value.nil_val }, .{ .line = 0, .column = 0 });
-    try testing.expect(r.tag() == .list or r.tag() == .cons);
+    try testing.expectEqual(Value.Tag.list, r.tag());
     try testing.expectEqual(@as(i64, 42), list.first(r).asInteger());
+}
+
+test "cons: prepend onto a non-nil seq yields clojure.lang.Cons" {
+    var fix: TestFixture = undefined;
+    try fix.init(testing.allocator);
+    defer fix.deinit();
+    const tail = try list.consHeap(&fix.rt, Value.initInteger(2), .nil_val);
+    const r = try consFn(&fix.rt, &fix.env, &.{ Value.initInteger(1), tail }, .{});
+    try testing.expectEqual(Value.Tag.cons, r.tag());
+    try testing.expectEqual(@as(i64, 1), list.first(r).asInteger());
+    try testing.expectEqual(tail, list.rest(r));
+    try testing.expectEqual(@as(u32, 2), list.countOf(r));
 }
 
 test "empty: vector returns empty vector" {

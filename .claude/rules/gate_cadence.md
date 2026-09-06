@@ -32,8 +32,10 @@ found the cost/risk axis is **unit-vs-e2e, not additive-vs-shared**:
   the only part worth batching.
 
 So the smoke = the fast correctness core (both-backend `zig build test`
-+ zlinter + `build_cljw` + `corpus_regression` + **the changed e2e
-step(s)**). Because it carries the full diff oracle, the smoke
++ zlinter + `build_cljw` + `corpus_regression` + `test_reach`/`e2e_reach`
++ the measured-near-zero static invariants `doc_coverage`, `epipe_head`, and
+`gate_parity` + **the changed e2e step(s)**). Because it carries the full diff
+oracle, the smoke
 **authorises shared-code commits too** — the old "additive vs risky"
 split is retired. Only the full e2e suite is deferred.
 
@@ -139,7 +141,8 @@ run OUTSIDE both gate tiers. Fixed cadence so they cannot silently rot
 chain** — plus on demand after a compat-surface campaign lands.
 
 Stale if: the smoke stops being ≤ ~60s or the full gate's e2e-vs-unit
-cost asymmetry changes (re-measure); a new shared-risk surface the smoke
+cost asymmetry changes (re-measure candidates with `test/run_all.sh --only`);
+a new shared-risk surface the smoke
 core does NOT cover appears (the miss-window grows beyond CLI/REPL/
 filesystem/http/GC e2e — re-scope what the smoke runs); or the batch of
 5 proves wrong in practice.

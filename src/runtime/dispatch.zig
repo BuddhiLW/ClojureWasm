@@ -197,6 +197,29 @@ pub fn dispatchOrNull(
     return try vt.callFn(rt, env, me.method_val, args, loc);
 }
 
+/// Bare host-member dispatch (`(.method receiver ...)`) for runtime services
+/// that must invoke a reified Java method themselves.  Unlike protocol
+/// dispatch, this intentionally ignores the MethodEntry's protocol name: a
+/// method-family marker may be written/imported under either its short or FQCN
+/// spelling, while dot dispatch is defined by the bare member name.
+pub fn dispatchBareOrNull(
+    rt: *Runtime,
+    env: *Env,
+    cs: *CallSite,
+    receiver: Value,
+    method_name: []const u8,
+    args: []const Value,
+    loc: SourceLocation,
+) anyerror!?Value {
+    const td = try resolveDescriptor(rt, receiver);
+    const me = cs.lookupWithCache(td, null, method_name, rt.protocol_generation) orelse return null;
+    if (me.method_val.tag() == .nil) return error_catalog.raise(.feature_not_supported, loc, .{
+        .name = "host method with nil method_val (declare-only)",
+    });
+    const vt = rt.vtable orelse return error.NoVTable;
+    return try vt.callFn(rt, env, me.method_val, args, loc);
+}
+
 fn resolveDescriptor(rt: *Runtime, receiver: Value) anyerror!*const td_mod.TypeDescriptor {
     return if (receiver.tag() == .typed_instance) blk: {
         const inst = receiver.decodePtr(*const td_mod.TypedInstance);

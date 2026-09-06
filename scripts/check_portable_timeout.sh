@@ -21,7 +21,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-EXEMPT='clj_diff_sweep.sh|lib_conformance.sh|extract_core_meta.sh|verify_projects.sh|run_remote_ubuntu.sh|run_gate.sh'
+EXEMPT='lib_conformance.sh|extract_core_meta.sh|verify_projects.sh|run_remote_ubuntu.sh|run_gate.sh'
 
 # Gate-reachable scripts: e2e + scripts named in run_all.sh.
 files=(test/e2e/*.sh)

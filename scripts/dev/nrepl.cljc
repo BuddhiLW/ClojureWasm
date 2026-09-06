@@ -11,9 +11,16 @@
 
 ;; --- the runtime seam -----------------------------------------------------
 (defn connect [host port]
-  #?(:cljw {:sock (cljw.net/connect host port)}
+  #?(:cljw {:sock (cljw.net/connect host port)
+            :request-id (atom 0)
+            :session (atom nil)}
      :default (let [s (java.net.Socket. ^String host ^long port)]
-                {:sock s :in (.getInputStream s) :out (.getOutputStream s)})))
+                (.setSoTimeout s 20000)
+                {:sock s
+                 :in (.getInputStream s)
+                 :out (.getOutputStream s)
+                 :request-id (atom 0)
+                 :session (atom nil)})))
 
 (defn- write-bytes [conn ba]
   #?(:cljw (.write (:sock conn) ba (alength ba))
@@ -30,21 +37,36 @@
 ;; --- the shared protocol loop ---------------------------------------------
 (defn- unsigned [x] (bit-and x 255))
 
-(defn eval-code
-  "Send `code` to the connected nREPL and collect its responses.
+(defn request
+  "Send one string-keyed nREPL request and collect its responses.
    => vector of response maps (string keys, as they arrive on the wire).
-   Reads until the server sends a \"done\" status, so a multi-form input that
-   produces several values is fully drained."
-  [conn code]
-  (let [req (.getBytes (b/encode-dict {"op" "eval" "code" code "id" "1"}) "UTF-8")]
+   A cloned session is attached automatically unless the request names one."
+  [conn msg]
+  (let [id (str (swap! (:request-id conn) inc))
+        session @(:session conn)
+        msg (cond-> (assoc msg "id" id)
+              (and session (not (contains? msg "session")))
+              (assoc "session" session))
+        req (.getBytes (b/encode-dict msg) "UTF-8")]
     (write-bytes conn req)
     (loop [buf [] consumed 0 acc []]
-      (let [chunk (byte-array 8192)
+      ;; cider-nrepl can put a terminal status before a large completion
+      ;; payload in the same socket burst. Match the old proven client window
+      ;; so the whole burst is decoded before the done check.
+      (let [chunk (byte-array 65536)
             n (read-bytes conn chunk)]
         (if (or (nil? n) (<= n 0))
           acc
           (let [buf' (into buf (map unsigned (take n (seq chunk))))
-                r (b/decode-all buf' consumed)
+                r (try
+                    (b/decode-all buf' consumed)
+                    (catch Exception e
+                      (throw
+                       (ex-info "invalid nREPL bencode response"
+                                {:offset consumed
+                                 :buffer-size (count buf')
+                                 :next-bytes (vec (take 48 (drop consumed buf')))}
+                                e))))
                 msgs (first r)
                 acc' (into acc msgs)
                 done? (some (fn [m]
@@ -55,6 +77,44 @@
               acc'
               (recur buf' (second r) acc'))))))))
 
+(defn clone-session!
+  "Clone and retain one nREPL session on `conn`; return its id."
+  [conn]
+  (let [msgs (request conn {"op" "clone"})
+        session (some (fn [m] (get m "new-session")) msgs)]
+    (when-not session
+      (throw (ex-info "nREPL clone returned no session" {:responses msgs})))
+    (reset! (:session conn) session)
+    session))
+
+(defn close-session!
+  "Close the retained session, if any. The TCP connection stays open."
+  [conn]
+  (when-let [session @(:session conn)]
+    (request conn {"op" "close" "session" session})
+    (reset! (:session conn) nil)))
+
+(defn eval-code
+  "Evaluate `code` through the connected nREPL and fully drain responses."
+  [conn code]
+  (request conn {"op" "eval" "code" code}))
+
+(defn response-output
+  "Concatenate stdout/stderr response fragments in wire order."
+  [msgs]
+  (apply str
+         (mapcat (fn [m] (remove nil? [(get m "out") (get m "err")]))
+                 msgs)))
+
+(defn response-error?
+  "True when the server reported an exception or eval-error status."
+  [msgs]
+  (boolean
+   (some (fn [m]
+           (or (some? (get m "ex"))
+               (some (fn [s] (= s "eval-error")) (get m "status"))))
+         msgs)))
+
 (defn print-responses
   "Render responses the way a REPL client should. => true if the server
    reported an evaluation error (so a caller can set its exit code)."
@@ -64,6 +124,6 @@
             (when-let [e (get m "err")] (print e) (flush))
             (when-let [v (get m "value")] (println "value" v))
             (when-let [x (get m "ex")] (println "ex" x))
-            (or failed (some? (get m "ex"))))
+            (or failed (response-error? [m])))
           false
           msgs))

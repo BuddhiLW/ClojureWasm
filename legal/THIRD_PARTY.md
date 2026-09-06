@@ -21,12 +21,10 @@ language lineage separately.
   Pinned to commit `9b4d67b9725e7137ac876cc628fe5dd2ca5a2681`
   (`ref=0.16.x`). Not part of the runtime; it participates in the gate only.
   Source: <https://github.com/kurtwagner/zlinter>.
-  _Known pre-1.0 limitation_: `zlinter` exposes its builder through a top-level
-  `@import("zlinter")` in `build.zig`, which the Zig build graph resolves
-  **eagerly** — so even a plain `zig build` that never runs `lint` fetches it
-  once. Making it lazy needs the dependency to expose a `b.lazyDependency`-able
-  builder (upstream); until then this is an accepted development-time fetch, not
-  a runtime dependency.
+  Resolved only by the lint-only `build-lint.zig` sub-build; the manifest marks
+  it lazy, so plain/default/release builds do not fetch it or its transitive zls
+  tree. `scripts/check_release_deps.sh` pins that boundary with package fetching
+  disabled and fresh caches.
 
 ## Clojure language lineage (EPL, see NOTICE)
 

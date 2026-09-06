@@ -7,9 +7,9 @@
 # launcher.
 #
 # Triggers: pull_request (any target) + push to `main` + manual dispatch.
-# The gate has no external runtime dependency beyond Zig 0.16.0 and python3
-# (preinstalled on GitHub runners); `zig build -Dwasm` fetches the embedded
-# zwasm engine + the zlinter dev-dep from git over the network.
+# The gate provisions pinned Zig 0.16.0 and Babashka; python3 is preinstalled
+# on GitHub runners. `zig build -Dwasm` fetches the embedded zwasm engine +
+# the zlinter dev-dep from git over the network.
 #
 # ONE configuration, everywhere (2026-08-12). PR, push, dispatch and the local
 # `scripts/run_gate.sh` all run the identical full gate, so "green" means the
@@ -138,7 +138,8 @@ jobs:
             ${{ matrix.name }}-zigbuild-${{ hashFiles('build.zig.zon', 'build.zig') }}-
             ${{ matrix.name }}-zigbuild-
 
-      # Gate deps not universally preinstalled: ripgrep (check_debt_id_refs.sh)
+      # Gate deps not universally preinstalled: ripgrep (check_debt_id_refs.sh),
+      # Babashka (native Clojure harness supervision),
       # and, on macOS, bash >= 4 — the macos-15 runner resolves `bash` to the
       # system 3.2, which cannot parse the e2e harness idioms (heredoc inside
       # `$()`, `case` inside `$()`, `declare -A`); 43 gate scripts fail under it
@@ -149,9 +150,36 @@ jobs:
       # yq is listed even though both hosted images ship it: `check_compat_members`
       # exits 1 without it, so relying on the image means the gate is green here
       # for a reason nobody wrote down and red on a developer machine.
-      - name: Install gate deps if missing (ripgrep, yq; bash>=4 on macOS)
+      - name: Install gate deps if missing (bb, ripgrep, yq; bash>=4 on macOS)
         shell: bash
         run: |
+          if ! command -v bb >/dev/null 2>&1; then
+            source .github/versions.lock
+            case "$RUNNER_OS:$RUNNER_ARCH" in
+              Linux:X64)
+                bb_platform=linux-amd64
+                bb_sha="$BABASHKA_LINUX_AMD64_SHA256"
+                ;;
+              macOS:ARM64)
+                bb_platform=macos-aarch64
+                bb_sha="$BABASHKA_MACOS_AARCH64_SHA256"
+                ;;
+              *)
+                echo "::error::unsupported Babashka runner $RUNNER_OS/$RUNNER_ARCH"
+                exit 1
+                ;;
+            esac
+            bb_archive="/tmp/babashka-${BABASHKA_VERSION}.tar.gz"
+            curl -fsSL "https://github.com/babashka/babashka/releases/download/v${BABASHKA_VERSION}/babashka-${BABASHKA_VERSION}-${bb_platform}.tar.gz" -o "$bb_archive"
+            bb_actual=$(shasum -a 256 "$bb_archive" | awk '{print $1}')
+            if [ "$bb_actual" != "$bb_sha" ]; then
+              echo "::error::Babashka checksum mismatch: expected $bb_sha, got $bb_actual"
+              exit 1
+            fi
+            mkdir -p "$HOME/.local/bin"
+            tar -xzf "$bb_archive" -C "$HOME/.local/bin" bb
+            echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          fi
           if [ "$RUNNER_OS" = "Linux" ]; then
             command -v rg >/dev/null 2>&1 || { sudo apt-get update -qq && sudo apt-get install -y -qq ripgrep; }
             command -v yq >/dev/null 2>&1 || { sudo apt-get update -qq && sudo apt-get install -y -qq yq; }
@@ -167,6 +195,7 @@ jobs:
         shell: bash
         run: |
           zig version
+          bb --version
           python3 --version
           rg --version | head -1
           # Check the PATH-resolved bash (what `bash foo.sh` + env-shebang

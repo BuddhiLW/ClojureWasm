@@ -197,15 +197,11 @@ pub fn runSource(
     try stdout.flush();
 }
 
-/// ADR-0005 — `--compare` mode. Runs `source_text` through
-/// both backends via `evaluator.compare`, prints `OK <value>` on
-/// parity (NaN-boxed bit-equal), or `MISMATCH` + both renderings
-/// on divergence (exit 1). Heap-allocated Values compare by
-/// pointer-equality which differs across separately-allocated heap
-/// objects even when the Clojure-level value matches — the
-/// `evaluator.compare` docstring documents this caveat. Adopting a
-/// `Value.eql`-based parity check would widen the comparison; the
-/// gate uses bit-equality today.
+/// ADR-0005 — `--compare` mode. Runs `source_text` through both backends in
+/// fresh Runtime/Env instances, then compares captured stdout plus the rendered
+/// final value or error name. On agreement, emits stdout once followed by
+/// `OK <value>` or `OK ERROR <name>`; on divergence, prints both outcomes and
+/// exits 1.
 pub fn runSourceCompare(
     io: std.Io,
     gpa: std.mem.Allocator,
@@ -214,12 +210,57 @@ pub fn runSourceCompare(
     stderr: *Writer,
     source_text: []const u8,
     source_label: []const u8,
+    load_paths: []const []const u8,
+    fs_jail_root: ?[]const u8,
 ) !void {
-    _ = source_label;
+    _ = stderr;
+
+    const tree_walk_result = try runCompareBackend(io, gpa, arena, source_text, source_label, load_paths, fs_jail_root, .tree_walk);
+    const vm_result = try runCompareBackend(io, gpa, arena, source_text, source_label, load_paths, fs_jail_root, .vm);
+
+    if (compareOutcomesEqual(tree_walk_result, vm_result)) {
+        try stdout.writeAll(tree_walk_result.output);
+        if (tree_walk_result.output.len > 0 and tree_walk_result.output[tree_walk_result.output.len - 1] != '\n')
+            try stdout.writeByte('\n');
+        try stdout.writeAll("OK ");
+        if (tree_walk_result.err) |err_name| {
+            try stdout.print("ERROR {s}", .{err_name});
+        } else {
+            try stdout.writeAll(tree_walk_result.value.?);
+        }
+        try stdout.writeByte('\n');
+        try stdout.flush();
+        return;
+    }
+
+    try stdout.writeAll("MISMATCH\n");
+    try writeCompareOutcome(stdout, "tree_walk", tree_walk_result);
+    try writeCompareOutcome(stdout, "vm", vm_result);
+    try stdout.flush();
+    std.process.exit(1);
+}
+
+const CompareOutcome = struct {
+    output: []const u8,
+    value: ?[]const u8 = null,
+    err: ?[]const u8 = null,
+};
+
+fn runCompareBackend(
+    io: std.Io,
+    gpa: std.mem.Allocator,
+    arena: std.mem.Allocator,
+    source_text: []const u8,
+    source_label: []const u8,
+    load_paths: []const []const u8,
+    fs_jail_root: ?[]const u8,
+    backend: evaluator.BackendChoice,
+) !CompareOutcome {
+    var captured: Writer.Allocating = .init(arena);
 
     var rt = Runtime.init(io, gpa);
     defer rt.deinit();
-    rt.stdout = stdout;
+    rt.stdout = &captured.writer;
 
     var env = try Env.init(&rt);
     defer env.deinit();
@@ -227,44 +268,52 @@ pub fn runSourceCompare(
     var macro_table = macro_dispatch.Table.init(gpa);
     defer macro_table.deinit();
 
-    // `evaluator.compare` swaps the vtable internally — but bootstrap
-    // needs ONE vtable installed first so `bootstrap.loadCore`'s
-    // expand+eval path works. Use tree_walk for bootstrap (matches
-    // production default); compare then re-installs per-run. Shared
-    // one-chain bootstrap (F-009, `bootstrap.setupCore`).
     driver.installVTable(&rt);
     bootstrap.setupCore(arena, &rt, &env, &macro_table) catch |err| {
-        try stderr.print("compare: bootstrap failed: {s}\n", .{@errorName(err)});
-        try stderr.flush();
-        std.process.exit(1);
+        return .{ .output = try captured.toOwnedSlice(), .err = @errorName(err) };
     };
+    rt.load_paths = load_paths;
+    rt.fs_jail_root = fs_jail_root;
+    require_resolver.installChained(&rt);
 
-    const result = evaluator.compare(&rt, &env, &macro_table, arena, source_text);
-    if (result.equal) {
-        const value = result.tree_walk catch unreachable;
-        try stdout.writeAll("OK ");
-        try print.printValue(null, stdout, value);
-        try stdout.writeByte('\n');
-        try stdout.flush();
-        // Exit barrier (ADR-0176): compared source may have spawned workers;
-        // hard-exit if any is live rather than tear down under it (D-548(a)).
-        @import("../runtime/thread.zig").exitBarrier(&rt);
-        return;
+    if (rt.file_var) |fv_opaque| {
+        const fv: *env_mod.Var = @ptrCast(@alignCast(fv_opaque));
+        if (source_label.len > 0 and source_label[0] != '<')
+            fv.root = try string_collection.alloc(&rt, source_label);
     }
 
-    try stdout.writeAll("MISMATCH\n  tree_walk: ");
-    if (result.tree_walk) |v| {
-        try print.printValue(null, stdout, v);
+    evaluator.installBackend(&rt, backend);
+    const result = evaluator.runOnceLabeled(&rt, &env, &macro_table, arena, source_text, source_label, backend);
+    @import("../runtime/thread.zig").exitBarrier(&rt);
+    const output = try captured.toOwnedSlice();
+    if (result) |value| {
+        var rendered: Writer.Allocating = .init(arena);
+        try print.printValue(null, &rendered.writer, value);
+        return .{ .output = output, .value = try rendered.toOwnedSlice() };
     } else |err| {
-        try stdout.print("ERROR {s}", .{@errorName(err)});
+        return .{ .output = output, .err = @errorName(err) };
     }
-    try stdout.writeAll("\n  vm:        ");
-    if (result.vm) |v| {
-        try print.printValue(null, stdout, v);
-    } else |err| {
-        try stdout.print("ERROR {s}", .{@errorName(err)});
+}
+
+fn compareOutcomesEqual(a: CompareOutcome, b: CompareOutcome) bool {
+    if (!std.mem.eql(u8, a.output, b.output)) return false;
+    if (a.err) |a_err| {
+        return if (b.err) |b_err| std.mem.eql(u8, a_err, b_err) else false;
     }
-    try stdout.writeByte('\n');
-    try stdout.flush();
-    std.process.exit(1);
+    if (b.err != null) return false;
+    return std.mem.eql(u8, a.value.?, b.value.?);
+}
+
+fn writeCompareOutcome(stdout: *Writer, label: []const u8, outcome: CompareOutcome) !void {
+    try stdout.print("  {s}: ", .{label});
+    if (outcome.err) |err_name| {
+        try stdout.print("ERROR {s}\n", .{err_name});
+    } else {
+        try stdout.print("{s}\n", .{outcome.value.?});
+    }
+    if (outcome.output.len > 0) {
+        try stdout.print("  {s} stdout:\n", .{label});
+        try stdout.writeAll(outcome.output);
+        if (outcome.output[outcome.output.len - 1] != '\n') try stdout.writeByte('\n');
+    }
 }

@@ -86,7 +86,7 @@ pub fn withMetaFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocat
         .sub_vector => try sub_vector.withMeta(rt, v, m),
         .array_map, .hash_map => try map.withMeta(rt, v, m),
         .hash_set => try set.withMeta(rt, v, m),
-        .list => try list.withMeta(rt, v, m),
+        .list, .cons => try list.withMeta(rt, v, m),
         // A seq is IObj on the JVM (ASeq), so a vector VIEW must round-trip
         // meta as the eager list it replaced did.
         .array_seq => try array_seq.withMeta(rt, v, m),

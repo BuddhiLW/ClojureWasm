@@ -66,7 +66,7 @@ fi
 export CLJW_SKIP_BUILD=1
 
 fails=0
-if bash scripts/check_corpus_regression.sh >/tmp/vmp_corpus.txt 2>&1; then
+if bb scripts/corpus_regression.clj >/tmp/vmp_corpus.txt 2>&1; then
     echo "  corpus                    : ok  ($(tail -1 /tmp/vmp_corpus.txt))"
 else
     echo "  corpus                    : FAIL ($(tail -1 /tmp/vmp_corpus.txt))"; fails=$((fails + 1))

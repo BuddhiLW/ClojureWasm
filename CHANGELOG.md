@@ -7,11 +7,48 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 
 ## [Unreleased]
 
+## [1.14.0] - 2026-09-06
+
 ### Changed
 
-- **Behaviour tests move to a cljw-native tier.** 24 bash e2e scripts that
+- **The embedded Wasm engine is zwasm v2.6.0** (was v2.5.0). No change to
+  `wasm/load`, `wasm/call` or `wasm/run`: the one embedding-API difference
+  (zwasm #257 widened the captured-run stdin type) is absorbed internally, and
+  `:stdin` still takes a string. The per-call JIT cost measured in
+  `.dev/wasm_percall_findings.md` is unchanged by this bump; it is addressed
+  separately.
+
+- **The wasm FFI benchmark measures again, and now says what it measures.**
+  `bench/wasm_bench.sh` had been driving `cljw.wasm/load-wasi` + `wasm/fn` —
+  an API that does not exist — so every workload failed its output check and
+  the harness reported SKIP for all six. Ported to the shipped `(wasm/load path
+  opts)` + `(wasm/call m "fn" args…)` surface, given an `--engine=` selector,
+  and its banner corrected: cljw's zwasm default is JIT-first, so the default
+  column was never "interpreter vs wasmtime JIT". First numbers: cljw's
+  embedded zwasm lands **1.4-4.4x wasmtime** on the compute-bound workloads,
+  and the JIT tier is **15.5x** its own interpreter fallback.
+
+- **Benchmark tables and charts are generated from a committed datum.** Each
+  harness writes a `--yaml` measurement file; `bench/gen_cross_table.py`
+  (Markdown) and the new `bench/gen_charts.py` (dependency-free SVG) render
+  from it through a shared domain model, `bench/bench_domain.py`. Numbers from
+  two machines can no longer end up in one table.
+
+- **hive-test trifecta is verified natively on cljw.** A committed
+  source-coordinate project runs hive-test's `.cljc` golden, property, and
+  mutation facets inside cljw: 100 generated cases and two caught mutants.
+  This uses pinned Git sources for both hive-test and test.check; no Maven JAR
+  enters cljw's source-only dependency closure.
+
+- **Differential and corpus harnesses are Clojure-native.** Babashka now owns
+  process supervision while shared `.cljc` code owns bencode/nREPL exchange.
+  Corpus replay uses one live cljw runtime per corpus and a fresh session per
+  expression; only the CLI-binding corpus uses cljw's CLI context. The old
+  Bash replay/sweep and Python nREPL clients are gone.
+
+- **Behaviour tests move to a cljw-native tier.** 25 bash e2e scripts that
   spent one `cljw` process per assertion became `clojure.test` suites under
-  `test/clj/suites/`, run by cljw itself — 781 process spawns out of the gate,
+  `test/clj/suites/`, run by cljw itself — 803 process spawns out of the gate,
   and the suites re-run over an nREPL with no rebuild. What stays in bash is
   the CLI surface (exit code, stderr, argv) and anything that needs the
   process itself. No runtime behaviour changes.
@@ -27,6 +64,12 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
   quoted forms.
 
 ### Fixed
+
+- **`clojure.string/replace` and `split-lines` match JVM edge semantics.**
+  `replace` now applies the source object's string representation while still
+  rejecting `nil`, and an empty string match inserts at every codepoint
+  boundary. `split-lines` now removes every trailing empty field, including
+  inputs made entirely of line terminators.
 
 - **`when-not` expands to clj's shape.** `(macroexpand '(when-not c x))` was
   `(if c nil x)` where clj gives `(if c nil (do x))`, and `(when-not c)` was

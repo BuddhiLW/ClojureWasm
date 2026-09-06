@@ -6,7 +6,7 @@
 #   gated   yes  = part of "the suite is green"
 #           no   = deliberately outside the gate; the tags say why
 #   tags    comma-separated; `network`, `timing`, `measurement`, `slow`,
-#           `failfast`, `config` are meaningful to the runner
+#           `failfast`, `config`, `self-locking` are meaningful to the runner
 #   command run from the repository root
 #
 # A runnable script with no row here FAILS scripts/check_runner_reach.sh.
@@ -26,8 +26,9 @@ ci|1,2,3,5,6,7|yes|composite,config|bash scripts/ci_gate.sh
 unit_vm|1,3,7|yes|fast|zig build test -Dwasm -Doptimize=ReleaseSafe
 unit_tree_walk|1,3,7|yes|fast|zig build test -Dwasm -Dbackend=tree_walk -Doptimize=ReleaseSafe
 prop_engine|7|yes|fast|zig test src/testing/prop.zig
-lint|-|yes|fast|zig build lint -Dwasm -- --max-warnings 0
+lint|-|yes|fast|zig build lint -- --max-warnings 0
 fmt|-|yes|fast|zig fmt --check src/
+mutation_harness|-|yes|fast,via-gate|python3 -m unittest scripts/mutation/test_mutate.py
 
 # --- layer 2: e2e -----------------------------------------------------------
 # The ~400 e2e steps run inside `gate`. One of them: cljw-test --step <name>.
@@ -41,7 +42,7 @@ verify_projects|5|no|network,failfast|bash scripts/verify_projects.sh
 golden|6|yes||bash test/golden/run.sh
 
 # --- layer 8: mutation — a measurement, never a gate ------------------------
-mutation|8|no|measurement,slow|bash scripts/mutation/run.sh
+mutation|8|no|measurement,slow,self-locking|bash scripts/mutation/run.sh
 
 # --- layer 4: bench — timing, never a gate ----------------------------------
 bench_langs|4|no|timing|bash bench/compare_langs.sh
@@ -60,7 +61,7 @@ check_capability_claims|-|yes|via-gate|bash scripts/check_capability_claims.sh
 check_clj_attribution|-|yes|via-gate|bash scripts/check_clj_attribution.sh --gate
 check_compat_members|-|yes|via-gate|bash scripts/check_compat_members.sh
 check_core_surface|-|yes|via-gate|bash scripts/check_core_surface.sh
-check_corpus_regression|-|yes|via-gate|bash scripts/check_corpus_regression.sh
+check_corpus_regression|-|yes|via-gate,native-clojure|bb scripts/corpus_regression.clj
 check_debt_id_refs|-|yes|via-gate|bash scripts/check_debt_id_refs.sh --gate
 check_doc_coverage|-|yes|via-gate|bash scripts/check_doc_coverage.sh
 check_changelog_reachability|-|yes|via-gate|bash scripts/check_changelog_reachability.sh --gate
@@ -78,6 +79,7 @@ check_provisional_sync|-|yes|via-gate|bash scripts/check_provisional_sync.sh --g
 check_placement_status|-|yes|via-gate|bash scripts/check_placement_status.sh
 check_portable_timeout|-|yes|via-gate|bash scripts/check_portable_timeout.sh
 check_reference_clones|-|yes|via-gate|bash scripts/check_reference_clones.sh
+check_release_deps|-|yes|via-gate|bash scripts/check_release_deps.sh
 check_special_form_enum|-|yes|via-gate|bash scripts/check_special_form_enum.sh
 check_repr_decode|-|yes|via-gate|bash scripts/check_repr_decode.sh --gate
 check_surface_marker|-|yes|via-gate|bash scripts/check_surface_marker.sh --gate

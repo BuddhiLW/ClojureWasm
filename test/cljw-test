@@ -172,14 +172,21 @@ for i in "${!SEL_ID[@]}"; do
     tag_matches "timing" "$tags" && echo "cljw-test: $id is a timing measurement — run it on a quiet machine"
 
     echo "==> $id"
-    acquire_lock
+    # A self-locking unit serializes only its build phases. Wrapping it here
+    # would recursively acquire this mkdir lock and wait on itself forever.
+    unit_owns_lock=0
+    if tag_matches "self-locking" "$tags"; then
+        unit_owns_lock=1
+    else
+        acquire_lock
+    fi
     start=$(date +%s)
     if eval "$cmd"; then
         rc=0; passed=$((passed + 1))
     else
         rc=$?; failed=$((failed + 1)); FAILED_IDS+=("$id")
     fi
-    release_lock
+    [ "$unit_owns_lock" = 1 ] || release_lock
     echo "    [$([ $rc -eq 0 ] && echo pass || echo FAIL)] $id ($(( $(date +%s) - start ))s)"
 
     # A fail-fast unit reports the first blocking site and stops; aggregating

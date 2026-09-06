@@ -213,6 +213,9 @@ Three things to know before running it:
   reports every mutant as killed — a perfect score for a broken suite.
 - **It is not a gate.** A survivor is a missing test to schedule, not a commit
   to reject.
+- **Named IDs survive relocation.** IDs derive from the enclosing function and
+  mutation content, not file path or line number. `.dev/mutation_id_aliases.jsonl`
+  keeps pre-2026-09-03 line-based IDs replayable after code moves and file splits.
 
 **The loop that makes a survivor useful**: the sweep names a line → you write
 the test that should have constrained it → you re-run *that* mutant with

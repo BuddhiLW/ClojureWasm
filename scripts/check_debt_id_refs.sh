@@ -62,9 +62,14 @@ phantom=$(rg -n --no-heading ${wt_globs[@]+"${wt_globs[@]}"} 'D-NEW[A-Z0-9-]*' "
 
 # 2. Real-looking D-NNN refs with no entry in debt.yaml.
 # `\b` so "PID-1" / "JDK-19"-style substrings don't masquerade as a debt ref.
+# zwasm's own ledger ids are cited as `zwasm/D-NNN` (namespace-qualified) and
+# are not cljw citations: the two ledgers share the D-NNN shape and already
+# collide on D-585, so a bare id is ALWAYS a cljw row and the qualified form is
+# stripped before extraction. The line-level `rg -v` cannot do that (a line may
+# cite both), hence the sed on the matched text.
 defined=$(rg -o '\bD-[0-9]+' "$DEBT" 2>/dev/null | sort -u || true)
-referenced=$(rg -o --no-heading ${wt_globs[@]+"${wt_globs[@]}"} '\bD-[0-9]+' "${search_paths[@]}" 2>/dev/null \
-  | rg -v "$exclude" | grep -o 'D-[0-9]\+' | sort -u || true)
+referenced=$(rg -o --no-heading ${wt_globs[@]+"${wt_globs[@]}"} '(zwasm/)?\bD-[0-9]+' "${search_paths[@]}" 2>/dev/null \
+  | rg -v "$exclude" | sed -E 's#zwasm/D-[0-9]+##' | grep -o 'D-[0-9]\+' | sort -u || true)
 missing=""
 for id in $referenced; do
   # Herestring, NOT `printf | grep -q`: grep -q exits on first match, and

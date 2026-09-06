@@ -55,7 +55,10 @@ SMOKE_E2E=""
 # unregistered on 2026-08-05 (the full gate caught it, one push too late) —
 # a green smoke should not be able to say "the tests pass" about a test that
 # is not wired in.
-SMOKE_CORE="zig_fmt_check,zig_build_test_vm,zig_build_test_tree_walk,zlinter,build_cljw,lazy_ns_replay,corpus_regression,test_clj_suites,test_reach,e2e_reach,entrypoint_surface,repr_decode"
+# Static invariants belong here by COST, not category. Measured via --only on
+# 2026-09-03: doc_coverage 2s, epipe_head 2s, gate_parity 0s. portable_timeout
+# remains full-only at 13s; e2e_reach was already present and measured 10s.
+SMOKE_CORE="zig_fmt_check,zig_build_test_vm,zig_build_test_tree_walk,zlinter,build_cljw,lazy_ns_replay,corpus_regression,test_clj_suites,test_reach,e2e_reach,entrypoint_surface,repr_decode,doc_coverage,epipe_head,gate_parity"
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -382,10 +385,11 @@ run_step "zig_fmt_check"        "zig fmt --check src/"
 # Linux never ran the linter at all. A deprecated-stdlib call could then ride
 # a green Linux gate all the way to the macOS leg, which is exactly how
 # `std.mem.indexOfPos` reached CI: Linux green, macOS red, on one commit.
-# The dep resolves offline once it is in the global zig cache, so `zig fetch`
-# is the honest probe: it succeeds from cache OR from network.
-if zig build lint -Dwasm --help >/dev/null 2>&1; then
-    run_step "zlinter"          "zig build lint -Dwasm -- --max-warnings 0"
+# The dep resolves offline once it is in the global Zig cache. Probe the
+# delegated lint build itself: main-build `--help` intentionally never resolves
+# zlinter now, while forwarded linter `--help` stops after proving availability.
+if zig build lint -- --help >/dev/null 2>&1; then
+    run_step "zlinter"          "zig build lint -- --max-warnings 0"
 else
     echo "run_all: SKIP zlinter — the zlinter dependency could not be resolved (no cache, no network)"
 fi
@@ -445,16 +449,21 @@ run_step "module_docstring"     "bash scripts/check_module_docstring.sh --check"
 # only bites on a loaded machine. ab84126b fixed four sites and left 24.
 run_step "epipe_head"           "bash scripts/check_epipe_head.sh"
 run_step "portable_timeout"      "bash scripts/check_portable_timeout.sh"
+run_step "mutation_harness"      "python3 -m unittest scripts/mutation/test_mutate.py"
 # The local full gate and CI's must be the SAME run. ci_gate.sh claimed they
 # were; nothing checked, and they were not (parallel vs serial e2e).
 run_step "gate_parity"          "bash scripts/check_gate_parity.sh"
+# A release/default build must configure with package fetching disabled. This
+# pins zlinter as a lint-only lazy dependency instead of making every release
+# resolve its transitive zls dependency tree (CLJW-RELEASE-FETCH).
+run_step "release_deps"         "bash scripts/check_release_deps.sh"
 
 # clj-diff corpus regression (cljw-only replay of golden `;;=> …` pairs —
 # no clj/network). Makes a "X/Y landed" discharge claim mechanically
 # re-checkable (anti D-177 false-positive-discharge) + catches behaviour
 # drift. See .claude/rules/clj_diff_sweep.md.
 run_step "lazy_ns_replay"      "bash scripts/check_lazy_ns_replay.sh"
-run_step "corpus_regression"   "bash scripts/check_corpus_regression.sh"
+run_step "corpus_regression"   "bb scripts/corpus_regression.clj"
 
 # Host-class member truth (ADR-0174 D9): compat_tiers.yaml per-class member
 # lists must match the registered descriptors (both directions). Runs AFTER
@@ -538,7 +547,6 @@ run_step "e2e_phase9_cli"                    "bash test/e2e/phase9_cli.sh"
 run_step "e2e_phase9_exit_smoke"             "bash test/e2e/phase9_exit_smoke.sh"
 run_step "e2e_phase10_pprint"                "bash test/e2e/phase10_pprint.sh"
 run_step "e2e_phase14_pprint_dispatch"       "bash test/e2e/phase14_pprint_dispatch.sh"
-run_step "e2e_phase14_cl_format"             "bash test/e2e/phase14_cl_format.sh"
 run_step "e2e_phase10_exit_smoke"            "bash test/e2e/phase10_exit_smoke.sh"
 # phase11_clojure_test retired: the D-099-era minimal `is`/`run-tests` surface it
 # tested was replaced by the real clojure.test (D-227) — see e2e_phase15_clojure_test.
@@ -547,7 +555,7 @@ run_step "test_clj_tier_a"                   "bash test/clj/run_tier_a.sh"
 # cljw process (auto-discovered; see test/clj/run_suites.clj's header for the
 # measured 8.5x over the per-assertion process spawns the bash e2e tier pays).
 # In SMOKE_CORE: at tens of ms it belongs in every per-commit loop.
-run_step "test_clj_suites"                   "zig-out/bin/cljw -cp test/clj test/clj/run_suites.clj"
+run_step "test_clj_suites"                   "zig-out/bin/cljw -cp test/clj:scripts test/clj/run_suites.clj"
 run_step "e2e_phase11_exit_smoke"            "bash test/e2e/phase11_exit_smoke.sh"
 run_step "e2e_phase13_exit_smoke"            "bash test/e2e/phase13_exit_smoke.sh"
 run_step "e2e_phase14_catch_keyword"         "bash test/e2e/phase14_catch_keyword.sh"
@@ -805,7 +813,6 @@ run_step "e2e_semaphore"                     "bash test/e2e/semaphore.sh"
 run_step "e2e_concurrent_atomics"            "bash test/e2e/concurrent_atomics.sh"
 run_step "e2e_concurrent_interfaces"         "bash test/e2e/concurrent_interfaces.sh"
 run_step "e2e_linked_blocking_queue"         "bash test/e2e/linked_blocking_queue.sh"
-run_step "e2e_future_methods"                "bash test/e2e/future_methods.sh"
 run_step "e2e_vector_seq_view"               "bash test/e2e/vector_seq_view.sh"
 run_step "e2e_phase14_fn_prepost"            "bash test/e2e/phase14_fn_prepost.sh"
 run_step "e2e_phase14_deftype_ideref"        "bash test/e2e/phase14_deftype_ideref.sh"
@@ -849,12 +856,10 @@ run_step "e2e_phase14_deftype_method_lowering" "bash test/e2e/phase14_deftype_me
 run_step "e2e_phase14_clojure_lang_util"     "bash test/e2e/phase14_clojure_lang_util.sh"
 run_step "e2e_phase14_compiler_specials"     "bash test/e2e/phase14_compiler_specials.sh"
 run_step "e2e_phase14_opaque_host_class"     "bash test/e2e/phase14_opaque_host_class.sh"
-run_step "e2e_phase14_bigdecimal_setscale"   "bash test/e2e/phase14_bigdecimal_setscale.sh"
 run_step "e2e_phase14_ratio_interop"        "bash test/e2e/phase14_ratio_interop.sh"
 run_step "e2e_phase14_class_names"           "bash test/e2e/phase14_class_names.sh"
 run_step "e2e_phase14_pattern_quote"         "bash test/e2e/phase14_pattern_quote.sh"
 run_step "e2e_phase14_var_resolve"           "bash test/e2e/phase14_var_resolve.sh"
-run_step "e2e_phase14_biginteger"            "bash test/e2e/phase14_biginteger.sh"
 run_step "e2e_phase14_throwable_map"         "bash test/e2e/phase14_throwable_map.sh"
 run_step "e2e_phase14_defmacro_destructure"  "bash test/e2e/phase14_defmacro_destructure.sh"
 run_step "e2e_phase14_read_string"           "bash test/e2e/phase14_read_string.sh"

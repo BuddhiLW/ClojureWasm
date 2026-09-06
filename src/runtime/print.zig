@@ -250,7 +250,7 @@ fn deepRealizeAt(rt: *Runtime, env: *env_mod.Env, v: Value, depth: i64) anyerror
         // `(rest (range 5))`) — without this it fell through to the generic
         // `#<chunked_cons>` render instead of its elements (it already realizes
         // correctly in a `.list` tail, e.g. `(cons 0 (seq (range 3)))`).
-        .lazy_seq, .list, .chunked_cons => return realizeSeqWalk(rt, env, v, depth),
+        .lazy_seq, .list, .cons, .chunked_cons => return realizeSeqWalk(rt, env, v, depth),
         // A `Sequential` deftype (e.g. `Eduction`) prints as its realized
         // seq, not the deftype default `#Name[..]` (ADR-0068). The
         // marker — NOT `Seqable` — is the discriminator: a record is Seqable
@@ -462,7 +462,7 @@ fn realizeSeqWalk(rt: *Runtime, env: *env_mod.Env, v: Value, depth: i64) anyerro
     // Carry the original collection's metadata onto the realized list so
     // `*print-meta*` sees a `^meta` list/seq (the realize must not strip it).
     const m = switch (v.tag()) {
-        .list => list_collection.metaOf(v),
+        .list, .cons => list_collection.metaOf(v),
         .lazy_seq => lazy_seq_mod.metaOf(v),
         else => Value.nil_val,
     };
@@ -834,7 +834,7 @@ fn metaForPrint(v: Value) Value {
         .sub_vector => sub_vector.metaOf(v),
         .array_map, .hash_map => map_collection.metaOf(v),
         .hash_set => set_collection.metaOf(v),
-        .list => list_collection.metaOf(v),
+        .list, .cons => list_collection.metaOf(v),
         else => Value.nil_val,
     };
 }
@@ -894,7 +894,7 @@ fn snapshotPrintLimits() void {
 /// collection, including a `.map_entry` which renders as the 2-vector `[k v]`).
 fn isCollectionTag(t: Value.Tag) bool {
     return switch (t) {
-        .list, .range, .array_seq, .string_seq, .vector, .sub_vector, .map_entry, .persistent_queue, .hash_set, .sorted_set, .sorted_map, .array_map, .hash_map => true,
+        .list, .cons, .range, .array_seq, .string_seq, .vector, .sub_vector, .map_entry, .persistent_queue, .hash_set, .sorted_set, .sorted_map, .array_map, .hash_map => true,
         // Reachable only unrealized: a null-ports render, or below the cut
         // where the realize is skipped. Both must still print `#`.
         .lazy_seq, .chunked_cons => true,
@@ -1040,7 +1040,7 @@ fn printValueNative(ports: ?Ports, w: *Writer, v: Value) anyerror!void {
             try w.writeAll(s.name);
         },
         .string => if (print_readably) try printString(w, string_collection.asString(v)) else try w.writeAll(string_collection.asString(v)),
-        .list => try printList(ports, w, v),
+        .list, .cons => try printList(ports, w, v),
         .range => try printRange(ports, w, v),
         .array_seq => try printArraySeq(ports, w, v),
         .string_seq => try printStringSeq(ports, w, v),
@@ -1530,7 +1530,7 @@ pub fn printList(ports: ?Ports, w: *Writer, v: Value) anyerror!void {
     var cur = v;
     var first_iter = true;
     var emitted: i64 = 0;
-    while (cur.tag() == .list and list_collection.countOf(cur) > 0) {
+    while ((cur.tag() == .list or cur.tag() == .cons) and list_collection.countOf(cur) > 0) {
         if (try lengthTruncated(w, emitted, " ")) break;
         if (!first_iter) try w.writeByte(' ');
         first_iter = false;

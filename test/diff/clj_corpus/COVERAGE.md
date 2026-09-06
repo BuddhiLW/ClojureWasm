@@ -4,7 +4,7 @@ Resume-time SSOT for "what the F-011 differential sweep has covered and what
 to sweep next". Promoted to git from the gitignored running ledger
 `private/notes/phaseA26-clj-differential-oracle.md` so a clean session's
 `/continue` reaches it without depending on scratch. Run the sweep with
-`scripts/clj_diff_sweep.sh` (see `.claude/rules/clj_diff_sweep.md`); land
+`scripts/clj_diff_sweep.clj` (see `.claude/rules/clj_diff_sweep.md`); land
 confirmed exprs into a `*.txt` corpus here via `--corpus`.
 
 ## Swept & at parity (don't re-sweep wholesale)

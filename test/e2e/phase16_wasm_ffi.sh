@@ -55,6 +55,10 @@ catch_out="$("$BIN" test/e2e/fixtures/wasm_ffi_catch.clj 2>&1)" || fail "catchab
 $catch_out"
 echo "$catch_out" | grep -q "NOT-CAUGHT" && fail "a wasm error was not caught (or matched the wrong host class):
 $catch_out"
+echo "$catch_out" | grep -q "^wasi-load-split: CAUGHT$" || fail "wasm/load accepted or misclassified :wasi instead of enforcing the command/handle split:
+$catch_out"
+echo "$catch_out" | grep -q "^wasi-load-nil-split: CAUGHT$" || fail "wasm/load treated a present nil :wasi as absent:
+$catch_out"
 echo "$catch_out" | grep -q "^DONE$" || fail "catchability fixture did not run to completion:
 $catch_out"
 echo "PASS wasm-ffi-catchable -> all errors caught, exit 0"

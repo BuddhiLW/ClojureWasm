@@ -1,8 +1,4 @@
 const std = @import("std");
-// TODO(adr-0003): drop zlinter dep when Zig ships @deprecated()
-// builtin + -fdeprecated flag (ziglang/zig#22822, accepted on
-// urgent milestone, expected 0.17+).
-const zlinter = @import("zlinter");
 
 pub fn build(b: *std.Build) void {
     // wasm32 needs the atomics + bulk_memory features (rationale: kanban
@@ -194,30 +190,25 @@ pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Run tests");
     test_step.dependOn(&run_exe_tests.step);
 
-    // `zig build lint` — zlinter rule chain (ADR-0003).
-    // Runs where zlinter can be fetched from GitHub; the gate skips it on
-    // hosts without network reach. Run with `--max-warnings 0` for strict
-    // CI semantics.
+    // `zig build lint` delegates to a separate build root. Keeping
+    // @import("zlinter") out of this file is load-bearing: Zig resolves build
+    // imports while configuring EVERY command, so an eager import made release
+    // builds fetch zlinter plus its transitive zls tree (CLJW-RELEASE-FETCH).
+    // The package is lazy in build.zig.zon and build-lint.zig is configured only
+    // when this step executes, preserving the public CLI without exposing
+    // normal/release builds to a development-only network dependency.
     const lint_step = b.step("lint", "Lint source code (zlinter).");
-    lint_step.dependOn(blk: {
-        var builder = zlinter.builder(b, .{});
-        // Lint THIS checkout's sources only. With no paths set zlinter walks
-        // every `.zig` under the cwd, which sweeps in any nested git worktree
-        // (`.claude/worktrees/<branch>`, `.dev/wt-golden`) and reports another
-        // branch's warnings as this one's.
-        builder.addPaths(.{ .include = &.{ b.path("src"), b.path("build.zig") } });
-        // Phase A.
-        builder.addRule(.{ .builtin = .no_deprecated }, .{});
-        // Phase B (added one at a time — see ADR-0003 Update).
-        builder.addRule(.{ .builtin = .no_orelse_unreachable }, .{});
-        builder.addRule(.{ .builtin = .no_empty_block }, .{});
-        builder.addRule(.{ .builtin = .no_unused }, .{});
-        // Inspected, not adopted (rationale in ADR-0003 Update):
-        //   require_exhaustive_enum_switch — mismatched with the
-        //     Value.Tag dispatch idiom (36+ tags, intentionally
-        //     growing through Phases 4-15; arithmetic / collection
-        //     primitives use `else =>` to mean "all the kinds I do
-        //     not accept as operand").
-        break :blk builder.build();
+    const lint_cmd = b.addSystemCommand(&.{
+        b.graph.zig_exe,
+        "build",
+        "--build-file",
+        "build-lint.zig",
+        "lint",
     });
+    lint_cmd.setCwd(b.path("."));
+    if (b.args) |args| {
+        lint_cmd.addArg("--");
+        lint_cmd.addArgs(args);
+    }
+    lint_step.dependOn(&lint_cmd.step);
 }
