@@ -97,12 +97,20 @@
            (if inc (str "." inc) "")
            (if q (str "-" q) "")))))
 
-;; `(list & items)` — construct a list of the args. The variadic
-;; rest-binding yields a `.list` for ≥1 arg, but nil for zero args
-;; (`& xs` binds nil when empty, matching JVM `((fn [& xs] xs))` → nil).
-;; `(list)` must be `()` (JVM `PersistentList/EMPTY`), so map the empty
-;; case to the quoted empty list `'()` (the interned empty value, D-164).
-(def list (fn* [& xs] (if xs xs '())))
+;; `(list & items)` constructs a PersistentList in argument order. `apply`
+;; may bind any ISeq as the rest argument, so copy through an empty list
+;; instead of returning that sequence or inheriting its metadata. Two passes
+;; use only Stage-0 primitives; reverse/reduce are defined later in bootstrap.
+(def list
+  (fn* [& xs]
+    (let* [reversed (loop* [s (seq xs) acc '()]
+                      (if s
+                        (recur (next s) (conj acc (first s)))
+                        acc))]
+      (loop* [s (seq reversed) acc '()]
+        (if s
+          (recur (next s) (conj acc (first s)))
+          acc)))))
 
 ;; `(-seq-or-empty coll)` — a seq view that is `()` (not nil) when empty.
 ;; The eager seq fns (sort / distinct / dedupe / map-indexed / …) build a

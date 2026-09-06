@@ -6,7 +6,8 @@
             [clojure.test.check.clojure-test :refer [defspec]]
             [clojure.test.check.generators :as gen]
             [clojure.test.check.properties :as prop]
-            [hive-test.trifecta :refer [deftrifecta]]))
+            [hive-test.trifecta :refer [deftrifecta]]
+            [hive-test.mutation :refer [deftest-mutation-witness]]))
 
 (def int-vectors (gen/vector (gen/choose -1000 1000) 0 30))
 (def slices
@@ -90,8 +91,21 @@
            (= (count (filter #{\a} s)) (count (filter #{\x} out)))
            (= (remove #{\a} s) (remove #{\x} out))))))
 
+(defspec list-construction-preserves-type-and-values
+  {:num-tests 300 :seed 20260914}
+  (prop/for-all [xs int-vectors]
+    (let [result (apply list xs)]
+      (and (list? result) (= xs result) (nil? (meta result))))))
+
+(deftest-mutation-witness list-rest-alias-is-caught
+  clojure.core/list
+  (fn [& xs] (if xs xs '()))
+  (fn []
+    (test/is (list? (apply list [1 2 3])))
+    (test/is (nil? (meta (apply list (with-meta '(1 2 3) {:source true})))))))
+
 (defn -main [& _]
   (let [{:keys [test pass fail error] :as result} (test/run-tests 'laws)]
-    (assert (= 14 test) (pr-str result))
+    (assert (= 16 test) (pr-str result))
     (assert (and (pos? pass) (zero? fail) (zero? error)) (pr-str result))
-    (println "OK native runtime laws: 2100 generated cases, six mutation witnesses")))
+    (println "OK native runtime laws: 2400 generated cases, seven mutation witnesses")))

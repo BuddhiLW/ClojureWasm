@@ -9,6 +9,20 @@
       (is (= (nil? tail) (list? s)))
       (is (nil? (next s))))))
 
+(deftest list-construction-from-seqables
+  (doseq [source [nil [0 1 2] (range 3) (map identity (range 3))
+                  "ab" (with-meta '(0 1 2) {:source true})]]
+    (let [result (apply list source)]
+      (is (list? result))
+      (is (= (vec source) (vec result)))
+      (is (nil? (meta result)))))
+  (let [source '(0 1 2)]
+    (is (false? (identical? source (apply list source)))))
+  (let [seen (atom [])
+        result (apply list (map (fn [x] (swap! seen conj x) x) (range 4)))]
+    (is (list? result))
+    (is (= [0 1 2 3] @seen))))
+
 (deftest concat-and-mapcat-realization
   (let [s (concat)]
     (is (false? (realized? s)))

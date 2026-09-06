@@ -14,7 +14,8 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
   exact finite calls retain fixed-arity dispatch. `concat`, `mapcat`, `cycle`,
   `repeat`, `nthnext`, `select-keys`, `shuffle` and `subvec` now match their
   JVM sequence and validation boundaries. `cons` accepts empty collection tails
-  while retaining its Cons identity.
+  while retaining its Cons identity. `apply list` constructs a fresh list from
+  any finite argument sequence, preserving order and dropping source metadata.
 - **A `def` inside a function binds the Var declared in that function's
   namespace**, even when called from another namespace. Both backends retain
   the analyzed Var identity, including unbound declarations and restored AOT
