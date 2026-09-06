@@ -23,6 +23,11 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
   The known engine gaps live in one table (`runtime/cljw/wasm/gaps.zig`); the
   default engine stays `:auto`, and the `wasm/load` docstring states the
   per-call crossing cost of each engine (ADR-0196).
+- **`wasm/call` resolves an export's signature once per handle.** The
+  signature used to size the argument and result buffers was re-resolved by
+  name on every call, which on the JIT engine re-parses the module; it is now
+  cached on the handle after the first call. The engine's own by-name lookup
+  inside the invoke is unchanged (an upstream zwasm item).
 
 ## [1.14.1] - 2026-09-06
 

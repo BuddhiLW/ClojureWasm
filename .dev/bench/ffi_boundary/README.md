@@ -77,5 +77,23 @@ noise floor against 2026-09-05's 399 / 413.
 Reading 1 above is closed: rows 1 and 2 are now the same cell. Readings 2 and 3
 stand unchanged, and the residual is the next card's target.
 
-Follow-ups: kanban [CLJW-WASM-ENGINE-DEFAULT], [CLJW-WASM-EXPORTSIG-CACHE].
-[CLJW-WASM-WORKER-THREAD] landed as ADR-0195.
+## After the exportSig cache, measured 2026-09-06
+
+`Loaded.exportSig` resolves a name once per handle now; on the JIT that was a
+module re-parse per call. Same host, same load, minimum of three runs.
+
+    cell                     ns/call
+    JIT    main thread           896
+    JIT    worker thread         964
+    interp main thread           375
+    interp worker thread         451
+
+The JIT cells lose ~400-500 ns; the interpreter cells move within noise. The
+standing measurement of this axis is now `bench/wasm_percall.sh` (median /
+min / max / sd over trials, ns, with a plain Clojure call as the platform
+constant); `engine_thread_matrix.clj` stays as the quick 2x2 probe.
+
+Follow-ups: [CLJW-WASM-ENGINE-DEFAULT] landed as ADR-0196 (the default stays
+`.auto`; traps name the engine and the shape); [CLJW-WASM-WORKER-THREAD] landed
+as ADR-0195; [CLJW-WASM-EXPORTSIG-CACHE] landed. The rest is upstream
+(`[ZWASM-PERCALL-TRACK]`).

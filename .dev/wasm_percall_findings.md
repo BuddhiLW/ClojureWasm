@@ -46,6 +46,26 @@ worker cell, a 14x drop. The residual (JIT ~2.8x interp on both threads) is
 what the rest of this document attributes to zwasm/D-584's non-initial-thread
 cost plus zwasm/D-585 and cljw's own double name-resolve.
 
+### After the exportSig cache (measured 2026-09-06, same host, same load)
+
+`Loaded.exportSig` now resolves a name once per handle
+(`[CLJW-WASM-EXPORTSIG-CACHE]`); on the JIT engine that resolution was a
+module re-parse per call. Minimum of three runs, the same noise caveat.
+
+| cell                 | ns/call | before cache |
+|----------------------|---------|--------------|
+| JIT, main thread     | 896     | 1464         |
+| JIT, worker thread   | 964     | 1310         |
+| interp, main thread  | 375     | 399          |
+| interp, worker thread| 451     | 438          |
+
+The JIT cells lose roughly 400-500 ns, the interpreter cells nothing (its
+signature lookup was a short loop over the export table). The JIT is now
+~2.3x the interpreter per trivial call; what remains is zwasm's own by-name
+resolution inside `invoke` (zwasm/D-585) and the non-initial-thread stack
+query (zwasm/D-584), both upstream. `bench/wasm_percall.sh` is the standing
+measurement of this axis from here on.
+
 ## Two independent causes, both upstream, both already documented there
 
 zwasm ADR-0209 (`.dev/decisions/0209_percall_latency_bench.md` in the zwasm
