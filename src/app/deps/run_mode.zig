@@ -24,6 +24,7 @@ const std = @import("std");
 const parse = @import("parse.zig");
 const runner = @import("../runner.zig");
 const form_mod = @import("../../eval/form.zig");
+const file_io = @import("../../runtime/file_io.zig");
 
 pub const Mode = enum { main, exec };
 
@@ -126,7 +127,7 @@ fn runMain(
         defer file.close(io);
         var file_buf: [4096]u8 = undefined;
         var file_reader = file.reader(io, &file_buf);
-        const file_src = try file_reader.interface.allocRemaining(arena, .unlimited);
+        const file_src = try file_io.readToEnd(&file_reader, arena);
         var aw: std.Io.Writer.Allocating = .init(arena);
         try writeClArgsSetter(&aw.writer, eff[1..]);
         try aw.writer.writeByte('\n');

@@ -7,6 +7,15 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 
 ## [Unreleased]
 
+### Fixed
+
+- **`slurp`, `clojure.java.io/reader` and `line-seq` read procfs, sysfs and
+  FIFO files to the end.** They returned empty for any file whose reported size
+  is 0 but which yields bytes (`(slurp "/proc/loadavg")` was `""`), because the
+  whole-file read trusted the stat size as a stop. The size is now a capacity
+  hint only and the read continues until a real end of file; the same path
+  serves `load-file`, `require`, `deps.edn`, `wasm/load` and the script runner.
+
 ### Added
 
 - **`(wasm/engine handle)`** returns the engine selection a handle was loaded
