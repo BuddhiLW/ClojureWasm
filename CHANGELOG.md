@@ -12,6 +12,13 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 - **`(wasm/engine handle)`** returns the engine selection a handle was loaded
   with (`:auto`, `:jit` or `:interp`), so engine-dependent behaviour is
   discoverable (ADR-0196).
+- **`bench/wasm_percall.clj` measures one `wasm/call` crossing in nanoseconds**
+  (`cljw -cp bench -m wasm-percall`), per engine and thread, with a plain
+  Clojure call as the platform constant; a cljw program end to end, no shell.
+  Every other wasm workload loops inside the module and crosses the boundary
+  once per process, so a per-call cost of any size could not show there; this
+  is the other axis, with its datum (`bench/wasm-percall-latest.yaml`) rendered
+  into the bench README like the rest.
 
 ### Changed
 
