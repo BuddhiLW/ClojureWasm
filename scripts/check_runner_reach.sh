@@ -36,7 +36,7 @@ mapfile -t runnable < <(
 
 missing=""
 for s in "${runnable[@]}"; do
-    printf '%s\n' "$cmds" | grep -qF -- "$s" || missing="$missing $s"
+    grep -qF -- "$s" <<<"$cmds" || missing="$missing $s"
 done
 if [ -n "$missing" ]; then
     echo "check_runner_reach: runnable but unregistered — add a row to $REGISTRY:" >&2

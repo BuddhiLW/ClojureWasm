@@ -33,8 +33,8 @@ found the cost/risk axis is **unit-vs-e2e, not additive-vs-shared**:
 
 So the smoke = the fast correctness core (both-backend `zig build test`
 + zlinter + `build_cljw` + `corpus_regression` + `test_reach`/`e2e_reach`
-+ the measured-near-zero static invariants `doc_coverage`, `epipe_head`, and
-`gate_parity` + **the changed e2e step(s)**). Because it carries the full diff
++ the measured-near-zero static invariants `doc_coverage`, `epipe_head`,
+`epipe_grep`, and `gate_parity` + **the changed e2e step(s)**). Because it carries the full diff
 oracle, the smoke
 **authorises shared-code commits too** — the old "additive vs risky"
 split is retired. Only the full e2e suite is deferred.

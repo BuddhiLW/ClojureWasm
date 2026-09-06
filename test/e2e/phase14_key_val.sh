@@ -22,7 +22,7 @@ assert_eq 'reduce_val' "$("$BIN" -e '(reduce (fn [acc e] (+ acc (val e))) 0 {:a 
 assert_throws() {
     local n="$1" out
     if out="$("$BIN" -e "$2" 2>&1)"; then fail "$n: expected throw, got '$out'"; fi
-    echo "$out" | grep -qiE 'panic|reached unreachable' && fail "$n: PANICKED -> $out"
+    grep -qiE 'panic|reached unreachable' <<<"$out" && fail "$n: PANICKED -> $out"
     echo "PASS $n -> throws (catchable)"
 }
 assert_throws 'key_plain_vector' '(key [:k :v])'

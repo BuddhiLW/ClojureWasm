@@ -95,12 +95,12 @@ print((data.get("tool_input") or {}).get("command", "") or "")
 
 hook_is_git_push() {
   local _cmd="${1:-${HOOK_COMMAND:-}}"
-  printf '%s' "$_cmd" | grep -qE '(^|[ ;&|])git[[:space:]]+push([[:space:]]|$)'
+  grep -qE '(^|[ ;&|])git[[:space:]]+push([[:space:]]|$)' <<<"$_cmd"
 }
 
 hook_is_git_commit() {
   local _cmd="${1:-${HOOK_COMMAND:-}}"
-  printf '%s' "$_cmd" | grep -qE '(^|[ ;&|])git[[:space:]]+commit([[:space:]]|$)'
+  grep -qE '(^|[ ;&|])git[[:space:]]+commit([[:space:]]|$)' <<<"$_cmd"
 }
 
 hook_nested_worktree_paths() {

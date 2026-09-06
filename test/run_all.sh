@@ -58,7 +58,7 @@ SMOKE_E2E=""
 # Static invariants belong here by COST, not category. Measured via --only on
 # 2026-09-03: doc_coverage 2s, epipe_head 2s, gate_parity 0s. portable_timeout
 # remains full-only at 13s; e2e_reach was already present and measured 10s.
-SMOKE_CORE="zig_fmt_check,zig_build_test_vm,zig_build_test_tree_walk,zlinter,build_cljw,lazy_ns_replay,corpus_regression,test_clj_suites,test_reach,e2e_reach,entrypoint_surface,repr_decode,doc_coverage,epipe_head,gate_parity"
+SMOKE_CORE="zig_fmt_check,zig_build_test_vm,zig_build_test_tree_walk,zlinter,build_cljw,lazy_ns_replay,corpus_regression,test_clj_suites,test_reach,e2e_reach,entrypoint_surface,repr_decode,doc_coverage,epipe_head,epipe_grep,gate_parity"
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -448,6 +448,11 @@ run_step "module_docstring"     "bash scripts/check_module_docstring.sh --check"
 # producer takes SIGPIPE, the script dies before printing its diagnostic, and it
 # only bites on a loaded machine. ab84126b fixed four sites and left 24.
 run_step "epipe_head"           "bash scripts/check_epipe_head.sh"
+# The sibling shape: `echo "$value" | grep -q` under pipefail reports a MISS for
+# a line that is present when grep -q exits before the producer finishes
+# (2026-09-05, e2e_phase16_wasm_memory, red in the full gate, green twice
+# directly). A herestring has no pipe to race.
+run_step "epipe_grep"           "bash scripts/check_epipe_grep.sh"
 run_step "portable_timeout"      "bash scripts/check_portable_timeout.sh"
 run_step "mutation_harness"      "python3 -m unittest scripts/mutation/test_mutate.py"
 # The local full gate and CI's must be the SAME run. ci_gate.sh claimed they

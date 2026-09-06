@@ -7,21 +7,21 @@
   Per-commit = smoke; commit **and** push. **First move on resume: spawn a cljw
   nREPL** (`mcp__hive__code cider spawn repl_type="cljw"`); reap by scoped pattern
   (`orphan_prevention.md` rule 4), never before a wrap.
-- **First commit on resume MUST be**: `[CLJW-WASM-EXPORTSIG-CACHE]`
-  (`20260905005830-4867c16d`): cache the resolved `FuncType` per export name on
-  `Loaded` (safe: zwasm's `FuncType` is slices into the instance's compiled
-  sigs; the JIT arm of `exportFuncSig` re-parses the module per call); measure
-  before/after with `engine_thread_matrix.clj`. Then `[CLJW-WASM-BENCH-BLIND]`
-  (the crossing-dominated bench row ADR-0196 D4 owes), `[CLJW-CORE-ASYNC]`
-  (`20260905225236-594e3f6a`, user direction 2026-09-06: go-like CSP +
-  multicore; nothing bundled today). The three zwasm asks in
+- **First commit on resume MUST be**: `[CLJW-PROCFS-READ]`
+  (`20260906010128-043a5f39`): `slurp` / `io/reader` return empty on procfs
+  files (size-0 special files; `(count (slurp "/proc/version"))` is 0), found
+  dogfooding `bench/wasm_percall.clj`; fix the neutral file read to stream to
+  EOF, unit test on a size-0 pseudo-file, then let the bench datum carry cpu +
+  load average again. Then `[CLJW-CORE-ASYNC]` (`20260905225236-594e3f6a`, user
+  direction 2026-09-06: go-like CSP + multicore; nothing bundled today; Step 0
+  survey + ADR with a DA fork). Benches and harnesses are cljw programs, not
+  bash (memory `20260906005754-05c07d35`). The three zwasm asks in
   `[ZWASM-PERCALL-TRACK]` need the user's nod before filing.
-- **v1.14.0 SHIPPED 2026-09-06** (PR #16, a68aa417; the verbatim path put NO
-  bump commit on `main`, the CHANGELOG stamp was hand commit 10f0b612).
-  **v1.14.1 = PR #17** (`staging`->`main`, merge on green + user nod; preflight
-  bumps + stamps a NON-EMPTY `[Unreleased]`): ADR-0195 (runtime thread; JIT
-  `wasm/call` 16.5 us -> 1.15 us) + ADR-0196 (`wasm/engine`, traps name
-  export/signature/engine/remedy, `gaps.zig`). Memory `20260905220820-09e3d821`.
+- **v1.14.0 and v1.14.1 SHIPPED 2026-09-06** (PRs #16/#17). The auto-patch path
+  commits `chore(release): vX.Y.Z` on `main`: merge `origin/main` back into
+  `staging` before the next PR (CHANGELOG conflicts: new entries stay under
+  `[Unreleased]`). **v1.14.2 = PR #18** (ADR-0196, the sig cache, the cljw
+  per-crossing bench), merge on green. Memory `20260906003706-48a0ba5a`.
 - **Gate state**: `.dev/.gate_pass` = `scripts/gate_state_hash.sh` of the v2.6.0
   pin tree (full gate, 425 pass); ADR-0195 rode a smoke. The cadence hook diffs
   the WORKING TREE, so a dirty risky diff blocks every commit.

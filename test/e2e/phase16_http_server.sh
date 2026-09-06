@@ -50,8 +50,8 @@ echo "PASS http-header -> $got"
 
 # Response :headers map → Content-Type + custom header written verbatim.
 hdrs=$(curl -s -D - -o /dev/null "http://127.0.0.1:$PORT/html" 2>&1)
-echo "$hdrs" | grep -qi "^content-type: text/html; charset=utf-8" || fail "resp :headers content-type: got '$hdrs'"
-echo "$hdrs" | grep -qi "^x-custom: yes" || fail "resp :headers x-custom: got '$hdrs'"
+grep -qi "^content-type: text/html; charset=utf-8" <<<"$hdrs" || fail "resp :headers content-type: got '$hdrs'"
+grep -qi "^x-custom: yes" <<<"$hdrs" || fail "resp :headers x-custom: got '$hdrs'"
 echo "PASS http-resp-headers -> content-type+x-custom"
 body=$(curl -s "http://127.0.0.1:$PORT/html" 2>&1)
 [[ "$body" == "<h1>hi</h1>" ]] || fail "GET /html body: got '$body'"
@@ -60,8 +60,8 @@ echo "PASS http-html-body -> $body"
 # NINE response headers — a >8-entry :headers map promotes to hash_map
 # (Discussion #12 bug class) and used to be dropped wholesale.
 hdrs=$(curl -s -D - -o /dev/null "http://127.0.0.1:$PORT/many-headers" 2>&1)
-echo "$hdrs" | grep -qi "^x-m1: 1" || fail "9-resp-headers x-m1: got '$hdrs'"
-echo "$hdrs" | grep -qi "^x-m9: 9" || fail "9-resp-headers x-m9: got '$hdrs'"
+grep -qi "^x-m1: 1" <<<"$hdrs" || fail "9-resp-headers x-m1: got '$hdrs'"
+grep -qi "^x-m9: 9" <<<"$hdrs" || fail "9-resp-headers x-m9: got '$hdrs'"
 echo "PASS http-9-resp-headers -> x-m1..x-m9"
 
 # FIX-2 (SE-4): an out-of-range :status (200000 > 1023) must fall back to 500,
@@ -78,7 +78,7 @@ echo "PASS http-survives-badstatus -> $got"
 # cljw rejects the dirty header at the boundary → 500, and the injected
 # "Set-Cookie: pwned" must NOT appear anywhere in the response headers.
 resp=$(curl -s -D - "http://127.0.0.1:$PORT/crlf-header" 2>&1)
-echo "$resp" | grep -qi "Set-Cookie: pwned" && fail "SE-5 header injection: Set-Cookie reflected:
+grep -qi "Set-Cookie: pwned" <<<"$resp" && fail "SE-5 header injection: Set-Cookie reflected:
 $resp"
 echo "PASS http-crlf-no-injection -> no Set-Cookie"
 code=$(curl -s -o /dev/null -w "%{http_code}" "http://127.0.0.1:$PORT/crlf-header" 2>&1)
