@@ -7,8 +7,22 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 
 ## [Unreleased]
 
+### Added
+
+- **`(wasm/engine handle)`** returns the engine selection a handle was loaded
+  with (`:auto`, `:jit` or `:interp`), so engine-dependent behaviour is
+  discoverable (ADR-0196).
+
 ### Changed
 
+- **A wasm trap names the export, its signature, the engine and the remedy.**
+  `wasm/call` now raises `wasm/call: 'gpr4_void' (i32 i32 i32 i32) -> () trapped
+  on the auto (JIT-first) engine (...); the JIT engine has no call dispatch for
+  a zero-result export of this shape; load the module with {:engine :interp},
+  or give the export a result` instead of a bare "WebAssembly module trapped".
+  The known engine gaps live in one table (`runtime/cljw/wasm/gaps.zig`); the
+  default engine stays `:auto`, and the `wasm/load` docstring states the
+  per-call crossing cost of each engine (ADR-0196).
 - **`cljw` runs the program on a runtime thread it spawns, never on the
   process's initial thread** (ADR-0195). On Linux the JIT engine's per-call
   stack query is ~26 us on the initial thread and under 1 us on any other, so

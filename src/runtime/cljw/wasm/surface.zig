@@ -12,9 +12,10 @@
 //!
 //! Backend: impl-only
 //! Impl deps: none
-//! Clojure peer: wasm/load, wasm/call, wasm/mem-size, wasm/mem-read, wasm/mem-write!
+//! Clojure peer: wasm/load, wasm/call, wasm/engine, wasm/mem-size, wasm/mem-read, wasm/mem-write!
 const std = @import("std");
 const engine = @import("engine.zig");
+const gaps = @import("gaps.zig");
 const marshal = @import("marshal.zig");
 const wasm_memory = @import("memory.zig");
 const wasm_handle = @import("wasm_handle.zig");
@@ -41,8 +42,14 @@ const file_io = @import("../../file_io.zig");
 /// 256 MiB) so an untrusted module is bounded out of the box (SE-1 / ZE-1); an opts
 /// map overrides either budget axis (`:fuel` / `:max-memory-pages`), where `0` or a
 /// negative value means "unmetered" (lift the cap — trusted modules only). `:engine`
-/// (ADR-0200) picks `:auto` (default — JIT-first with transparent interp fallback) /
+/// (zwasm ADR-0200) picks `:auto` (default — JIT-first with transparent interp fallback) /
 /// `:jit` (force JIT) / `:interp` (force the interpreter).
+/// Crossing cost (ADR-0196, measured on x86_64 Linux, `.dev/wasm_percall_findings.md`):
+/// one `wasm/call` is ~0.4 us on `:interp` and ~1.15 us on the JIT, while the
+/// JIT runs a compute-bound body ~15x faster, so a call whose interpreter body
+/// runs longer than ~0.8 us wins on the JIT and a shorter one loses. Each
+/// engine also has call shapes it cannot dispatch today; `(wasm/engine h)`
+/// reports the selection and a trap names the shape and the remedy.
 pub fn wasmLoadFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
     _ = env;
     try error_catalog.checkArityRange("wasm/load", args, 1, 2, loc);
@@ -88,7 +95,7 @@ fn parseLoadOpts(rt: *Runtime, m: Value, loc: SourceLocation) anyerror!engine.Lo
     return opts;
 }
 
-/// Read keyword `:engine` from `m` as an `engine.EngineKind` (ADR-0200). Absent
+/// Read keyword `:engine` from `m` as an `engine.EngineKind` (zwasm ADR-0200). Absent
 /// / nil → null (zwasm's `.auto` default — JIT-first, transparent interp
 /// fallback). A `:auto` / `:jit` / `:interp` keyword selects the engine; any
 /// other value is a usage error.
@@ -151,8 +158,19 @@ pub fn wasmCallFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocat
     // Export + arity were validated above, so an invoke failure here is a trap
     // (div-by-zero, OOB, unreachable, …) — surfaced as a clean cljw exception,
     // not a crash. The per-trap-kind 1:1 map is Phase-16 (ADR-0099 trap_map).
-    loaded.invoke(name, in, out) catch
-        return error_catalog.raise(.wasm_trap, loc, .{});
+    // ADR-0196: the message names the export, its signature and the engine,
+    // plus the remedy when the shape is a known engine gap.
+    loaded.invoke(name, in, out) catch {
+        var sig_buf: [192]u8 = undefined;
+        const gap = gaps.find(loaded.engine_kind, sig);
+        return error_catalog.raise(.wasm_trap, loc, .{
+            .name = name,
+            .sig = fmtSig(&sig_buf, sig),
+            .engine = engineLabel(loaded.engine_kind),
+            .sep = if (gap != null) "; " else "",
+            .hint = if (gap) |g| g.remedy else "",
+        });
+    };
 
     if (out.len == 0) return Value.nil_val;
     if (out.len == 1) return marshal.fromWasm(out[0], loc);
@@ -161,6 +179,59 @@ pub fn wasmCallFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocat
     defer rt.gpa.free(items);
     for (out, 0..) |r, i| items[i] = try marshal.fromWasm(r, loc);
     return vector_mod.fromSlice(rt, items);
+}
+
+/// `(wasm/engine handle)` — the engine selection the handle was loaded with:
+/// `:auto`, `:jit` or `:interp` (ADR-0196). Under `:auto` this is the request,
+/// not the arm zwasm chose for the module.
+pub fn wasmEngineFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
+    _ = env;
+    try error_catalog.checkArity("wasm/engine", args, 1, loc);
+    if (!wasm_handle.isHandle(args[0]))
+        return error_catalog.raise(.wasm_handle_invalid, loc, .{ .fn_name = "wasm/engine" });
+    const loaded = wasm_handle.unwrap(args[0]);
+    return keyword_mod.intern(rt, null, @tagName(loaded.engine_kind));
+}
+
+/// The engine as a trap message names it.
+fn engineLabel(kind: engine.EngineKind) []const u8 {
+    return switch (kind) {
+        .auto => "auto (JIT-first)",
+        .jit => "jit",
+        .interp => "interp",
+    };
+}
+
+/// Render an export signature as `(i32 f64) -> (f64)` into `buf` (an empty
+/// list renders as `()`).
+fn fmtSig(buf: []u8, sig: engine.FuncType) []const u8 {
+    var w: std.Io.Writer = .fixed(buf);
+    writeSig(&w, sig) catch {
+        // A signature longer than the buffer is cut short; the message stays valid.
+    };
+    return w.buffered();
+}
+
+fn writeSig(w: *std.Io.Writer, sig: engine.FuncType) !void {
+    try writeTypes(w, sig.params);
+    try w.writeAll(" -> ");
+    try writeTypes(w, sig.results);
+}
+
+fn writeTypes(w: *std.Io.Writer, types: []const engine.ValType) !void {
+    try w.writeByte('(');
+    for (types, 0..) |t, i| {
+        if (i != 0) try w.writeByte(' ');
+        try w.writeAll(@tagName(t));
+    }
+    try w.writeByte(')');
+}
+
+test "fmtSig renders params and results, and the empty list" {
+    var buf: [64]u8 = undefined;
+    const VT = engine.ValType;
+    try std.testing.expectEqualStrings("(i32 f64) -> ()", fmtSig(&buf, .{ .params = &[_]VT{ .i32, .f64 }, .results = &.{} }));
+    try std.testing.expectEqualStrings("() -> (i64 v128)", fmtSig(&buf, .{ .params = &.{}, .results = &[_]VT{ .i64, .v128 } }));
 }
 
 /// FS-jail resolve a `:dir` / `:dirs` host path; returns the path to open (the
@@ -485,6 +556,7 @@ pub fn register(env: *Env) !void {
     const ns = try env.findOrCreateNs("wasm");
     _ = try env.intern(ns, "load", Value.initBuiltinFn(&wasmLoadFn), null);
     _ = try env.intern(ns, "call", Value.initBuiltinFn(&wasmCallFn), null);
+    _ = try env.intern(ns, "engine", Value.initBuiltinFn(&wasmEngineFn), null);
     _ = try env.intern(ns, "run", Value.initBuiltinFn(&wasmRunFn), null);
     // ADR-0192: the (ptr,len) half of the FFI — `wasm/call` passes the pointer,
     // these three put something at the other end of it.

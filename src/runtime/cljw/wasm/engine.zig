@@ -34,7 +34,7 @@ pub const Memory = zwasm.Memory;
 /// larger budget or `.unmetered`, never the reverse.
 pub const Budget = zwasm.Module.Budget;
 
-/// Per-instance engine selection (ADR-0200), re-exported from zwasm's
+/// Per-instance engine selection (zwasm ADR-0200), re-exported from zwasm's
 /// `InstantiateOpts.engine` field type so cljw never names zwasm's internal
 /// `_api_instance` path. `.auto` = JIT-first with transparent interp fallback
 /// (observably identical to interp; falls back before any side effect when the
@@ -70,6 +70,10 @@ pub const Loaded = struct {
     engine: zwasm.Engine,
     module: zwasm.Module,
     instance: zwasm.Instance,
+    /// The engine selection this instance was loaded with (ADR-0196). Under
+    /// `.auto` it is the request, not the arm zwasm chose; `wasm/engine`
+    /// reports it and the trap diagnostic names it.
+    engine_kind: EngineKind,
 
     /// Runtime signature of an exported function (`null` if absent / not a
     /// func). Drives the marshal: caller sizes its `[]Value` buffers from
@@ -244,6 +248,7 @@ pub fn load(alloc: std.mem.Allocator, bytes: []const u8, opts: LoadOpts) !*Loade
     if (opts.max_memory_pages) |b| inst_opts.max_memory_pages = b;
     inst_opts.engine = opts.engine;
     self.instance = try self.module.instantiate(inst_opts);
+    self.engine_kind = opts.engine;
     return self;
 }
 
@@ -295,7 +300,7 @@ test "dual-engine: jit==interp on GPR export; SIMD (v128) is JIT-only in zwasm" 
     }
 
     // GPR multi-arg export: byte-identical on both engines — the F-012 differential
-    // discipline applied to engine choice (ADR-0200 adoption / north-star gap II×III).
+    // discipline applied to engine choice (zwasm ADR-0200 adoption / north-star gap II×III).
     try std.testing.expectEqual(@as(i32, 5), try invokeAdd(interp, 2, 3));
     try std.testing.expectEqual(@as(i32, 5), try invokeAdd(jit, 2, 3));
 

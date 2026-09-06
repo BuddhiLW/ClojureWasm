@@ -7,20 +7,21 @@
   Per-commit = smoke; commit **and** push. **First move on resume: spawn a cljw
   nREPL** (`mcp__hive__code cider spawn repl_type="cljw"`); reap by scoped pattern
   (`orphan_prevention.md` rule 4), never before a wrap.
-- **First commit on resume MUST be**: `[CLJW-WASM-ENGINE-DEFAULT]`
-  (`20260905005755-11afa056`) as an ADR with a DA fork. Deciding fact: cljw
-  **D-585** (the zwasm JIT traps void exports beyond arity <=1 or <=3-without-
-  FP; `.auto` cannot downgrade at invoke; engine.zig's gap-lock holds on v2.6.0)
-  outranks the 2.8x crossing residual; the 15.5x compute win is opt-in territory.
-  Then `[CLJW-WASM-EXPORTSIG-CACHE]` (safe: zwasm `FuncType` is slices into the
-  instance's compiled sigs), `[CLJW-WASM-BENCH-BLIND]`, `[CLJW-CORE-ASYNC]`
-  (`20260905225236-594e3f6a`, user direction 2026-09-06: go-like CSP + multicore).
-- **v1.14.0 SHIPPED 2026-09-06** (PR #16, merge a68aa417; tag, artifacts, tap).
-  The verbatim path put NO bump commit on `main`; the CHANGELOG stamp was hand
-  commit 10f0b612. **ADR-0195 landed** (`runtime_thread.zig` owns the geometry,
-  `main.zig` hops; JIT `wasm/call` 16.5 us -> 1.15 us): v1.14.1's content, cut by
-  the next `staging`->`main` merge (preflight bumps + stamps a NON-EMPTY
-  `[Unreleased]`). Memory `20260905220820-09e3d821`.
+- **First commit on resume MUST be**: `[CLJW-WASM-EXPORTSIG-CACHE]`
+  (`20260905005830-4867c16d`): cache the resolved `FuncType` per export name on
+  `Loaded` (safe: zwasm's `FuncType` is slices into the instance's compiled
+  sigs; the JIT arm of `exportFuncSig` re-parses the module per call); measure
+  before/after with `engine_thread_matrix.clj`. Then `[CLJW-WASM-BENCH-BLIND]`
+  (the crossing-dominated bench row ADR-0196 D4 owes), `[CLJW-CORE-ASYNC]`
+  (`20260905225236-594e3f6a`, user direction 2026-09-06: go-like CSP +
+  multicore; nothing bundled today). The three zwasm asks in
+  `[ZWASM-PERCALL-TRACK]` need the user's nod before filing.
+- **v1.14.0 SHIPPED 2026-09-06** (PR #16, a68aa417; the verbatim path put NO
+  bump commit on `main`, the CHANGELOG stamp was hand commit 10f0b612).
+  **v1.14.1 = PR #17** (`staging`->`main`, merge on green + user nod; preflight
+  bumps + stamps a NON-EMPTY `[Unreleased]`): ADR-0195 (runtime thread; JIT
+  `wasm/call` 16.5 us -> 1.15 us) + ADR-0196 (`wasm/engine`, traps name
+  export/signature/engine/remedy, `gaps.zig`). Memory `20260905220820-09e3d821`.
 - **Gate state**: `.dev/.gate_pass` = `scripts/gate_state_hash.sh` of the v2.6.0
   pin tree (full gate, 425 pass); ADR-0195 rode a smoke. The cadence hook diffs
   the WORKING TREE, so a dirty risky diff blocks every commit.
@@ -64,13 +65,12 @@
 - **Wasm FFI is measured; the initial-thread penalty is gone (ADR-0195).** One
   `wasm/call` costs ~400 ns on `:engine :interp` (2.1x a Clojure fn call) and
   ~1.15 us on the `.auto` JIT default, on the runtime thread and on workers
-  alike. The old 48x was **zwasm/D-584** (`computeStackLimit` per JIT call; on
-  the process's INITIAL thread glibc parses `/proc/self/maps`), NOT fixed by
-  v2.6.0; cljw no longer runs there (D-586 tracks it). The 2.8x residual is
-  zwasm/D-585 (upstream #208) + cljw's per-call `exportSig` re-resolve. Issues
-  #13/#14/#15. Write-up `.dev/wasm_percall_findings.md`; probes
-  `.dev/bench/ffi_boundary/` (`engine_thread_matrix.clj` = the 2x2). zwasm
-  ledger ids are written `zwasm/D-NNN` (bare `D-NNN` is a cljw row).
+  alike. The old 48x was **zwasm/D-584** (glibc parses `/proc/self/maps` for the
+  INITIAL thread's stack bounds per JIT call), NOT fixed by v2.6.0; cljw no
+  longer runs there (D-586). The 2.8x residual is zwasm/D-585 (upstream #208) +
+  cljw's per-call `exportSig` re-resolve. Issues #13/#14/#15; write-up
+  `.dev/wasm_percall_findings.md`; probes `.dev/bench/ffi_boundary/`. zwasm
+  ids: `zwasm/D-NNN`, `zwasm ADR-NNNN` (bare `D-NNN` / `ADR-NNNN` = cljw).
 - **`bench/` is stratified and noise-guarded** (shell measures / YAML datum /
   Python renders via `bench/bench_domain.py`; a Suite carries its own
   dispersion). Every wasm workload loops INSIDE the module, so per-call cost is
@@ -93,7 +93,7 @@
 ## North star (ACTIVE, distal) + reading order
 
 cljw's differentiator = **Wasm interop (gap II) × VM-perf fusion→JIT (gap
-III)**. zwasm JIT (ADR-0200) is the default; remaining = components-through-
+III)**. zwasm JIT (zwasm ADR-0200) is the default; remaining = components-through-
 the-JIT (zwasm-side, D-500), distal, needs a user nod. ADR-0177: "edge
 execution" is an AIM owned by D-552. Resume reading: handover → `yq` the live
 `active:` list → ADR-0166 → ROADMAP §9.0. Memories: `verify_against_releasesafe_binary` /

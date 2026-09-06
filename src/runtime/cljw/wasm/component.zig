@@ -555,7 +555,7 @@ pub fn resourceDropFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceL
         return error_catalog.raise(.wasm_opts_invalid, loc, .{ .detail = "resource handle's owning component is not a loaded component" });
     const box: *ComponentLoaded = @ptrFromInt(host_instance.asHostInstance(comp_handle).state[0]);
     box.opened.dropResource(@intCast(inst.state[1])) catch
-        return error_catalog.raise(.wasm_trap, loc, .{});
+        return error_catalog.raise(.wasm_component_trap, loc, .{});
     host_instance.setState(args[0], 2, 1);
     return Value.nil_val;
 }
@@ -658,7 +658,7 @@ fn invokeWithSig(rt: *Runtime, opened: *comp.Opened, sig: anytype, fname: []cons
     for (call_args, sig.params, 0..) |a, p, i| in[i] = try lower(rt, arena.allocator(), a, p.ty, loc, component_handle);
 
     const out = opened.invokeTyped(fname, in, rt.gpa) catch
-        return error_catalog.raise(.wasm_trap, loc, .{});
+        return error_catalog.raise(.wasm_component_trap, loc, .{});
     if (out) |o| {
         defer o.deinit(rt.gpa);
         return try lift(rt, o, loc, component_handle);
