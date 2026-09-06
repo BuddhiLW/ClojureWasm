@@ -60,7 +60,19 @@ divides by zero:
 (try
   (wasm/call (wasm/load "docs/examples/wasm/trap.wasm") "boom")
   (catch Throwable e (println "caught trap:" (.getMessage e))))
-;; caught trap: WebAssembly module trapped (e.g. divide-by-zero, out-of-bounds, …)
+;; caught trap: wasm/call: 'boom' () -> (i32) trapped on the auto (JIT-first) engine (divide-by-zero, …)
 ```
 
 Run it: `zig build -Dwasm && ./zig-out/bin/cljw docs/examples/wasm/trap.clj`.
+
+## Engines
+
+`wasm/load` takes `{:engine :auto}` (the default: zwasm's JIT, with a fallback
+to its interpreter when the JIT cannot build the module), `:jit` or `:interp`;
+`(wasm/engine handle)` returns the selection a handle was loaded with. The two
+engines trade differently: the JIT runs a compute-bound body about 15x faster,
+while one `wasm/call` crossing costs about 0.4 us on the interpreter and about
+1.15 us on the JIT (x86_64 Linux), so a call whose body is shorter than roughly
+a microsecond is cheaper on `:interp`. Each engine also has call shapes it
+cannot dispatch today; when such a call traps, the message names the export,
+its signature, the engine and the option to pass instead.

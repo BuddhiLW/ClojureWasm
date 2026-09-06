@@ -7,6 +7,35 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 
 ## [Unreleased]
 
+### Added
+
+- **`(wasm/engine handle)`** returns the engine selection a handle was loaded
+  with (`:auto`, `:jit` or `:interp`), so engine-dependent behaviour is
+  discoverable (ADR-0196).
+- **`bench/wasm_percall.clj` measures one `wasm/call` crossing in nanoseconds**
+  (`cljw -cp bench -m wasm-percall`), per engine and thread, with a plain
+  Clojure call as the platform constant; a cljw program end to end, no shell.
+  Every other wasm workload loops inside the module and crosses the boundary
+  once per process, so a per-call cost of any size could not show there; this
+  is the other axis, with its datum (`bench/wasm-percall-latest.yaml`) rendered
+  into the bench README like the rest.
+
+### Changed
+
+- **A wasm trap names the export, its signature, the engine and the remedy.**
+  `wasm/call` now raises `wasm/call: 'gpr4_void' (i32 i32 i32 i32) -> () trapped
+  on the auto (JIT-first) engine (...); the JIT engine has no call dispatch for
+  a zero-result export of this shape; load the module with {:engine :interp},
+  or give the export a result` instead of a bare "WebAssembly module trapped".
+  The known engine gaps live in one table (`runtime/cljw/wasm/gaps.zig`); the
+  default engine stays `:auto`, and the `wasm/load` docstring states the
+  per-call crossing cost of each engine (ADR-0196).
+- **`wasm/call` resolves an export's signature once per handle.** The
+  signature used to size the argument and result buffers was re-resolved by
+  name on every call, which on the JIT engine re-parses the module; it is now
+  cached on the handle after the first call. The engine's own by-name lookup
+  inside the invoke is unchanged (an upstream zwasm item).
+
 ## [1.14.1] - 2026-09-06
 
 ### Changed

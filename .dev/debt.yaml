@@ -117,8 +117,16 @@ active:
       Pinned by the gap-lock test in `src/runtime/cljw/wasm/engine.zig`
       ("a zero-result export traps on the JIT beyond a narrow window"), which
       FAILS if zwasm ever fixes it — so the row cannot rot unnoticed.
+      RE-NARROWED 2026-09-06 (ADR-0196): the default stays `.auto` (no fixed
+      engine is trap-free: the interpreter traps v128 bodies), a trap on this
+      shape now names the export, its signature, the engine and the remedy
+      (row `jit_void_window` in `runtime/cljw/wasm/gaps.zig`, whose deletion
+      rides the pin bump that flips the gap-lock), and `(wasm/engine h)`
+      reports the selection. The upstream asks (the miscompile itself, and
+      `.auto` falling back on dispatch refusal) wait on a user nod
+      ([ZWASM-PERCALL-TRACK]).
     first_raised: "2026-08-22"
-    last_reviewed: "2026-08-22"
+    last_reviewed: "2026-09-06"
     refs: |-
       ADR-0192 (the memory surface that surfaced it); zwasm ADR-0200 (`.auto` /
       `:engine`); engine.zig's sibling SIMD gap-lock test; to_cljw_04 (the

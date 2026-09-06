@@ -34,7 +34,7 @@ pub const Memory = zwasm.Memory;
 /// larger budget or `.unmetered`, never the reverse.
 pub const Budget = zwasm.Module.Budget;
 
-/// Per-instance engine selection (ADR-0200), re-exported from zwasm's
+/// Per-instance engine selection (zwasm ADR-0200), re-exported from zwasm's
 /// `InstantiateOpts.engine` field type so cljw never names zwasm's internal
 /// `_api_instance` path. `.auto` = JIT-first with transparent interp fallback
 /// (observably identical to interp; falls back before any side effect when the
@@ -70,12 +70,32 @@ pub const Loaded = struct {
     engine: zwasm.Engine,
     module: zwasm.Module,
     instance: zwasm.Instance,
+    /// The engine selection this instance was loaded with (ADR-0196). Under
+    /// `.auto` it is the request, not the arm zwasm chose; `wasm/engine`
+    /// reports it and the trap diagnostic names it.
+    engine_kind: EngineKind,
+    /// The allocator the box and its cache live on (`load`'s `alloc`).
+    alloc: std.mem.Allocator,
+    /// Export name -> resolved signature, filled by `exportSig` on first use.
+    /// Keys are owned copies; values are slices into the instance's own
+    /// signature storage, valid for the instance's lifetime.
+    sig_cache: std.StringHashMapUnmanaged(FuncType),
 
     /// Runtime signature of an exported function (`null` if absent / not a
     /// func). Drives the marshal: caller sizes its `[]Value` buffers from
-    /// `sig.params` / `sig.results`.
+    /// `sig.params` / `sig.results`. Resolved through the instance once per
+    /// name, then served from `sig_cache` (the JIT arm of `exportFuncSig`
+    /// re-parses the module per call otherwise).
     pub fn exportSig(self: *Loaded, name: []const u8) ?FuncType {
-        return self.instance.exportFuncSig(name);
+        if (self.sig_cache.get(name)) |sig| return sig;
+        const sig = self.instance.exportFuncSig(name) orelse return null;
+        // The caller's `name` is a GC string; the key must outlive it. An
+        // allocation failure only means the next call resolves again.
+        const key = self.alloc.dupe(u8, name) catch return sig;
+        self.sig_cache.put(self.alloc, key, sig) catch {
+            self.alloc.free(key);
+        };
+        return sig;
     }
 
     /// Invoke an export by name on caller-allocated arg/result slices.
@@ -97,6 +117,9 @@ pub const Loaded = struct {
     /// GC finaliser (`wasm_handle.finaliseGc`), which then frees the box back to
     /// `gc.infra`; so a swept `(wasm/load …)` handle no longer leaks (D-259 (b)).
     pub fn deinit(self: *Loaded) void {
+        var keys = self.sig_cache.keyIterator();
+        while (keys.next()) |k| self.alloc.free(k.*);
+        self.sig_cache.deinit(self.alloc);
         self.instance.deinit();
         self.module.deinit();
         self.engine.deinit();
@@ -244,6 +267,9 @@ pub fn load(alloc: std.mem.Allocator, bytes: []const u8, opts: LoadOpts) !*Loade
     if (opts.max_memory_pages) |b| inst_opts.max_memory_pages = b;
     inst_opts.engine = opts.engine;
     self.instance = try self.module.instantiate(inst_opts);
+    self.engine_kind = opts.engine;
+    self.alloc = alloc;
+    self.sig_cache = .empty;
     return self;
 }
 
@@ -295,7 +321,7 @@ test "dual-engine: jit==interp on GPR export; SIMD (v128) is JIT-only in zwasm" 
     }
 
     // GPR multi-arg export: byte-identical on both engines — the F-012 differential
-    // discipline applied to engine choice (ADR-0200 adoption / north-star gap II×III).
+    // discipline applied to engine choice (zwasm ADR-0200 adoption / north-star gap II×III).
     try std.testing.expectEqual(@as(i32, 5), try invokeAdd(interp, 2, 3));
     try std.testing.expectEqual(@as(i32, 5), try invokeAdd(jit, 2, 3));
 
@@ -449,6 +475,28 @@ test "dual-engine: a zero-result export traps on the JIT beyond a narrow window 
         return error.TestExpectedVoidFpTrapOnAuto;
     } else |_| {
         // Expected: `.auto` builds this module, so it never downgrades.
+    }
+}
+
+test "exportSig resolves a name once per instance on either engine; the cache dies with the box" {
+    const alloc = std.testing.allocator;
+    inline for (.{ EngineKind.interp, EngineKind.jit }) |kind| {
+        const loaded = try load(alloc, &dual_engine_wasm, .{ .engine = kind });
+        defer {
+            loaded.deinit();
+            alloc.destroy(loaded);
+        }
+        try std.testing.expectEqual(@as(u32, 0), loaded.sig_cache.count());
+        const first = loaded.exportSig("add").?;
+        const again = loaded.exportSig("add").?;
+        try std.testing.expectEqual(@as(u32, 1), loaded.sig_cache.count());
+        try std.testing.expectEqual(first.params.len, again.params.len);
+        try std.testing.expectEqual(first.results.len, again.results.len);
+        // A miss is not cached, and it does not disturb the hit.
+        try std.testing.expect(loaded.exportSig("absent") == null);
+        try std.testing.expectEqual(@as(u32, 1), loaded.sig_cache.count());
+        // The cached signature still drives a real call.
+        try std.testing.expectEqual(@as(i32, 5), try invokeAdd(loaded, 2, 3));
     }
 }
 

@@ -108,6 +108,10 @@ def family(rid: str) -> str:
 
 CROSS_LANG = "cross-language"
 WASM_FFI = "wasm-ffi"
+# One `wasm/call` crossing, cljw-side loop, in nanoseconds: the axis the FFI
+# Suite cannot see because its workloads loop inside the module. Subject-only
+# (there is no wasmtime column for a cljw crossing).
+WASM_PERCALL = "wasm-percall"
 
 
 def workload_kind(name: str) -> str:
@@ -149,6 +153,8 @@ class Suite:
         """Microseconds -> the Suite's display unit, as a string."""
         if v is None:
             return absent
+        if self.unit == "ns":
+            return f"{round(v * 1000.0)}"
         return f"{round(v)}" if self.unit == "µs" else f"{v / 1000.0:.1f}"
 
     # -- queries (pure) --
@@ -167,7 +173,9 @@ class Suite:
         present = {rid
                    for cells in self.cells.get(mode, {}).values()
                    for rid in cells}
-        order = WASM_FFI_ORDER if self.kind == WASM_FFI else CROSS_LANG_ORDER
+        order = (WASM_FFI_ORDER if self.kind == WASM_FFI
+                 else ("cw",) if self.kind == WASM_PERCALL
+                 else CROSS_LANG_ORDER)
         return [rid for rid in order if rid in present]
 
     def micros(self, mode: str, workload: str, rid: str) -> Optional[float]:
@@ -238,6 +246,8 @@ class Suite:
         if self.kind == WASM_FFI:
             return ("Total wall-clock, module load + execution" if mode == COLD
                     else "Execution, load and startup subtracted")
+        if self.kind == WASM_PERCALL:
+            return "One `wasm/call` crossing, median of trials"
         return ("Cold-start wall-clock" if mode == COLD
                 else "Warm, startup subtracted")
 
@@ -252,6 +262,17 @@ class Suite:
                     "subtracts each runtime's own module-load + startup; at the "
                     "sub-10 ms end that subtraction is larger than the signal, so "
                     "read only the workloads that run for hundreds of ms._")
+        if self.kind == WASM_PERCALL:
+            return ("_The loop is on the cljw side and only the calls are timed: "
+                    "one module instantiated once per engine, then trials of N "
+                    "calls to a trivial `add` export. This is the axis the FFI "
+                    "table above cannot see (its workloads loop inside the "
+                    "module). `fn-call` is a plain Clojure function call in the "
+                    "same process, the platform constant a crossing is measured "
+                    "against. `-worker` rows run on a `future` thread. Engines "
+                    "have opposite preferences: compute-bound bodies favour the "
+                    "JIT (~15x, see `bench/wasm_jit_vs_interp.sh`), crossing-"
+                    "heavy calls favour the interpreter._")
         return ("_Cold-start = process launch → exit (startup included). Only "
                 "cold-start is shown: it is the metric that compares uniformly "
                 "across languages. A startup-subtracted compute number is omitted "
@@ -322,9 +343,49 @@ def from_wasm_ffi(data: dict) -> Suite:
     )
 
 
+def from_wasm_percall(data: dict) -> Suite:
+    """`cljw -cp bench -m wasm-percall --yaml=FILE` shape (bench/wasm_percall.clj):
+
+        percall_ns:            {<cell>: {median: ns, min: ns, max: ns, sd: ns}}
+        platform_constant_ns:  {fn-call: {median: ns, min: ns, max: ns, sd: ns}}
+
+    Cells are `<engine>-<thread>` (auto / jit / interp x main / worker). The
+    platform constant is a workload like any other so it renders as a row the
+    reader can compare against, but it is kept in its own key by the producer
+    so a regression in it is distinguishable from one in the engine. Medians
+    become the cell value and `sd` its dispersion, both converted to the
+    model's microseconds at this boundary; the Suite displays ns.
+    """
+    cells: Dict[str, Dict[str, Dict[str, float]]] = {COLD: {}}
+    sd: Dict[str, Dict[str, Dict[str, float]]] = {COLD: {}}
+    rows = dict(data.get("percall_ns") or {})
+    rows.update(data.get("platform_constant_ns") or {})
+    for cell, stats in rows.items():
+        stats = stats or {}
+        if stats.get("median") is None:
+            continue
+        cells[COLD][cell] = {"cw": stats["median"] / 1000.0}
+        if stats.get("sd") is not None:
+            sd[COLD][cell] = {"cw": stats["sd"] / 1000.0}
+    env = dict(data.get("env") or {})
+    env.setdefault("tool", "bench/wasm_percall.clj")
+    env.setdefault("warmup", "1")
+    env.setdefault("runs", str(env.get("trials", "?")))
+    return Suite(
+        kind=WASM_PERCALL,
+        env=env,
+        date=data.get("date", ""),
+        cells=cells,
+        unit="ns",
+        sd=sd,
+    )
+
+
 def detect(data: dict) -> Suite:
     """Pick the adapter from the datum's own shape, so a caller does not have to
     know which harness wrote the file."""
+    if "percall_ns" in data:
+        return from_wasm_percall(data)
     benches = data.get("benchmarks") or {}
     first = next(iter(benches.values()), {}) or {}
     return from_wasm_ffi(data) if "cold_ms" in first else from_cross_lang(data)
