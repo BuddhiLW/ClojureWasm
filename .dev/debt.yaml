@@ -24,6 +24,41 @@
 # md-table-align no longer pads it to ~800 KB of whitespace.
 
 active:
+  - id: "D-586"
+    status: |-
+      open (2026-09-05, ADR-0195 trigger). UPSTREAM: zwasm/D-584. zwasm's JIT
+      calls `computeStackLimit` on EVERY invocation, and glibc's stack query
+      for the process's INITIAL thread parses /proc/self/maps: 16.5-18.9 us per
+      `wasm/call` on Linux against 392 ns on `:engine :interp` and 184 ns for a
+      Clojure fn call (.dev/wasm_percall_findings.md; issues #13/#14/#15).
+      Measured 2026-09-05, engine_thread_matrix.clj, 20k calls per cell:
+      JIT initial 16547 ns, JIT worker 1181, interp 399/413. NOT fixed in
+      zwasm v2.6.0 (computeStackLimit still per invocation on upstream main:
+      engine/codegen/shared/entry.zig 248, 272; entry_buffer_write.zig 86).
+      cljw's answer is ADR-0195 (the runtime runs off the initial thread; the
+      geometry decision stands on its own, this row only tracks the upstream
+      cost). Residual on a non-initial thread: ~570 ns of the 1181 is STILL
+      this row (zwasm ADR-0209 measures the glibc query at 561-578 ns there);
+      zwasm/D-585 + cljw's own double name-resolve in wasmCallFn is ~200 ns.
+      Not filed upstream: their tracker already carries it; a short report
+      with the embedder numbers needs a user nod ([ZWASM-PERCALL-TRACK]).
+    category: "wasm"
+    barrier: |-
+      zwasm memoises `computeStackLimit` per thread (a threadlocal cache in
+      engine/codegen/shared/stack_limit.zig, or the query hoisted out of the
+      per-invocation path). Re-check at every pin bump by reading upstream
+      engine/codegen/shared/entry.zig; the measurement device is
+      `./zig-out/bin/cljw .dev/bench/ffi_boundary/engine_thread_matrix.clj`
+      (on demand, never gated: a timing ratio in the gate is a flake generator,
+      test_taxonomy.md). When the barrier dissolves, retire ADR-0195's trigger
+      paragraph (the decision survives) and re-measure the residual so
+      [CLJW-WASM-ENGINE-DEFAULT] can be re-decided on the new numbers.
+    first_raised: "2026-09-05"
+    last_reviewed: "2026-09-05"
+    refs: |-
+      ADR-0195; ADR-0209 (zwasm); .dev/wasm_percall_findings.md;
+      .dev/bench/ffi_boundary/README.md; kanban [CLJW-WASM-WORKER-THREAD]
+      20260905012150-05dc6702, [ZWASM-PERCALL-TRACK] 20260905005855-3d34a890.
   - id: "D-585"
     status: |-
       open (2026-08-22, found landing ADR-0192). zwasm's JIT MISCOMPILES a
