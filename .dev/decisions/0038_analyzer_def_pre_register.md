@@ -239,3 +239,44 @@ forces user-visible divergence from JVM Clojure or hides it via a
   a Workaround smell. Tests: 4 e2e (phase14_redef) + phase7_multimethod case
   6; `--compare` OK on both. Blast radius = every def/defn re-eval, gated by
   the 191-test suite + dual-backend diff oracle.
+
+- 2026-09-06 (amendment, CLJW-COMPLIANCE-B6): **runtime definition binds the
+  exact Var captured during analysis.** `internDeclare` already chooses the
+  local Var, but `DefNode` kept only its name and both evaluators re-interned
+  that name in the caller's current namespace. Consequently a `def` inside a
+  function invoked from another namespace left the source Var unbound. This
+  surfaced as nil roots in the upstream add-watch/remove-watch tests. JVM
+  Clojure confirms that the target belongs to the function's analyzed form,
+  including after `remove-ns` and recreation of the same namespace name.
+
+  `DefNode.var_ptr` now carries that exact declaration. TreeWalk updates it
+  after successful initializer evaluation; the VM's `op_def` and
+  `op_def_unbound` address a Var-reference constant. No-initializer definitions
+  preserve both the existing root and bound state. This also applies to
+  `analyzeDefmacro`, so macros and ordinary definitions share one contract.
+  Failed initializers continue to leave the previous root intact.
+
+  AOT serializes the existing Var-reference representation (owner namespace
+  plus name), and its decoder uses `internDeclare`, never a referred binding
+  or a newly bound nil root. The bytecode version advances to 10 because the
+  def operand's constant changes from String to Var. Older standalone
+  payloads must be rebuilt; the checked version rejects their old contract.
+  Loaded functions retain their exact Var identity rather than resolving its
+  name on each call. Namespace removal is currently unsupported in cljw
+  (`namespace.zig` records its separate lifetime-design requirement). AOT
+  restores ownership in the destination environment, as it does for every
+  other serialized Var reference.
+
+  Alternatives: resolving a qualified name on each call loses identity after
+  namespace replacement; switching `*ns*` around every function call changes
+  unrelated dynamic namespace behavior. Capturing the Var shares the
+  existing `var`/`set!` mechanism and matches the observable JVM contract.
+
+  Affected files: `src/eval/node.zig`, `src/eval/analyzer/special_forms.zig`,
+  `src/eval/analyzer/analyzer.zig`, `src/eval/backend/tree_walk.zig`,
+  `src/eval/backend/vm/compiler.zig`, `src/eval/backend/vm/opcode.zig`,
+  `src/eval/backend/vm.zig`, `src/eval/bytecode/serialize.zig`,
+  `src/lang/diff_test.zig`, `docs/spec/formats/chunk-v10.edn`, and this ADR.
+  Coverage includes namespace switches, no-init definitions, distinct Vars
+  with the same qualified name, restored function execution, and an AOT owner with a referred
+  name that must not replace the local declaration.
