@@ -36,10 +36,6 @@
 (defn temp-dir [prefix]
   (str (fs/create-temp-dir {:prefix prefix})))
 
-(defn available-port []
-  (with-open [socket (java.net.ServerSocket. 0)]
-    (.getLocalPort socket)))
-
 (defn- read-port [path]
   (when (fs/exists? path)
     (let [s (.trim (slurp (str path)))]
@@ -78,11 +74,13 @@
     (fs/delete-tree dir)))
 
 (defn start-cljw!
+  "Start a cljw nREPL on an OS-assigned port (`--port 0`). The server writes
+  the BOUND port to .nrepl-port, which start-server! reads, so no port is
+  chosen before bind. Returns an owned server."
   ([] (start-cljw! {}))
   ([{:keys [classpath]}]
    (let [dir (temp-dir "cljw-nrepl-")
-         port (available-port)
-         command (cond-> [cljw-bin "nrepl" "--port" (str port)]
+         command (cond-> [cljw-bin "nrepl" "--port" "0"]
                    classpath (conj "-cp" classpath))]
      (start-server! {:command command
                      :dir dir

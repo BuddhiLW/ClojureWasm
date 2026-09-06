@@ -7,6 +7,20 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 
 ## [Unreleased]
 
+### Changed
+
+- **`cljw` runs the program on a runtime thread it spawns, never on the
+  process's initial thread** (ADR-0195). On Linux the JIT engine's per-call
+  stack query is ~26 us on the initial thread and under 1 us on any other, so
+  a `wasm/call` on the default `:engine :auto` drops from ~16.5 us to ~1.2 us
+  per call (measured with `.dev/bench/ffi_boundary/engine_thread_matrix.clj`;
+  the interpreter engine is unchanged at ~0.4 us). The runtime thread and every
+  worker thread now share one explicit stack geometry (16 MiB stack, 6 MiB
+  guard budget), asserted at compile time instead of described in prose.
+  Single-threaded targets (wasm32-wasi) are unaffected; if the thread cannot
+  be spawned, `cljw` prints one line to stderr and runs on the initial thread
+  as before.
+
 ## [1.14.0] - 2026-09-06
 
 ### Changed

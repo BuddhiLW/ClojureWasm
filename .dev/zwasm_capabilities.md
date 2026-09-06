@@ -169,7 +169,7 @@ have surfaced it.
 ## Revision log
 
 - **2026-06-20** — ledger created (user-directed convention). Pin = pre-JIT
-  `412966f7`. zwasm JIT (ADR-0200 / zwasm#477) recorded as BUILDING, not yet adoptable.
+  `412966f7`. zwasm JIT (zwasm ADR-0200 / zwasm#477) recorded as BUILDING, not yet adoptable.
 - **2026-06-20** — handover protocol simplified (user-directed): no-loop, 2-state
   (`SENT`/`CONSUMED`), mailbox moved to `zwasm_from_scratch/private/dogfooding_handover/`.
   Sent `from_cljw_01.md` — JIT embedding-API consuming requirements (per-instance engine

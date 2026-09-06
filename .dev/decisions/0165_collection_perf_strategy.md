@@ -13,7 +13,7 @@
 - **Relates to**: ADR-0148 (fastest-script campaign — this is its collection sub-strategy),
   F-002 (finished-form), F-005 (numeric tower), F-006 (GC; GC-backed sharing avoids per-node
   refcount), F-011 (behavioural equivalence — the diff oracle is the safety net). D-520 (the
-  draining debt row). The JIT (D-386 / ADR-0200 zwasm JIT) is the SEPARATE, larger compute
+  draining debt row). The JIT (D-386 / zwasm ADR-0200 JIT) is the SEPARATE, larger compute
   frontier (JVM-Clojure territory; babashka structurally cannot JIT — SCI is not a Truffle
   interpreter, GraalVM native-image is AOT-only).
 

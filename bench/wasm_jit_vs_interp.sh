@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# bench/wasm_jit_vs_interp.sh — reproducible JIT-vs-interp demonstration (ADR-0200
+# bench/wasm_jit_vs_interp.sh — reproducible JIT-vs-interp demonstration (zwasm ADR-0200
 # adoption; ROADMAP §9.0 gap area III VM-perf). Runs the SAME compute-heavy wasm
 # module (bench/fixtures/sumto.wasm — a 100M-iteration i32 tight loop) through
 # cljw's zwasm embedding under `:engine :jit` and `:engine :interp`, and prints the

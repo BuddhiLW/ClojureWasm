@@ -117,7 +117,7 @@ to attribute the floor).
   F-011 side-effect-visibility audit is a one-time cost paid in step 2.
 - **Alt-3 makes the envelope format load-bearing/rigid** — a chunk-layout change becomes an
   on-rodata-format change. Accepted: the format is already AOT-embedded; the future JIT
-  (ADR-0200) operates on a different layer.
+  (zwasm ADR-0200) operates on a different layer.
 - **B's deferral is recorded forward debt**, explicitly co-owned with the moving-GC unit,
   so it is not lost and not built prematurely.
 

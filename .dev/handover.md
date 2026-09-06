@@ -7,22 +7,23 @@
   Per-commit = smoke; commit **and** push. **First move on resume: spawn a cljw
   nREPL** (`mcp__hive__code cider spawn repl_type="cljw"`); reap by scoped pattern
   (`orphan_prevention.md` rule 4), never before a wrap.
-- **First commit on resume MUST be**: ADR-0195 + `[CLJW-WASM-WORKER-THREAD]`
-  (`20260905012150-05dc6702`, doing): `main.zig` spawns ONE `std.Thread`
-  (explicit 16 MiB stack) running `cli.dispatch`; the initial thread joins and
-  propagates the error. Helper + unit test `src/app/entry_thread.zig` (callback
-  sees another `std.Thread.getCurrentId()`; errors propagate; `single_threaded`
-  = direct call). Win: JIT `wasm/call` 16.5 us -> 1.2 us on Linux. DA report:
-  `private/notes/adr-0195-da.md`. Then `[CLJW-WASM-ENGINE-DEFAULT]` (keep
-  `.auto`), `[CLJW-WASM-EXPORTSIG-CACHE]`, `[CLJW-WASM-BENCH-BLIND]`.
-- **Release in flight: PR #16 `staging`->`main` cuts v1.14.0** (`.version` is
-  already `1.14.0`, set in 86006eae, so preflight releases it VERBATIM and does
-  NOT stamp CHANGELOG: a `chore(release): target v1.14.0` commit running
-  `python3 .github/stamp_changelog.py 1.14.0` must land on staging first; v1.13.4
-  shipped unstamped). Merge only on green PR CI. Memory `20260905220820-09e3d821`.
-- **Gate state**: the v2.6.0 pin commit carries the full gate that proved it;
-  `.dev/.gate_pass` = `scripts/gate_state_hash.sh` of that tree. Note the cadence
-  hook diffs the WORKING TREE, so a dirty risky diff blocks every commit.
+- **First commit on resume MUST be**: `[CLJW-WASM-ENGINE-DEFAULT]`
+  (`20260905005755-11afa056`) as an ADR with a DA fork. Deciding fact: cljw
+  **D-585** (the zwasm JIT traps void exports beyond arity <=1 or <=3-without-
+  FP; `.auto` cannot downgrade at invoke; engine.zig's gap-lock holds on v2.6.0)
+  outranks the 2.8x crossing residual; the 15.5x compute win is opt-in territory.
+  Then `[CLJW-WASM-EXPORTSIG-CACHE]` (safe: zwasm `FuncType` is slices into the
+  instance's compiled sigs), `[CLJW-WASM-BENCH-BLIND]`, `[CLJW-CORE-ASYNC]`
+  (`20260905225236-594e3f6a`, user direction 2026-09-06: go-like CSP + multicore).
+- **v1.14.0 SHIPPED 2026-09-06** (PR #16, merge a68aa417; tag, artifacts, tap).
+  The verbatim path put NO bump commit on `main`; the CHANGELOG stamp was hand
+  commit 10f0b612. **ADR-0195 landed** (`runtime_thread.zig` owns the geometry,
+  `main.zig` hops; JIT `wasm/call` 16.5 us -> 1.15 us): v1.14.1's content, cut by
+  the next `staging`->`main` merge (preflight bumps + stamps a NON-EMPTY
+  `[Unreleased]`). Memory `20260905220820-09e3d821`.
+- **Gate state**: `.dev/.gate_pass` = `scripts/gate_state_hash.sh` of the v2.6.0
+  pin tree (full gate, 425 pass); ADR-0195 rode a smoke. The cadence hook diffs
+  the WORKING TREE, so a dirty risky diff blocks every commit.
 - **Pick the smoke selector by COVERAGE, not topic** (grep the e2e tier for the
   changed file; memory `20260831212130-2668f443`). ADR-0107's 5-commit ceiling.
 - **Forbidden this session**: `git rebase`/`cherry-pick`/`commit --amend`
@@ -58,18 +59,18 @@
 ## Current state (details = CHANGELOG + git log)
 
 - **Issues, PRs and Discussions are OPEN here**; CONTRIBUTING exempts outside
-  contributors from the loop's conventions. **Shipped through v1.13.4**
-  (CHANGELOG has no `[1.13.4]` heading: verbatim path). v1.14.0 = PR #16, above.
-- **Wasm FFI is measured; the default engine is wrong on Linux.** One
-  `wasm/call` costs 392 ns on `:engine :interp` (2.1x a Clojure fn call) and
-  **18,875 ns on the `.auto` default**. The 48x is **zwasm/D-584**
-  (`computeStackLimit` per JIT invocation; on the INITIAL thread glibc parses
-  `/proc/self/maps`), confirmed with zwasm's own `bench-latency` on this host,
-  NOT fixed by v2.6.0. Off the initial thread the JIT pays 1.2 us; the residual
-  2.9x over interp is zwasm/D-585 (upstream #208) + cljw's per-call `exportSig`
-  re-resolve. Issues #13/#14/#15. Write-up: `.dev/wasm_percall_findings.md`;
-  probes `.dev/bench/ffi_boundary/` (`engine_thread_matrix.clj` = the 2x2).
-  zwasm ledger ids are written `zwasm/D-NNN` (bare `D-NNN` is a cljw row).
+  contributors from the loop's conventions. **Shipped through v1.14.0**
+  (CHANGELOG has no `[1.13.4]` heading: verbatim path).
+- **Wasm FFI is measured; the initial-thread penalty is gone (ADR-0195).** One
+  `wasm/call` costs ~400 ns on `:engine :interp` (2.1x a Clojure fn call) and
+  ~1.15 us on the `.auto` JIT default, on the runtime thread and on workers
+  alike. The old 48x was **zwasm/D-584** (`computeStackLimit` per JIT call; on
+  the process's INITIAL thread glibc parses `/proc/self/maps`), NOT fixed by
+  v2.6.0; cljw no longer runs there (D-586 tracks it). The 2.8x residual is
+  zwasm/D-585 (upstream #208) + cljw's per-call `exportSig` re-resolve. Issues
+  #13/#14/#15. Write-up `.dev/wasm_percall_findings.md`; probes
+  `.dev/bench/ffi_boundary/` (`engine_thread_matrix.clj` = the 2x2). zwasm
+  ledger ids are written `zwasm/D-NNN` (bare `D-NNN` is a cljw row).
 - **`bench/` is stratified and noise-guarded** (shell measures / YAML datum /
   Python renders via `bench/bench_domain.py`; a Suite carries its own
   dispersion). Every wasm workload loops INSIDE the module, so per-call cost is
@@ -85,10 +86,9 @@
 ## What was left unfinished (`.dev/debt.yaml` is the SSOT)
 
 - **D-565** residuals (7)/(8) unreachable. **Perf campaign (§9.2.S) PAUSED**
-  (D-520/D-386/D-005/006); **D-513** (1); **D-548** (b).
-- Open cards: `[CLJW-JSON-REEXPORT]` (`20260831194114-196afd4a`) ·
-  `[CLJW-ENTRYPOINT-FLAKE]` (`20260831192937-1e3c4ed0`) ·
-  `[CLJW-NATIVE-HARNESS]` (`20260831201012-5386d9f9`).
+  (D-520/D-386/D-005/006); **D-513** (1); **D-548** (b). Open cards:
+  `[CLJW-JSON-REEXPORT]` (`20260831194114-196afd4a`), `[CLJW-ENTRYPOINT-FLAKE]`
+  (`20260831192937-1e3c4ed0`), `[CLJW-NATIVE-HARNESS]` (`20260831201012-5386d9f9`).
 
 ## North star (ACTIVE, distal) + reading order
 
