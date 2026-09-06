@@ -120,7 +120,7 @@ active:
     first_raised: "2026-08-22"
     last_reviewed: "2026-08-22"
     refs: |-
-      ADR-0192 (the memory surface that surfaced it); ADR-0200 (`.auto` /
+      ADR-0192 (the memory surface that surfaced it); zwasm ADR-0200 (`.auto` /
       `:engine`); engine.zig's sibling SIMD gap-lock test; to_cljw_04 (the
       2026-06 residual FP-shape gaps, of which this is the un-reported tail).
   - id: "D-577"
@@ -532,7 +532,7 @@ active:
       DRAIN 2 (2026-07-14, the handover-named residual): docs/architecture.md —
       the "Current state" tail was pre-v0.1.0-era (claimed "cut the v0.1.0 tag
       (not yet tagged)" while v1.2.0 had just shipped; "ARM64 JIT is the next
-      lever" superseded by the zwasm-side JIT ADR-0200; "12 optimizations
+      lever" superseded by zwasm ADR-0200 (the zwasm-side JIT); "12 optimizations
       O-016…O-027" vs the O-051 ledger; phase-plan framing vs the §9.0 gap-area
       model) — rewritten to current truth incl. the ADR-0170 nREPL surface +
       release/tap facts. docs/examples/wasm/README.md + add.clj — the
@@ -7392,7 +7392,7 @@ discharged:
       chunk-layout change becomes an on-rodata-format change (accepted; the format is
       already AOT-embedded). Survey: serialize.zig EnvelopeIterator/deserializeChunk +
       the BytecodeChunk shape; cw v0 / wasmtime for in-place/position-independent chunk
-      formats. Watch the JIT (ADR-0200) may operate on a different layer — do not
+      formats. Watch the JIT (zwasm ADR-0200) may operate on a different layer — do not
       over-invest in a format it would replace.
       ADR-0172 L2 fold-in (2026-07-16): the binary-SIZE lever on the same bytes is
       co-decided in THIS redesign, not built separately — eager core region stays

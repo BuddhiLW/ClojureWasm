@@ -3,7 +3,7 @@
 - **Status**: Proposed -> Accepted
 - **Date**: 2026-09-05
 - **Author**: BuddhiLW
-- **Tags**: threads, stack, startup, wasm, ffi, jit, zwasm/D-584, ADR-0157, ADR-0193, ADR-0200, F-001, F-002, F-009
+- **Tags**: threads, stack, startup, wasm, ffi, jit, zwasm/D-584, ADR-0157, ADR-0193, zwasm ADR-0200, F-001, F-002, F-009
 
 ## Context
 
@@ -271,7 +271,7 @@ seen.
 - `.dev/wasm_percall_findings.md`; GitHub issues #13, #14, #15.
 - zwasm ADR-0209, zwasm/D-584, zwasm/D-585 (`~/PP/referential-projects/zwasm`).
 - ADR-0157 (self-calibrating stack guard), ADR-0193 (wasm32-wasi target),
-  ADR-0200 (JIT adoption), D-488 (the `.auto` flip), cljw D-585 (JIT
+  zwasm ADR-0200 (JIT adoption), D-488 (the `.auto` flip), cljw D-585 (JIT
   zero-result gap, ADR-0192).
 - Kanban `[CLJW-WASM-WORKER-THREAD]` (`20260905012150-05dc6702`),
   `[CLJW-WASM-ENGINE-DEFAULT]` (`20260905005755-11afa056`),
