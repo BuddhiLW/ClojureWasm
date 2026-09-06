@@ -61,5 +61,21 @@ So the engine choice and the thread choice are independent levers, and the right
 engine still depends on call shape: the JIT wins 15.5x on compute-in-wasm
 (`bench/wasm_jit_vs_interp.sh`) and loses on crossing-heavy work at any thread.
 
-Follow-ups: kanban [CLJW-WASM-ENGINE-DEFAULT], [CLJW-WASM-WORKER-THREAD],
-[CLJW-WASM-EXPORTSIG-CACHE].
+## After ADR-0195, measured 2026-09-06
+
+`cljw` now runs the program on a spawned runtime thread, so "main thread" below
+is that thread, not the process's initial one. Loaded host (co-tenant JVM at
+~5.6 cores, load average 11-15), minimum of six runs; the interp rows show the
+noise floor against 2026-09-05's 399 / 413.
+
+    cell                     ns/call
+    JIT    main thread          1150
+    JIT    worker thread        1262
+    interp main thread           409
+    interp worker thread         479
+
+Reading 1 above is closed: rows 1 and 2 are now the same cell. Readings 2 and 3
+stand unchanged, and the residual is the next card's target.
+
+Follow-ups: kanban [CLJW-WASM-ENGINE-DEFAULT], [CLJW-WASM-EXPORTSIG-CACHE].
+[CLJW-WASM-WORKER-THREAD] landed as ADR-0195.

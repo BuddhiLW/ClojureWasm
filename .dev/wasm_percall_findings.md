@@ -27,6 +27,25 @@ For context, from `.dev/bench/ffi_boundary/`: a Clojure function call is 184 ns,
 so the interpreter's 399 ns crossing is 2.1x a local call. The boundary is
 cheap. The default is not.
 
+### After ADR-0195 (measured 2026-09-06)
+
+Same probe, same binary configuration, after `cljw` started running the program
+on a spawned runtime thread (ADR-0195). The host was loaded (a co-tenant JVM
+at ~5.6 cores, load average 11-15), so these are the minimum of six runs and
+the interp rows are the noise floor: read the ratios, not the digits.
+
+| cell                 | ns/call | before |
+|----------------------|---------|--------|
+| JIT, main thread     | 1150    | 16547  |
+| JIT, worker thread   | 1262    | 1181   |
+| interp, main thread  | 409     | 399    |
+| interp, worker thread| 479     | 413    |
+
+The initial-thread penalty is gone: the JIT's main-thread cell now equals its
+worker cell, a 14x drop. The residual (JIT ~2.8x interp on both threads) is
+what the rest of this document attributes to zwasm/D-584's non-initial-thread
+cost plus zwasm/D-585 and cljw's own double name-resolve.
+
 ## Two independent causes, both upstream, both already documented there
 
 zwasm ADR-0209 (`.dev/decisions/0209_percall_latency_bench.md` in the zwasm

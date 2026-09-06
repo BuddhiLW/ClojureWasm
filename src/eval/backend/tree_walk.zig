@@ -37,6 +37,7 @@ const Value = @import("../../runtime/value/value.zig").Value;
 const HeapHeader = @import("../../runtime/value/value.zig").HeapHeader;
 const Runtime = @import("../../runtime/runtime.zig").Runtime;
 const eval_budget_mod = @import("../../runtime/concurrency/eval_budget.zig");
+const runtime_thread = @import("../../runtime/concurrency/runtime_thread.zig");
 const env_mod = @import("../../runtime/env.zig");
 const Env = env_mod.Env;
 const Var = env_mod.Var;
@@ -431,11 +432,12 @@ pub fn allocFunctionFromSerialized(
 /// deep user recursion (or a self-triggering watch's notify→swap!→notify
 /// chain) overflows the native stack → SIGSEGV where the VM raises the
 /// catchable stack_overflow. Anchor to the shallowest `eval` entry seen on
-/// this thread and raise once the REAL bytes consumed exceed the same 6 MiB
-/// budget. The anchor LIVES in root_set (`conservative_stack_top`) — it
-/// doubles as the D-556 conservative-scan upper bound, one anchor for both
-/// concerns. Per-node cost is a threadlocal read + two compares.
-const STACK_BUDGET_BYTES: usize = 6 * 1024 * 1024;
+/// this thread and raise once the REAL bytes consumed exceed the budget
+/// `runtime_thread.zig` owns (ADR-0195, shared with vm.zig). The anchor
+/// LIVES in root_set (`conservative_stack_top`): it doubles as the D-556
+/// conservative-scan upper bound, one anchor for both concerns. Per-node
+/// cost is a threadlocal read + two compares.
+const STACK_BUDGET_BYTES = runtime_thread.STACK_BUDGET_BYTES;
 
 /// Evaluate one Node into a Value. `locals` is the slot array owned
 /// by the caller — typically a fixed 256-entry stack array.

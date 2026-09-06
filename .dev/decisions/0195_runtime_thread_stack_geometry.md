@@ -74,11 +74,14 @@ geometry cljw does not choose.
    built from it, and `STACK_BUDGET_BYTES` (6 MiB). `spawn.zig` spawns
    workers with that config, so the runtime thread and every worker have
    identical geometry (Single-Source Lever). `vm.zig` and `tree_walk.zig`
-   read the budget from here and each carries a `comptime` assertion that
-   `STACK_BUDGET_BYTES + @sizeOf(VmArena) + 1 MiB <= RUNTIME_STACK_BYTES`,
-   replacing the prose margin. The TLS term matters: under glibc pthreads the
-   static TLS block (the threadlocal `VmArena`, roughly 1 MiB) is carved out
-   of the thread's stack allocation.
+   read the budget from here. The margin is asserted at comptime in the
+   module itself, `STACK_BUDGET_BYTES + TLS_RESERVE_BYTES + STACK_SLACK_BYTES
+   <= RUNTIME_STACK_BYTES` (2 MiB reserve, 1 MiB slack), replacing the prose
+   margin; `vm.zig` asserts its own `@sizeOf(VmArena)` against the reserve
+   (`assertTlsFits`), so the dominant TLS consumer is checked where it is
+   declared and the margin arithmetic lives in one place. The TLS term
+   matters: under glibc pthreads the static TLS block (the threadlocal
+   `VmArena`, roughly 1 MiB) is carved out of the thread's stack allocation.
 2. **`main.zig` runs `cli.dispatch` on a spawned runtime thread**:
    `runtime_thread.runMain(cli.dispatch, .{init})` spawns with that config,
    joins, and returns the callback's error so `wrapMain` reports it exactly
@@ -231,7 +234,10 @@ seen.
 
 - Positive: JIT `wasm/call` on Linux drops ~14x with no zwasm change and no
   user-visible API; macOS unaffected (zwasm/D-584 does not exist there).
-  `@(future ...)` stops being a needed workaround.
+  `@(future ...)` stops being a needed workaround. Measured after landing
+  (2026-09-06, `engine_thread_matrix.clj`, min of 6 on a loaded host): JIT
+  main thread 16547 -> 1150 ns, now equal to the worker cell (1262); interp
+  409 / 479, unchanged within noise.
 - Positive: ADR-0157's margin becomes a compile-time fact instead of an
   `ulimit` assumption; every cljw thread has the same, chosen stack.
 - Positive: the zwasm JIT stack probe sees a precise pthread bound on the
@@ -253,7 +259,8 @@ seen.
   `runMain`, unit tests.
 - `src/runtime/concurrency/spawn.zig`: workers spawn with the shared config.
 - `src/eval/backend/vm.zig`, `src/eval/backend/tree_walk.zig`: budget read
-  from the SSOT; comptime margin assertion; the prose margin comment retired.
+  from the SSOT; vm.zig asserts `@sizeOf(VmArena)` fits the TLS reserve; the
+  prose margin comment retired.
 - `.dev/debt.yaml`: the zwasm/D-584 tracking row.
 - `.dev/wasm_percall_findings.md`, `.dev/bench/ffi_boundary/README.md`:
   residual attribution corrected; after-numbers recorded when measured.

@@ -24,6 +24,7 @@ const value_mod = @import("../../runtime/value/value.zig");
 const env_mod = @import("../../runtime/env.zig");
 const runtime_mod = @import("../../runtime/runtime.zig");
 const eval_budget_mod = @import("../../runtime/concurrency/eval_budget.zig");
+const runtime_thread = @import("../../runtime/concurrency/runtime_thread.zig");
 const string_mod = @import("../../runtime/collection/string.zig");
 const vector_mod = @import("../../runtime/collection/vector.zig");
 const map_mod = @import("../../runtime/collection/map.zig");
@@ -112,12 +113,19 @@ threadlocal var vm_arena: VmArena = .{};
 /// anchors to the shallowest (highest-address) `eval` entry seen on THIS thread
 /// (0 = uncaptured); `eval` raises a catchable stack_overflow once
 /// `stack_base - @frameAddress()` (bytes consumed below the anchor) exceeds the
-/// budget. 6 MiB is a one-sided, over-estimable margin safely under the 8 MiB
-/// main / ~16 MiB worker stacks (the std.Thread default) — measuring REAL bytes,
-/// it is immune to the per-frame-size / optimization-level / platform variance
-/// that makes a fixed frame-COUNT cap a cross-host SIGSEGV.
+/// budget. The budget and the stack it must fit are owned by
+/// `runtime_thread.zig` (ADR-0195), which asserts the margin at comptime.
+/// Measuring REAL bytes, the guard is immune to the per-frame-size /
+/// optimization-level / platform variance that makes a fixed frame-COUNT cap a
+/// cross-host SIGSEGV.
 threadlocal var stack_base: usize = 0;
-const STACK_BUDGET_BYTES: usize = 6 * 1024 * 1024;
+const STACK_BUDGET_BYTES = runtime_thread.STACK_BUDGET_BYTES;
+
+comptime {
+    // The threadlocal arena is static TLS, carved out of the runtime stack
+    // under glibc pthreads; it must fit the reserve the margin accounts for.
+    runtime_thread.assertTlsFits(@sizeOf(VmArena));
+}
 
 /// An in-VM call frame. A flattened `op_call` pushes one + continues
 /// the SAME eval loop (no host `eval` re-entry); `op_ret` pops it. Each carries

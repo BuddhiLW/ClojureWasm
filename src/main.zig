@@ -7,6 +7,11 @@
 //! `pub fn main(init: std.process.Init)` so `build.zig` does not
 //! need a `root_source_file` change.
 //!
+//! `cli.dispatch` runs on a spawned runtime thread (`runtime_thread.runMain`,
+//! ADR-0195), never on the process's initial thread: the runtime thread owns
+//! its stack geometry, and the initial thread only joins and reports the
+//! error. Single-threaded targets call through directly.
+//!
 //! The `test {}` aggregator at the bottom intentionally stays here:
 //! it is the second-`addTest()` orphan-fix per `zig_tips.md` "Test
 //! discovery via @import (lazy-decl-analysis trap)" + the
@@ -19,6 +24,7 @@ const std = @import("std");
 const cli = @import("app/cli.zig");
 const error_render = @import("app/error_render.zig");
 const io_default = @import("runtime/concurrency/io_default.zig");
+const runtime_thread = @import("runtime/concurrency/runtime_thread.zig");
 
 pub fn main(init: std.process.Init) !void {
     // Upgrade the process-wide `io_default` singleton from its lazy
@@ -30,7 +36,7 @@ pub fn main(init: std.process.Init) !void {
     // single-threaded default (a per-test threaded io is set where needed), so
     // `io_default` never dangles at a freed test-local `Threaded`.
     io_default.set(init.io);
-    try cli.dispatch(init);
+    try runtime_thread.runMain(cli.dispatch, .{init});
 }
 
 test "smoke: main module loads" {
@@ -106,6 +112,7 @@ test {
     _ = @import("runtime/concurrency/latch.zig");
     _ = @import("runtime/concurrency/eval_budget.zig");
     _ = @import("runtime/concurrency/lock_tx.zig");
+    _ = @import("runtime/concurrency/runtime_thread.zig");
     _ = @import("runtime/concurrency/object_monitor.zig");
     _ = @import("runtime/agent.zig");
     _ = @import("runtime/value/heap_tag.zig");
