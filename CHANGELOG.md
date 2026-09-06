@@ -7,6 +7,8 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 
 ## [Unreleased]
 
+## [1.14.0] - 2026-09-06
+
 ### Changed
 
 - **The embedded Wasm engine is zwasm v2.6.0** (was v2.5.0). No change to
