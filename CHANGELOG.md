@@ -7,6 +7,8 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 
 ## [Unreleased]
 
+## [1.14.1] - 2026-09-06
+
 ### Changed
 
 - **`cljw` runs the program on a runtime thread it spawns, never on the
