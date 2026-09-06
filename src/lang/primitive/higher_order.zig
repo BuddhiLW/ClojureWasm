@@ -71,16 +71,9 @@ const root_set = @import("../../runtime/gc/root_set.zig");
 /// JVM reference: clojure.lang.RT.applyTo / clojure.core/apply
 /// cw v1 tier: A (Phase 6.16.a-3.1)
 ///
-/// ADR-0042 (row 7.9): variadic-callee bind-direct fast-path. When `f`
-/// is a user Fn whose variadic arity exactly matches `leading.len` AND
-/// trailing has a seq-shaped tag (list / cons / chunked_cons /
-/// lazy_seq / nil), pass `args[1..]` (= `[leading..., trailing]`)
-/// straight through. `tree_walk.callFunction`'s rest-pack gate then
-/// binds trailing directly to the `& rest` slot — no walk, no
-/// realisation. Other callee shapes (fixed-arity, builtin, keyword,
-/// map-as-fn, ...) and non-seq trailings fall through to the eager
-/// spread path so the arity-matching contract on those callables is
-/// preserved.
+/// Variadic Functions inspect only the bounded prefix needed for method
+/// selection, then bind the remaining seq directly (ADR-0042). Fixed
+/// methods still win when the full argument count fits one of them.
 pub fn applyFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
     if (args.len < 2) {
         return error_catalog.raise(.arity_below_min, loc, .{
@@ -93,12 +86,10 @@ pub fn applyFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation
     const trailing = args[args.len - 1];
     const leading = args[1 .. args.len - 1];
 
-    if (canBindDirect(f, leading.len, trailing)) {
-        // ADR-0042 am1: bind the trailing seq straight to `& rest`
-        // (apply's lazy-preserving spread) via the dedicated entry — NOT
-        // the generic callFunction, which always cons-wraps. canBindDirect
-        // has verified `f` is a variadic fn_val whose `& rest` matches.
-        return try tree_walk.callFunctionBindingRest(rt, env, f, args[1..], loc);
+    if (f.tag() == .fn_val) {
+        if (f.decodePtr(*const tree_walk.Function).variadic != null) {
+            return applyVariadic(rt, env, f, leading, trailing, loc);
+        }
     }
 
     // Eager spread: walk the trailing seqable, collecting into a flat slice.
@@ -106,18 +97,33 @@ pub fn applyFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation
     defer collected.deinit(rt.gpa);
     try collected.appendSlice(rt.gpa, leading);
 
+    // GC-ROOT: fixed-arity and builtin apply retain every peeled value
+    // across arbitrary lazy-seq callbacks, just like applyVariadic.
+    var roots: [1]Value = .{trailing};
+    const root_count: u16 = roots.len;
+    var frame: root_set.EvalFrame = .{
+        .stack = &roots,
+        .sp = &root_count,
+        .locals = collected.items,
+        .constants = args,
+        .callee = f,
+        .parent = root_set.eval_frame_head,
+    };
+    root_set.eval_frame_head = &frame;
+    defer root_set.eval_frame_head = frame.parent;
+
     // `seq` the trailing operand so an EMPTY seqable (incl. an empty `.list`
     // / `.cons`, which are non-nil) collapses to nil — otherwise the walk
     // below runs once and spreads a spurious `(first empty)` = nil
     // (`(apply + '())` → "+ got nil"). seq on a realised seq returns it
     // unchanged; apply already eagerly walks, so no laziness is lost.
-    var cur: Value = trailing;
-    if (!cur.isNil()) {
-        cur = try sequence.seqFn(rt, env, &.{cur}, loc);
+    if (!roots[0].isNil()) {
+        roots[0] = try sequence.seqFn(rt, env, &.{roots[0]}, loc);
     }
-    while (!cur.isNil()) {
-        try collected.append(rt.gpa, try sequence.firstFn(rt, env, &.{cur}, loc));
-        cur = try sequence.nextFn(rt, env, &.{cur}, loc);
+    while (!roots[0].isNil()) {
+        try collected.append(rt.gpa, try sequence.firstFn(rt, env, &.{roots[0]}, loc));
+        frame.locals = collected.items;
+        roots[0] = try sequence.nextFn(rt, env, &.{roots[0]}, loc);
     }
     return try invokeCallable(rt, env, f, collected.items, loc);
 }
@@ -150,15 +156,51 @@ fn fuseBaseKind(coll: Value) FuseBaseKind {
     };
 }
 
-fn canBindDirect(f: Value, leading_count: usize, trailing: Value) bool {
-    if (f.tag() != .fn_val) return false;
-    const fn_ptr = f.decodePtr(*const tree_walk.Function);
-    const v = fn_ptr.variadic orelse return false;
-    if (v.arity != leading_count) return false;
-    return switch (trailing.tag()) {
-        .list, .cons, .chunked_cons, .lazy_seq, .nil => true,
-        else => false,
+fn applyVariadic(rt: *Runtime, env: *Env, f: Value, leading: []const Value, trailing: Value, loc: SourceLocation) !Value {
+    const function = f.decodePtr(*const tree_walk.Function);
+    const required = function.variadic.?.arity;
+    var bound: usize = required;
+    for (function.methods) |method| bound = @max(bound, method.arity);
+
+    // GC-ROOT: apply owns its assembled argument spine, cursor, retained
+    // rest and peeled values across arbitrary lazy-seq callbacks.
+    var roots: [3]Value = .{ trailing, .nil_val, .nil_val };
+    const root_count: u16 = roots.len;
+    var frame: root_set.EvalFrame = .{
+        .stack = &roots,
+        .sp = &root_count,
+        .locals = &.{},
+        .constants = leading,
+        .callee = f,
+        .parent = root_set.eval_frame_head,
     };
+    root_set.eval_frame_head = &frame;
+    defer root_set.eval_frame_head = frame.parent;
+
+    // An existing LazySeq is already an ISeq. Leading arguments may
+    // satisfy the bounded probe without touching that tail at all.
+    if (trailing.tag() != .lazy_seq) roots[0] = try sequence.seqFn(rt, env, &.{trailing}, loc);
+    var i = leading.len;
+    while (i > 0) {
+        i -= 1;
+        roots[0] = try list_mod.consHeap(rt, leading[i], roots[0]);
+    }
+    roots[1] = try sequence.seqFn(rt, env, &.{roots[0]}, loc);
+    var prefix: std.ArrayList(Value) = .empty;
+    defer prefix.deinit(rt.gpa);
+    // RT.boundedLength advances next after the final counted cell too.
+    // That bounded lookahead is observable for side-effecting lazy maps.
+    while (!roots[1].isNil() and prefix.items.len <= bound) {
+        if (prefix.items.len == required) roots[2] = roots[1];
+        try prefix.append(rt.gpa, try sequence.firstFn(rt, env, &.{roots[1]}, loc));
+        frame.locals = prefix.items;
+        roots[1] = try sequence.nextFn(rt, env, &.{roots[1]}, loc);
+    }
+    if (prefix.items.len <= bound) {
+        return invokeCallable(rt, env, f, prefix.items, loc);
+    }
+    prefix.items[required] = roots[2];
+    return tree_walk.callFunctionBindingRest(rt, env, f, prefix.items[0 .. required + 1], loc);
 }
 
 /// Invoke a callable Value (builtin or Function) with args via the

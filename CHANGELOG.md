@@ -9,6 +9,12 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 
 ### Fixed
 
+- **Variadic `apply` preserves lazy tails after bounded method selection.**
+  Infinite argument sequences work when the callee consumes a finite prefix;
+  exact finite calls retain fixed-arity dispatch. `concat`, `mapcat`, `cycle`,
+  `repeat`, `nthnext`, `select-keys`, `shuffle` and `subvec` now match their
+  JVM sequence and validation boundaries. `cons` accepts empty collection tails
+  while retaining its Cons identity.
 - **A `def` inside a function binds the Var declared in that function's
   namespace**, even when called from another namespace. Both backends retain
   the analyzed Var identity, including unbound declarations and restored AOT
@@ -20,6 +26,14 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
   whole-file read trusted the stat size as a stop. The size is now a capacity
   hint only and the read continues until a real end of file; the same path
   serves `load-file`, `require`, `deps.edn`, `wasm/load` and the script runner.
+
+### Changed
+
+- **61 shell regression groups now run as native Clojure test suites**,
+  preserving 800 named assertions. Seeded runtime laws and hive-test mutation
+  witnesses cover sequence boundaries and existing string behavior.
+
+## [1.14.2] - 2026-09-06
 
 ### Added
 

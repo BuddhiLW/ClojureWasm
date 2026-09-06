@@ -1361,7 +1361,7 @@ pub fn callFunction(rt: *Runtime, env: *Env, fn_val: Value, args: []const Value,
 }
 
 /// ADR-0042 am1: `apply`'s lazy-preserving entry. `args = [leading…,
-/// rest_seq]`; `applyFn::canBindDirect` has verified the callee is a
+/// rest_seq]`; `applyVariadic` has verified the callee is a
 /// variadic fn whose `& rest` should bind `rest_seq` DIRECTLY. Distinct
 /// from `callFunction` so the generic path stays wrap-only — no flag, no
 /// shared mutable state, the signal is the in-band `RestMode` argument.
@@ -1408,10 +1408,9 @@ pub fn bindCallFrame(
         locals[f.slot_base + i] = v;
     }
     if (m.has_rest) {
-        // bind_direct only fires on apply's exact shape (one seq-shaped
-        // trailing arg); vectors are excluded so JVM `(apply f x [y])`
-        // spread stays (xs = (y), not [y]). Everything else cons-wraps.
-        if (rest_mode == .bind_direct and args.len == m.arity + 1 and isRestSeqShaped(args[m.arity])) {
+        // apply has normalized its tail to an ISeq. Intent, not a closed
+        // tag list, distinguishes spreading from an ordinary call.
+        if (rest_mode == .bind_direct and args.len == m.arity + 1) {
             locals[f.slot_base + m.arity] = args[m.arity];
         } else {
             // Cons-wrap the trailing args (those past `m.arity`). JVM
@@ -1436,7 +1435,11 @@ fn callMethodImpl(rt: *Runtime, env: *Env, fn_val: Value, args: []const Value, l
     // arity wins on exact match; fall through to `variadic` when
     // `args.len >= variadic.arity`. Single-arity fns produce a
     // 1-element `methods` slice = same code path.
-    const m: *const FunctionMethod = selectMethod(f, args.len) orelse {
+    const selected = if (rest_mode == .bind_direct)
+        (if (f.variadic) |*method| method else null)
+    else
+        selectMethod(f, args.len);
+    const m: *const FunctionMethod = selected orelse {
         return raiseArityNotMatched(f, args.len, loc);
     };
 
@@ -1511,17 +1514,6 @@ fn callMethodImpl(rt: *Runtime, env: *Env, fn_val: Value, args: []const Value, l
             else => return err,
         }
     }
-}
-
-/// ADR-0042: tags eligible for the bind-direct rest-pack fast-path —
-/// already shape-compatible with Clojure's `& rest` binding (an ISeq).
-/// Vector / set / map / etc. are intentionally excluded so their spread
-/// semantics stay observable for `(apply f x [y])`-style calls.
-fn isRestSeqShaped(v: Value) bool {
-    return switch (v.tag()) {
-        .list, .cons, .chunked_cons, .lazy_seq, .nil => true,
-        else => false,
-    };
 }
 
 pub fn selectMethod(f: *const Function, n: usize) ?*const FunctionMethod {
