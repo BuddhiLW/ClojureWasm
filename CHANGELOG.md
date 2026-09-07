@@ -7,6 +7,8 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 
 ## [Unreleased]
 
+## [1.14.3] - 2026-09-07
+
 ### Fixed
 
 - **Variadic `apply` preserves lazy tails after bounded method selection.**
