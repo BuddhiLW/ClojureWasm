@@ -36,7 +36,7 @@ while IFS=: read -r file lineno line; do
     [[ "$(printf '%s' "$line" | sed 's/^[[:space:]]*//')" == \#* ]] && continue
     [[ "$line" == *"$MARKER"* ]] && continue
     # Single-write producers cannot lose a SIGPIPE race.
-    printf '%s' "$line" | grep -qE '(printf|echo)[[:space:]]+[^|]*\|[[:space:]]*head -[0-9]' && continue
+    grep -qE '(printf|echo)[[:space:]]+[^|]*\|[[:space:]]*head -[0-9]' <<<"$line" && continue
     bad=$((bad + 1))
     echo "check_epipe_head: $file:$lineno pipes a command into 'head -N' under pipefail." >&2
     echo "  → $(printf '%s' "$line" | sed 's/^[[:space:]]*//' | cut -c1-110)" >&2

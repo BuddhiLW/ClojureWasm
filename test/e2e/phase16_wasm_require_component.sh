@@ -26,10 +26,10 @@ for marker in \
   "PASS require-component-reuse" \
   "PASS require-component-resource" \
   "PASS require-component-refer"; do
-  echo "$out" | grep -q "$marker" || fail "missing: $marker
+  grep -q "$marker" <<<"$out" || fail "missing: $marker
 $out"
 done
-echo "$out" | grep -q "^DONE$" || fail "fixture did not run to completion:
+grep -q "^DONE$" <<<"$out" || fail "fixture did not run to completion:
 $out"
 
 # --- ADR-0135 Amendment 1: the STATIC `ns` `:require` string-libspec form ---
@@ -42,10 +42,10 @@ for marker in \
   "PASS ns-require-arglists" \
   "PASS ns-require-resource" \
   "PASS ns-require-refer"; do
-  echo "$ns_out" | grep -q "$marker" || fail "missing: $marker
+  grep -q "$marker" <<<"$ns_out" || fail "missing: $marker
 $ns_out"
 done
-echo "$ns_out" | grep -q "^DONE$" || fail "ns :require fixture did not run to completion:
+grep -q "^DONE$" <<<"$ns_out" || fail "ns :require fixture did not run to completion:
 $ns_out"
 
 # --- ADR-0135 A2: EXPLICIT-relative `./` resolves against the SOURCE file's dir ---
@@ -56,7 +56,7 @@ abs_fixture="$(pwd)/test/e2e/fixtures/wasm/ns_source_relative.clj"
 abs_bin="$(pwd)/$BIN"
 srcrel_out="$(cd /tmp && "$abs_bin" "$abs_fixture" 2>&1)" || fail "source-relative ns :require failed (cwd=/tmp):
 $srcrel_out"
-echo "$srcrel_out" | grep -q "src-rel: Hello, rel!" || fail "source-relative './' did not resolve against the source dir:
+grep -q "src-rel: Hello, rel!" <<<"$srcrel_out" || fail "source-relative './' did not resolve against the source dir:
 $srcrel_out"
 
 # --- ADR-0159 (D-404 Impl E): resource lifecycle — own-handle wrapper + drop ---
@@ -70,10 +70,10 @@ for marker in \
   "PASS resource-double-drop-idempotent" \
   "PASS with-resource-body-live" \
   "PASS with-resource-drops-at-scope-exit"; do
-  echo "$rd_out" | grep -q "$marker" || fail "missing: $marker
+  grep -q "$marker" <<<"$rd_out" || fail "missing: $marker
 $rd_out"
 done
-echo "$rd_out" | grep -q "^DONE$" || fail "resource drop fixture did not complete:
+grep -q "^DONE$" <<<"$rd_out" || fail "resource drop fixture did not complete:
 $rd_out"
 echo "PASS resource-lifecycle -> own-handle wrapper + drop + use-after-drop trap + with-resource"
 
@@ -84,7 +84,7 @@ echo "PASS resource-lifecycle -> own-handle wrapper + drop + use-after-drop trap
 cp_out="$("$BIN" test/e2e/fixtures/wasm/ns_classpath_require.clj -cp test/e2e/fixtures/wasm 2>&1)" \
   || fail "classpath bare-name component :require failed:
 $cp_out"
-echo "$cp_out" | grep -q "classpath: Hello, cp!" \
+grep -q "classpath: Hello, cp!" <<<"$cp_out" \
   || fail "bare component name did not resolve via the classpath (-cp):
 $cp_out"
 echo "PASS ns-require-classpath -> bare name resolved on -cp"
@@ -100,13 +100,13 @@ embed_bin="$(mktemp -u /tmp/cljw_embed_XXXXXX)"
 build_log="$("$BIN" build test/e2e/fixtures/wasm/ns_source_relative.clj -o "$embed_bin" 2>&1)" \
   || fail "cljw build (component embed) failed:
 $build_log"
-echo "$build_log" | grep -q "embedded 1 Wasm component" \
+grep -q "embedded 1 Wasm component" <<<"$build_log" \
   || fail "build did not log the embedded component (harvest broken):
 $build_log"
 embed_out="$(cd /tmp && "$embed_bin" 2>&1)" \
   || fail "embedded-component binary exited non-zero (cwd=/tmp, no .wasm sidecar):
 $embed_out"
-echo "$embed_out" | grep -q "src-rel: Hello, rel!" \
+grep -q "src-rel: Hello, rel!" <<<"$embed_out" \
   || fail "embedded component did not load from memory (single-binary broken):
 $embed_out"
 rm -f "$embed_bin"

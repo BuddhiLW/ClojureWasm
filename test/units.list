@@ -69,6 +69,7 @@ check_e2e_dup|-|yes|via-gate|bash scripts/check_e2e_dup.sh
 check_e2e_reach|-|yes|via-gate|bash scripts/check_e2e_reach.sh --gate
 check_entrypoint_surface|-|yes|via-gate|bash scripts/check_entrypoint_surface.sh
 check_epipe_head|-|yes|via-gate|bash scripts/check_epipe_head.sh
+check_epipe_grep|-|yes|via-gate|bash scripts/check_epipe_grep.sh
 check_feature_keyword|-|yes|via-gate|bash scripts/check_feature_keyword.sh --gate
 check_gate_parity|-|yes|via-gate|bash scripts/check_gate_parity.sh
 check_host_interface|-|yes|via-gate|bash scripts/check_host_interface.sh --gate

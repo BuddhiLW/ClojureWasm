@@ -95,10 +95,10 @@ pub fn consHeap(rt: *Runtime, head: Value, tail: Value) !Value {
 }
 
 /// Allocate the `clojure.lang.Cons` shape returned by `clojure.core/cons`
-/// when its tail is non-nil. PersistentList construction continues to use
+/// when the original tail is non-nil. An empty collection's seq is nil,
+/// but its result still has the Cons tag. PersistentList construction uses
 /// `consHeap`; the shared cell layout is distinguished by the Value/header tag.
 pub fn consSeqHeap(rt: *Runtime, head: Value, tail: Value) !Value {
-    std.debug.assert(!tail.isNil());
     return consHeapTagged(rt, .cons, head, tail);
 }
 
@@ -277,6 +277,19 @@ fn consHeapFailingHarness(alloc_inner: std.mem.Allocator) !void {
 
 test "consHeap returns OOM without leaking under each allocation failure (uniform errdefer)" {
     try testing.checkAllAllocationFailures(testing.allocator, consHeapFailingHarness, .{});
+}
+
+test "consSeqHeap preserves Cons identity when an empty collection sequences to nil" {
+    var th = std.Io.Threaded.init(testing.allocator, .{});
+    defer th.deinit();
+    var rt = Runtime.init(th.io(), testing.allocator);
+    defer rt.deinit();
+
+    const cell = try consSeqHeap(&rt, Value.initInteger(42), .nil_val);
+    try testing.expect(cell.tag() == .cons);
+    try testing.expectEqual(@as(u32, 1), countOf(cell));
+    try testing.expectEqual(@as(i48, 42), first(cell).asInteger());
+    try testing.expect(rest(cell).isNil());
 }
 
 test "cons creates a multi-element list (1 2 3)" {

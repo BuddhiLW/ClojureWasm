@@ -549,19 +549,20 @@ inline fn stepOnce(
             const count: u16 = instr.operand >> 8;
             tree_walk.patchLetfnClosures(locals, base, count);
         },
-        .op_def => {
-            if (sp == 0) return raiseInternal("vm: op_def on empty stack");
-            sp -= 1;
-            const value = stack[sp];
-            const name_idx = instr.operand & opcode_mod.DEF_NAME_IDX_MASK;
-            if (name_idx >= chunk.constants.len)
-                return raiseInternal("vm: op_def name index out of range");
-            const name_val = chunk.constants[name_idx];
-            if (!name_val.isString())
-                return raiseInternal("vm: op_def constant is not a String");
-            const ns = env.current_ns orelse
-                return error_catalog.raiseInternal(.{}, "def: no current namespace");
-            const var_ptr = try env.intern(ns, string_mod.asString(name_val), value, null);
+        .op_def, .op_def_unbound => {
+            const var_idx = instr.operand & opcode_mod.DEF_VAR_IDX_MASK;
+            if (var_idx >= chunk.constants.len)
+                return raiseInternal("vm: def Var index out of range");
+            const var_value = chunk.constants[var_idx];
+            if (var_value.tag() != .var_ref)
+                return raiseInternal("vm: def constant is not a Var");
+            const var_ptr = var_value.decodePtr(*Var);
+            if (instr.op() == .op_def) {
+                if (sp == 0) return raiseInternal("vm: op_def on empty stack");
+                sp -= 1;
+                var_ptr.root = stack[sp];
+                var_ptr.bound = true;
+            }
             var_ptr.flags.dynamic = (instr.operand & opcode_mod.DEF_FLAG_DYNAMIC) != 0;
             var_ptr.flags.macro_ = (instr.operand & opcode_mod.DEF_FLAG_MACRO) != 0;
             var_ptr.flags.private = (instr.operand & opcode_mod.DEF_FLAG_PRIVATE) != 0;
@@ -582,26 +583,6 @@ inline fn stepOnce(
                 return raiseInternal("vm: op_var_meta target is not a Var");
             const var_ptr = var_val.decodePtr(*env_mod.Var);
             var_ptr.meta = meta_val;
-        },
-        .op_def_unbound => {
-            // No-init `(def x)`: intern an UNBOUND placeholder (no stack value,
-            // does not clobber an existing root, Var.bound stays false).
-            const name_idx = instr.operand & opcode_mod.DEF_NAME_IDX_MASK;
-            if (name_idx >= chunk.constants.len)
-                return raiseInternal("vm: op_def_unbound name index out of range");
-            const name_val = chunk.constants[name_idx];
-            if (!name_val.isString())
-                return raiseInternal("vm: op_def_unbound constant is not a String");
-            const ns = env.current_ns orelse
-                return error_catalog.raiseInternal(.{}, "def: no current namespace");
-            const var_ptr = try env.internDeclare(ns, string_mod.asString(name_val));
-            var_ptr.flags.dynamic = (instr.operand & opcode_mod.DEF_FLAG_DYNAMIC) != 0;
-            var_ptr.flags.macro_ = (instr.operand & opcode_mod.DEF_FLAG_MACRO) != 0;
-            var_ptr.flags.private = (instr.operand & opcode_mod.DEF_FLAG_PRIVATE) != 0;
-            if (sp >= stack.len)
-                return raiseInternal("vm: operand stack overflow");
-            stack[sp] = Value.encodeHeapPtr(.var_ref, var_ptr);
-            sp += 1;
         },
         .op_get_var => {
             if (instr.operand >= chunk.constants.len)
@@ -1793,18 +1774,19 @@ test "op_jump_if_false falls through when popped value is truthy" {
     try testing.expectEqual(Value.true_val, try f.run(&chunk));
 }
 
-test "op_def interns the name into env.current_ns and pushes the Var" {
+test "op_def binds its captured Var and pushes it" {
     var f: Fixture = undefined;
     try Fixture.init(&f, testing.allocator);
     defer f.deinit();
 
-    const name_val = try string_mod.alloc(&f.rt, "answer");
+    const target = try f.env.internDeclare(f.env.current_ns.?, "answer");
+    const var_val = Value.encodeHeapPtr(.var_ref, target);
     const instrs = [_]WireInstr{
         .from(.op_const, 1),
         .from(.op_def, 0),
         .from(.op_ret, 0),
     };
-    const constants = [_]Value{ name_val, Value.true_val };
+    const constants = [_]Value{ var_val, Value.true_val };
     const chunk: BytecodeChunk = .{ .instructions = &instrs, .constants = &constants };
 
     const result = try f.run(&chunk);
@@ -1820,14 +1802,15 @@ test "op_def stamps dynamic / macro / private flags from the operand" {
     try Fixture.init(&f, testing.allocator);
     defer f.deinit();
 
-    const name_val = try string_mod.alloc(&f.rt, "foo");
+    const target = try f.env.internDeclare(f.env.current_ns.?, "foo");
+    const var_val = Value.encodeHeapPtr(.var_ref, target);
     const packed_operand: u16 = 0 | opcode_mod.DEF_FLAG_DYNAMIC | opcode_mod.DEF_FLAG_PRIVATE;
     const instrs = [_]WireInstr{
         .from(.op_const, 1),
         .from(.op_def, packed_operand),
         .from(.op_ret, 0),
     };
-    const constants = [_]Value{ name_val, Value.nil_val };
+    const constants = [_]Value{ var_val, Value.nil_val };
     const chunk: BytecodeChunk = .{ .instructions = &instrs, .constants = &constants };
 
     const result = try f.run(&chunk);

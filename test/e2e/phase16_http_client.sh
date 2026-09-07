@@ -36,17 +36,17 @@ done
 
 out="$("$BIN" test/e2e/fixtures/http_client_probe.clj 2>&1)" || fail "client probe exited non-zero:
 $out"
-echo "$out" | grep -q "PASS http-client-get"       || fail "client GET status/body:
+grep -q "PASS http-client-get" <<<"$out"       || fail "client GET status/body:
 $out"
-echo "$out" | grep -q "PASS http-client-query"     || fail "client query-string:
+grep -q "PASS http-client-query" <<<"$out"     || fail "client query-string:
 $out"
-echo "$out" | grep -q "PASS http-client-post-body" || fail "client POST body:
+grep -q "PASS http-client-post-body" <<<"$out" || fail "client POST body:
 $out"
-echo "$out" | grep -q "PASS http-client-9-headers" || fail "client 9-entry :headers map:
+grep -q "PASS http-client-9-headers" <<<"$out" || fail "client 9-entry :headers map:
 $out"
-echo "$out" | grep -q "NOT-CAUGHT" && fail "a client error escaped (catch …):
+grep -q "NOT-CAUGHT" <<<"$out" && fail "a client error escaped (catch …):
 $out"
-echo "$out" | grep -q "^DONE$"     || fail "client probe did not complete:
+grep -q "^DONE$" <<<"$out"     || fail "client probe did not complete:
 $out"
 
 echo "OK — phase16_http_client (get/query/post + catchable error) green"

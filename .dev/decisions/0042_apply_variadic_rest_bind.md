@@ -444,3 +444,38 @@ in-band-typed signal with Alt 3's no-duplication (sharing the impl, not
 a helper). The `canBindDirect ⇒ fn_val` invariant the DA flagged is
 moot: applyFn calls `callFunctionBindingRest` directly, so no
 `canBindDirect` edit can route a builtin into a bind-direct path.
+
+## Amendment 2 (2026-09-06): bounded method selection
+
+**Status**: Accepted; implementation and oracle reviewed by the primary agent.
+No independent agent review was performed this session.
+
+The exact-leading-arity shortcut leaves `(apply (fn [x y & xs]
+[x y (first xs)]) (iterate inc 0))` on the eager path, which never returns.
+`applyVariadic` now assembles the leading arguments and trailing ISeq, probes
+only through the largest relevant arity plus one element, and retains the
+remaining seq for direct binding. Finite exact calls still select their fixed
+method. The explicit bind-direct entry selects the variadic method itself;
+its packed argument count is not the original call arity.
+
+The bounded probe advances `next` after each counted cell, including the last,
+matching the observable lookahead of JVM `RestFn.applyTo` and
+`RT.boundedLength`. Leading arguments can satisfy this probe without realizing
+an existing lazy tail. Other seqables normalize through the existing `seq`
+boundary. Frame setup trusts that ISeq contract instead of a second tag list.
+The existing Layer 2 to Layer 1 entry and RestMode intent remain unchanged.
+
+Both eager and bounded apply publish cursor, input, callee and accumulated
+values through EvalFrame roots across arbitrary lazy callbacks. This closes
+D-252 candidate C1; it does not claim the other candidates are resolved.
+
+Regressions: `test/clj/suites/sequence_boundaries_test.clj`, the matching JVM
+corpus, and `test/conformance/verified_projects/hive-test/laws.clj`. The laws
+exercise split argument lists, fixed-method precedence and legacy operations;
+hive-test mutation witnesses and reviewed JVM goldens lock observable output.
+
+`concat` keeps its two-argument tail directly in `-concat2`, and reuses that
+normalizing helper for one argument. This preserves deep recursive consumers
+and handles strings/arrays through the established sequence boundary.
+The legacy lazy-seq accessors' partial result coercion is a separate tracked
+issue, Hive card `20260906180421-14443fe9`; no new runtime port is introduced.

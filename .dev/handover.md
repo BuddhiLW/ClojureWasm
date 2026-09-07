@@ -7,24 +7,19 @@
   Per-commit = smoke; commit **and** push. **First move on resume: spawn a cljw
   nREPL** (`mcp__hive__code cider spawn repl_type="cljw"`); reap by scoped pattern
   (`orphan_prevention.md` rule 4), never before a wrap.
-- **First commit on resume MUST be**: `[CLJW-WASM-EXPORTSIG-CACHE]`
-  (`20260905005830-4867c16d`): cache the resolved `FuncType` per export name on
-  `Loaded` (safe: zwasm's `FuncType` is slices into the instance's compiled
-  sigs; the JIT arm of `exportFuncSig` re-parses the module per call); measure
-  before/after with `engine_thread_matrix.clj`. Then `[CLJW-WASM-BENCH-BLIND]`
-  (the crossing-dominated bench row ADR-0196 D4 owes), `[CLJW-CORE-ASYNC]`
-  (`20260905225236-594e3f6a`, user direction 2026-09-06: go-like CSP +
-  multicore; nothing bundled today). The three zwasm asks in
-  `[ZWASM-PERCALL-TRACK]` need the user's nod before filing.
-- **v1.14.0 SHIPPED 2026-09-06** (PR #16, a68aa417; the verbatim path put NO
-  bump commit on `main`, the CHANGELOG stamp was hand commit 10f0b612).
-  **v1.14.1 = PR #17** (`staging`->`main`, merge on green + user nod; preflight
-  bumps + stamps a NON-EMPTY `[Unreleased]`): ADR-0195 (runtime thread; JIT
-  `wasm/call` 16.5 us -> 1.15 us) + ADR-0196 (`wasm/engine`, traps name
-  export/signature/engine/remedy, `gaps.zig`). Memory `20260905220820-09e3d821`.
-- **Gate state**: `.dev/.gate_pass` = `scripts/gate_state_hash.sh` of the v2.6.0
-  pin tree (full gate, 425 pass); ADR-0195 rode a smoke. The cadence hook diffs
-  the WORKING TREE, so a dirty risky diff blocks every commit.
+- **First commit on resume MUST be**: `[CLJW-LAZY-SEQABLE]`
+  (`20260906180421-14443fe9`): normalize lazy results through the full
+  Seqable/ISeq boundary, preserving neutral layers, GC roots and iterative
+  forcing. Resume Hive checkpoint `20260906170901-4f2840bd` and
+  `private/notes/six-tasks-2026-09-06.md`; they route the original six tasks,
+  evidence and remaining cards. Compliance and core.async remain active.
+  Benches and harnesses are cljw programs (memory `20260906005754-05c07d35`).
+- **Release synchronization**: main's v1.14.2 commit was merged into staging
+  during the wrap. After the next auto-release, merge `origin/main` back into
+  staging before the next PR; new changelog entries stay under `[Unreleased]`.
+- **Gate state**: full serial 369/369 at `1c2bedb4`, smoke 17/17; stamps are
+  content hashes, so verify the live tree. The cadence hook is advisory;
+  smoke covers risky changes, full gate clears the cadence/boundary check.
 - **Pick the smoke selector by COVERAGE, not topic** (grep the e2e tier for the
   changed file; memory `20260831212130-2668f443`). ADR-0107's 5-commit ceiling.
 - **Forbidden this session**: `git rebase`/`cherry-pick`/`commit --amend`
@@ -75,13 +70,14 @@
   Python renders via `bench/bench_domain.py`; a Suite carries its own
   dispersion). Every wasm workload loops INSIDE the module, so per-call cost is
   invisible to it: `[CLJW-WASM-BENCH-BLIND]` adds the crossing-dominated axis.
-- **bash e2e → cljw-native suites (Layer 5b), paused mid-arc.**
+- **bash e2e → cljw-native suites (Layer 5b): 61 groups migrated.**
   `test/clj/run_suites.clj` discovers `test/clj/suites/*_test.clj`, gated in
   SMOKE_CORE as `test_clj_suites`. Bash keeps the CLI surface and anything
   needing the PROCESS. Card `[CLJW-E2E-TO-SUITES]` (`20260831204206-0eed020c`).
-- **Test layers 6/7/8 OPEN** (ADR-0186): golden (gated), properties, mutation
-  (never gated). **D-577** first. Deferred with a memo: **[CLJW-DEF-NS]**
-  (memory `20260825160952-2e68811c`).
+- **Test layers 6/7/8** (ADR-0186): golden (gated), properties, mutation
+  (on demand). Native hive-test laws: `cljw -M:laws` in its verified project.
+  Continue test-ladder card `20260906173600-1ac2d42b` for remaining coverage. `[CLJW-DEF-NS]` fixed by exact analyzed Var
+  capture; evidence memory `20260906155724-7af96201` supersedes its old memo.
 
 ## What was left unfinished (`.dev/debt.yaml` is the SSOT)
 

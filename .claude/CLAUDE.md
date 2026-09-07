@@ -622,11 +622,12 @@ zig fmt src/           # format
   markers in source anchor each published-root site here.
 - [`.dev/zwasm_capabilities.md`](../.dev/zwasm_capabilities.md) — cljw's record of
   the **embedded zwasm v2** runtime's embedding-API capabilities + what cljw
-  adopted (F-001). **FROZEN as of 2026-08-12**: zwasm moved to its own org
-  (<https://github.com/zwasm/zwasm>) under separate maintainership, and v2.5.0 is
-  cljw's final pin — so the per-unit refresh duty and the CODEV mailbox protocol
-  that file used to carry are **retired**. Read it as background on what the
-  final pin embeds, not as a watch list.
+  adopted (F-001). A **pin record, not a watch list** (re-opened 2026-09-05):
+  zwasm lives in its own org (<https://github.com/zwasm/zwasm>) under separate
+  maintainership, and the pin MOVES on user direction (v2.6.0 today; F-001
+  Revision history). The per-unit refresh duty and the CODEV mailbox protocol
+  stay retired; each bump adds a § Pin + § History entry. zwasm ids are cited
+  `zwasm/D-NNN` and `zwasm ADR-NNNN`; a bare id is a cljw row.
 
 ## References
 

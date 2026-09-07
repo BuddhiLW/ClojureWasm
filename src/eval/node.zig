@@ -146,10 +146,11 @@ pub const SetFieldNode = struct {
     loc: SourceLocation = .{},
 };
 
-/// `(def name value)` (and `^:dynamic` / `^:macro` / `^:private`
-/// variants once metadata reading lands).
+/// `(def name value)`. The analyzer captures the declared Var, just as it
+/// resolves reads and set!. Calling a function must not retarget its defs
+/// to the caller's current namespace.
 pub const DefNode = struct {
-    name: []const u8,
+    var_ptr: *Var,
     value_expr: *const Node,
     /// Mirrors `env.zig`'s VarFlags — duplicated because the Node
     /// tree must not import the analyser's parsing context. The two
@@ -625,7 +626,9 @@ test "LetNode binding carries name / index / value_expr" {
 
 test "DefNode flag defaults are all false" {
     const v = Node{ .constant = .{ .value = .nil_val } };
-    const d = DefNode{ .name = "x", .value_expr = &v };
+    var ns: @import("../runtime/env.zig").Namespace = undefined;
+    var target: Var = .{ .ns = &ns, .name = "x" };
+    const d = DefNode{ .var_ptr = &target, .value_expr = &v };
     try testing.expect(!d.is_dynamic);
     try testing.expect(!d.is_macro);
     try testing.expect(!d.is_private);

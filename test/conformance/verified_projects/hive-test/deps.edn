@@ -5,4 +5,5 @@
         org.clojure/test.check
         {:git/url "https://github.com/clojure/test.check.git"
          :git/sha "4a5258ea9f2b4fb63e3be85f182b008f12c1a476"}}
- :aliases {:verify {:main-opts ["-m" "verify"]}}}
+ :aliases {:verify {:main-opts ["-m" "verify"]}
+           :laws {:main-opts ["-m" "laws"]}}}

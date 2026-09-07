@@ -163,7 +163,7 @@ accepted:
       EDN within cljw (clj's own form does not round-trip either). cljw's
       `str` and `pr-str` of a queue are intentionally identical. ADR-0087.
     derives_from: "ADR-0059 (no-JVM identity hash); ADR-0087 (PersistentQueue)"
-    pin: "test/e2e/phase15_persistent_queue.sh — locks `(pr-str (conj EMPTY 1 2 3))` => `#queue (1 2 3)`, empty => `#queue ()`, and the `#queue` reader round-trip"
+    pin: "test/clj/suites/persistent_queue_test.clj — locks `(pr-str (conj EMPTY 1 2 3))` => `#queue (1 2 3)`, empty => `#queue ()`, and the `#queue` reader round-trip"
 
   - id: "AD-013"
     summary: "cljw STM is retry-only — it drops JVM's `barge` (a running transaction preempting a younger conflicting one). Result-equivalent: serializability holds; only contention fairness/throughput differ (unobservable in the committed state)."
@@ -277,7 +277,7 @@ accepted:
       those are NOT divergences. The simple class name (`array`, not the JVM
       array-class encoding) is the AD-003 no-JVM-class surface applied to arrays.
     derives_from: "F-004 (uniform Value) + F-005 (no primitive specialization) + ADR-0059 / AD-003 (no JVM class) + ADR-0105"
-    pin: "test/e2e/phase14_arrays.sh — type_hint_advisory (a ^\"[B\" array accepts a non-byte) + array_class_simple (class is `array`)"
+    pin: "test/clj/suites/arrays_test.clj — type_hint_advisory (a ^\"[B\" array accepts a non-byte) + array_class_simple (class is `array`)"
   - id: "AD-020"
     summary: "A java.util.Random (any host_instance) prints opaquely as `#<java.util.Random>` — clj prints `#object[java.util.Random 0x… …]` with a non-reproducible identity hash."
     example: '(pr-str (java.util.Random. 0)) => cljw "#<java.util.Random>" / clj "#object[java.util.Random 0x.. java.util.Random@..]"'
@@ -291,7 +291,7 @@ accepted:
       non-reproducible print identity diverges. `(class (java.util.Random.))` =>
       `java.util.Random` (simple, not the JVM Class object) is the AD-003 surface.
     derives_from: "AD-002 (opaque-ref identity-hash print cljw cannot mirror) + ADR-0059 (no JVM Class) + ADR-0106"
-    pin: "test/e2e/phase14_random.sh — print_opaque (#<java.util.Random>) + class (java.util.Random)"
+    pin: "test/clj/suites/random_test.clj — print_opaque (#<java.util.Random>) + class (java.util.Random)"
   - id: "AD-021"
     summary: "A namespace VALUE (e.g. `:ns` in `(meta #'x)`) prints opaquely as `#object[Namespace \"name\"]` — simple class name, no identity hash — vs clj's `#object[clojure.lang.Namespace 0x… \"name\"]`."
     example: '(pr-str (:ns (meta #''map))) => cljw "#object[Namespace \"clojure.core\"]" / clj "#object[clojure.lang.Namespace 0x.. \"clojure.core\"]"'
@@ -583,7 +583,7 @@ accepted:
       is `lazy_seq` diverges; `pr-str`/`prn`/`print` and `str` of any realized seq
       match clj.
     derives_from: "AD-002 (non-reproducible JVM identity hash is not mirrored) + ADR-0054 (the print path realizes a lazy seq to its elements). clj's LazySeq.toString is the un-overridden Object.toString; no cljw analogue exists."
-    pin: "test/e2e/phase14_lazy_map.sh — `str_lazyseq_elements` locks (str (map inc [1 2 3])) => \"(2 3 4)\" and `str_interpose_lazy` locks (str (interpose :x (range 3))) => \"(0 :x 1 :x 2)\" (cljw's deterministic element form, vs clj's identity-hash toString)"
+    pin: "test/clj/suites/lazy_map_test.clj — `str_lazyseq_elements` locks (str (map inc [1 2 3])) => \"(2 3 4)\" and `str_interpose_lazy` locks (str (interpose :x (range 3))) => \"(0 :x 1 :x 2)\" (cljw's deterministic element form, vs clj's identity-hash toString)"
   - id: "AD-039"
     summary: "The `#(…)` anonymous-fn reader expands with DETERMINISTIC params `%1`/`%2`/`%&`; clj uses non-reproducible gensyms (`p1__N#` / `rest__N#`)."
     example: '(read-string "#(+ % 1)") => cljw "(fn* [%1] (+ %1 1))" / clj "(fn* [p1__3#] (+ p1__3# 1))" ; (read-string "#(apply + % %&)") => cljw "(fn* [%1 & %&] (apply + %1 %&))" / clj "(fn* [p1__10# & rest__11#] …)". The CALL behaviour matches: (#(+ % 1) 10) => 11 both.'

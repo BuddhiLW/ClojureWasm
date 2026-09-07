@@ -851,15 +851,13 @@ fn evalStaticMethodCall(rt: *Runtime, env: *Env, locals: []Value, n: node_mod.In
 }
 
 fn evalDef(rt: *Runtime, env: *Env, locals: []Value, n: node_mod.DefNode) !Value {
-    const ns = env.current_ns orelse
-        return error_catalog.raiseInternal(n.loc, "def: no current namespace");
-    // A no-init `(def x)` interns an UNBOUND placeholder (does not clobber an
-    // existing root — clj parity; leaves `Var.bound` false). `(def x v)`
-    // assigns the value via `intern` (sets `Var.bound`).
-    const var_ptr = if (n.has_init) blk: {
-        const v = try eval(rt, env, locals, n.value_expr);
-        break :blk try env.intern(ns, n.name, v, null);
-    } else try env.internDeclare(ns, n.name);
+    const var_ptr = n.var_ptr;
+    // Evaluate first: a throwing initializer leaves the previous root intact.
+    // A no-init def returns the declared Var without changing its bound state.
+    if (n.has_init) {
+        var_ptr.root = try eval(rt, env, locals, n.value_expr);
+        var_ptr.bound = true;
+    }
     var_ptr.flags.dynamic = n.is_dynamic;
     var_ptr.flags.macro_ = n.is_macro;
     var_ptr.flags.private = n.is_private;
@@ -1363,7 +1361,7 @@ pub fn callFunction(rt: *Runtime, env: *Env, fn_val: Value, args: []const Value,
 }
 
 /// ADR-0042 am1: `apply`'s lazy-preserving entry. `args = [leading…,
-/// rest_seq]`; `applyFn::canBindDirect` has verified the callee is a
+/// rest_seq]`; `applyVariadic` has verified the callee is a
 /// variadic fn whose `& rest` should bind `rest_seq` DIRECTLY. Distinct
 /// from `callFunction` so the generic path stays wrap-only — no flag, no
 /// shared mutable state, the signal is the in-band `RestMode` argument.
@@ -1410,10 +1408,9 @@ pub fn bindCallFrame(
         locals[f.slot_base + i] = v;
     }
     if (m.has_rest) {
-        // bind_direct only fires on apply's exact shape (one seq-shaped
-        // trailing arg); vectors are excluded so JVM `(apply f x [y])`
-        // spread stays (xs = (y), not [y]). Everything else cons-wraps.
-        if (rest_mode == .bind_direct and args.len == m.arity + 1 and isRestSeqShaped(args[m.arity])) {
+        // apply has normalized its tail to an ISeq. Intent, not a closed
+        // tag list, distinguishes spreading from an ordinary call.
+        if (rest_mode == .bind_direct and args.len == m.arity + 1) {
             locals[f.slot_base + m.arity] = args[m.arity];
         } else {
             // Cons-wrap the trailing args (those past `m.arity`). JVM
@@ -1438,7 +1435,11 @@ fn callMethodImpl(rt: *Runtime, env: *Env, fn_val: Value, args: []const Value, l
     // arity wins on exact match; fall through to `variadic` when
     // `args.len >= variadic.arity`. Single-arity fns produce a
     // 1-element `methods` slice = same code path.
-    const m: *const FunctionMethod = selectMethod(f, args.len) orelse {
+    const selected = if (rest_mode == .bind_direct)
+        (if (f.variadic) |*method| method else null)
+    else
+        selectMethod(f, args.len);
+    const m: *const FunctionMethod = selected orelse {
         return raiseArityNotMatched(f, args.len, loc);
     };
 
@@ -1513,17 +1514,6 @@ fn callMethodImpl(rt: *Runtime, env: *Env, fn_val: Value, args: []const Value, l
             else => return err,
         }
     }
-}
-
-/// ADR-0042: tags eligible for the bind-direct rest-pack fast-path —
-/// already shape-compatible with Clojure's `& rest` binding (an ISeq).
-/// Vector / set / map / etc. are intentionally excluded so their spread
-/// semantics stay observable for `(apply f x [y])`-style calls.
-fn isRestSeqShaped(v: Value) bool {
-    return switch (v.tag()) {
-        .list, .cons, .chunked_cons, .lazy_seq, .nil => true,
-        else => false,
-    };
 }
 
 pub fn selectMethod(f: *const Function, n: usize) ?*const FunctionMethod {

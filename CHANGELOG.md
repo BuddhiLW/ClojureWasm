@@ -7,6 +7,33 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Variadic `apply` preserves lazy tails after bounded method selection.**
+  Infinite argument sequences work when the callee consumes a finite prefix;
+  exact finite calls retain fixed-arity dispatch. `concat`, `mapcat`, `cycle`,
+  `repeat`, `nthnext`, `select-keys`, `shuffle` and `subvec` now match their
+  JVM sequence and validation boundaries. `cons` accepts empty collection tails
+  while retaining its Cons identity. `apply list` constructs a fresh list from
+  any finite argument sequence, preserving order and dropping source metadata.
+- **A `def` inside a function binds the Var declared in that function's
+  namespace**, even when called from another namespace. Both backends retain
+  the analyzed Var identity, including unbound declarations and restored AOT
+  functions. Bytecode format v10 records that identity; rebuild older compiled
+  artifacts. This also fixes the upstream Var watch tests.
+- **`slurp`, `clojure.java.io/reader` and `line-seq` read procfs, sysfs and
+  FIFO files to the end.** They returned empty for any file whose reported size
+  is 0 but which yields bytes (`(slurp "/proc/loadavg")` was `""`), because the
+  whole-file read trusted the stat size as a stop. The size is now a capacity
+  hint only and the read continues until a real end of file; the same path
+  serves `load-file`, `require`, `deps.edn`, `wasm/load` and the script runner.
+
+### Changed
+
+- **61 shell regression groups now run as native Clojure test suites**,
+  preserving 800 named assertions. Seeded runtime laws and hive-test mutation
+  witnesses cover sequence boundaries and existing string behavior.
+
 ## [1.14.2] - 2026-09-06
 
 ### Added

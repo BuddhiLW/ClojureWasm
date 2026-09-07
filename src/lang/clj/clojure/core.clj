@@ -97,12 +97,20 @@
            (if inc (str "." inc) "")
            (if q (str "-" q) "")))))
 
-;; `(list & items)` — construct a list of the args. The variadic
-;; rest-binding yields a `.list` for ≥1 arg, but nil for zero args
-;; (`& xs` binds nil when empty, matching JVM `((fn [& xs] xs))` → nil).
-;; `(list)` must be `()` (JVM `PersistentList/EMPTY`), so map the empty
-;; case to the quoted empty list `'()` (the interned empty value, D-164).
-(def list (fn* [& xs] (if xs xs '())))
+;; `(list & items)` constructs a PersistentList in argument order. `apply`
+;; may bind any ISeq as the rest argument, so copy through an empty list
+;; instead of returning that sequence or inheriting its metadata. Two passes
+;; use only Stage-0 primitives; reverse/reduce are defined later in bootstrap.
+(def list
+  (fn* [& xs]
+    (let* [reversed (loop* [s (seq xs) acc '()]
+                      (if s
+                        (recur (next s) (conj acc (first s)))
+                        acc))]
+      (loop* [s (seq reversed) acc '()]
+        (if s
+          (recur (next s) (conj acc (first s)))
+          acc)))))
 
 ;; `(-seq-or-empty coll)` — a seq view that is `()` (not nil) when empty.
 ;; The eager seq fns (sort / distinct / dedupe / map-indexed / …) build a
@@ -269,7 +277,12 @@
 ;; nthnext/nthrest: [coll n] arg order (JVM clojure.core). The sequential
 ;; destructure `& rest` lowering (D-076) emits (nthnext g idx). nthnext
 ;; seqs (nil when empty); nthrest returns the rest coll as-is.
-(def nthnext (fn* [coll n] (seq (drop n coll))))
+(def nthnext
+  (fn* [coll n]
+    (loop [s (seq coll) n n]
+      (if (and s (> n 0))
+        (recur (next s) (dec n))
+        s))))
 ;; n <= 0 returns coll UNCHANGED (clj preserves the input, not a seq view):
 ;; `(nthrest [1 2 3] 0)` => [1 2 3], not (1 2 3).
 (def nthrest (fn* [coll n] (if (pos? n) (drop n coll) coll)))
@@ -719,6 +732,10 @@
 (def subvec
   (fn* ([v start] (subvec v start (count v)))
        ([v start end]
+        (when (nil? v)
+          (throw (NullPointerException. "subvec: nil vector")))
+        (when-not (vector? v)
+          (throw (ClassCastException. "subvec: expected a vector")))
         ;; clj bounds-checks (0 <= start <= end <= count) and throws
         ;; IndexOutOfBounds — it does NOT clamp like take/drop would
         ;; (`(subvec [1 2 3] 1 10)` throws, not `[2 3]`).
@@ -741,12 +758,8 @@
           (when (or (< start 0) (< end start) (< c end))
             (throw (IndexOutOfBoundsException.
                      (str "subvec index out of bounds: start=" start ", end=" end ", count=" c))))
-          ;; O(1) shared-structure VIEW for vectors (the common case); the eager
-          ;; take/drop fallback preserves cljw's leniency on non-vector seqables.
-          ;; PERF: O(1) `.sub_vector` view vs eager take/drop rebuild [refs: O-059, D-583]
-          (if (vector? v)
-            (cljw.internal/__subvec v start end)
-            (into [] (take (- end start) (drop start v))))))))
+          ;; O(1) shared-structure view, preserving numeric coercion and bounds.
+          (cljw.internal/__subvec v start end)))))
 
 ;; `(bounded-count n coll)` — for a `counted?` coll return its FULL count (clj:
 ;; `(bounded-count 3 (range 100))` → 100, range is O(1) counted); otherwise walk
@@ -784,14 +797,17 @@
 ;; string / list / number throws rather than silently returning `{}`.
 (def select-keys
   (fn* [m ks]
-    (if (or (nil? m) (associative? m))
-      (reduce (fn* [acc k]
-                (if (contains? m k)
-                  (assoc acc k (get m k))
-                  acc))
-              {}
-              ks)
-      (throw (ClassCastException. "select-keys: not associative")))))
+    ;; No lookup is attempted when no keys were requested.
+    (if-let [ks (seq ks)]
+      (if (or (nil? m) (associative? m))
+        (reduce (fn* [acc k]
+                  (if (contains? m k)
+                    (assoc acc k (get m k))
+                    acc))
+                {}
+                ks)
+        (throw (ClassCastException. "select-keys: not associative")))
+      {})))
 
 ;; `(merge & maps)` — right-most key wins. nil args are skipped.
 ;; JVM `merge` reduces with `conj`, so a later arg that is a 2-vector
@@ -917,12 +933,7 @@
           (cons (first s) (-concat2 (rest s) y))
           (seq y))))))
 
-;; `(-concat-seqs ss)` — lazily catenate a seq OF seqs, one level deep,
-;; WITHOUT realizing the outer `ss` (the lazy counterpart of
-;; `(apply concat ss)`, which would hang on an infinite outer because cw
-;; v1's `apply` eagerly spreads its final argument). Walks `ss` under
-;; `lazy-seq` so it composes with an infinite outer. Defined BEFORE `concat`
-;; (which now delegates to it) so the bootstrap load order resolves it.
+;; Lazily flatten the outer sequence one level at a time.
 (def -concat-seqs
   (fn* [ss]
     (lazy-seq
@@ -931,36 +942,19 @@
           (-concat2 (first s) (-concat-seqs (rest s)))
           nil)))))
 
-;; `(concat & colls)` — lazy left-to-right catenation (JVM-idiom).
-;; Folds the (finite) arg list with `-concat2`; element realization
-;; stays lazy. `(concat)` → (); `(concat a)` → `(seq a)`.
-;; NOTE: this is a LEFT fold deliberately (O-013 RETIRED). A right-nested
-;; `-concat-seqs` form is O(n) for `(apply concat many-colls)` BUT places a
-;; recursive 2-arg `concat`'s tail arg behind an extra `-concat2`/lazy-seq
-;; layer, so a deeply self-recursive caller like `interleave`
-;; (`(concat (map first ss) (apply interleave (map rest ss)))`) accumulates one
-;; native force-frame per level → stack overflow at ~50k. The left fold keeps
-;; the tail arg in `-concat2`'s 2nd (seq-y) position, so deep 2-arg recursion
-;; stays flat. The `(apply concat N-colls)` O(n×N) cost is the accepted
-;; tradeoff (rare; `mapcat` already uses the lazy `-concat-seqs`).
+;; The two-argument path keeps its recursive tail directly in -concat2's
+;; second position; variadic calls flatten their remaining collections lazily.
 (def concat
-  (fn* [& colls]
-    ;; `(concat)` (no colls) → () not nil (D-164); the reduce init nil is
-    ;; lifted to the empty list when nothing is catenated.
-    (or (reduce -concat2 nil colls) '())))
+  (fn* ([] (lazy-seq nil))
+       ([x] (-concat2 nil x))
+       ([x y] (-concat2 x y))
+       ([x y & zs] (-concat-seqs (cons x (cons y zs))))))
 
-;; `(mapcat f & colls)` — the JVM shape `(apply concat (apply map f colls))`,
-;; but with `-concat-seqs` instead of `apply concat` to stay lazy over an
-;; infinite outer. Variadic over collections (`map` walks them in parallel;
-;; D-070 multi-arity makes this reachable). `(apply map f colls)` only
-;; spreads the finite `colls` list, so it never eager-realizes an infinite
-;; coll; lazy throughout — `(take 5 (mapcat (fn [x] [x x]) (range)))` works.
-;; `(mapcat f)` (no colls) returns the transducer `(comp (map f) cat)`
-;; (D-177 single-arity); with colls it is the lazy variadic above.
+;; apply inspects concat's bounded argument prefix and preserves its lazy rest.
 (def mapcat
   (fn* [f & colls]
     (if (seq colls)
-      (-concat-seqs (apply map f colls))
+      (apply concat (apply map f colls))
       (comp (map f) cat))))
 
 ;; `(tree-seq branch? children root)` — a lazy depth-first (pre-order) seq
@@ -1105,8 +1099,15 @@
 ;; `(shuffle coll)` — a random permutation of coll as a vector. Fisher-Yates
 ;; over an immutable vector: for i from n-1 down to 1, swap index i with a
 ;; random index in [0, i] via two assocs. Placed after `vec` (D-134).
+(def instance? (fn* [c x] (cljw.internal/__instance-of? c x)))
+
 (def shuffle
   (fn* [coll]
+    ;; JVM shuffle copies a java.util.Collection before shuffling.
+    (when (nil? coll)
+      (throw (NullPointerException. "shuffle: nil collection")))
+    (when-not (instance? java.util.Collection coll)
+      (throw (ClassCastException. "shuffle: expected a Collection")))
     (let [v0 (vec coll)]
       (loop [v v0 i (dec (count v0))]
         (if (< i 1)
@@ -1677,7 +1678,10 @@
 ;; `(repeat x)` → infinite lazy x,x,x,…; `(repeat n x)` → n copies (lazy).
 (def repeat
   (fn* ([x] (lazy-seq (cons x (repeat x))))
-       ([n x] (lazy-seq (if (> n 0) (cons x (repeat (dec n) x)) nil)))))
+       ([n x]
+        ;; Repeat.create accepts a long count; conversion precedes realization.
+        (let [n (long n)]
+          (lazy-seq (if (> n 0) (cons x (repeat (dec n) x)) nil))))))
 
 ;; `(any? x)` → always true (clojure 1.9; the "matches anything" spec pred).
 (def any? (fn* [x] true))
@@ -1729,11 +1733,11 @@
 ;; trailing `(cycle coll)` is a thunk, so no eager infinite recursion.
 (def cycle
   (fn* [coll]
-    (lazy-seq
-      (let [s (seq coll)]
-        (if s
-          (-concat2 s (cycle coll))
-          nil)))))
+    ;; Validate and capture the initial seq at invocation, as Cycle.create does.
+    (let [s (seq coll)]
+      (lazy-seq
+        (when s
+          (-concat2 s (cycle s)))))))
 
 ;; `(take-while pred coll)` — leading run for which pred is truthy (lazy).
 ;; `(take-while pred)` / `(take-while pred coll)` — the leading pred-truthy run.
@@ -2239,13 +2243,6 @@
 ;; its args are all values, no quoting — which broke higher-order use). Now a fn so
 ;; `(map (partial prefer-method mf) …)` / passing it works, matching clj.
 (def prefer-method (fn* [multifn x y] (cljw.internal/__prefer-method! multifn x y)))
-
-;; `instance?` is a FN in clj taking a class VALUE (a class symbol evaluates to a
-;; Class), so it is passable higher-order: `(condp instance? obj Map$Entry …)`,
-;; `(map (partial instance? String) xs)`. cljw had it as a macro (auto-quoting the
-;; class symbol) which broke that. ADR-0128 / D-373: now a fn over the class-value
-;; surface; `cljw.internal/__instance-of?` consults the class_name membership oracle.
-(def instance? (fn* [c x] (cljw.internal/__instance-of? c x)))
 
 ;; `(memoize f)` returns a cached version of f: each distinct argument
 ;; tuple computes f once, then returns the stored result. Keys the

@@ -38,7 +38,7 @@ assert_catchable() {
     # `|| true` so cljw's non-zero exit on the catchable error does not trip set -e.
     local n="$1"; local out
     out="$("$BIN" -e "$2" 2>&1 || true)"
-    echo "$out" | grep -qiE 'panic|reached unreachable' && fail "$n: PANICKED -> $out"
+    grep -qiE 'panic|reached unreachable' <<<"$out" && fail "$n: PANICKED -> $out"
     echo "PASS $n -> catchable (no panic)"
 }
 assert_catchable 'sv_nan_end_oob_no_panic' '(subvec [0 1 2] 1 ##NaN)'

@@ -441,7 +441,7 @@ fn dispatchArgsRest(
             defer file.close(io);
             var file_buf: [4096]u8 = undefined;
             var file_reader = file.reader(io, &file_buf);
-            source_text = file_reader.interface.allocRemaining(arena, .unlimited) catch |err| {
+            source_text = file_io.readToEnd(&file_reader, arena) catch |err| {
                 try stderr.print("Error reading {s}: {s}\n", .{ arg, @errorName(err) });
                 try stderr.flush();
                 std.process.exit(1);

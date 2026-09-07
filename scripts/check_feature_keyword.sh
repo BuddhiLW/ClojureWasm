@@ -169,7 +169,7 @@ while IFS='|' read -r fqn keyword slot path; do
 
     # Keyword shape validation — must match the rule in
     # .claude/rules/feature_name_consistency.md R1.
-    if ! printf '%s' "$keyword" | grep -qE '^[a-z][a-z0-9_]{2,30}$'; then
+    if ! grep -qE '^[a-z][a-z0-9_]{2,30}$' <<<"$keyword"; then
         echo "$fqn: G3/ADR-0029 D4: invalid keyword '$keyword' (must match ^[a-z][a-z0-9_]{2,30}$)" >> "$violations_file"
         continue
     fi

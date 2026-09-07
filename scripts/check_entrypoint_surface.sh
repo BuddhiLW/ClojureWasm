@@ -44,7 +44,7 @@ fail=0
 # --- 1+2: extract the dispatch's subcommand set, compare two-sided ---
 found=$(grep -oE 'std\.mem\.eql\(u8, first, "[a-z-]+"\)' "$CLI" \
     | sed -E 's/.*"([a-z-]+)".*/\1/' | sort -u)
-found_n=$(printf '%s\n' "$found" | grep -c . || true)
+found_n=$(grep -c . <<<"$found" || true)
 
 if [ "$found_n" -lt "$MIN_SUBCOMMANDS" ]; then
     echo "check_entrypoint_surface: extracted only $found_n subcommand(s) from $CLI (< $MIN_SUBCOMMANDS)."
@@ -73,7 +73,7 @@ for sc in "${EVAL_SUBCOMMANDS[@]}"; do
         on && index($0, "dispatchArgsRest(") { exit }
         on { print }
     ' "$CLI")
-    if ! printf '%s' "$branch" | grep -qE 'resolveClasspath|resolveDefaultClasspath|splitClasspath'; then
+    if ! grep -qE 'resolveClasspath|resolveDefaultClasspath|splitClasspath' <<<"$branch"; then
         echo "check_entrypoint_surface: subcommand '$sc' does not reach the shared"
         echo "  classpath resolution (resolveClasspath/resolveDefaultClasspath/splitClasspath)."
         echo "  This is the Discussion-#13 bug shape (nrepl ignored -cp/\$CLJW_PATH)."
@@ -90,7 +90,7 @@ for sc in "${EVAL_SUBCOMMANDS[@]}"; do
     # `sed -n 1p` rather than `head -1`: head closes the pipe on its Nth line,
     # and grep takes SIGPIPE (check_epipe_head.sh gates this).
     help_line=$(grep -F "\\  $sc " "$CLI" | sed -n 1p || true)
-    if [ -z "$help_line" ] || ! printf '%s' "$help_line" | grep -q -- '-cp'; then
+    if [ -z "$help_line" ] || ! grep -q -- <<<"$help_line" '-cp'; then
         echo "check_entrypoint_surface: --help line for '$sc' is missing or does not advertise -cp."
         echo "  External integrations probe \`cljw --help\` for -cp capability detection."
         fail=1
@@ -138,7 +138,7 @@ if [ -z "$rest" ]; then
     echo "  Either the fn was renamed (re-teach this script) or the extraction itself failed."
     echo "  This is NOT a classpath finding — do not 'fix' $CLI on the strength of it."
     fail=1
-elif ! printf '%s' "$rest" | grep -qE 'resolveClasspath|resolveDefaultClasspath|splitClasspath'; then
+elif ! grep -qE 'resolveClasspath|resolveDefaultClasspath|splitClasspath' <<<"$rest"; then
     echo "check_entrypoint_surface: dispatchArgsRest no longer reaches the shared classpath resolution."
     fail=1
 fi

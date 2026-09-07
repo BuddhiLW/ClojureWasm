@@ -57,7 +57,7 @@ esac
 
 # --- Case 5: EDN output is single-line (parseable by line-based tools) ---
 out=$(CLJW_ERROR_FORMAT=edn "$BIN" -e '(undefined-symbol)' 2>&1 1>/dev/null || true)
-line_count=$(echo "$out" | grep -c '^{:cljw/error' || true)
+line_count=$(grep -c '^{:cljw/error' <<<"$out" || true)
 [[ "$line_count" -eq 1 ]] || fail "error_format_edn_single_line: expected 1 EDN line, got $line_count"
 echo "PASS error_format_edn_single_line -> one EDN map per error"
 
@@ -151,11 +151,11 @@ out=$(printf '(prn (map (fn* [x] (/ x 0)) [1 2]))\n' | "$BIN" - 2>&1 || true)
 trace=$(printf '%s' "$out" | awk '/Trace:/{f=1} f')
 if [ -z "$trace" ]; then
     fail "error_trace_discipline: expected a Trace:, got '$out'"
-elif printf '%s' "$trace" | grep -q 'clojure\.'; then
+elif grep -q 'clojure\.' <<<"$trace"; then
     fail "error_trace_discipline: a clojure.* stdlib frame leaked into the trace: '$trace'"
-elif printf '%s' "$trace" | grep -qE '^  fn '; then
+elif grep -qE '^  fn ' <<<"$trace"; then
     fail "error_trace_discipline: a nameless internal 'fn' frame leaked into the trace: '$trace'"
-elif printf '%s' "$trace" | grep -q 'user/'; then
+elif grep -q 'user/' <<<"$trace"; then
     echo "PASS error_trace_discipline -> user-only trace (stdlib + host frames elided)"
 else
     fail "error_trace_discipline: expected a user/ frame in the trace, got '$trace'"
@@ -179,9 +179,9 @@ esac
 #     trace shows the user caller but NO java/Integer frame. ---
 out=$(printf '(defn run2 [] (Integer/parseInt "bad"))\n(run2)\n' | "$BIN" - 2>&1 || true)
 trace=$(printf '%s' "$out" | awk '/Trace:/{f=1} f')
-if printf '%s' "$trace" | grep -qiE 'java|integer|parseint'; then
+if grep -qiE 'java|integer|parseint' <<<"$trace"; then
     fail "error_trace_host_interop_elided: a host interop frame leaked: '$trace'"
-elif printf '%s' "$trace" | grep -q 'user/run2'; then
+elif grep -q 'user/run2' <<<"$trace"; then
     echo "PASS error_trace_host_interop_elided -> host interop frame elided (user/run2 only)"
 else
     fail "error_trace_host_interop_elided: expected user/run2 in the trace, got '$trace'"

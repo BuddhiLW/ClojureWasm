@@ -35,15 +35,15 @@ fi
 out="$("$BIN" test/e2e/fixtures/wasm_run_probe.clj 2>&1)" || fail "cljw exited non-zero:
 $out"
 
-echo "$out" | grep -q "PASS wasm-run-basic" || fail "argv/stdin/stdout/stderr capture failed:
+grep -q "PASS wasm-run-basic" <<<"$out" || fail "argv/stdin/stdout/stderr capture failed:
 $out"
-echo "$out" | grep -q "PASS wasm-run-exit-code" || fail "non-zero exit not returned as data:
+grep -q "PASS wasm-run-exit-code" <<<"$out" || fail "non-zero exit not returned as data:
 $out"
-echo "$out" | grep -q "PASS wasm-run-env" || fail "the :env option (D-348) failed to parse/run:
+grep -q "PASS wasm-run-env" <<<"$out" || fail "the :env option (D-348) failed to parse/run:
 $out"
-echo "$out" | grep -q "NOT-CAUGHT" && fail "a wasm/run error escaped (catch …):
+grep -q "NOT-CAUGHT" <<<"$out" && fail "a wasm/run error escaped (catch …):
 $out"
-echo "$out" | grep -q "^DONE$" || fail "fixture did not run to completion:
+grep -q "^DONE$" <<<"$out" || fail "fixture did not run to completion:
 $out"
 
 # D-347 (SE): (wasm/run …) must be fuel-metered BY DEFAULT, like (wasm/load …).
@@ -54,7 +54,7 @@ $out"
 start=$(date +%s)
 out="$(run_bounded 60 "$BIN" -e '(println :exit (:exit (wasm/run "test/e2e/fixtures/wasm_spin.wasm")))' 2>&1 || true)"
 elapsed=$(( $(date +%s) - start ))
-echo "$out" | grep -q ":exit 1" || fail "an infinite-loop guest was not fuel-trapped (D-347) after ${elapsed}s:
+grep -q ":exit 1" <<<"$out" || fail "an infinite-loop guest was not fuel-trapped (D-347) after ${elapsed}s:
 $out"
 [[ "$elapsed" -lt 45 ]] || fail "fuel trap took ${elapsed}s — the default budget is not being applied (D-347)"
 echo "PASS wasm-run-fuel-metered-by-default -> trapped in ${elapsed}s"
