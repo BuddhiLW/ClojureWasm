@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: EPL-2.0
-//! ArraySeq (A14) — an O(1) INDEXED VIEW seq over an immutable indexed
-//! collection, standing in for the JVM's `PersistentVector$ChunkedSeq`.
+//! ArraySeq (A14) — an O(1) INDEXED VIEW seq over an indexed collection or
+//! Java array, standing in for the JVM's family of indexed seq views.
 //!
 //! `(seq v)` / `(rest v)` / `(next v)` on a vector used to build an EAGER
 //! `PersistentList` copy (`sequence.zig` `vectorToList` / `vectorTailAsList`):
@@ -24,15 +24,14 @@
 //! ("empty → nil at construction, so a count-0 LongRange never exists").
 //! That is what makes `first` total and lets `countOf` be a subtraction.
 //!
-//! ## Why vectors only, for now
+//! ## Backings
 //!
 //! `backing` is typed as a `Value` and read through `backingCount` / `elementAt`
-//! switches so a second producer is a new arm, not a new type (OCP). It is NOT
-//! yet wired for `.array`: a Java array is MUTABLE, so a view over one aliases
-//! storage a caller can still write, and `(seq arr)` would stop being a
-//! snapshot. The JVM's `ArraySeq` accepts that aliasing; adopting it here is a
-//! semantic decision, not an extension, so `arrayToList` keeps copying until
-//! it is made deliberately.
+//! switches, so a producer is a new arm, not a new type (OCP): `.vector`,
+//! `.sub_vector` and, since ADR-0197, `.array`. A Java array is MUTABLE, so a
+//! view over one aliases storage a caller can still write and `(seq arr)`
+//! reflects later `aset`s: exactly the JVM `ArraySeq` (which holds the array),
+//! and the one backing for which this type's name is the JVM's own (AD-066).
 //!
 //! ## GC
 //!
@@ -53,6 +52,7 @@ const gc_heap_mod = @import("../gc/gc_heap.zig");
 const mark_sweep = @import("../gc/mark_sweep.zig");
 const vector = @import("vector.zig");
 const sub_vector = @import("sub_vector.zig");
+const java_array = @import("java_array.zig");
 
 /// ArraySeq (A14) — `backing` viewed from `index` to its end.
 pub const ArraySeq = extern struct {
@@ -60,8 +60,8 @@ pub const ArraySeq = extern struct {
     _pad: [2]u8 = .{ 0, 0 },
     /// Read cursor into `backing`. Invariant: `index < backingCount(backing)`.
     index: u32 = 0,
-    /// The viewed collection — a `.vector` or `.sub_vector` (both immutable
-    /// indexed persistent vectors; see the "vectors only" note).
+    /// The viewed collection: immutable `.vector`/`.sub_vector`, or mutable
+    /// `.array` (the view shares its backing storage).
     backing: Value = Value.nil_val,
     /// Optional metadata map. A seq is IObj on the JVM (`ASeq` implements it),
     /// so `(with-meta (seq v) m)` must round-trip; dropping it would regress
@@ -81,6 +81,7 @@ fn backingCount(backing: Value) u32 {
     return switch (backing.tag()) {
         .vector => vector.count(backing),
         .sub_vector => sub_vector.count(backing),
+        .array => java_array.alength(backing),
         else => 0,
     };
 }
@@ -91,6 +92,7 @@ fn elementAt(backing: Value, i: u32) Value {
     return switch (backing.tag()) {
         .vector => vector.nth(backing, i),
         .sub_vector => sub_vector.nth(backing, i),
+        .array => java_array.asArray(backing).items()[i],
         else => Value.nil_val,
     };
 }
@@ -99,7 +101,10 @@ fn elementAt(backing: Value, i: u32) Value {
 /// copy. The one predicate producers consult, so adding a backing type is a
 /// single arm in `backingCount`/`elementAt` plus this.
 pub fn viewable(backing: Value) bool {
-    return backing.tag() == .vector or backing.tag() == .sub_vector;
+    return switch (backing.tag()) {
+        .vector, .sub_vector, .array => true,
+        else => false,
+    };
 }
 
 /// View `backing` from `index`. nil when the view would be empty — an ArraySeq

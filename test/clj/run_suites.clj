@@ -28,17 +28,22 @@
 ;; discovery rule itself is `harness.suites`.
 ;;
 ;; Usage:  cljw -cp test/clj test/clj/run_suites.clj
+;; Optional args select discovered namespace(s), e.g. suites.lazy-seqable-gc-test.
+;; Namespace selectors require -M, which supplies *command-line-args*:
+;; cljw -cp test/clj -M test/clj/run_suites.clj suites.lazy-seqable-gc-test
 (require '[clojure.test :as test]
          '[harness.suites :as suites])
 
-(let [files (suites/files)
+(let [{:keys [files missing]} (suites/select-files (suites/files) *command-line-args*)
       {:keys [ok failed]} (suites/load-all! files)]
+  (when (seq missing)
+    (println (str "\nUnknown suite namespaces: " missing)))
   (when (seq failed)
     (println "\nSUITES THAT FAILED TO LOAD:")
     (doseq [[f err] failed] (println (str "  " f " -> " err))))
   (when (empty? files)
-    (println (str "\nNo suites found under " suites/dir "/")))
+    (println (str "\nNo suites selected under " suites/dir "/")))
   (let [r (when (seq ok) (apply test/run-tests ok))
         bad (+ (long (or (:fail r) 0)) (long (or (:error r) 0)))]
     (println (str "\nsuites: " (count ok) " loaded, " (count failed) " failed to load"))
-    (System/exit (if (and (zero? bad) (empty? failed)) 0 1))))
+    (System/exit (if (and (seq files) (empty? missing) (zero? bad) (empty? failed)) 0 1))))

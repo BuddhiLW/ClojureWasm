@@ -248,6 +248,11 @@ assert_alloc 'rest_rest_range'   '(first (rest (rest (range 40))))'             
 assert_alloc 'lazywalk_range'    '(do (defn g [s] (lazy-seq (when (seq s) (cons (+ 1 (first s)) (g (rest s)))))) (pr-str (doall (g (range 3)))))' '"(1 2 3)"'
 assert_alloc 'for_range'         '(pr-str (doall (for [i (range 2)] (+ 1 i))))'          '"(1 2)"'
 
+# ADR-0197: assertions live in a native Clojure program. This process boundary
+# enables allocation torture, which skips registered nREPL workers.
+CLJW_GC_TORTURE=0 CLJW_GC_TORTURE_ALLOC=1 run_bounded 60 "$BIN" \
+    test/clj/torture/lazy_seqable.clj
+
 # D-418 fabrication-window guard (DETERMINISTIC — the discharge proof). The agent
 # enqueue path injects a STW collect into the exact send/await window under
 # alloc-torture (agent.zig `tortureCollectInWindow`), so an unrooted action vector

@@ -55,7 +55,7 @@ const keyword = @import("../../runtime/keyword.zig");
 const symbol_mod = @import("../../runtime/symbol.zig");
 const string_collection = @import("../../runtime/collection/string.zig");
 const list_collection = @import("../../runtime/collection/list.zig");
-const lazy_seq_mod = @import("../../runtime/lazy_seq.zig");
+const seqable = @import("../../runtime/seqable.zig");
 const root_set = @import("../../runtime/gc/root_set.zig");
 const vector_collection = @import("../../runtime/collection/vector.zig");
 const sub_vector_collection = @import("../../runtime/collection/sub_vector.zig");
@@ -1738,7 +1738,7 @@ pub fn valueToForm(
 fn valueSeqToForm(arena: std.mem.Allocator, rt: *Runtime, env: *Env, seq_val: Value, call_loc: SourceLocation) anyerror!Form {
     var items: std.ArrayList(Form) = .empty;
     defer items.deinit(arena);
-    var cur = try lazy_seq_mod.seq(rt, env, seq_val);
+    var cur = try seqable.seq(rt, env, seq_val, call_loc);
     // GC-ROOT: D-253 — the seq cursor lives in a Zig local across seq/first/rest
     // (force lazy layers) + the recursive `valueToForm` (nested seqs re-enter),
     // all re-entering the VM. A torture collect during a macro-expansion's
@@ -1753,9 +1753,9 @@ fn valueSeqToForm(arena: std.mem.Allocator, rt: *Runtime, env: *Env, seq_val: Va
     defer root_set.eval_frame_head = seq_frame.parent;
     while (!cur.isNil()) {
         seq_roots[1] = cur;
-        const head = try lazy_seq_mod.first(rt, env, cur);
+        const head = try seqable.first(rt, env, cur, call_loc);
         try items.append(arena, try valueToForm(arena, rt, env, head, call_loc));
-        cur = try lazy_seq_mod.seq(rt, env, try lazy_seq_mod.rest(rt, env, cur));
+        cur = try seqable.next(rt, env, cur, call_loc);
     }
     const owned = try arena.dupe(Form, items.items);
     return .{ .data = .{ .list = owned }, .location = call_loc };

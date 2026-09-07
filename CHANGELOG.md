@@ -7,6 +7,31 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Lazy sequence bodies use the complete Seqable/ISeq boundary.** Strings
+  yield characters, arrays and host collections yield their elements, and
+  custom Seqable/ISeq implementations work through the same accessors as
+  native collections. Invalid bodies and invalid custom `seq` return values
+  raise the appropriate exception. Nested lazy bodies realize iteratively
+  and cache their terminal sequence; successful realization releases the
+  captured thunk safely when readers or metadata copies run concurrently.
+- **Array sequences retain their backing array**, so later element updates
+  remain visible through eager and realized lazy views.
+- **Sequence consumers retain values across GC callbacks.** Custom sequence
+  heads and cursors survive iterator advancement, equality, CSV traversal and
+  sorted bounds, including callbacks that explicitly request collection.
+
+### Changed
+
+- **Lazy sequence regressions run as native Clojure suites**, including CLI
+  allocation torture. The suite runner accepts namespace selectors and rejects
+  unknown selections. Seeded hive-test laws, mutation witnesses and reviewed
+  goldens cover the lazy Seqable boundary.
+- **Sequence extension and method-overload shell checks now run their value
+  assertions in native Clojure**, preserving isolated native-tag dispatch tests
+  and the optional data.priority-map integration.
+
 ## [1.14.3] - 2026-09-07
 
 ### Fixed

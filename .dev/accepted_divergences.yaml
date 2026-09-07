@@ -1110,3 +1110,24 @@ accepted:
     example: '(class (seq [1 2 3])) => cljw ArraySeq / clj clojure.lang.PersistentVector$ChunkedSeq. Also `(class (seq (into-array [1 2])))` would be ArraySeq in BOTH — the one backing for which the shared name is exact.'
     derives_from: "AD-003 (simple class name for cljw-native types) + F-004 A14 slot reservation + the F-005 family-collapse precedent."
     pin: "test/clj/suites/vector_seq_view_test.clj — the `the-class-name-is-the-reserved-slot-name` deftest (case class_name), asserting (str (class (seq [1 2]))) => \"ArraySeq\"."
+
+  - id: "AD-067"
+    area: "collections"
+    summary: |-
+      LazySeq retains ADR-0143's single publication state and retry invariant.
+      A failed thunk or Seqable coercion is not cached: the next touch invokes
+      the intact thunk again. JVM Clojure 1.12.4 consumes a scalar-returning
+      thunk before coercion fails, then exposes an empty sequence on retry;
+      its once-only closure may also have cleared captured locals before a
+      retry, which can replace the original exception with NullPointerException.
+      cljw preserves the callable and its captures until successful realization.
+      Nested realization publishes each invoked inner node, so realized? on
+      that node is true after the outer node drains it. JVM's separate raw-body
+      and seq fields leave the inner node's realized? false at that point.
+      These are state/retry differences only. Both runtimes reject the first
+      non-seqable body with IllegalArgumentException and reject an invalid
+      custom Seqable.seq return with ClassCastException. Successful values,
+      element order, empty tails and at-most-once successful invocation agree.
+    example: '(let [l (lazy-seq 1)] (try (seq l) (catch Exception _ nil)) (count l)) => cljw throws again / clj 0.'
+    derives_from: "ADR-0143 (failed realization is never cached) + ADR-0197 (one publication state, immutable inner links and retained retry captures)."
+    pin: "test/clj/suites/lazy_seqable_test.clj — non-seqable-bodies-raise-on-every-touch and realization-state-follows-ad067; test/golden/cases/lazy_seqable_bodies.expected — scalar retries, closed thunk retry, inner realized."
