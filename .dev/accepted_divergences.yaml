@@ -771,7 +771,7 @@ accepted:
       java.util collection str renders cljw-content, not JVM toString); both stem from
       "cljw does not reproduce JVM Object/Abstract* toString surface details".
     derives_from: "ADR-0059 (no JVM — no class FQN, no Object.toString identity form) + AD-002 (non-reproducible identity hash) + AD-003 (cljw renders the record with its simple name, not the JVM FQCN) + F-011 (pr-str already matches modulo the AD-003 simple name; only the JVM-Object.toString str-form diverges)."
-    pin: "test/e2e/phase7_defrecord.sh — defrecord_str_content_form (str of a record = its #Name{...} content form, not Class@hash) + defrecord_print_map_style (the pr-form it mirrors)."
+    pin: "test/clj/suites/defrecord_test.clj: defrecord-str-content-form (str of a record = its #Name{...} content form, not Class@hash) + defrecord-print-map-style (the pr-form it mirrors). Repointed 2026-09-09 when the phase7 defrecord e2e migrated to this native suite (the pin-path check extracts EVERY path in this field, so the retired shell must not be named here). The suite asserts BOTH forms against one derived expectation, so str and pr cannot drift apart unnoticed."
   - id: "AD-050"
     summary: "A float-zero DIVISOR yields IEEE ±Inf/NaN on EVERY cljw `/` path; clj returns ±Inf only on its compile-inlined 2-arg literal path and THROWS `ArithmeticException: Divide by zero` on the runtime path (1-arg `(/ 0.0)`, `(apply / …)`, `(reduce / …)`). An INTEGER-zero divisor throws in BOTH (parity). VALUE-bearing common case `(/ x 0.0)` matches clj (±Inf)."
     example: '(/ 1.0 0.0) => ##Inf in BOTH ; (/ 0.0) => cljw ##Inf / clj THROW ; (apply / [1.0 0.0]) => cljw ##Inf / clj THROW ; (reduce / [1.0 2.0 0.0]) => cljw ##Inf / clj THROW ; (/ 1 0) => THROW in both'
