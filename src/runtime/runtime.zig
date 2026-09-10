@@ -341,6 +341,18 @@ pub const Runtime = struct {
     /// (`Foo. args`) and method-dispatch (`(.m inst)`) eval paths.
     types: std.StringHashMap(*const TypeDescriptor) = undefined,
 
+    /// Descriptors displaced from `types` by a re-registration (D-587).
+    /// A redefine does NOT free the old descriptor: instances built against
+    /// it hold `inst.descriptor` as a raw pointer, the boxed refs handed out
+    /// by `makeTypeDescriptorRef` are process-lifetime mark waypoints, and
+    /// `CallSite.last_type` compares descriptors by address from analyzer
+    /// storage the GC cannot see. Freeing here made all three dangle. The
+    /// descriptor therefore keeps the process lifetime its own doc comment
+    /// promises, and is released only in `deinit`, which is also what clj
+    /// does with a superseded class. Retention is bounded by the number of
+    /// re-evaluations, not by data size.
+    retired_types: std.ArrayList(*const TypeDescriptor) = .empty,
+
     /// Set of namespace names currently being loaded by `require`.
     /// ADR-0035 D5: `requireOne` adds the target before loading and
     /// removes it after (errdefer-safe). If the target is already in
@@ -811,6 +823,26 @@ pub const Runtime = struct {
             self.gpa.destroy(@constCast(td));
         }
         self.types.deinit();
+        // D-587: descriptors displaced by a redefine were retired rather than
+        // freed, because live instances / boxed refs / CallSite slots still
+        // pointed at them. Teardown is the one moment nothing can, so the
+        // same free body applies -- minus the key, which `registerType`
+        // already freed when it removed the map entry.
+        for (self.retired_types.items) |td| {
+            if (td.field_layout) |layout| {
+                for (layout) |fe| self.gpa.free(fe.name);
+                self.gpa.free(layout);
+            }
+            if (td.fqcn) |n| self.gpa.free(n);
+            if (td.defining_ns) |n| self.gpa.free(n);
+            for (td.method_table) |mentry| {
+                self.gpa.free(mentry.method_name);
+            }
+            if (td.method_table.len > 0) self.gpa.free(td.method_table);
+            if (td.protocol_impls.len > 0) self.gpa.free(td.protocol_impls);
+            self.gpa.destroy(@constCast(td));
+        }
+        self.retired_types.deinit(self.gpa);
         // Thread join-at-exit registry (ADR-0174 D6): values are gc-heap
         // objects (freed by the heap teardown); only the list storage is ours.
         self.user_threads.deinit(self.gpa);
