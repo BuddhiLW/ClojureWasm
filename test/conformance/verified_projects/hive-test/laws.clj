@@ -9,7 +9,8 @@
             [hive-test.trifecta :refer [deftrifecta]]
             [hive-test.mutation :refer [deftest-mutation-witness]]
             [hive-test.properties :refer [defprop-metamorphic]]
-            [hive-test.golden :refer [deftest-golden]]))
+            [hive-test.golden :refer [deftest-golden]]
+            [golden-anchor :as anchor]))
 
 (def int-vectors (gen/vector (gen/choose -1000 1000) 0 30))
 (def slices
@@ -107,10 +108,19 @@
     (test/is (nil? (meta (apply list (with-meta '(1 2 3) {:source true})))))))
 
 (defn -main [& _]
-  (let [{:keys [test pass fail error] :as result} (test/run-tests 'laws)]
-    (assert (= 21 test) (pr-str result))
-    (assert (and (pos? pass) (zero? fail) (zero? error)) (pr-str result))
-    (println "OK native runtime laws: 3000 generated cases, nine mutation witnesses, four goldens")))
+  ;; Goldens anchor to THIS fixture on both runtimes, and an absent one is a
+  ;; failure rather than a capture. Without this, native cljw resolves a golden
+  ;; against the working directory (io/resource is nil by D-359) and hive-test
+  ;; writes the missing file and passes. `install` resolves the root AND asserts
+  ;; the reviewed corpus in one call, so neither check can be skipped.
+  ;; See golden_anchor.clj.
+  (let [{:keys [root bindings]} (anchor/install)]
+    (println "golden root:" root)
+    (with-bindings bindings
+      (let [{:keys [test pass fail error] :as result} (test/run-tests 'laws)]
+        (assert (= 21 test) (pr-str result))
+        (assert (and (pos? pass) (zero? fail) (zero? error)) (pr-str result))
+        (println "OK native runtime laws: 3000 generated cases, nine mutation witnesses, four goldens")))))
 
 (defprop-metamorphic lazy-string-body-agrees-with-seq
   (fn [value]

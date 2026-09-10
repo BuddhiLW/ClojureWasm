@@ -7,6 +7,26 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 
 ## [Unreleased]
 
+### Added
+
+- **`java.io.File` publishes `getCanonicalFile` and `getAbsoluteFile`.** The
+  String-returning halves (`getCanonicalPath`, `getAbsolutePath`) were already
+  there; the JVM publishes both spellings of each resolution, so calling the
+  File-returning twin raised "No implementation of method". Both are now
+  registered and return a usable `File`.
+
+### Fixed
+
+- **Golden snapshots in the hive-test fixture are anchored, and a missing one
+  now fails instead of being captured.** `clojure.java.io/resource` returns nil
+  for every name by design (D-359: cljw has no classpath resource loader), so
+  hive-test's classpath walk-up resolved a golden against the process working
+  directory. A session rooted at the repository therefore wrote an unreviewed
+  baseline at the repo root and reported success. The fixture now anchors
+  through hive-test's own `*project-root*` / `*store*` seams and refuses to
+  create a reviewed golden unless `UPDATE_GOLDEN=true`; `cljw -M:anchor-test`
+  covers the rule on both runtimes without touching disk.
+
 ## [1.14.4] - 2026-09-10
 
 ### Fixed
