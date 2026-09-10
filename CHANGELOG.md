@@ -17,6 +17,15 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 
 ### Fixed
 
+- **Reader metadata on a collection literal survives macroexpansion.** A macro's
+  return value is converted back into a Form so it can be re-analyzed, and that
+  converter rebuilt a collection from its elements only, never reading the
+  Value's metadata, so `^:a []` came back stripped. The symbol arm had carried
+  metadata across since ADR-0110; collections were missed. Because every
+  `clojure.test` assertion sits inside a `deftest` body, this made correct
+  functions fail their own upstream suite while passing every direct probe:
+  `clojure.core-test.group-by` went from 6 failures to 0 with no change to
+  `group-by` itself.
 - **Golden snapshots in the hive-test fixture are anchored, and a missing one
   now fails instead of being captured.** `clojure.java.io/resource` returns nil
   for every name by design (D-359: cljw has no classpath resource loader), so

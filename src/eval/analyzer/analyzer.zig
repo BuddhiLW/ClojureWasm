@@ -53,6 +53,7 @@ const Env = env_mod.Env;
 const Var = env_mod.Var;
 const keyword = @import("../../runtime/keyword.zig");
 const symbol_mod = @import("../../runtime/symbol.zig");
+const meta_mod = @import("../../runtime/meta.zig");
 const string_collection = @import("../../runtime/collection/string.zig");
 const list_collection = @import("../../runtime/collection/list.zig");
 const seqable = @import("../../runtime/seqable.zig");
@@ -1749,12 +1750,58 @@ pub fn valueToForm(
         // syntax-quote expansion (and its lazy tail) realizes into a concrete
         // list Form. A plain `list_collection.rest` would not force the lazy
         // tail → dropped/`nil` elements (ADR-0082).
-        .list, .cons, .lazy_seq, .chunked_cons, .range => try valueSeqToForm(arena, rt, env, v, call_loc),
-        .vector, .sub_vector => try valueVectorToForm(arena, rt, env, v, call_loc),
-        .array_map, .hash_map => try valueMapToForm(arena, rt, env, v, call_loc),
-        .hash_set => try valueSetToForm(arena, rt, env, v, call_loc),
+        .list, .cons, .lazy_seq, .chunked_cons, .range => try withValueMeta(arena, rt, env, v, try valueSeqToForm(arena, rt, env, v, call_loc), call_loc),
+        .vector, .sub_vector => try withValueMeta(arena, rt, env, v, try valueVectorToForm(arena, rt, env, v, call_loc), call_loc),
+        .array_map, .hash_map => try withValueMeta(arena, rt, env, v, try valueMapToForm(arena, rt, env, v, call_loc), call_loc),
+        .hash_set => try withValueMeta(arena, rt, env, v, try valueSetToForm(arena, rt, env, v, call_loc), call_loc),
         else => error_catalog.raise(.macro_return_not_data, call_loc, .{ .tag = @tagName(v.tag()) }),
     };
+}
+
+/// Carry a COLLECTION Value's metadata onto the Form it converted to.
+///
+/// The `.symbol` arm of `valueToForm` already does this inline for ADR-0110
+/// symbol meta, with the same reasoning: a macro that passes a
+/// metadata-bearing value through must not silently shed it. Collections were
+/// missed, so `(defmacro m [& body] `(do ~@body))` around a `^:a []` literal
+/// returned it stripped, while the un-macroed form kept its meta and clj kept
+/// it in both cases. Every `clojure.test` assertion lives inside a
+/// `deftest`/`testing` body, so this made correct fns fail their own suite
+/// (`clojure.core-test.group-by`, whose expressions all pass outside the
+/// harness).
+///
+/// Attaching `Form.meta` is all that is needed: D-186 already lowers a
+/// meta-bearing collection literal to `(with-meta <bare> <meta-map>)` and
+/// re-analyzes, so both backends attach it on the shared `with-meta` path.
+///
+/// `meta_mod.metaOf` is the SSOT meta-read switch and answers `nil` for any
+/// tag without meta, so an arm that cannot carry meta (`.chunked_cons`,
+/// `.range`) costs one comparison and is left untouched.
+fn withValueMeta(
+    arena: std.mem.Allocator,
+    rt: *Runtime,
+    env: *Env,
+    v: Value,
+    form_in: Form,
+    call_loc: SourceLocation,
+) anyerror!Form {
+    var form = form_in;
+    // GC-ROOT: the recursive valueToForm below re-enters the VM to convert the
+    // meta MAP, so a collect there would otherwise sweep `v` (still the only
+    // reference to the source collection) and `m` [ref: .dev/gc_rooting.md §C].
+    var mroots: [2]Value = .{ v, Value.nil_val };
+    var msp: u16 = 2;
+    var mframe: root_set.EvalFrame = .{ .stack = &mroots, .sp = &msp, .locals = &.{}, .parent = root_set.eval_frame_head };
+    root_set.eval_frame_head = &mframe;
+    defer root_set.eval_frame_head = mframe.parent;
+    const m = try meta_mod.metaOf(rt, env, v, call_loc);
+    if (m != .nil_val) {
+        mroots[1] = m;
+        const meta_form = try arena.create(Form);
+        meta_form.* = try valueToForm(arena, rt, env, m, call_loc);
+        form.meta = meta_form;
+    }
+    return form;
 }
 
 fn valueSeqToForm(arena: std.mem.Allocator, rt: *Runtime, env: *Env, seq_val: Value, call_loc: SourceLocation) anyerror!Form {
