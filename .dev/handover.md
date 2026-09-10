@@ -8,10 +8,10 @@
   and repo (include `dev` + `test/clj` roots, keep a JVM oracle, memory
   `20260907085346-4d52f45e`); stop owned sessions after use.
 - **First task on resume**: drain `[CLJW-COMPLIANCE]` from the FRESH 2026-09-10
-  baseline in its card, not from `private/notes/compliance/baseline-*.txt` (stale:
-  a `subvec` panic they list is already fixed). Classify each failure against
-  `.dev/accepted_divergences.yaml` BEFORE fixing: 15 of the 143 failed assertions
-  are AD-018 on purpose. Easiest real batch = B1 (transient variadic arities).
+  baseline in its card (NOT `private/notes/compliance/baseline-*.txt`, stale).
+  Classify each failure against `.dev/accepted_divergences.yaml` BEFORE fixing:
+  ~31 residual failed assertions are DELIBERATE (AD-018 x15, AD-004 x8,
+  hierarchy x8). B1 (transients) and `derive` are landed; next batch is on the card.
 - **Release sync**: v1.14.4 shipped; `origin/main` merged into staging at
   `11f78d77`. After a release, merge `origin/main` into staging before the next
   PR; new changelog entries stay under `[Unreleased]`.
@@ -60,8 +60,8 @@
 
 - **Issues, PRs and Discussions are OPEN here** (CONTRIBUTING exempts outside
   contributors from the loop's conventions). **Shipped through v1.14.4.**
-- **Compliance baseline 2026-09-10**: 201 green / 43 failing / 3 aborted of 247.
-  The 43 is NOT a bug count (15 failures are AD-018 on purpose); see the card.
+- **Compliance baseline 2026-09-10**: 201 green / 43 failing / 3 aborted of 247;
+  B1 + `derive` landed since. The 43 is NOT a bug count; see the card.
 - **Wasm FFI is measured (ADR-0195)**: `wasm/call` ~400 ns interp, ~1.15 us JIT;
   residual 2.8x is zwasm/D-585 + a per-call `exportSig` re-resolve. Write-up
   `.dev/wasm_percall_findings.md`. A bare `D-NNN` is cljw, `zwasm/D-NNN` is not.

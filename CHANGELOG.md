@@ -17,6 +17,19 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 
 ### Fixed
 
+- **`derive` validates the shape of its tag and parent.** cljw accepted any
+  value in either position, so `(derive :user/tag 42)` silently installed a
+  number as a parent and `(derive ::a :b)` accepted an un-namespaced parent into
+  the GLOBAL hierarchy, where one library's `:shape` can collide with another's.
+  clj's 2-arity is deliberately stricter than its 3-arity on exactly that point
+  (a hierarchy value you pass in is your own), and both arities are now checked
+  the same way clj checks them. `clojure.core-test.derive` goes from 11 failures
+  to 1. The residual one is deliberate: cljw permits a CLASS parent, where clj
+  raises `ClassCastException`, because ADR-0109 makes a host class a first-class
+  hierarchy participant -- `(derive ::x Object)` then `(isa? ::x Object)` is a
+  tracked behaviour in `test/e2e/phase14_opaque_host_class.sh`, and the `isa?`
+  is false without that derive, so the edge is real rather than implied by
+  `Object` being the universal supertype.
 - **`assoc!` accepts a trailing key with no value, as clj does.** clj makes
   `assoc!` deliberately more lenient than `assoc`: the missing value is `nil`,
   so `(assoc! (transient []) 0 1 1)` is `[1 nil]`. cljw applied `assoc`'s
