@@ -135,3 +135,62 @@
     (is (= "TransientVector" (pr-str (class (transient []))))))
   (testing "class-level isa? still holds after the rename (isCallableClassName)"
     (is (= true (isa? (class +) clojure.lang.IFn)))))
+
+;; --- ADR-0194: the five seq class symbols tools.reader's `inspect*`
+;; dispatches on. `clojure.lang.LazySeq` names a type cljw genuinely has, so
+;; it is a resolvable native class and an `instance?` target. The other four
+;; name JVM types cljw has no values of (its cons cell and map seq are
+;; PersistentList, its vector seq is ArraySeq), so they resolve as OPAQUE
+;; class values whose `instance?` is uniformly false: AD-066 / AD-067.
+
+;; A defmethod on a class symbol resolves it at ANALYZE time, so these five
+;; forms are the blocker itself. Before ADR-0194 this file did not load.
+(defmulti inspect-shape
+  (fn [x] (cond (vector? x) :vector (map? x) :map :else (class x))))
+(defmethod inspect-shape clojure.lang.PersistentVector$ChunkedSeq [_] "<vec seq>")
+(defmethod inspect-shape clojure.lang.PersistentArrayMap$Seq [_] "<map seq>")
+(defmethod inspect-shape clojure.lang.PersistentHashMap$NodeSeq [_] "<map seq>")
+(defmethod inspect-shape clojure.lang.Cons [_] "<cons>")
+(defmethod inspect-shape clojure.lang.LazySeq [_] "<lazy seq>")
+(defmethod inspect-shape :default [x] (str "<" (.getName (class x)) ">"))
+
+(deftest lazyseq-is-a-native-class
+  (testing "resolves, both bare and fully qualified"
+    (is (= true (class? clojure.lang.LazySeq)))
+    (is (= true (= LazySeq clojure.lang.LazySeq))))
+  (testing "it is the class of a lazy seq, so instance? is true"
+    (is (= true (= clojure.lang.LazySeq (class (map inc [1])))))
+    (is (= true (instance? clojure.lang.LazySeq (map inc [1]))))
+    (is (= true (instance? LazySeq (lazy-seq [1]))))
+    (is (= false (instance? clojure.lang.LazySeq [1])))
+    (is (= false (instance? clojure.lang.LazySeq (range 3)))))
+  (testing "the (class x) name is unchanged by the promotion"
+    (is (= "LazySeq" (pr-str (class (map inc [1])))))
+    (is (= "LazySeq" (.getName (class (map inc [1])))))))
+
+(deftest opaque-jvm-seq-classes
+  (testing "each resolves as a class value distinct from the others"
+    (is (= true (class? clojure.lang.Cons)))
+    (is (= true (class? clojure.lang.PersistentVector$ChunkedSeq)))
+    (is (= true (class? clojure.lang.PersistentArrayMap$Seq)))
+    (is (= true (class? clojure.lang.PersistentHashMap$NodeSeq)))
+    (is (= false (= clojure.lang.Cons clojure.lang.PersistentVector$ChunkedSeq)))
+    (is (= false (= clojure.lang.PersistentArrayMap$Seq
+                    clojure.lang.PersistentHashMap$NodeSeq))))
+  (testing "no cljw value is an instance of one (AD-066 / AD-067)"
+    (is (= false (instance? clojure.lang.Cons (cons 1 [2 3]))))
+    (is (= false (instance? clojure.lang.PersistentVector$ChunkedSeq (seq [1 2 3]))))
+    (is (= false (instance? clojure.lang.PersistentArrayMap$Seq (seq {:a 1}))))
+    (is (= false (instance? clojure.lang.PersistentHashMap$NodeSeq
+                            (seq (zipmap (range 20) (range 20)))))))
+  (testing "and none of them is one of cljw's own seq classes"
+    (is (= false (= clojure.lang.Cons (class (cons 1 [2 3])))))
+    (is (= false (= clojure.lang.PersistentVector$ChunkedSeq (class (seq [1 2 3])))))
+    (is (= false (= clojure.lang.PersistentVector$ChunkedSeq
+                    (class (rest (cons 1 (range 3)))))))))
+
+(deftest inspect-multimethod-dispatches
+  (testing "the LazySeq method is reached, the opaque ones are dead"
+    (is (= "<lazy seq>" (inspect-shape (map inc [1 2]))))
+    (is (= "<ArraySeq>" (inspect-shape (seq [1 2 3]))))
+    (is (= "<ChunkedSeq>" (inspect-shape (seq (range 3)))))))
