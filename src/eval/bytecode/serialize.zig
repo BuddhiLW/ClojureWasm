@@ -77,10 +77,15 @@ const tree_walk = @import("../backend/tree_walk.zig");
 const Function = tree_walk.Function;
 
 pub const MAGIC: [4]u8 = .{ 'C', 'L', 'J', 'W' };
+// v11: a `.type_descriptor` constant carries the `rt.types` KEY, which for a
+// user type is now `<defining_ns>.<Name>` rather than the simple name
+// (ADR-0198). A v10 artifact would resolve that constant against the new
+// qualified registry, miss, and silently fall through to whatever else
+// answers to the bare name, so v10 must be REJECTED rather than read.
 // v10: def operands capture Var constants instead of caller-relative names.
 // v9 added op_var_meta; v8 unified host-class FQCNs; v7 compacted WireInstr
 // and interned the name pool; v6 merged rt into clojure.core.
-pub const VERSION: u16 = 10;
+pub const VERSION: u16 = 11;
 
 pub const SerializeError = error{
     OutOfMemory,
@@ -462,15 +467,30 @@ fn writeValueRaw(ctx: *WriteCtx, w: *std.Io.Writer, v: Value) SerializeError!voi
         },
         .type_descriptor => {
             // ADR-0034 am5: a class-value constant. Write the descriptor's
-            // `fqcn` (its `rt.types` key — the SIMPLE name for a user
-            // deftype/record/protocol, the dotted FQCN for a host surface);
-            // readValue re-resolves it via `resolveClassValue` to the same
-            // canonical ref. An anonymous (reify) descriptor has no name and
-            // is never an analyze-time constant — guard it loudly.
+            // `rt.types` KEY, so the load path can re-resolve it
+            // import-blind via `resolveDescriptorByKey` (an import shadowing
+            // the name at deserialize time must not mis-resolve a baked
+            // constant). An anonymous (reify) descriptor has no name and is
+            // never an analyze-time constant, so guard it loudly.
+            //
+            // ADR-0198: the key is `<defining_ns>.<fqcn>` for a user type and
+            // the bare fqcn for a host surface, so it is built here rather
+            // than read off `fqcn`. Writing `fqcn` alone was correct only
+            // while the registry was keyed by the simple name; it is the one
+            // place where getting this wrong is SILENT (a stale entry would
+            // resolve to some other namespace's same-named record rather than
+            // failing), which is why `VERSION` moves with this change.
             const ref = v.decodePtr(*const @import("../../runtime/type_descriptor.zig").TypeDescriptorRef);
             const fqcn = ref.td_ptr.fqcn orelse return SerializeError.TypeDescriptorUnnamed;
             try writeU8(w, @intFromEnum(ValueTag.type_descriptor));
-            try writeLenPrefixed(w, fqcn);
+            if (ref.td_ptr.defining_ns) |dns| {
+                var kbuf: [512]u8 = undefined;
+                const key = std.fmt.bufPrint(&kbuf, "{s}.{s}", .{ dns, fqcn }) catch
+                    return SerializeError.TypeDescriptorUnnamed;
+                try writeLenPrefixed(w, key);
+            } else {
+                try writeLenPrefixed(w, fqcn);
+            }
         },
         else => return SerializeError.UnsupportedValueTag,
     }

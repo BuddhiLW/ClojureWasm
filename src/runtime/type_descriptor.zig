@@ -801,13 +801,25 @@ pub fn registerType(
         .meta = Value.nil_val,
     };
 
-    // NOTE (D-587 part 2, not yet landed): this key is the SIMPLE name, so
-    // `aaa/Point` and `bbb/Point` are the same registry entry and the second
-    // definition silently displaces the first with no redefinition intended.
-    // This map's own doc comment already promises the FULLY-QUALIFIED name.
-    // Qualifying the key is a separate change because it moves every
-    // resolution site; retiring below makes the displacement non-fatal first.
-    const key = try rt.gpa.dupe(u8, name);
+    // D-587 part 2 / ADR-0198: the registry key is the FULLY-QUALIFIED class
+    // name, which is what `Runtime.types`'s own doc comment has always
+    // promised. A host surface's fqcn is already qualified
+    // (`java.util.UUID`); a user type's key is `<defining_ns>.<Name>`. A null
+    // `defining_ns` (bare unit-test registration, `ensureRegistered`; reify
+    // is not registered at all) keeps the bare name as its own qualified
+    // form, so the rule is TOTAL with no null branch.
+    //
+    // `td.fqcn` deliberately stays the SIMPLE name: key and printed class
+    // name are decoupled, so `(class x)` and the `#ns.Name{…}` print form are
+    // unchanged (ADR-0059 / AD-003).
+    //
+    // Keying by the simple name made `aaa/Point` and `bbb/Point` ONE entry,
+    // so a record name a second namespace already used silently displaced the
+    // first with nobody intending a redefinition.
+    const key = if (defining_ns) |dns|
+        try std.fmt.allocPrint(rt.gpa, "{s}.{s}", .{ dns, name })
+    else
+        try rt.gpa.dupe(u8, name);
     errdefer rt.gpa.free(key);
 
     if (rt.types.fetchRemove(key)) |old| {
@@ -831,6 +843,22 @@ pub fn registerType(
         try rt.retired_types.append(rt.gpa, old.value);
     }
     try rt.types.put(key, td);
+
+    // Secondary simple-name index (ADR-0198). Last registration wins, which
+    // is what EVERY lookup did before the key was qualified. It exists for
+    // references that carry no namespace to qualify with, chiefly the VM's
+    // `op_ctor_call`, which resolves a bare `type_name` at RUNTIME where the
+    // current ns is the CALLER's, not the definer's.
+    if (defining_ns != null) {
+        const gop = try rt.types_by_simple.getOrPut(rt.gpa, name);
+        if (!gop.found_existing) {
+            gop.key_ptr.* = rt.gpa.dupe(u8, name) catch |e| {
+                _ = rt.types_by_simple.remove(name);
+                return e;
+            };
+        }
+        gop.value_ptr.* = td;
+    }
 
     // A redefine changes what `(protocol, method)` resolves to, and the
     // CallSite cache hits on `last_type == td and cached_generation ==

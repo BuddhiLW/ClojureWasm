@@ -341,6 +341,23 @@ pub const Runtime = struct {
     /// (`Foo. args`) and method-dispatch (`(.m inst)`) eval paths.
     types: std.StringHashMap(*const TypeDescriptor) = undefined,
 
+    /// Secondary index: SIMPLE name to descriptor, last registration wins
+    /// (D-587 / ADR-0198). `types` is keyed by the qualified name so two
+    /// namespaces can each own a `Point`, but a bare type name still has to
+    /// resolve where the defining namespace is not known at the point of
+    /// resolution. The VM's `op_ctor_call` is the case that forces this: it
+    /// stores the bare `type_name` and resolves at RUNTIME, where
+    /// `env.current_ns` is the CALLING namespace, not the defining one. So a
+    /// current-ns qualification cannot answer it, and this index preserves
+    /// exactly the pre-ADR-0198 behaviour for that path.
+    ///
+    /// Last-wins is the ambiguity that remains: with two `Point` records,
+    /// a BARE `Point` names whichever was defined last. That is what cljw
+    /// did for every lookup before; it is now confined to references that
+    /// carry no namespace information. Qualified references, record
+    /// literals, printing and instance identity all go through `types`.
+    types_by_simple: std.StringHashMapUnmanaged(*const TypeDescriptor) = .empty,
+
     /// Descriptors displaced from `types` by a re-registration (D-587).
     /// A redefine does NOT free the old descriptor: instances built against
     /// it hold `inst.descriptor` as a raw pointer, the boxed refs handed out
@@ -843,6 +860,11 @@ pub const Runtime = struct {
             self.gpa.destroy(@constCast(td));
         }
         self.retired_types.deinit(self.gpa);
+        // The simple-name index owns only its KEYS; every value is a
+        // descriptor already freed above, via `types` or `retired_types`.
+        var sit = self.types_by_simple.keyIterator();
+        while (sit.next()) |k| self.gpa.free(k.*);
+        self.types_by_simple.deinit(self.gpa);
         // Thread join-at-exit registry (ADR-0174 D6): values are gc-heap
         // objects (freed by the heap teardown); only the list storage is ours.
         self.user_threads.deinit(self.gpa);

@@ -728,10 +728,30 @@ pub fn resolveClassValue(rt: *Runtime, env: *Env, sym_ns: ?[]const u8, sym_name:
     // host classes are already resolved above, so by here a qualified miss is a
     // user-deftype reference (D-428/D-391). Consistent with cljw's simple-name
     // deftype model: `a.b.T` and bare `T` are the same type.
+    // ADR-0198 inverted this fallback. User types are now keyed by
+    // `<defining_ns>.<Name>`, so a QUALIFIED reference (`instaparse.gll.Failure`,
+    // D-428/D-391) hits the exact-key probe above and never reaches here. What
+    // still needs promoting is the opposite case: a BARE name referring to a
+    // type defined in the current namespace, which used to hit the exact-key
+    // probe when keys were simple and no longer does.
+    if (sym_ns == null and std.mem.findScalar(u8, cname, '.') == null) {
+        if (env.current_ns) |cur_ns| {
+            var qbuf: [512]u8 = undefined;
+            if (std.fmt.bufPrint(&qbuf, "{s}.{s}", .{ cur_ns.name, cname })) |qualified| {
+                if (rt.types.get(qualified)) |td| return try type_descriptor.makeTypeDescriptorRef(rt, td);
+            } else |_| {}
+        }
+    }
+    // A qualified spelling of a user type whose namespace is not its defining
+    // one, plus the null-`defining_ns` registrations whose key IS the simple
+    // name. ADR-0198 keeps this as a last resort behind both the exact key and
+    // the current-ns qualification above.
     const simple = if (std.mem.findScalarLast(u8, cname, '.')) |dot| cname[dot + 1 ..] else sym_name;
     if (!std.mem.eql(u8, simple, cname)) {
         if (rt.types.get(simple)) |td| return try type_descriptor.makeTypeDescriptorRef(rt, td);
+        if (rt.types_by_simple.get(simple)) |td| return try type_descriptor.makeTypeDescriptorRef(rt, td);
     }
+    if (rt.types_by_simple.get(cname)) |td| return try type_descriptor.makeTypeDescriptorRef(rt, td);
     // A protocol under its clj interface name: `(defprotocol P)` in ns `a.b` is
     // referenced as `a.b.P`.
     if (std.mem.findScalarLast(u8, cname, '.')) |dot| {
@@ -1485,17 +1505,16 @@ fn liftTagged(rt: *Runtime, env: *Env, t: TaggedForm, loc: SourceLocation) Analy
     const inner = try formToValue(rt, env, t.form.*);
 
     // clj reads `#ns.Name{…}` as a RECORD constructor (the qualified
-    // record print form round-trips through the reader). A dotted tag is
-    // resolved against rt.types by its simple name; the descriptor must
-    // be a defrecord whose defining ns matches the tag's prefix.
+    // record print form round-trips through the reader). ADR-0198: the tag
+    // IS the registry key now, so this is a direct lookup. It used to probe
+    // by simple name and then re-check `defining_ns`, which silently
+    // rejected a legitimate `#aaa.Point{…}` as soon as some other namespace
+    // defined a record also called `Point` and displaced the entry.
     if (t.tag.ns == null) {
-        if (std.mem.findScalarLast(u8, t.tag.name, '.')) |dot| {
-            const simple = t.tag.name[dot + 1 ..];
-            if (rt.types.get(simple)) |td| {
-                const matches_ns = td.defining_ns != null and
-                    std.mem.eql(u8, td.defining_ns.?, t.tag.name[0..dot]);
+        if (std.mem.findScalar(u8, t.tag.name, '.') != null) {
+            if (rt.types.get(t.tag.name)) |td| {
                 const map_arg = inner.tag() == .array_map or inner.tag() == .hash_map;
-                if (td.kind == .defrecord and matches_ns and map_arg) {
+                if (td.kind == .defrecord and map_arg) {
                     return type_descriptor.recordFromMap(rt, td, inner) catch |e| switch (e) {
                         error.OutOfMemory => error.OutOfMemory,
                         else => error_catalog.raise(.reader_tag_unknown, loc, .{ .tag = symFullName(t.tag) }),
