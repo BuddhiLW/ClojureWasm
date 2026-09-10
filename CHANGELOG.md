@@ -17,6 +17,12 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 
 ### Fixed
 
+- **`conj!` on a transient map accepts `nil` and another map.** Persistent
+  `conj` on a map already merged an overlay map and treated `nil` as a no-op;
+  the transient twin still required a `[k v]` pair and raised
+  `IllegalArgumentException` for either, which also broke
+  `(into (transient {}) {…})`. Both now behave as clj does, verified against the
+  oracle and pinned in `test/diff/clj_corpus/transient_conj_merge.txt`.
 - **Reader metadata on a collection literal survives macroexpansion.** A macro's
   return value is converted back into a Form so it can be re-analyzed, and that
   converter rebuilt a collection from its elements only, never reading the
