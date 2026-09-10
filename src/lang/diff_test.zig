@@ -1689,3 +1689,41 @@ test "diff: op_get / op_nth collection intrinsics (O-043, both backends)" {
     // fixture's literal-arg quirk in TreeWalk; the value path is what matters).
     try f.check("(let [v [[1 2] [3 4]]] (count (nth v 0 nil)))", 2);
 }
+
+/// Assert the error-location half of the dual-backend contract (ADR-0036):
+/// both backends must raise, and both must report the SAME source position.
+/// A raise at line 0 is rejected on either side — "both agree on nothing" is
+/// vacuous parity, and 0:0 is exactly what a dropped location looks like.
+fn checkErrorLoc(f: *Fixture, source: []const u8) !void {
+    const r = evaluator.compare(&f.rt, &f.env, &f.table, f.arena.allocator(), source);
+    const tw = r.tree_walk_loc orelse {
+        std.debug.print("tree_walk did not raise for: {s}\n", .{source});
+        return error.TestExpectedRaise;
+    };
+    const vm_pos = r.vm_loc orelse {
+        std.debug.print("vm did not raise for: {s}\n", .{source});
+        return error.TestExpectedRaise;
+    };
+    if (tw.line == 0 or vm_pos.line == 0 or !r.loc_equal) {
+        std.debug.print(
+            "error-location parity broken for: {s}\n  tree_walk {d}:{d}\n  vm        {d}:{d}\n",
+            .{ source, tw.line, tw.column, vm_pos.line, vm_pos.column },
+        );
+        return error.TestUnexpectedResult;
+    }
+}
+
+test "diff: error source location survives BOTH backends (ADR-0036 error half)" {
+    var f: Fixture = undefined;
+    try Fixture.init(&f, testing.allocator);
+    defer f.deinit();
+    // Control arm: a builtin raising through op_call already threads the call
+    // form's loc into `vt.callFn`, so this one held before the fix.
+    try checkErrorLoc(&f, "(/ 1 0)");
+    // `set!` on a var with no active thread binding → var_set_not_bound, raised
+    // by the VM's op_set_var directly rather than through `vt.callFn`.
+    try checkErrorLoc(&f, "(do (def svl 1) (set! svl 2))");
+    // Interop member on a receiver whose type has no such method → raised by
+    // the VM's op_method_call directly.
+    try checkErrorLoc(&f, "(.noSuchMember \"s\")");
+}

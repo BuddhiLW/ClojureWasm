@@ -32,6 +32,7 @@ const tree_walk = @import("backend/tree_walk.zig");
 const vm = @import("backend/vm.zig");
 const vm_compiler = @import("backend/vm/compiler.zig");
 const driver = @import("driver.zig");
+const error_info = @import("../runtime/error/info.zig");
 
 pub const CompareResult = struct {
     tree_walk: anyerror!Value,
@@ -40,7 +41,37 @@ pub const CompareResult = struct {
     /// NaN-boxed bit pattern. See module docstring for the
     /// immediate-Value caveat.
     equal: bool,
+    /// Source position of the error each backend raised; null when that
+    /// backend returned a value. Only `line`/`column` are captured — the
+    /// `file` field of a fixture-analysed form is "unknown" on both
+    /// backends and carries no signal.
+    tree_walk_loc: ?ErrorPos = null,
+    vm_loc: ?ErrorPos = null,
+    /// `true` when both backends agree on WHERE the failure is: neither
+    /// raised, or both raised at the same line:column. The error half of
+    /// the dual-backend contract (ADR-0036) — a backend that raises the
+    /// same Kind at 0:0 while the other reports 3:11 is a parity break,
+    /// invisible to `equal` (which only compares returned Values).
+    loc_equal: bool = true,
 };
+
+/// The comparable part of a raised error's `SourceLocation`.
+pub const ErrorPos = struct {
+    line: u32,
+    column: u16,
+};
+
+/// The position of the error a just-finished backend run raised, or null
+/// when the run returned a value. Reads the threadlocal payload without
+/// clearing it, so the caller's own error handling still sees it; must be
+/// called before the next run overwrites the slot.
+fn errorPos(result: anyerror!Value) ?ErrorPos {
+    _ = result catch {
+        const info = error_info.peekLastError() orelse return null;
+        return .{ .line = info.location.line, .column = info.location.column };
+    };
+    return null;
+}
 
 pub fn compare(
     rt: *Runtime,
@@ -51,16 +82,31 @@ pub fn compare(
 ) CompareResult {
     tree_walk.installVTable(rt);
     const tw_value = runOnce(rt, env, table, arena, source, .tree_walk);
+    // Read the raise position NOW: the threadlocal payload is a single slot
+    // that the VM run below overwrites.
+    const tw_loc = errorPos(tw_value);
 
     vm.installVTable(rt);
     const vm_value = runOnce(rt, env, table, arena, source, .vm);
+    const vm_loc = errorPos(vm_value);
 
     const equal = blk: {
         const tw = tw_value catch break :blk false;
         const vm_v = vm_value catch break :blk false;
         break :blk @intFromEnum(tw) == @intFromEnum(vm_v);
     };
-    return .{ .tree_walk = tw_value, .vm = vm_value, .equal = equal };
+    const loc_equal = if (tw_loc) |a|
+        if (vm_loc) |b| a.line == b.line and a.column == b.column else false
+    else
+        vm_loc == null;
+    return .{
+        .tree_walk = tw_value,
+        .vm = vm_value,
+        .equal = equal,
+        .tree_walk_loc = tw_loc,
+        .vm_loc = vm_loc,
+        .loc_equal = loc_equal,
+    };
 }
 
 const BackendChoice = enum { tree_walk, vm };
