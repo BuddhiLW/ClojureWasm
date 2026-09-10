@@ -102,6 +102,36 @@ motivated the free in the first place. Under qualified keys a replacement only
 happens on a genuine same-`(ns, name)` re-evaluation, so retirement is rare
 and the retention it implies is small.
 
+**3. A secondary simple-name index, last registration wins.** This was NOT in
+the Devil's-advocate call-site analysis and was found only by running the
+suites against the first attempt, which broke 82 assertions.
+
+The analysis assumed every resolution site can qualify a bare name with the
+namespace it is being resolved in. That is false for the path that matters
+most: the VM compiles `(Point. …)` to `op_ctor_call` carrying the BARE
+`type_name` and resolves it at RUNTIME through `constructInstance` ->
+`resolveJavaSurface` -> `host_class_resolve.resolve`, where `env.current_ns` is
+the CALLING namespace, not the defining one. A test runner invoking a deftest
+defined in `suites.defrecord-test` resolves that constructor while standing in
+the runner's namespace, so a current-ns qualification looks up a key that was
+never registered. Simple-name keys were namespace-independent, which is exactly
+why this never surfaced before.
+
+`rt.types_by_simple` therefore maps the simple name to the last descriptor
+registered under it, and `host_class_resolve.resolve` consults it after the
+exact key, the current-ns qualification and the `(:import …)` map. That is
+precisely the pre-ADR-0198 behaviour, confined to references that carry no
+namespace information.
+
+**So the honest claim is narrower than "the collision is fixed".** Qualified
+references, record literals, printing, field access and `(class x)` identity
+all distinguish `aaa.Point` from `bbb.Point`. A BARE `Point` still names
+whichever was defined last. The ambiguity moved from every lookup to
+namespace-free lookups only; it was not eliminated. Removing it entirely means
+resolving constructor type names at ANALYZE time, where the defining namespace
+is known, which changes when a forward reference to a later deftype is allowed
+and is its own unit of work.
+
 ### On the retained memory
 
 Nothing is freed at retirement: the descriptor struct, the `fqcn` and
@@ -143,8 +173,26 @@ fork named that risk explicitly.
 - Host-surface descriptors are unaffected by the lifetime half: `ensureRegistered`
   and `_host_api.registerExtension` never took the freeing path.
 - The one-type-name-per-image cap on `test/clj/suites/` is lifted by the key
-  half. Until it landed, `defrecord_test.clj` worked around it by naming its
-  record `DPoint`; that rename is reverted when the key change lands.
+  half: two suites may now each define a `Point` without the first one's
+  instances being displaced. `defrecord_test.clj` keeps the `DPoint` name it
+  took as a workaround, because a BARE constructor still resolves last-wins
+  and two suites competing for the bare spelling would make which suite wins
+  depend on load order. Distinct names in the shared image remain the
+  recommendation; what changed is that a collision is no longer fatal.
+- `Runtime` gains `types_by_simple`, whose keys it owns and whose values are
+  descriptors owned by `types` or `retired_types`. `deinit` frees the keys
+  only.
+- **`instance?` is NOT made consistent by this ADR.**
+  `class_name.isInstance`'s user-type arm compares "the simple name against
+  each ancestor's `fqcn`" (its own words), so `(instance? aaa/Point bbb-inst)`
+  answers true while `(= (class aaa-inst) (class bbb-inst))` answers false.
+  Two SSOTs now disagree about type identity. That is pre-existing and was
+  deliberate (AD-003 / ADR-0059, and the D-428/D-391 "a.b.T and bare T are the
+  same type" comment), but this ADR makes the disagreement visible, so it is
+  filed as `[CLJW-INSTANCE-SIMPLE-NAME]` (`20260909215222-775ed21c`) rather
+  than left implicit. Nothing here should be read as having settled which
+  model cljw wants; `isInstance` is the shared oracle for catch-clause
+  matching and multimethod dispatch too, so that is its own decision.
 
 ## Alternatives considered
 
@@ -459,12 +507,32 @@ Its recommendation (Alternative 2) was adopted.
 > move when there is a reason. Here there is not: the population is bounded by
 > source text.
 
-### Deviation from the recommendation
+### Deviations from the recommendation, and where the analysis was wrong
 
-One: the fork recommended a single commit, and this lands as two within the
-same cycle (retire first, key second). The reason is bisectability of the AOT
-and resolution blast radius, not cycle budget. Both land before the loop moves
-on, which is the condition the fork's point 4 actually cares about.
+**1. Two commits, not one.** The fork recommended a single commit; this lands
+as two within the same cycle (retire first, key second). The reason is
+bisectability of the AOT and resolution blast radius, not cycle budget. Both
+land before the loop moves on, which is the condition the fork's point 4
+actually cares about. The split earned itself: the key half broke 82
+assertions on its first attempt while the retire half stayed green throughout.
+
+**2. The call-site list was incomplete, and the omission was the load-bearing
+one.** All seven sites the fork named were real and all needed changing. But it
+enumerated sites that resolve a class name where the surrounding namespace is
+known, and concluded a current-ns qualification suffices. The VM's
+`op_ctor_call` resolves a bare `type_name` at RUNTIME, in the CALLER's
+namespace, which no amount of qualification at that point can fix. That is why
+`types_by_simple` exists and why the ambiguity is narrowed rather than removed.
+
+The lesson is not that the fork was careless; it verified everything it
+claimed. It is that a static call-site enumeration cannot see a name that
+survives to runtime as data. The suites caught it in one run. Nothing short of
+running them would have.
+
+**3. The fix is therefore smaller than "both defects fixed".** Defect (2), the
+use-after-free, is fully fixed. Defect (1), the collision, is fixed for every
+reference that carries a namespace and narrowed to last-wins for those that do
+not.
 
 ## Affected files
 

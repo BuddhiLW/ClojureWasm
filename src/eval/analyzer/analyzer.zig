@@ -739,7 +739,10 @@ pub fn resolveClassValue(rt: *Runtime, env: *Env, sym_ns: ?[]const u8, sym_name:
             var qbuf: [512]u8 = undefined;
             if (std.fmt.bufPrint(&qbuf, "{s}.{s}", .{ cur_ns.name, cname })) |qualified| {
                 if (rt.types.get(qualified)) |td| return try type_descriptor.makeTypeDescriptorRef(rt, td);
-            } else |_| {}
+            } else |_| {
+                // Namespace + name longer than the buffer: no registered key
+                // could match it either, so fall through to the steps below.
+            }
         }
     }
     // A qualified spelling of a user type whose namespace is not its defining

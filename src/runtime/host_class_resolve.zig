@@ -42,7 +42,10 @@ pub fn resolve(rt: *Runtime, imports_ns: ?*const Namespace, head: []const u8) ?*
             var qbuf: [512]u8 = undefined;
             if (std.fmt.bufPrint(&qbuf, "{s}.{s}", .{ ns.name, head })) |qualified| {
                 if (rt.types.get(qualified)) |td| return td;
-            } else |_| {}
+            } else |_| {
+                // Namespace + name longer than the buffer: no registered key
+                // could match it either, so fall through to the steps below.
+            }
         }
         if (imports_ns) |ns| {
             if (ns.imports.get(head)) |fqcn| {
