@@ -7,20 +7,25 @@
   Per-commit = smoke; commit **and** push. Reuse warm CIDER sessions per runtime
   and repo (include `dev` + `test/clj` roots, keep a JVM oracle, memory
   `20260907085346-4d52f45e`); stop owned sessions after use.
-- **First task on resume**: read PR #20's CI result on the LAST pushed head, then
-  decide the release. `[CLJW-LAZY-VERIFY]` (`20260907101827-0fd15141`) is now in
-  review: staging carries far more than the original lazy WIP. Each push to
-  staging CANCELS the prior PR run, so only the newest run is authoritative.
-- **Release sync**: v1.14.3 shipped; main/staging diverged at `dcd5639b`, staging
-  well ahead. After a release, merge `origin/main` into staging before the next
+- **First task on resume**: drain `[CLJW-COMPLIANCE]` from the FRESH 2026-09-10
+  baseline in its card, not from `private/notes/compliance/baseline-*.txt` (stale:
+  a `subvec` panic they list is already fixed). Classify each failure against
+  `.dev/accepted_divergences.yaml` BEFORE fixing: 15 of the 143 failed assertions
+  are AD-018 on purpose. Easiest real batch = B1 (transient variadic arities).
+- **Release sync**: v1.14.4 shipped; `origin/main` merged into staging at
+  `11f78d77`. After a release, merge `origin/main` into staging before the next
   PR; new changelog entries stay under `[Unreleased]`.
-- **Gate state (2026-09-09)**: **FULL gate GREEN, 368 passed / 0 failed / 1042s**
-  on the ADR-0198 content, fingerprint matching the committed tree (109 suite
-  files). Supersedes the earlier 366/369 note.
+- **carto can read AND write `.zig` now** (`20260910124023-371c75ad`): the
+  `hive.shape.zig` tier was never mounted; wired in hive-mcp's untracked
+  `local.deps.edn`. Caveat: `insert-form` does NOT retag the rows it shifts and
+  no scan mode repairs it (`20260910130225-677f2940`).
+- **Gate state**: v1.14.4 CI green both platforms; SMOKE_CORE green 2026-09-10
+  (591 tests / 2874 assertions / 111 suites).
 - **CPU/RAM**: minimal warm sessions, bounded heaps, ONE low-priority heavy job;
   prefer hosted CI over cold gates (`20260907100844-23a57c0f`).
-- **Pick the smoke selector by COVERAGE, not topic** (grep the e2e tier for the
-  changed file; memory `20260831212130-2668f443`). ADR-0107's 5-commit ceiling.
+- **Pick the smoke selector by COVERAGE, not topic** (`20260831212130-2668f443`),
+  and spell it with the `e2e_` PREFIX or the whole slow core runs then dies on a
+  FATAL selector error (`20260910133335-108874d7`). ADR-0107's 5-commit ceiling.
 - **Prefer FORWARD commits** over `rebase`/`cherry-pick`/`amend`. The push hook
   wants `Smell-audited: <0-4>:` with a BARE digit; `depth 3` fails its regex.
 - **Never kill co-tenant JVMs / `cljw`** (`bb-mcp.core` is normal). Under memory
@@ -54,41 +59,36 @@
 ## Current state (details = CHANGELOG + git log)
 
 - **Issues, PRs and Discussions are OPEN here** (CONTRIBUTING exempts outside
-  contributors from the loop's conventions). **Shipped through v1.14.3.**
-- **Wasm FFI is measured; the initial-thread penalty is gone (ADR-0195).**
-  `wasm/call` is ~400 ns on `:engine :interp`, ~1.15 us on the `.auto` JIT. The
-  old 48x was zwasm/D-584 (D-586); residual 2.8x is zwasm/D-585 + a per-call
-  `exportSig` re-resolve. Write-up `.dev/wasm_percall_findings.md`. zwasm ids
-  are cited `zwasm/D-NNN`; a bare `D-NNN` is cljw.
-- **`bench/` is stratified and noise-guarded** (shell measures / YAML datum /
-  Python renders). Every wasm workload loops INSIDE the module, so per-call cost
-  is invisible to it: `[CLJW-WASM-BENCH-BLIND]`.
+  contributors from the loop's conventions). **Shipped through v1.14.4.**
+- **Compliance baseline 2026-09-10**: 201 green / 43 failing / 3 aborted of 247.
+  The 43 is NOT a bug count (15 failures are AD-018 on purpose); see the card.
+- **Wasm FFI is measured (ADR-0195)**: `wasm/call` ~400 ns interp, ~1.15 us JIT;
+  residual 2.8x is zwasm/D-585 + a per-call `exportSig` re-resolve. Write-up
+  `.dev/wasm_percall_findings.md`. A bare `D-NNN` is cljw, `zwasm/D-NNN` is not.
+- **`bench/` is stratified and noise-guarded**; every wasm workload loops INSIDE
+  the module, so per-call cost is invisible to it: `[CLJW-WASM-BENCH-BLIND]`.
 - **ADR-0198 / D-587: a redefined deftype/defrecord no longer corrupts memory.**
-  A displaced TypeDescriptor is RETIRED, not freed; `rt.types` is keyed by the
-  QUALIFIED name; `serialize` VERSION 10 -> 11. Residue, both filed and neither
-  a regression: bare names are still last-wins (`[CLJW-CTOR-ANALYZE-TIME]`
-  `20260909231443-1ba4303c`) and `instance?` still conflates same-simple-name
-  types, which is a DECISION not a patch (`[CLJW-INSTANCE-SIMPLE-NAME]`
-  `20260909215222-775ed21c`).
-- **bash e2e → cljw-native suites (Layer 5b)**: `test/clj/run_suites.clj`
-  discovers `test/clj/suites/*_test.clj`, gated in SMOKE_CORE as
-  `test_clj_suites`. 317 shells / ~2160 spawns remain. Method + backlog:
-  `[CLJW-E2E-SWEEP]` (`20260909231443-121d741e`); why it is worth doing (the
-  bash tier's error assertions were largely VACUOUS): memory
-  `20260909231325-26ddceab`.
+  Residue, filed, neither a regression: `[CLJW-CTOR-ANALYZE-TIME]`
+  (`20260909231443-1ba4303c`) and `[CLJW-INSTANCE-SIMPLE-NAME]`
+  (`20260909215222-775ed21c`).
+- **bash e2e → cljw-native suites (Layer 5b)**: `test/clj/run_suites.clj` gated
+  in SMOKE_CORE as `test_clj_suites`; 317 shells / ~2160 spawns remain. Method:
+  `[CLJW-E2E-SWEEP]` (`20260909231443-121d741e`); why (the bash tier's error
+  assertions were largely VACUOUS): `20260909231325-26ddceab`.
 - **Test layers 6/7/8** (ADR-0186): golden (gated), properties, mutation (on
-  demand); `cljw -M:laws`. Card `20260906173600-1ac2d42b`.
-- **Lazy boundary (ADR-0197)**: GC roots A8-A13, native suites + process probes.
-  ALLOC=1 loader failures: harness card `20260907094157-082f659e` (nREPL workers
-  skip allocation torture; use the CLI probe).
+  demand); `cljw -M:laws`. Card `20260906173600-1ac2d42b`. Its goldens are now
+  ANCHORED and a missing one FAILS instead of being captured (`cljw
+  -M:anchor-test`, `20260910131814-6c76500a`); `io/resource` is nil by D-359, so
+  never anchor a golden through it.
 
 ## What was left unfinished (`.dev/debt.yaml` is the SSOT)
 
 - **D-565** residuals (7)/(8) unreachable. **Perf campaign (§9.2.S) PAUSED**
   (D-520/D-386/D-005/006); **D-513** (1); **D-548** (b). Open cards:
   `[CLJW-JSON-REEXPORT]` (`20260831194114-196afd4a`),
-  `[CLJW-ENTRYPOINT-FLAKE]` (`20260831192937-1e3c4ed0`). Follow-ups: reload
-  `20260907101833-277f7039`, golden root `20260907101837-067780ad`.
+  `[CLJW-ENTRYPOINT-FLAKE]` (`20260831192937-1e3c4ed0`),
+  `[CLJW-MACRO-LITERAL-META]` (`20260910134058-1dc1665c`, high). Follow-up:
+  reload `20260907101833-277f7039`. Golden root: DONE 2026-09-10.
 
 ## North star (ACTIVE, distal) + reading order
 
