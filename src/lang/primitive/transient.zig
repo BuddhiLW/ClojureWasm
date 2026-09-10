@@ -51,7 +51,15 @@ pub fn transientFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLoca
         .array_map => try transient_array_map.fromMap(rt, coll),
         .hash_map => try transient_array_map.fromMap(rt, coll),
         .hash_set => try transient_hash_set.fromSet(rt, coll),
-        .nil => try transient_vector.fromVector(rt, coll),
+        // NOTE: there is deliberately no `.nil` arm. `(transient nil)` used to
+        // answer an empty transient vector, where clj THROWS
+        // (NullPointerException, since it calls .asTransient on nil). Returning
+        // a value there turns a typo into a silently empty accumulator. nil now
+        // falls to the mismatch arm below, so it throws as clj does; only the
+        // exception NAME differs, which is the AD-007 class. The 0-arity
+        // `(conj!)` identity still builds its empty transient by calling
+        // transient_vector.fromVector directly, so it is unaffected.
+        //
         // D-369: a user IEditableCollection deftype supplies its own
         // transient via asTransient (wired to -as-transient at load).
         .typed_instance => try dispatchBang(rt, env, coll, "IEditableCollection", "-as-transient", args, loc, "transient", "vector, array_map, or hash_map"),

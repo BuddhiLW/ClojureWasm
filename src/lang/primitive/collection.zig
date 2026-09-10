@@ -482,7 +482,11 @@ pub fn getFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) 
             break :blk default;
         },
         // A live transient is a first-class read target (clj parity, D-199):
-        // a transient map reads by key; a transient vector by index.
+        // a transient map reads by key, a transient vector by index, and a
+        // transient SET by membership, returning the element exactly as the
+        // persistent `.hash_set` arm above does. The set arm was missing, so
+        // `(get (transient #{42}) 42)` fell to lookupDispatch and answered the
+        // default instead of 42.
         .transient_map => blk: {
             try transient_array_map.ensureLive(coll, "get", loc);
             if (try transient_array_map.contains(coll, k)) {
@@ -494,6 +498,10 @@ pub fn getFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) 
             try transient_vector.ensureLive(coll, "get", loc);
             if (k.tag() != .integer) break :blk default;
             break :blk transient_vector.nth(coll, k.asInteger(), default);
+        },
+        .transient_set => blk: {
+            try transient_hash_set.ensureLive(coll, "get", loc);
+            break :blk if (try transient_hash_set.contains(coll, k)) k else default;
         },
         // Declared field → ILookup -lookup slow-path → default. Shared
         // with the keyword-as-fn `(:k rec)` path so the two agree (D-089).

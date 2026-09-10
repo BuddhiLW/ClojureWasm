@@ -17,6 +17,18 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 
 ### Fixed
 
+- **A live transient is readable and callable, not just `get`-able.** D-199 made
+  a transient a first-class read target, but only `get` on a transient map and
+  vector was wired: `((transient m) :k)` raised "Cannot call value of type",
+  `(:k (transient m))` and `(get (transient #{x}) x)` quietly answered `nil`.
+  All three now behave as clj does. The arities are clj's and are deliberately
+  not uniform, each checked against the oracle: a transient map and a transient
+  set take an optional not-found (a persistent set is 1-arity only), while a
+  transient vector is 1-arity and throws on a bad index. Pinned in
+  `test/diff/clj_corpus/transient_read_surface.txt`.
+- **`(transient nil)` throws instead of answering an empty transient vector.**
+  clj throws; returning a value turned a typo into a silently empty
+  accumulator.
 - **`conj!` on a transient map accepts `nil` and another map.** Persistent
   `conj` on a map already merged an overlay map and treated `nil` as a no-op;
   the transient twin still required a `[k v]` pair and raised
