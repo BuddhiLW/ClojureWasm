@@ -17,6 +17,12 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 
 ### Fixed
 
+- **`assoc!` accepts a trailing key with no value, as clj does.** clj makes
+  `assoc!` deliberately more lenient than `assoc`: the missing value is `nil`,
+  so `(assoc! (transient []) 0 1 1)` is `[1 nil]`. cljw applied `assoc`'s
+  even-arity rule and rejected it. The arity check also ran second, so
+  `(assoc! tm :b)` reported a key-without-value error where clj reports an
+  `ArityException`; too few args is an arity fault, and it is checked first now.
 - **A live transient is readable and callable, not just `get`-able.** D-199 made
   a transient a first-class read target, but only `get` on a transient map and
   vector was wired: `((transient m) :k)` raised "Cannot call value of type",
