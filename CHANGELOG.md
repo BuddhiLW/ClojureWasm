@@ -21,8 +21,27 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 - **Sequence consumers retain values across GC callbacks.** Custom sequence
   heads and cursors survive iterator advancement, equality, CSV traversal and
   sorted bounds, including callbacks that explicitly request collection.
+- **Redefining a `deftype` or `defrecord` no longer corrupts memory.** The
+  displaced type descriptor is retired for the life of the process instead of
+  being freed, so values, call sites and protocol tables created against the
+  old definition stay valid. Reloading a namespace at the REPL previously read
+  freed memory, which surfaced as an unrelated-looking error whose text varied
+  between runs.
+- **Two types with the same short name in different namespaces are now
+  distinct.** The type registry is keyed by the fully qualified name, so
+  `aaa/Point` and `bbb/Point` no longer overwrite one another for qualified
+  references, record literals, printing, field access and `class` identity. A
+  bare `Point` still resolves to the most recently defined one; that remainder
+  is tracked and is not a regression.
 
 ### Changed
+
+- **The AOT bytecode wire format is version 11** (was 10). Caches written by an
+  earlier build are rejected and regenerated; no user action is required.
+- **Nine end-to-end shell scripts became native Clojure test suites.** Error
+  cases that a shell could only check by exit code or by grepping merged output
+  are now real `thrown-with-msg?` assertions, and value cases that were compared
+  as printed text are compared as values.
 
 - **Lazy sequence regressions run as native Clojure suites**, including CLI
   allocation torture. The suite runner accepts namespace selectors and rejects
