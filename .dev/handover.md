@@ -22,15 +22,11 @@
 - **CPU/RAM**: minimal warm sessions, bounded heaps, one low-priority heavy job; prefer hosted CI over cold gates (`20260907100844-23a57c0f`). Keep main Hive alive.
 - **Pick the smoke selector by COVERAGE, not topic** (grep the e2e tier for the
   changed file; memory `20260831212130-2668f443`). ADR-0107's 5-commit ceiling.
-- **Prefer FORWARD commits** over `rebase`/`cherry-pick`/`amend`. 2026-09-09
-  exception, message-only: the push hook needs `Smell-audited: <0-4>:` with a
-  BARE digit, and `depth 3` fails its regex, so four UNPUSHED commits were
-  fixed with `filter-branch --msg-filter` (trees verified byte-identical).
-  Write the bare digit and the situation does not arise.
-- **Never kill co-tenant JVMs / `cljw` processes** to free memory
-  (`bb-mcp.core` co-tenants are normal). Under pressure, shrink your OWN
-  footprint instead: `nice -n 19` plus `zig build -j2` survived a kill that a
-  default-parallelism build did not.
+- **Prefer FORWARD commits** over `rebase`/`cherry-pick`/`amend`. The push hook
+  wants `Smell-audited: <0-4>:` with a BARE digit; `depth 3` fails its regex.
+- **Never kill co-tenant JVMs / `cljw`** (`bb-mcp.core` is normal). Under memory
+  pressure shrink your OWN footprint: `nice -n 19` + `zig build -j2` survived a
+  kill that default parallelism did not.
 - **CI = ONE configuration** (`test/run_all.sh --serial-e2e`, same as `run_gate.sh`).
   No push trigger on staging: "green" = the last dispatch/PR run's sha.
 - **Forbidden**: bare `zig build test` without `-Dwasm`; a Debug probe (use
@@ -63,19 +59,16 @@
 - **Issues, PRs and Discussions are OPEN here**; CONTRIBUTING exempts outside
   contributors from the loop's conventions. **Shipped through v1.14.3**
   (CHANGELOG has no `[1.13.4]` heading: verbatim path).
-- **Wasm FFI is measured; the initial-thread penalty is gone (ADR-0195).** One
-  `wasm/call` costs ~400 ns on `:engine :interp` (2.1x a Clojure fn call) and
-  ~1.15 us on the `.auto` JIT default, on the runtime thread and on workers
-  alike. The old 48x was **zwasm/D-584** (glibc parses `/proc/self/maps` for the
-  INITIAL thread's stack bounds per JIT call), NOT fixed by v2.6.0; cljw no
-  longer runs there (D-586). The 2.8x residual is zwasm/D-585 (upstream #208) +
-  cljw's per-call `exportSig` re-resolve. Issues #13/#14/#15; write-up
-  `.dev/wasm_percall_findings.md`; probes `.dev/bench/ffi_boundary/`. zwasm
-  ids: `zwasm/D-NNN`, `zwasm ADR-NNNN` (bare `D-NNN` / `ADR-NNNN` = cljw).
+- **Wasm FFI is measured; the initial-thread penalty is gone (ADR-0195).**
+  `wasm/call` is ~400 ns on `:engine :interp`, ~1.15 us on the `.auto` JIT, on
+  the runtime thread and on workers alike. The old 48x was zwasm/D-584, not
+  fixed by v2.6.0; cljw no longer runs there (D-586). Residual 2.8x is
+  zwasm/D-585 (upstream #208) + a per-call `exportSig` re-resolve. Write-up
+  `.dev/wasm_percall_findings.md`; probes `.dev/bench/ffi_boundary/`. zwasm ids
+  are cited `zwasm/D-NNN`; a bare `D-NNN` is cljw.
 - **`bench/` is stratified and noise-guarded** (shell measures / YAML datum /
-  Python renders via `bench/bench_domain.py`; a Suite carries its own
-  dispersion). Every wasm workload loops INSIDE the module, so per-call cost is
-  invisible to it: `[CLJW-WASM-BENCH-BLIND]` adds the crossing-dominated axis.
+  Python renders via `bench/bench_domain.py`). Every wasm workload loops INSIDE
+  the module, so per-call cost is invisible to it: `[CLJW-WASM-BENCH-BLIND]`.
 - **ADR-0198 / D-587 (2026-09-09): a redefined deftype/defrecord no longer
   corrupts memory.** `registerType` freed a TypeDescriptor that live instances,
   the GC's boxed mark waypoints and the address-comparing CallSite cache all
@@ -98,14 +91,14 @@
   `test/clj/run_suites.clj` discovers `test/clj/suites/*_test.clj`, gated in
   SMOKE_CORE as `test_clj_suites`. Bash keeps the CLI surface and anything
   needing the PROCESS. Card `[CLJW-E2E-TO-SUITES]` (`20260831204206-0eed020c`).
-- **Test layers 6/7/8** (ADR-0186): golden (gated), properties, mutation
-  (on demand). Native hive-test laws: `cljw -M:laws` in its verified project.
-  Continue test-ladder card `20260906173600-1ac2d42b` for remaining coverage. `[CLJW-DEF-NS]` fixed by exact analyzed Var
-  capture; evidence memory `20260906155724-7af96201` supersedes its old memo.
-- **Lazy boundary (ADR-0197)**: GC roots A8–A13, native suites and process probes,
-  hive-test 3000 seeded cases / 9 mutation witnesses / 4 reviewed goldens.
-  ALLOC=1 loader/discovery failures reproduce on v1.14.2: separate harness card
-  `20260907094157-082f659e`. nREPL workers skip allocation torture; use the CLI probe.
+- **Test layers 6/7/8** (ADR-0186): golden (gated), properties, mutation (on
+  demand). Native hive-test laws: `cljw -M:laws`. Test-ladder card
+  `20260906173600-1ac2d42b`. `[CLJW-DEF-NS]` fixed by exact analyzed Var
+  capture (evidence memory `20260906155724-7af96201`).
+- **Lazy boundary (ADR-0197)**: GC roots A8-A13, native suites + process probes,
+  3000 seeded cases / 9 mutation witnesses / 4 goldens. ALLOC=1 loader failures
+  reproduce on v1.14.2: harness card `20260907094157-082f659e`. nREPL workers
+  skip allocation torture; use the CLI probe.
 
 ## What was left unfinished (`.dev/debt.yaml` is the SSOT)
 
