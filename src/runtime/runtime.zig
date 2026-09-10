@@ -341,6 +341,35 @@ pub const Runtime = struct {
     /// (`Foo. args`) and method-dispatch (`(.m inst)`) eval paths.
     types: std.StringHashMap(*const TypeDescriptor) = undefined,
 
+    /// Secondary index: SIMPLE name to descriptor, last registration wins
+    /// (D-587 / ADR-0198). `types` is keyed by the qualified name so two
+    /// namespaces can each own a `Point`, but a bare type name still has to
+    /// resolve where the defining namespace is not known at the point of
+    /// resolution. The VM's `op_ctor_call` is the case that forces this: it
+    /// stores the bare `type_name` and resolves at RUNTIME, where
+    /// `env.current_ns` is the CALLING namespace, not the defining one. So a
+    /// current-ns qualification cannot answer it, and this index preserves
+    /// exactly the pre-ADR-0198 behaviour for that path.
+    ///
+    /// Last-wins is the ambiguity that remains: with two `Point` records,
+    /// a BARE `Point` names whichever was defined last. That is what cljw
+    /// did for every lookup before; it is now confined to references that
+    /// carry no namespace information. Qualified references, record
+    /// literals, printing and instance identity all go through `types`.
+    types_by_simple: std.StringHashMapUnmanaged(*const TypeDescriptor) = .empty,
+
+    /// Descriptors displaced from `types` by a re-registration (D-587).
+    /// A redefine does NOT free the old descriptor: instances built against
+    /// it hold `inst.descriptor` as a raw pointer, the boxed refs handed out
+    /// by `makeTypeDescriptorRef` are process-lifetime mark waypoints, and
+    /// `CallSite.last_type` compares descriptors by address from analyzer
+    /// storage the GC cannot see. Freeing here made all three dangle. The
+    /// descriptor therefore keeps the process lifetime its own doc comment
+    /// promises, and is released only in `deinit`, which is also what clj
+    /// does with a superseded class. Retention is bounded by the number of
+    /// re-evaluations, not by data size.
+    retired_types: std.ArrayList(*const TypeDescriptor) = .empty,
+
     /// Set of namespace names currently being loaded by `require`.
     /// ADR-0035 D5: `requireOne` adds the target before loading and
     /// removes it after (errdefer-safe). If the target is already in
@@ -811,6 +840,31 @@ pub const Runtime = struct {
             self.gpa.destroy(@constCast(td));
         }
         self.types.deinit();
+        // D-587: descriptors displaced by a redefine were retired rather than
+        // freed, because live instances / boxed refs / CallSite slots still
+        // pointed at them. Teardown is the one moment nothing can, so the
+        // same free body applies -- minus the key, which `registerType`
+        // already freed when it removed the map entry.
+        for (self.retired_types.items) |td| {
+            if (td.field_layout) |layout| {
+                for (layout) |fe| self.gpa.free(fe.name);
+                self.gpa.free(layout);
+            }
+            if (td.fqcn) |n| self.gpa.free(n);
+            if (td.defining_ns) |n| self.gpa.free(n);
+            for (td.method_table) |mentry| {
+                self.gpa.free(mentry.method_name);
+            }
+            if (td.method_table.len > 0) self.gpa.free(td.method_table);
+            if (td.protocol_impls.len > 0) self.gpa.free(td.protocol_impls);
+            self.gpa.destroy(@constCast(td));
+        }
+        self.retired_types.deinit(self.gpa);
+        // The simple-name index owns only its KEYS; every value is a
+        // descriptor already freed above, via `types` or `retired_types`.
+        var sit = self.types_by_simple.keyIterator();
+        while (sit.next()) |k| self.gpa.free(k.*);
+        self.types_by_simple.deinit(self.gpa);
         // Thread join-at-exit registry (ADR-0174 D6): values are gc-heap
         // objects (freed by the heap teardown); only the list storage is ours.
         self.user_threads.deinit(self.gpa);

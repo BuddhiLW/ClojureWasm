@@ -27,7 +27,7 @@ const std = @import("std");
 const Value = @import("value/value.zig").Value;
 const Runtime = @import("runtime.zig").Runtime;
 const Env = @import("env.zig").Env;
-const lazy_seq = @import("lazy_seq.zig");
+const seqable = @import("seqable.zig");
 const string_mod = @import("collection/string.zig");
 const symbol_mod = @import("symbol.zig");
 const keyword_mod = @import("keyword.zig");
@@ -236,11 +236,18 @@ const Cursor = union(enum) {
                 return e;
             },
             .lzy => |*node| {
-                const s = try lazy_seq.seq(rt, env, node.*);
-                if (s.isNil()) return null;
-                const e = try lazy_seq.first(rt, env, s);
-                node.* = try lazy_seq.rest(rt, env, s);
-                return e;
+                var roots = [_]Value{ try seqable.seq(rt, env, node.*, seqable.noloc), .nil_val };
+                if (roots[0].isNil()) return null;
+                var sp: u16 = roots.len;
+                // GC-ROOT: A13 — a custom first can return a fresh head that
+                // rest's callback collects before the outer equality frame
+                // receives it [ref: .dev/gc_rooting.md §A].
+                var frame: root_set.EvalFrame = .{ .stack = &roots, .sp = &sp, .locals = &.{}, .parent = root_set.eval_frame_head };
+                root_set.eval_frame_head = &frame;
+                defer root_set.eval_frame_head = frame.parent;
+                roots[1] = try seqable.first(rt, env, roots[0], seqable.noloc);
+                node.* = try seqable.rest(rt, env, roots[0], seqable.noloc);
+                return roots[1];
             },
         }
     }
@@ -308,26 +315,26 @@ fn realizeSequentialInstance(rt: *Runtime, env: *Env, start: Value) anyerror!Val
     // a Seqable-only Sequential -seq returns a native seq (folded by the tail loop).
     {
         var cs0: dispatch_mod.CallSite = .{};
-        cur = (try dispatch_mod.dispatchOrNull(rt, env, &cs0, cur, "Seqable", "-seq", &.{cur}, noloc)) orelse cur;
+        cur = (try dispatch_mod.dispatchOrNull(rt, env, &cs0, cur, seqable.SEQABLE, "-seq", &.{cur}, noloc)) orelse cur;
     }
     while (cur.tag() == .typed_instance or cur.tag() == .reified_instance) {
         cur_root[0] = cur;
         gc_frame.locals = items.items;
         var cs1: dispatch_mod.CallSite = .{};
-        const f = (try dispatch_mod.dispatchOrNull(rt, env, &cs1, cur, "ISeq", "-first", &.{cur}, noloc)) orelse break;
+        const f = (try dispatch_mod.dispatchOrNull(rt, env, &cs1, cur, seqable.ISEQ, "-first", &.{cur}, noloc)) orelse break;
         try items.append(rt.gpa, f);
         gc_frame.locals = items.items;
         var cs2: dispatch_mod.CallSite = .{};
-        cur = (try dispatch_mod.dispatchOrNull(rt, env, &cs2, cur, "ISeq", "-next", &.{cur}, noloc)) orelse .nil_val;
+        cur = (try dispatch_mod.dispatchOrNull(rt, env, &cs2, cur, seqable.ISEQ, "-next", &.{cur}, noloc)) orelse .nil_val;
     }
     // A `-next` that handed off to a native seq tail (lazy/list): fold it in.
     while (!cur.isNil()) {
         cur_root[0] = cur;
         gc_frame.locals = items.items;
-        const s = try lazy_seq.seq(rt, env, cur);
+        const s = try seqable.seq(rt, env, cur, noloc);
         if (s.isNil()) break;
-        try items.append(rt.gpa, try lazy_seq.first(rt, env, s));
-        cur = try lazy_seq.rest(rt, env, s);
+        try items.append(rt.gpa, try seqable.first(rt, env, s, noloc));
+        cur = try seqable.rest(rt, env, s, noloc);
     }
     var result: Value = .nil_val;
     var i: usize = items.items.len;
@@ -359,15 +366,15 @@ fn realizeSeqToList(rt: *Runtime, env: *Env, start: Value) anyerror!Value {
     while (true) {
         cur_root[0] = cur;
         gc_frame.locals = items.items;
-        const s = try lazy_seq.seq(rt, env, cur);
+        const s = try seqable.seq(rt, env, cur, seqable.noloc);
         if (s.isNil()) break;
         cur_root[0] = s;
         gc_frame.locals = items.items;
-        const f = try lazy_seq.first(rt, env, s);
+        const f = try seqable.first(rt, env, s, seqable.noloc);
         try items.append(rt.gpa, f);
         cur_root[0] = s;
         gc_frame.locals = items.items;
-        cur = try lazy_seq.rest(rt, env, s);
+        cur = try seqable.rest(rt, env, s, seqable.noloc);
     }
     var result: Value = .nil_val;
     var i: usize = items.items.len;

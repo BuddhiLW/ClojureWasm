@@ -7,7 +7,9 @@
             [clojure.test.check.generators :as gen]
             [clojure.test.check.properties :as prop]
             [hive-test.trifecta :refer [deftrifecta]]
-            [hive-test.mutation :refer [deftest-mutation-witness]]))
+            [hive-test.mutation :refer [deftest-mutation-witness]]
+            [hive-test.properties :refer [defprop-metamorphic]]
+            [hive-test.golden :refer [deftest-golden]]))
 
 (def int-vectors (gen/vector (gen/choose -1000 1000) 0 30))
 (def slices
@@ -106,6 +108,58 @@
 
 (defn -main [& _]
   (let [{:keys [test pass fail error] :as result} (test/run-tests 'laws)]
-    (assert (= 16 test) (pr-str result))
+    (assert (= 21 test) (pr-str result))
     (assert (and (pos? pass) (zero? fail) (zero? error)) (pr-str result))
-    (println "OK native runtime laws: 2400 generated cases, seven mutation witnesses")))
+    (println "OK native runtime laws: 3000 generated cases, nine mutation witnesses, four goldens")))
+
+(defprop-metamorphic lazy-string-body-agrees-with-seq
+  (fn [value]
+    [(seq value) (first value) (rest value) (next value) (count value) (vec value)])
+  (fn [text] (lazy-seq text))
+  =
+  text-input
+  {:num-tests {:num-tests 300 :seed 20260915}})
+
+(defspec nested-lazy-seqable-preserves-elements
+  {:num-tests 300 :seed 20260916}
+  (prop/for-all [xs int-vectors depth (gen/choose 1 30)]
+    (let [body (loop [value (reify clojure.lang.Seqable (seq [_] (seq xs)))
+                      n depth]
+                 (if (zero? n) value (recur (lazy-seq value) (dec n))))]
+      (and (= xs (vec body))
+           (= (count xs) (count body))
+           (= (first xs) (first body))))))
+
+(deftest-mutation-witness lazy-first-must-read-the-body
+  clojure.core/first
+  (let [original first]
+    (fn [value]
+      (if (instance? clojure.lang.LazySeq value) nil (original value))))
+  (fn []
+    (test/is (= \h (first (lazy-seq "hi"))))))
+
+(deftest-mutation-witness lazy-seq-must-return-a-seq
+  clojure.core/seq
+  (let [original seq]
+    (fn [value]
+      (if (instance? clojure.lang.LazySeq value) "hi" (original value))))
+  (fn []
+    (test/is (= '(\h \i) (seq (lazy-seq "hi"))))))
+
+(deftest-golden lazy-seqable-boundaries "lazy-seqable.edn"
+  {:string [(seq (lazy-seq "hi")) (first (lazy-seq "hi"))
+            (rest (lazy-seq "hi")) (next (lazy-seq "hi")) (count (lazy-seq "hi"))]
+   :empty [(seq (lazy-seq "")) (first (lazy-seq "")) (rest (lazy-seq "")) (count (lazy-seq ""))]
+   :array (vec (lazy-seq (to-array [1 2])))
+   :array-alias (let [a (to-array ["old" "tail"])
+                      body (lazy-seq a)
+                      before (first body)]
+                  (aset a 0 "new")
+                  [before (first body) (vec (rest body))])
+   :custom (seq (lazy-seq
+                  (reify clojure.lang.Seqable (seq [_] (seq [3 4])))))
+   :nested (vec (lazy-seq (lazy-seq [5 6])))
+   :invalid-body (try (seq (lazy-seq 42))
+                      (catch IllegalArgumentException _ :illegal-argument))
+   :invalid-seq-result (try (seq (reify clojure.lang.Seqable (seq [_] [1 2])))
+                            (catch ClassCastException _ :class-cast))})

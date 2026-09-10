@@ -63,13 +63,23 @@ BEFORE `bindCallFrame` (the binder's rest-pack consHeap can collect).
 | A5 | `runtime/concurrency/lock_tx.zig` (`fireWatches`) | post-commit ref-watch firing                             | flat `[ref, old, new, ...]` notifies list published whole: an already-fired `old` recycled from the ring would otherwise be swept before a later notification fires                                                                                   |
 | A6 | `lang/primitive/agent.zig` (`sendFn`)             | agent action ENQUEUE window (D-418)                      | 1 slot `[action]` — the `[f & args]` vector rooted across `agent.send` until `enqueueDirect` appends it to the off-heap queue (its traceGc root); a collect in the window otherwise sweeps the freshly-built vector → drainer reads recycled memory |
 | A7 | `lang/primitive/agent.zig` (`awaitFn`)            | await barrier promise ENQUEUE window (D-418)             | 1 slot `[p]` — the completion promise rooted across `sendAwait` until the barrier action carrying it is queued (traceGc walks `action.completion`); else `await` blocks on a swept promise (hang)                                                    |
+| A8 | `runtime/lazy_seq.zig` (`realize`) | complete lazy realization (ADR-0197) | 1 slot `[raw]` roots the returned body across nested thunk calls and allocating Seqable coercion; immutable published inner links retain subsequent nodes |
+| A9 | `runtime/seqable.zig` (`rest`, `instanceRest`, `instanceNext`) | accessor after Seqable coercion (ADR-0197) | 1 slot `[cursor]` retains a freshly returned ISeq and backing through allocating tail accessors or user callbacks |
+| A10 | `runtime/java/util/Iterator.zig` (`fromSeqable`, `next`) | host iterator boundaries (ADR-0197) | 1 slot roots the fresh cursor until host allocation publishes it, or the returned head while advancing the cursor invokes user code |
+| A11 | `lang/primitive/csv.zig` (`writeCsvFn`) | CSV traversal (ADR-0197) | 3 slots `[rows, row/cells, cell]` retain fresh sequence views and values across lazy, custom ISeq, and printing callbacks |
+| A12 | `lang/primitive/sorted.zig` (`subseqSorted`, `takeWhileBound`) | custom Sorted bounds (ADR-0197) | 3 slots `[comparator, cursor, head]` retain callback results; the bounded walk separately roots its cursor, fresh entry and accumulated items while comparator callbacks can collect |
+| A13 | `runtime/equal.zig` (`Cursor.next`) | equality cursor advance (ADR-0197) | 2 slots `[cursor, head]` retain a fresh head across custom rest callbacks until the outer equality frame receives it |
 
 **Migration-impact:** `stack`/`locals`/`constants` are **const** views; a moving
 GC must rewrite relocated operand/local/constant Values, so they become mutable
 and the walk forwards (not just marks). `chunk.constants` lives in the analyser
 arena — under relocation the literals it holds still move, so the pool needs
 writability or a literal-copy-to-heap. A2's `gc_roots` Zig array is already a
-mutable local handed to the collector by address — migration-clean.
+mutable local handed to the collector by address — migration-clean. A8–A13
+also publish mutable arrays; a moving collector must additionally reload the
+decoded LazySeq pointer and accessor cursor locals from those forwarded roots
+after callbacks/allocations, refresh copied comparator Values in bound structs,
+and preserve the incoming receiver root contract.
 
 ## B. Threadlocal root slots
 
@@ -101,7 +111,11 @@ collect) while holding a `Value` accumulator in a Zig local on no published
 stack. ROOTED → opened an `EvalFrame`. UNROOTED-CANDIDATE → latent UAF the next
 torture round can hit.
 
-**ROOTED (safe):** `reduceFn` (A2) — the canonical exemplar. Also
+**ROOTED (safe):** `reduceFn` (A2) — the canonical exemplar. Lazy realization
+(A8) and post-coercion tail access (A9) retain their intermediate values too.
+Allocation-torture verification must run on the CLI thread: registered nREPL
+workers bypass the current alloc-torture trigger, although explicit `System/gc`
+in their callbacks still exercises root enumeration. Also
 `equal.zig` `seqEqualInstance` (realizes a Sequential-instance operand via the
 ISeq `-next` protocol) and `seqEqualWalk` (walks two native seqs via lazy
 cursors — its frame roots the operands, the advancing cursor heads, AND the

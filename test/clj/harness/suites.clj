@@ -39,6 +39,17 @@
   ([] (namespaces (files)))
   ([filenames] (mapv ns-of filenames)))
 
+(defn select-files
+  "Select discovered files by namespace arguments; report every unknown selector.
+  With no selectors, preserve the complete discovered suite set."
+  [filenames requested]
+  (let [wanted (set (map symbol requested))
+        available (set (namespaces filenames))]
+    {:files (if (empty? wanted)
+              filenames
+              (filterv #(contains? wanted (ns-of %)) filenames))
+     :missing (vec (sort (remove available wanted)))}))
+
 (defn load-all!
   "Require every suite, returning {:ok [ns…] :failed [[file error]…]}.
 

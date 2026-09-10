@@ -24,6 +24,50 @@
 # md-table-align no longer pads it to ~800 KB of whitespace.
 
 active:
+  - id: "D-587"
+    status: |-
+      open (2026-09-09). USE-AFTER-FREE, user-reachable panic. Re-registering a
+      deftype/defrecord name frees a TypeDescriptor that live instances still
+      point at. `type_descriptor.zig registerType` keys `rt.types` by the SIMPLE
+      name, and on re-registration does `fetchRemove(name)` then frees the old
+      descriptor (each field_layout entry name, the layout slice, fqcn,
+      defining_ns, method_table entries, protocol_impls, then
+      `gpa.destroy(old.value)`). Every constructed instance holds
+      `inst.descriptor` as a raw pointer to it, so `print.zig
+      printTypedInstance` then reads `field_layout` out of freed memory: the
+      symptom is `thread panic: integer overflow` (a garbage field index or
+      layout length), the defect is the free.
+      Repro (ReleaseSafe v1.14.3): `(ns aaa) (defrecord Point [x y]) (def a
+      (->Point 1 2)) (ns bbb) (defrecord Point [x y]) (def b (->Point 1 2))
+      (prn (pr-str aaa/a))` panics; printing `bbb/b` is fine. Variants: two ns
+      with DIFFERENT names is fine; two ns SAME name panics; SAME ns redefining
+      the same name panics (this is the ordinary REPL / `require :reload` path
+      `dev/user.clj` depends on); same name with a different field count panics;
+      the deftype form raises `WriteFailed` instead, same root.
+      TWO separable defects: (1) the registry is keyed by simple name, so
+      `aaa/Point` and `bbb/Point` collide with no redefinition at all (clj gives
+      each ns its own class); (2) re-registration frees a descriptor live
+      instances reference.
+      ADR-0019 forbids a panic on a user-reachable path, and this one is reached
+      by re-evaluating a defrecord form. It also caps the native-suite migration:
+      `test/clj/suites/` shares ONE image, so no two suites may define the same
+      type name (worked around 2026-09-09 by renaming defrecord_test's record to
+      DPoint; 45 type definitions across 103 suites, no other duplicate today).
+      Found while migrating phase7_defrecord.sh to a native suite.
+      Card `[CLJW-TD-UAF]` 20260909211032-6471bc49.
+    category: "correctness"
+    quality_floor: "correctness: a user-reachable panic from an ordinary redefine"
+    barrier: |-
+      Needs an ADR: the free is deliberate (comments cite row 7.7 cycle 5 and
+      D-190 / ADR-0068) and exists to avoid leaking on redefine, so removing it
+      trades the leak back. Candidate shapes: key `rt.types` by the qualified
+      name when `defining_ns` is present and RETIRE rather than free a replaced
+      descriptor (a leak bounded by redefinition count, which is what clj does
+      with the old class), or make descriptors GC-managed so a descriptor dies
+      only when no instance references it. Devil's-advocate fork is mandatory at
+      this depth. Not blocked on anything external: the repro is one file and the
+      owning function is ~70 lines.
+    last_reviewed: "2026-09-09"
   - id: "D-586"
     status: |-
       open (2026-09-05, ADR-0195 trigger). UPSTREAM: zwasm/D-584. zwasm's JIT

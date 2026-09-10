@@ -939,9 +939,11 @@ hunting session).
    (<Class>)…` — but the exception CLASS and the VALUE must match).
    The loop runs `clj -M -e '<expr>'` to derive the expected output
    when probing, rather than guessing. See
-   `.dev/reference_clones.md` (oracle entry) +
-   `.dev/lessons/structural_defect_hunting.md` (oracle in the probe
-   sweep) — both wired so a fresh session picks the oracle up.
+   `.dev/reference_clones.md` (oracle entry) + hive memory
+   `20260909232627-30b24197` (the oracle's role in the probe sweep;
+   was `.dev/lessons/structural_defect_hunting.md` before the
+   2026-09-09 migration to memory), both wired so a fresh session
+   picks the oracle up.
 4. **Optimization prefers a shared mechanism; cw v0 is an
    inspiration-seed, not a copy.** Perf work (D-163 interpreter
    per-element overhead, future JIT/fusion) should land as a common
@@ -963,9 +965,8 @@ surface compat — the behavioural-equivalence precedent F-011
 generalises) · F-009 (feature neutrality — shared impl home) ·
 `no_copy_from_v1.md` (v0 as seed not copy) · `no_jvm_specific_assumption.md`
 (internals diverge) · D-163 (perf: shared mechanism over ad-hoc) ·
-`.dev/reference_clones.md` + `.dev/lessons/structural_defect_hunting.md`
-(clj oracle wiring) · `private/notes/phaseA26-clj-differential-oracle.md`
-(the running oracle log).
+`.dev/reference_clones.md` + hive memory `20260909232627-30b24197`
+(clj oracle wiring).
 
 ### Revision history
 

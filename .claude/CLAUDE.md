@@ -613,8 +613,10 @@ zig fmt src/           # format
   skill Step 0.5 sweeps this on every resume. See ROADMAP §A13.
 - [`.dev/reference_clones.md`](../.dev/reference_clones.md) — explicit
   usage purpose for `additionalDirectories` paths.
-- [`.dev/lessons/INDEX.md`](../.dev/lessons/INDEX.md) — observational
-  learnings, distinct from load-bearing ADRs.
+- **Observational learnings live in hive memory, not in a file.** Search them
+  (`mcp__hive__memory search`) rather than reading a directory. `.dev/lessons/`
+  was migrated into memory + KG on 2026-09-09 and deleted: rationale belongs in
+  hive, a repo `.md` is re-read in full every session whether or not it applies.
 - [`.dev/gc_rooting.md`](../.dev/gc_rooting.md) — SSOT for the GC rooting
   surface: every site that publishes / holds / decodes a GC root (EvalFrame
   producers, root slots, reentrant accumulators, pins, in-txn, per-tag traces,

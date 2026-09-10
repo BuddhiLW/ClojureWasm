@@ -244,9 +244,11 @@ pub fn analyzeCtorCall(
     // lexically correct one. Eval-time resolution would consult the CALLER's
     // ns and miss it (hiccup.util's `(URI. s)` inside to-uri, called from
     // user code). Guarded on the FQCN actually resolving as a registered
-    // surface — a USER deftype registers in rt.types under its BARE name
-    // (its dotted FQCN is not a key), so it keeps the bare spelling and the
-    // eval-time path (which also allows forward refs to later deftypes).
+    // surface. A USER deftype keeps the bare spelling here and resolves on
+    // the eval-time path (which also allows forward refs to later deftypes);
+    // since ADR-0198 that path finds it by qualifying the bare name with the
+    // current ns inside `host_class_resolve.resolve`, rather than by the
+    // simple-name registry hit this comment used to describe.
     var resolved_name = type_name;
     if (std.mem.findScalar(u8, type_name, '.') == null) {
         if (env.current_ns) |cur_ns| {

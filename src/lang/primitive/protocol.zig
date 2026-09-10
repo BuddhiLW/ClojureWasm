@@ -1086,7 +1086,22 @@ test "__defrecord! registers a TypeDescriptor with .kind = .defrecord" {
     // makeTypeDescriptorRef trackHeap-registers the ref (row 7.7 cycle 1);
     // rt.deinit owns the destroy.
 
-    const td = fix.rt.types.get("Point") orelse return error.TestUnexpectedResult;
+    // ADR-0198: `rt.types` is keyed by the QUALIFIED name, so a user type
+    // registered while some namespace is current is `<ns>.Point`, not
+    // `Point`. The simple-name index is the secondary lookup that bare
+    // references (notably the VM's runtime `op_ctor_call`) still use.
+    const td = fix.rt.types_by_simple.get("Point") orelse return error.TestUnexpectedResult;
+    {
+        const dns = td.defining_ns orelse return error.TestUnexpectedResult;
+        var kbuf: [256]u8 = undefined;
+        const key = try std.fmt.bufPrint(&kbuf, "{s}.{s}", .{ dns, "Point" });
+        const by_key = fix.rt.types.get(key) orelse return error.TestUnexpectedResult;
+        // Both indexes must name the SAME descriptor, or a bare reference and
+        // a qualified one would disagree about what `Point` is.
+        try testing.expect(by_key == td);
+        // The simple name is NOT a key any more; that is the whole change.
+        try testing.expect(fix.rt.types.get("Point") == null);
+    }
     try testing.expectEqual(td_mod.TypeKind.defrecord, td.kind);
     const layout = td.field_layout orelse return error.TestUnexpectedResult;
     try testing.expectEqual(@as(usize, 2), layout.len);

@@ -1947,7 +1947,8 @@ points; this section enumerates every required file).
 - `.dev/handover.md` — current state, Active task, Next Phase Queue
 - `.dev/debt.yaml` — debt ledger (row-level predicates, per A13)
 - `.dev/reference_clones.md` — usage purpose of `additionalDirectories`
-- `.dev/lessons/INDEX.md` — observational lessons (distinct from ADRs)
+- observational lessons: hive memory + KG (the `.dev/lessons/` directory was
+  migrated into memory and deleted 2026-09-09); search, do not read a file
 - `.dev/orbstack_setup.md` — Linux x86_64 gate setup
 - `.dev/README.md` — index / convention pointer
 - `.dev/decisions/{README.md, 0000_template.md}` — ADR infrastructure
@@ -2191,7 +2192,7 @@ ADRs progress through these statuses:
   ROADMAP.
 - **Superseded by ADR-NNNN** — replaced by a later ADR.
 - **Closed (Phase N DONE)** — phase boundary made the ADR irrelevant.
-- **Demoted to .dev/lessons/<file>** — observational learning only.
+- **Demoted to a hive memory entry** (observational learning only; cite the id).
 
 Status changes are recorded in the ADR's `## Revision history`
 section. `scripts/check_adr_history.sh` (on-demand audit — not a wired

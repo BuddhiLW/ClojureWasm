@@ -801,30 +801,71 @@ pub fn registerType(
         .meta = Value.nil_val,
     };
 
-    if (rt.types.fetchRemove(name)) |old| {
-        rt.gpa.free(old.key);
-        if (old.value.field_layout) |old_layout| {
-            for (old_layout) |fe| rt.gpa.free(fe.name);
-            rt.gpa.free(old_layout);
-        }
-        if (old.value.fqcn) |o_n| rt.gpa.free(o_n);
-        if (old.value.defining_ns) |o_ns| rt.gpa.free(o_ns);
-        // Row 7.7 cycle 5: free the old TD's `method_table` slice and
-        // each entry's `method_name` dup (populated by `extend-type`
-        // between the prior `registerType` and now). Mirrors the
-        // equivalent cleanup in `Runtime.deinit`'s rt.types iteration.
-        for (old.value.method_table) |mentry| {
-            rt.gpa.free(mentry.method_name);
-        }
-        if (old.value.method_table.len > 0) rt.gpa.free(old.value.method_table);
-        // `protocol_impls` (D-190 / ADR-0068): borrowed fqcn slices, free
-        // the slice only (mirrors the Runtime.deinit cleanup).
-        if (old.value.protocol_impls.len > 0) rt.gpa.free(old.value.protocol_impls);
-        rt.gpa.destroy(@constCast(old.value));
-    }
-    const key = try rt.gpa.dupe(u8, name);
+    // D-587 part 2 / ADR-0198: the registry key is the FULLY-QUALIFIED class
+    // name, which is what `Runtime.types`'s own doc comment has always
+    // promised. A host surface's fqcn is already qualified
+    // (`java.util.UUID`); a user type's key is `<defining_ns>.<Name>`. A null
+    // `defining_ns` (bare unit-test registration, `ensureRegistered`; reify
+    // is not registered at all) keeps the bare name as its own qualified
+    // form, so the rule is TOTAL with no null branch.
+    //
+    // `td.fqcn` deliberately stays the SIMPLE name: key and printed class
+    // name are decoupled, so `(class x)` and the `#ns.Name{…}` print form are
+    // unchanged (ADR-0059 / AD-003).
+    //
+    // Keying by the simple name made `aaa/Point` and `bbb/Point` ONE entry,
+    // so a record name a second namespace already used silently displaced the
+    // first with nobody intending a redefinition.
+    const key = if (defining_ns) |dns|
+        try std.fmt.allocPrint(rt.gpa, "{s}.{s}", .{ dns, name })
+    else
+        try rt.gpa.dupe(u8, name);
     errdefer rt.gpa.free(key);
+
+    if (rt.types.fetchRemove(key)) |old| {
+        // The displaced descriptor is RETIRED, never freed (D-587). Live
+        // instances hold `inst.descriptor` raw; `makeTypeDescriptorRef`
+        // hands out process-lifetime boxed refs that the GC traces via
+        // `markDescriptorValues`; and `CallSite.last_type` compares
+        // descriptors by ADDRESS from analyzer storage the GC cannot see.
+        // Freeing dangled all three, and the address reuse that follows a
+        // free let a stale call site hit on an ABA-matched pointer and
+        // dispatch through a freed `method_table` -- a silent wrong answer
+        // rather than a crash. Retiring removes that hazard by construction,
+        // because the address is never handed back.
+        //
+        // The prior code freed here to avoid leaking on redefine. That trade
+        // was wrong twice over: the struct's own doc comment declares it
+        // process-lifetime, and clj keeps a superseded class alive for as
+        // long as anything references it, so retention is the oracle's
+        // behaviour (F-011), bounded by re-evaluation count.
+        rt.gpa.free(old.key);
+        try rt.retired_types.append(rt.gpa, old.value);
+    }
     try rt.types.put(key, td);
+
+    // Secondary simple-name index (ADR-0198). Last registration wins, which
+    // is what EVERY lookup did before the key was qualified. It exists for
+    // references that carry no namespace to qualify with, chiefly the VM's
+    // `op_ctor_call`, which resolves a bare `type_name` at RUNTIME where the
+    // current ns is the CALLER's, not the definer's.
+    if (defining_ns != null) {
+        const gop = try rt.types_by_simple.getOrPut(rt.gpa, name);
+        if (!gop.found_existing) {
+            gop.key_ptr.* = rt.gpa.dupe(u8, name) catch |e| {
+                _ = rt.types_by_simple.remove(name);
+                return e;
+            };
+        }
+        gop.value_ptr.* = td;
+    }
+
+    // A redefine changes what `(protocol, method)` resolves to, and the
+    // CallSite cache hits on `last_type == td and cached_generation ==
+    // current_generation`. Retiring already guarantees the cached pointer
+    // stays valid, so this bump is what makes a stale slot MISS and refill
+    // against the new descriptor instead of serving the retired one.
+    rt.protocol_generation +%= 1;
     return td;
 }
 

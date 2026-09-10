@@ -143,4 +143,4 @@ not checked against anything.
 A model-specific claim belongs where it can be re-measured, not in the
 resume procedure. If a long-context subagent underperforms, measure it
 on the models available at that moment and record the finding in
-`.dev/lessons/` with its date; do not encode a model name here.
+a hive memory entry with its date; do not encode a model name here.

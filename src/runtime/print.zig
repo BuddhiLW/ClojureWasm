@@ -65,6 +65,7 @@ const instant_mod = @import("time/instant.zig");
 const duration_value_mod = @import("time/duration_value.zig");
 const local_date_time_value_mod = @import("time/local_date_time_value.zig");
 const lazy_seq_mod = @import("lazy_seq.zig");
+const seqable = @import("seqable.zig");
 const range_collection = @import("collection/range.zig");
 const array_seq_collection = @import("collection/array_seq.zig");
 const string_seq_collection = @import("collection/string_seq.zig");
@@ -259,16 +260,14 @@ fn deepRealizeAt(rt: *Runtime, env: *env_mod.Env, v: Value, depth: i64) anyerror
         // `printTypedInstance` (records render map-style there).
         .typed_instance => {
             if (typedInstanceIsSequential(v)) {
-                // Coerce via the `Seqable -seq` protocol first: `realizeSeqWalk`'s
-                // `lazy_seq_mod` helpers cannot coerce a typed_instance (that
-                // coercion is the Layer-2 seq primitive's job). The
-                // coerced result is a lazy_seq/list that deepRealize then walks.
-                // `dispatchOrNull` (not `dispatch`) so a Sequential-but-not-
-                // Seqable deftype falls back to the default render instead of
-                // raising mid-print.
+                // Coerce via the `Seqable -seq` protocol first, with
+                // `dispatchOrNull` (not the boundary's raising `seq`) so a
+                // Sequential-but-not-Seqable deftype falls back to the default
+                // render instead of raising mid-print. The coerced result is a
+                // lazy_seq/list that deepRealize then walks.
                 var cs: dispatch_mod.CallSite = .{};
                 const noloc: SourceLocation = .{};
-                if (try dispatch_mod.dispatchOrNull(rt, env, &cs, v, "Seqable", "-seq", &.{v}, noloc)) |s| {
+                if (try dispatch_mod.dispatchOrNull(rt, env, &cs, v, seqable.SEQABLE, "-seq", &.{v}, noloc)) |s| {
                     if (s.isNil()) return s; // empty Sequential → nil (prints "()")
                     // A self-returning ISeq (`-seq` → an instance, incl. `v` itself):
                     // walk the ISeq protocol, NOT deepRealize(s) which re-dispatches
@@ -422,8 +421,8 @@ fn deepRealizeAt(rt: *Runtime, env: *env_mod.Env, v: Value, depth: i64) anyerror
 /// Realize a seq-family value into a concrete list by walking its
 /// `seq`/`first`/`rest`. Shared by the `.lazy_seq`/`.list` arm and the
 /// `Sequential` typed_instance arm: `lazy_seq_mod` forces lazy layers,
-/// routes `.list` cells to the list ops, and coerces a Seqable deftype
-/// through its `-seq`, so one loop realizes all.
+/// routes `.list` cells to the list ops through the Seqable boundary
+/// (`seqable.zig`), so one loop realizes all.
 fn realizeSeqWalk(rt: *Runtime, env: *env_mod.Env, v: Value, depth: i64) anyerror!Value {
     var items: std.ArrayList(Value) = .empty;
     defer items.deinit(rt.gpa);
@@ -451,12 +450,12 @@ fn realizeSeqWalk(rt: *Runtime, env: *env_mod.Env, v: Value, depth: i64) anyerro
         if (print_length_limit) |lim| {
             if (items.items.len > lim) break;
         }
-        const s = try lazy_seq_mod.seq(rt, env, cur);
+        const s = try seqable.seq(rt, env, cur, seqable.noloc);
         if (s.tag() == .nil) break;
         cur_root[0] = s;
-        try items.append(rt.gpa, try deepRealizeAt(rt, env, try lazy_seq_mod.first(rt, env, s), depth + 1));
+        try items.append(rt.gpa, try deepRealizeAt(rt, env, try seqable.first(rt, env, s, seqable.noloc), depth + 1));
         gc_frame.locals = items.items; // root the just-appended item across rest's force
-        cur = try lazy_seq_mod.rest(rt, env, s);
+        cur = try seqable.rest(rt, env, s, seqable.noloc);
     }
     const realized = try listFromItems(rt, items.items);
     // Carry the original collection's metadata onto the realized list so
@@ -494,11 +493,11 @@ fn realizeInstanceSeq(rt: *Runtime, env: *env_mod.Env, start: Value, depth: i64)
         cur_root[0] = cur;
         gc_frame.locals = items.items;
         var cs1: dispatch_mod.CallSite = .{};
-        const f = (try dispatch_mod.dispatchOrNull(rt, env, &cs1, cur, "ISeq", "-first", &.{cur}, noloc)) orelse break;
+        const f = (try dispatch_mod.dispatchOrNull(rt, env, &cs1, cur, seqable.ISEQ, "-first", &.{cur}, noloc)) orelse break;
         try items.append(rt.gpa, try deepRealizeAt(rt, env, f, depth + 1));
         gc_frame.locals = items.items;
         var cs2: dispatch_mod.CallSite = .{};
-        cur = (try dispatch_mod.dispatchOrNull(rt, env, &cs2, cur, "ISeq", "-next", &.{cur}, noloc)) orelse break;
+        cur = (try dispatch_mod.dispatchOrNull(rt, env, &cs2, cur, seqable.ISEQ, "-next", &.{cur}, noloc)) orelse break;
     }
     // A `-next` that returned a non-instance seq (lazy_seq/list): realize its tail.
     if (!cur.isNil() and cur.tag() != .typed_instance and cur.tag() != .reified_instance) {
@@ -1250,7 +1249,7 @@ pub fn writeBigDecimalDigits(w: *Writer, v: Value) anyerror!void {
 fn printMapLikeTypedInstance(ports: Ports, w: *Writer, v: Value) anyerror!bool {
     var cs: dispatch_mod.CallSite = .{};
     const noloc: SourceLocation = .{};
-    const s = (try dispatch_mod.dispatchOrNull(ports.rt, ports.env, &cs, v, "Seqable", "-seq", &.{v}, noloc)) orelse return false;
+    const s = (try dispatch_mod.dispatchOrNull(ports.rt, ports.env, &cs, v, seqable.SEQABLE, "-seq", &.{v}, noloc)) orelse return false;
     // The `{…}` body nests for *print-level* exactly like a native map. The
     // value carries no tag outside it, so at the cut the whole render is `#`.
     if (levelCutHere()) {

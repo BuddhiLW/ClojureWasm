@@ -410,10 +410,11 @@ pub const GcHeap = struct {
     /// Allocate a typed heap object on the GC heap: free-pool fast path
     /// → infra slow path, with a comptime HeapHeader-at-offset-0 check.
     /// Caller initialises the value (HeapHeader and payload fields).
-    /// Note: `alloc` does NOT auto-trigger `collect()` mid-alloc today.
-    /// Callers invoke `mark_sweep.collect` explicitly; threshold-driven
-    /// auto-collection is a future wiring task (the root walkers it
-    /// needs are already in place — `root_set.zig`).
+    /// The prologue CAN collect BEFORE the new object exists: it parks for
+    /// a peer's stop-the-world, runs the alloc-driven torture collect
+    /// (D-386) and the D-519 threshold auto-collect, all outside a
+    /// fabrication bracket. So a value held only in a Zig local across an
+    /// `alloc` must be published as a root (`.dev/gc_rooting.md`).
     ///
     /// Allocation size is rounded up to `min_alloc_bytes = 16` per
     /// ADR-0028 §3 so freed memory can host the FreeNode overlay at

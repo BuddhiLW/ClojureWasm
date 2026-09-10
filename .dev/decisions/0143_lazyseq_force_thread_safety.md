@@ -81,6 +81,21 @@ cost is the right trade against a steady-state per-element allocation cost on
 the hot object (runtime perf of the hottest object IS a finished-form
 property; F-002 protects diff size, not runtime perf).
 
+## Amendment 1 — complete realization and coherent copies (2026-09-07)
+
+ADR-0197 extends the claimed window through Seqable coercion. The entry node
+caches the normalized terminal sequence; iteratively invoked inner nodes retain
+immutable links. Publish the result and clear the thunk before the release-store.
+A thunk or coercion error resets PENDING and retains the callable for retry;
+AD-067 records the measured JVM state/retry differences this preserves.
+
+The raw body has a one-slot manual EvalFrame across nested invocation and
+allocating coercion (`.dev/gc_rooting.md` A8). Metadata/fusion copies now claim
+a pending source while copying, or wait for an active realization and acquire
+its immutable payload. Copying state before an allocation and fields afterwards
+could otherwise pair PENDING with a concurrently cleared thunk. The copy claim
+runs no user code and is released on allocation failure too.
+
 ## Alternatives considered
 
 > Verbatim output of a fresh-context Devil's-advocate `general-purpose`
