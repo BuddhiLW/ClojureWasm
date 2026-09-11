@@ -1549,6 +1549,18 @@ const Entry = struct {
 /// form + node and is freed after (the result Value is GC-allocated, survives).
 pub fn evalFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
     try error_catalog.checkArity("eval", args, 1, loc);
+    // clj analyses only a COLLECTION or a SYMBOL; every other value is
+    // self-evaluating and comes back unchanged (the final `else` of
+    // Compiler.eval). An already-evaluated value has no source form to analyse,
+    // which is why `(eval (fn [x] x))` is that fn and not an attempt to re-read
+    // a runtime value as code. Without this, a value with no Form spelling (a
+    // closure, a builtin, a deftype instance) raised instead of evaluating.
+    // The seq VIEWS belong on the analysed side: `(eval (seq [1 2]))` is the
+    // form `(1 2)` in clj, which fails to call 1, not the seq itself.
+    switch (args[0].tag()) {
+        .list, .cons, .lazy_seq, .chunked_cons, .range, .array_seq, .string_seq, .vector, .sub_vector, .array_map, .hash_map, .hash_set, .symbol => {},
+        else => return args[0],
+    }
     var arena = std.heap.ArenaAllocator.init(rt.gpa);
     defer arena.deinit();
     // A fresh top-level locals frame (the eval'd form's own `let*` / macro
