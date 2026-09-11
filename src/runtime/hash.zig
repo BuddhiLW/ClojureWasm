@@ -13,6 +13,7 @@
 //! where UTF-8 is the natural encoding.
 
 const std = @import("std");
+const utf8_total = @import("utf8_total.zig");
 
 const C1: u32 = 0xcc9e2d51;
 const C2: u32 = 0x1b873593;
@@ -91,78 +92,20 @@ pub fn hashString(input: []const u8) u32 {
     return fmix(h1, @truncate(input.len));
 }
 
-/// Decode ONE codepoint at `i.*`, LOSSILY: a byte sequence that is not valid
-/// UTF-8 yields U+FFFD and advances a single byte.
-///
-/// A cljw String is raw BYTES (AD-009), so it can hold input that is not
-/// UTF-8 at all: a file read with `slurp`, a buffer handed over by a Wasm
-/// guest. `Utf8View.initUnchecked` promises the caller already validated,
-/// and its iterator then reads past the end of a truncated sequence and
-/// trips `unreachable`. That is not a catchable Clojure error, it ABORTS the
-/// process: `(hash (slurp "some.wasm"))` used to core-dump cljw and take the
-/// REPL with it.
-///
-/// Hashing has to be TOTAL, because a value that cannot be hashed cannot go
-/// in a map, and a String is not allowed to be un-mappable for a reason the
-/// caller cannot see. Replacement keeps the hash defined over every byte
-/// string while leaving VALID UTF-8 byte-identical to what the checked
-/// iterator produced, so no JVM parity claim moves. Two distinct invalid
-/// strings may now collide, which a hash is permitted to do; `=` still
-/// compares the bytes.
-fn nextCodepointLossy(utf8: []const u8, i: *usize) ?u21 {
-    if (i.* >= utf8.len) return null;
-    const first = utf8[i.*];
-    const len = std.unicode.utf8ByteSequenceLength(first) catch {
-        i.* += 1;
-        return 0xFFFD;
-    };
-    if (i.* + len > utf8.len) {
-        i.* += 1;
-        return 0xFFFD;
-    }
-    // The fixed-width utf8DecodeN take an ARRAY, which is what makes them the
-    // non-deprecated spelling: the length is comptime per branch, so a caller
-    // cannot hand them a slice whose length disagrees with its lead byte.
-    // `utf8Decode`'s slice API is deprecated for exactly that hazard.
-    const cp: u21 = switch (len) {
-        1 => first,
-        2 => std.unicode.utf8Decode2(utf8[i.*..][0..2].*) catch {
-            i.* += 1;
-            return 0xFFFD;
-        },
-        3 => std.unicode.utf8Decode3(utf8[i.*..][0..3].*) catch {
-            i.* += 1;
-            return 0xFFFD;
-        },
-        4 => std.unicode.utf8Decode4(utf8[i.*..][0..4].*) catch {
-            i.* += 1;
-            return 0xFFFD;
-        },
-        // utf8ByteSequenceLength answers 1..4 or errors, so this is dead. It
-        // replaces what would idiomatically be `unreachable`: this function
-        // exists BECAUSE an unreachable on malformed input aborted the
-        // process, and re-introducing one here would be the same bet.
-        else => {
-            i.* += 1;
-            return 0xFFFD;
-        },
-    };
-    i.* += len;
-    return cp;
-}
-
 /// JVM `clojure.lang.Murmur3.hashUnencodedChars` bit-parity: Murmur3 over
 /// the string's UTF-16 CODE UNITS (surrogate pairs for astral codepoints),
 /// two units per 32-bit block, `fmix` over `2 * unit-count` bytes. Distinct
 /// from `hashString` (cljw-native UTF-8 bytes, AD-009) — this serves the
 /// `Murmur3/hashUnencodedChars` static (data.xml), where JVM value-parity is
 /// achievable because the input is pure code units, not value identity (D-376).
+/// Total over arbitrary bytes: ill-formed spans hash as U+FFFD, the unit the
+/// JVM's `String(bytes, UTF_8)` holds for them (`utf8_total`).
 pub fn hashUnencodedChars(utf8: []const u8) u32 {
     var h1: u32 = SEED;
     var unit_count: u32 = 0;
     var pending: ?u32 = null;
-    var i: usize = 0;
-    while (nextCodepointLossy(utf8, &i)) |cp| {
+    var it = utf8_total.Iterator.init(utf8);
+    while (it.nextCodepoint()) |cp| {
         var units: [2]u32 = .{ @as(u32, cp), 0 };
         var n: usize = 1;
         if (cp >= 0x10000) {
@@ -187,11 +130,13 @@ pub fn hashUnencodedChars(utf8: []const u8) u32 {
 
 /// Java `String.hashCode`: the 31-fold over UTF-16 code units (surrogate
 /// pairs for astral codepoints). Feeds `hashInt` for clj's String hasheq
-/// and `hashCombine` for the Symbol/Keyword hasheq ns part.
+/// and `hashCombine` for the Symbol/Keyword hasheq ns part. Total over
+/// arbitrary bytes: ill-formed spans fold as U+FFFD (`utf8_total`), so the
+/// result equals the JVM's `new String(bytes, UTF_8).hashCode()`.
 pub fn javaStringHashCode(utf8: []const u8) i32 {
     var h: i32 = 0;
-    var i: usize = 0;
-    while (nextCodepointLossy(utf8, &i)) |cp| {
+    var it = utf8_total.Iterator.init(utf8);
+    while (it.nextCodepoint()) |cp| {
         if (cp >= 0x10000) {
             const v: u32 = @as(u32, cp) - 0x10000;
             h = h *% 31 +% @as(i32, @intCast(0xD800 + (v >> 10)));
@@ -328,32 +273,31 @@ test "hashUnencodedChars matches JVM Murmur3 (clj oracle)" {
     try testing.expectEqual(@as(i32, -383720716), @as(i32, @bitCast(hashUnencodedChars("𠮷野家"))));
 }
 
-test "string hashes are TOTAL over bytes that are not valid UTF-8" {
-    // A cljw String is raw bytes, so these are reachable values, not abuse:
-    // `(slurp "x.wasm")` produces the first one. Before nextCodepointLossy
-    // each of these ABORTED the process inside Utf8View.initUnchecked's
-    // iterator, which is why `(hash (slurp binary))` core-dumped the REPL.
-    const bad = [_][]const u8{
-        "\x00asm\x01\x00\x00\x00", // a Wasm module header
-        "\xff\xfe\xfd", // never-valid lead bytes
-        "\xc3", // truncated 2-byte sequence, nothing follows
-        "\xe2\x82", // truncated 3-byte sequence
-        "\xf0\x9f\x98", // truncated 4-byte sequence
-        "ok\xffthen", // invalid byte BETWEEN valid text
-        "\x80\x80", // continuation bytes with no lead
-    };
-    for (bad) |s| {
-        // The assertion is that these RETURN at all. A regression aborts the
-        // test process rather than failing it, so the value check is second.
+test "javaStringHashCode is total over invalid UTF-8 and matches the JVM" {
+    // clj (JDK 25/26): (let [s (String. (byte-array ...) "UTF-8")]
+    //                    [(.hashCode s) (hash s)])
+    try testing.expectEqual(@as(i32, 2031588), javaStringHashCode(&.{ 0xFF, 0x41 }));
+    try testing.expectEqual(@as(i32, 67548), javaStringHashCode(&.{ 0x41, 0xE2, 0x82 }));
+    try testing.expectEqual(@as(i32, 65533), javaStringHashCode(&.{ 0xED, 0xA0, 0x80 }));
+    try testing.expectEqual(@as(i32, 65008802), javaStringHashCode(&.{ 0xC0, 0xAF, 0x42 }));
+    try testing.expectEqual(@as(i32, 2017367872), javaStringHashCode(&.{ 0xF4, 0x90, 0x80, 0x80 }));
+    try testing.expectEqual(@as(i32, 1965378420), @as(i32, @bitCast(hashInt(javaStringHashCode(&.{ 0xFF, 0x41 })))));
+    try testing.expectEqual(@as(i32, -2085789285), @as(i32, @bitCast(hashInt(javaStringHashCode(&.{ 0xC0, 0xAF, 0x42 })))));
+}
+
+test "string hashes are total over random bytes (property)" {
+    var prng = std.Random.DefaultPrng.init(0x5eed_c1_1a);
+    const rand = prng.random();
+    var buf: [48]u8 = undefined;
+    var n: usize = 0;
+    while (n < 20_000) : (n += 1) {
+        const len = rand.uintAtMost(usize, buf.len);
+        rand.bytes(buf[0..len]);
+        const s = buf[0..len];
+        _ = javaStringHashCode(s);
+        _ = hashUnencodedChars(s);
+        _ = hashString(s);
+        // Equal bytes hash equal (the only obligation `=` places on hash).
         try testing.expectEqual(javaStringHashCode(s), javaStringHashCode(s));
-        try testing.expectEqual(hashUnencodedChars(s), hashUnencodedChars(s));
-        try testing.expectEqual(hashString(s), hashString(s));
     }
-
-    // Replacement is per invalid BYTE, so a longer invalid run stays
-    // distinguishable rather than collapsing to one replacement char.
-    try testing.expect(javaStringHashCode("\xff") != javaStringHashCode("\xff\xff"));
-
-    // Valid UTF-8 is untouched: the oracle value below still holds.
-    try testing.expectEqual(@as(i32, 1118836419), @as(i32, @bitCast(hashUnencodedChars("abc"))));
 }

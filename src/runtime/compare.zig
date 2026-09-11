@@ -23,6 +23,7 @@ const Runtime = @import("runtime.zig").Runtime;
 const SourceLocation = @import("error/info.zig").SourceLocation;
 const error_catalog = @import("error/catalog.zig");
 const string_mod = @import("collection/string.zig");
+const utf8_total = @import("utf8_total.zig");
 const vector = @import("collection/vector.zig");
 const sub_vector = @import("collection/sub_vector.zig");
 const map_entry_mod = @import("collection/map_entry.zig");
@@ -101,10 +102,23 @@ fn numericOrder(rt: *Runtime, a: Value, b: Value, loc: SourceLocation) anyerror!
 /// Java `String.compareTo` over UTF-16 code units: the raw difference at
 /// the first mismatching unit, else the unit-count difference. clj's
 /// `compare` on strings returns this magnitude (not a clamped sign) —
-/// `(compare "a" "c")` → -2.
+/// `(compare "a" "c")` → -2. Total over arbitrary bytes: ill-formed spans
+/// compare as U+FFFD (`utf8_total`). When the unit sequences tie but the
+/// bytes differ (distinct ill-formed spans), the byte order decides with
+/// ±1, so 0 is returned exactly when the strings are `=`.
 fn javaStringCompareTo(a: []const u8, b: []const u8) i64 {
-    var ia = std.unicode.Utf8View.initUnchecked(a).iterator();
-    var ib = std.unicode.Utf8View.initUnchecked(b).iterator();
+    const d = javaStringUnitCompare(a, b);
+    if (d != 0) return d;
+    return switch (std.mem.order(u8, a, b)) {
+        .lt => -1,
+        .eq => 0,
+        .gt => 1,
+    };
+}
+
+fn javaStringUnitCompare(a: []const u8, b: []const u8) i64 {
+    var ia = utf8_total.Iterator.init(a);
+    var ib = utf8_total.Iterator.init(b);
     var ua: [2]u32 = undefined;
     var ub: [2]u32 = undefined;
     var na: usize = 0;
