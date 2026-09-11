@@ -245,3 +245,35 @@
           (bit-test 1 64)]))
   (is (thrown? Throwable (bit-and 5N 3)))
   (is (thrown? Throwable (bit-and 1.5 2))))
+
+;; `rationalize` on a BigDecimal works from the exact decimal, never a float
+;; round-trip, so trailing zeros reduce away exactly and a significand wider
+;; than a double keeps every digit. The N-suffix half of the comparison with
+;; clj is AD-072: an integral result is cljw's machine integer where clj has a
+;; BigInt, because cljw's exact-integer tier is chosen by MAGNITUDE (F-005),
+;; not by the operation that produced it. The values are `=` either way, which
+;; is what these assertions pin.
+(deftest rationalize-bigdec-is-exact
+  (is (= 3/2 (rationalize 1.5M)))
+  (is (= 3/2 (rationalize 1.50M)))
+  (is (= 11/10 (rationalize 1.1M)))
+  (is (= -5/4 (rationalize -1.25M)))
+  (is (= 1/1000 (rationalize 0.001M)))
+  (is (true? (ratio? (rationalize 1.1M))))
+  ;; The integral arm: trailing zeros divide out, so the answer is the integer,
+  ;; not the unscaled significand (1.0M is 10/10, and must not answer 10).
+  (is (= 1 (rationalize 1.0M)))
+  (is (= 1 (rationalize 1.00M)))
+  (is (= 10 (rationalize 10.0M)))
+  (is (= 0 (rationalize 0.0M)))
+  (is (= 100 (rationalize 1E+2M)))
+  (is (= -3 (rationalize -3.00M)))
+  (is (true? (integer? (rationalize 1.0M))))
+  ;; Wider than a double's 53-bit significand: the exact path keeps every digit.
+  ;; Spelled through numerator/denominator because cljw's reader rejects a ratio
+  ;; LITERAL whose numerator exceeds the machine integer, which is a reader gap
+  ;; and not what this test is about.
+  (is (= 24691357802469135781N (numerator (rationalize 12345678901234567890.5M))))
+  (is (= 2 (denominator (rationalize 12345678901234567890.5M))))
+  (is (= 12345678901234567890 (rationalize 12345678901234567890.00M)))
+  (is (thrown? Throwable (rationalize "x"))))

@@ -17,6 +17,24 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 
 ### Fixed
 
+- **`rationalize` accepts a BigDecimal, and works from its exact decimal.**
+  `(rationalize 1.1M)` raised "expected number": the BigDecimal tag fell into
+  the not-a-number arm, so the one numeric type that is already an exact
+  decimal was the one type `rationalize` refused. It now reads the value as its
+  unscaled significand over `10^scale` and gcd-reduces that, with no float in
+  the path, so every digit survives: `(rationalize 12345678901234567890.5M)` is
+  exact where a double round-trip would lose the low digits. A value whose
+  trailing digits are zeros reduces to the integer (`(rationalize 1.0M)` is
+  `1`), which is a machine integer in cljw where clj has a BigInt (AD-072; the
+  values are `=`).
+- **A value that is not a form evaluates to itself.** `(eval f)` on a function
+  value raised, and so did `(eval #"a+")` and `(eval (atom 1))`, where clj
+  answers the value: an object that is not source has nothing left to compile.
+  cljw sent every argument through the analyzer, which has no rule for a
+  runtime object and reported it as unanalyzable. Only the tags that can *be* a
+  form now reach the analyzer (a list or seq, a symbol, and the collection
+  literals whose elements still need evaluating); everything else is returned
+  unchanged. `clojure.core-test.eval` goes from 2 errors to green.
 - **A `re-matcher` is `Indexed`, so `nth` reaches its capture groups.**
   `(nth m 2)` raised "No implementation of method `-nth` on protocol `Indexed`"
   for a Matcher, where clj answers group n. The Matcher's methods were all
