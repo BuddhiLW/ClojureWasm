@@ -608,6 +608,10 @@ pub const RootIterator = struct {
         env_idx: usize = 0,
         ns_it: ?env_mod.NamespaceMap.ValueIterator = null,
         var_it: ?env_mod.VarMap.ValueIterator = null,
+        /// The namespace whose `retired` Vars (ns-unmap'd, still referenced)
+        /// are walked once its `mappings` are exhausted, and the next index.
+        retired_ns: ?*const env_mod.Namespace = null,
+        retired_idx: usize = 0,
         /// Most-recently yielded Var so the iterator can yield its
         /// `meta` slot on the next `next()` call before advancing.
         pending_meta: ?*const env_mod.Var = null,
@@ -723,10 +727,25 @@ pub const RootIterator = struct {
                 }
                 c.var_it = null;
             }
+            // Then the Namespace's retired Vars: ns-unmap'd, so unreachable by
+            // name, but compiled code and captured #'ns/x values still hold
+            // them, so their roots must keep rooting.
+            if (c.retired_ns) |ns| {
+                if (c.retired_idx < ns.retired.items.len) {
+                    const v = ns.retired.items[c.retired_idx];
+                    c.retired_idx += 1;
+                    c.pending_meta = v;
+                    if (v.root.heapHeader()) |hdr| return hdr;
+                    continue;
+                }
+                c.retired_ns = null;
+            }
             // Advance Namespace iterator within current Env.
             if (c.ns_it) |*ns_it| {
                 if (ns_it.next()) |ns_pp| {
                     c.var_it = ns_pp.*.mappings.valueIterator();
+                    c.retired_ns = ns_pp.*;
+                    c.retired_idx = 0;
                     // Namespace-level meta (D-239): a heap meta map roots as
                     // the walk enters the ns (immediate/nil falls through).
                     if (ns_pp.*.meta.heapHeader()) |hdr| return hdr;

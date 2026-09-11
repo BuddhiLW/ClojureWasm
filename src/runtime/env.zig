@@ -180,6 +180,12 @@ pub const Namespace = struct {
     /// reachable; Phase 2 uses it via `referAll(rt_ns, user_ns)` so
     /// primitives like `+` resolve unqualified inside `user/`.
     refers: VarMap = .empty,
+    /// Vars `ns-unmap` removed from `mappings`. An unmapped Var is no longer
+    /// reachable BY NAME, but compiled code and captured `#'ns/x` values still
+    /// hold its pointer (clj: the Var object outlives its mapping), so it can be
+    /// neither freed nor dropped from the GC roots. It lives here until the
+    /// namespace is torn down; `root_set` walks it after `mappings`.
+    retired: std.ArrayList(*Var) = .empty,
     /// `(require '[other :as alias])` produces these. Wired in Phase 4.
     aliases: NsAliasMap = .empty,
     /// `(:import pkg.Class …)` simple-name → JVM-form FQCN map (D-235).
@@ -230,6 +236,12 @@ pub const Namespace = struct {
             alloc.destroy(entry.value_ptr.*);
         }
         self.mappings.deinit(alloc);
+        // retired Vars are owned exactly like mappings' (name = Var.name).
+        for (self.retired.items) |v| {
+            alloc.free(v.name);
+            alloc.destroy(v);
+        }
+        self.retired.deinit(alloc);
         // refers / aliases own only their key strings; the Vars and
         // Namespaces they point at belong to the source namespace.
         var rit = self.refers.keyIterator();
@@ -701,6 +713,19 @@ pub const Env = struct {
     /// owned Var — only the dup'd key is freed (unlike `ns-unmap`/`remove-ns`).
     pub fn removeAlias(self: *Env, ns: *Namespace, alias_name: []const u8) void {
         if (ns.aliases.fetchRemove(alias_name)) |kv| self.alloc.free(kv.key);
+    }
+
+    /// `(ns-unmap ns sym)`: remove `name` from `ns`'s mappings and refers. No-op
+    /// when absent (clj). An interned Var moves to `ns.retired` rather than
+    /// being freed (see `Namespace.retired`); a refer entry owns only its key.
+    /// A later `intern` of the same name creates a FRESH Var, as in clj.
+    pub fn unmap(self: *Env, ns: *Namespace, name: []const u8) !void {
+        if (ns.mappings.contains(name)) {
+            try ns.retired.ensureUnusedCapacity(self.alloc, 1);
+            const kv = ns.mappings.fetchRemove(name).?;
+            ns.retired.appendAssumeCapacity(kv.value);
+        }
+        if (ns.refers.fetchRemove(name)) |kv| self.alloc.free(kv.key);
     }
 
     /// `(def name root)` equivalent. Creates a new Var in `ns`, or

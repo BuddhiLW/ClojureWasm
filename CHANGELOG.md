@@ -7,6 +7,25 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 
 ## [Unreleased]
 
+### Added
+
+- **`ns-unmap`** (`clojure.core`, upstream surface). Removes a name from a
+  namespace's mappings and refers. The Var survives the unmapping, as on the
+  JVM: compiled code and a captured `#'ns/x` keep working through it. It moves
+  to the namespace's `retired` list, which the GC root walk visits and
+  namespace teardown frees, so an unmap can neither dangle nor leak.
+
+### Fixed
+
+- **Re-requiring a Wasm component no longer leaves the previous build's Vars
+  interned.** `cljw.wasm/require-component` tags every Var it interns; on a
+  re-require the tagged Vars the new export table no longer has are retired:
+  their root is first rebound to throw `component <path> no longer exports
+  \`name\``, so a caller holding the old Var gets a catchable error instead of
+  a call into the previous instance, and that instance stops being reachable
+  through it. Exports the new build keeps retain their Var identity, and a Var
+  the user `def`ined (or `def`ined over an export name) is never touched.
+
 ## [1.14.5] - 2026-09-11
 
 ### Added

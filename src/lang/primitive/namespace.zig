@@ -264,6 +264,23 @@ pub fn nsUnaliasFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLoca
     env.removeAlias(ns, symbol_mod.asSymbol(args[1]).name);
     return Value.nil_val;
 }
+/// `(ns-unmap ns sym)`: remove `sym` from `ns`'s mappings and refers, so the
+/// name no longer resolves there. A no-op when the name is absent (clj).
+///
+/// The Var itself survives the unmapping: compiled code and any captured
+/// `#'ns/sym` still hold it, exactly as on the JVM, where an unmapped Var stays
+/// usable for whoever kept a reference. It moves to the namespace's `retired`
+/// list, which the GC root walk visits and namespace teardown frees, so an
+/// unmap can neither dangle a pointer nor leak. Spec: clojure.core/ns-unmap.
+pub fn nsUnmapFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
+    _ = rt;
+    try error_catalog.checkArity("ns-unmap", args, 2, loc);
+    const ns = try resolveNsOrRaise(env, args[0], "ns-unmap", loc);
+    if (args[1].tag() != .symbol)
+        return error_catalog.raise(.type_arg_invalid, loc, .{ .fn_name = "ns-unmap", .expected = "a symbol", .actual = @tagName(args[1].tag()) });
+    try env.unmap(ns, symbol_mod.asSymbol(args[1]).name);
+    return Value.nil_val;
+}
 
 /// `(ns-aliases ns)` — map of `alias-symbol → Namespace value` for the ns.
 /// Spec: clojure.core/ns-aliases.
@@ -503,6 +520,7 @@ const ENTRIES = [_]Entry{
     .{ .name = "alias", .f = &aliasFn },
     .{ .name = "ns-aliases", .f = &nsAliasesFn },
     .{ .name = "ns-unalias", .f = &nsUnaliasFn },
+    .{ .name = "ns-unmap", .f = &nsUnmapFn },
     .{ .name = "in-ns", .f = &inNsFn },
     .{ .name = "refer", .f = &referFn },
     .{ .name = "use", .f = &useFn },
