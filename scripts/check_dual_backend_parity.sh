@@ -7,7 +7,7 @@
 # (missing the `[refs: D-NNN, feature_deps.yaml#<key>]` block).
 #
 # Discipline source: memory 20260909234759-18586426 (dual_backend_parity) +
-# .dev/decisions/0036_dual_backend_parity_contract.md.
+# memory query :tags ["adr" "adr-0036"].
 # Sibling hook: scripts/check_provisional_sync.sh (PROVISIONAL marker
 # discipline) — the present hook adapts the same shape.
 #
@@ -212,7 +212,7 @@ EOF
   cat >&2 <<'EOF'
 
 (Discipline source: memory 20260909234759-18586426 (dual_backend_parity) +
-.dev/decisions/0036_dual_backend_parity_contract.md +
+memory query :tags ["adr" "adr-0036"] +
 .dev/principle.md "Dual-backend drift" entry.)
 EOF
   exit 2

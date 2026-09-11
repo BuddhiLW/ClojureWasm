@@ -12,8 +12,9 @@ A Clojure runtime written in Zig 0.16.0. Binary and package name: `cljw`.
 1. `.dev/project_facts.md` F-NNN, user-declared, treated as project law.
    The loop **never** amends an F-NNN on its own.
 2. `.dev/ROADMAP.md` engineering plan.
-3. ADRs + `.claude/rules/` implementation decisions, amendable by the loop
-   autonomously (depth 2-4).
+3. Implementation decisions, all in memory now (ADRs tagged `adr-NNNN`, the rule
+   corpus tagged `cljw-rule`; both indexed below). Amendable by the loop
+   autonomously (depth 2-4) by editing the ENTRY, never by re-creating a file.
 4. `.dev/principle.md` smell sensors, depth selection.
 5. AI judgement fills in the rest.
 
@@ -165,5 +166,9 @@ behaviour probe. Never a build during the full gate. Cadence SSOT: memory
 - Current state: `git log`, the CHANGELOG, and the kanban board. There is no
   handover file (retired 2026-09-11, `20260910235746-74389f7f`); the resume path
   is `project workflow catchup`, which drains the axioms and the live cards.
-- `.dev/decisions/` ADRs; numbers are time-ordered, newest wins on conflict.
+- **ADRs are memory entries, not files** (2026-09-11, `20260910235746-74389f7f`).
+  All 199 were mirrored before deletion and the audit confirmed 199 of 199. Reach
+  one by number: `memory query :tags ["adr" "adr-0107"]`. Numbers stay
+  time-ordered and newest still wins on conflict; a new decision is an entry of
+  type `decision` tagged `adr-NNNN`, cited by number in the commit message.
 - `.dev/project_facts.md` the F-NNN invariants this chain starts from.

@@ -11,7 +11,7 @@
 # Source-bearing file set (same as scripts/check_learning_doc.sh):
 #   - src/**/*.zig
 #   - build.zig, build.zig.zon
-#   - .dev/decisions/NNNN_<slug>.md (real ADRs; 0000_template excluded)
+#   (ADRs are no longer files; decisions live in memory as of 2026-09-11.)
 #
 # Required commit body line:
 #   Smell-audited: <depth 0-4>: <one-line summary>
@@ -48,8 +48,6 @@ UNPUSHED="$(hook_unpushed_shas)"
 is_source_path() {
   case "$1" in
     src/*.zig|build.zig|build.zig.zon)        return 0 ;;
-    .dev/decisions/0000_*.md)                  return 1 ;;
-    .dev/decisions/[0-9][0-9][0-9][0-9]_*.md) return 0 ;;
     *)                                         return 1 ;;
   esac
 }
@@ -91,7 +89,7 @@ cat >&2 <<'EOF'
 ✗ push blocked by scripts/check_smell_audit.sh
 
 One or more unpushed commits that touch source-bearing files
-(src/**/*.zig, build.zig, build.zig.zon, .dev/decisions/NNNN_*.md)
+(src/**/*.zig, build.zig, build.zig.zon)
 do not record a Step 6 Bad-Smell self-audit.
 
 Required line in the commit body:
