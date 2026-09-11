@@ -7,6 +7,109 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 
 ## [Unreleased]
 
+### Added
+
+- **`java.io.File` publishes `getCanonicalFile` and `getAbsoluteFile`.** The
+  String-returning halves (`getCanonicalPath`, `getAbsolutePath`) were already
+  there; the JVM publishes both spellings of each resolution, so calling the
+  File-returning twin raised "No implementation of method". Both are now
+  registered and return a usable `File`.
+
+### Fixed
+
+- **`rationalize` accepts a BigDecimal, and works from its exact decimal.**
+  `(rationalize 1.1M)` raised "expected number": the BigDecimal tag fell into
+  the not-a-number arm, so the one numeric type that is already an exact
+  decimal was the one type `rationalize` refused. It now reads the value as its
+  unscaled significand over `10^scale` and gcd-reduces that, with no float in
+  the path, so every digit survives: `(rationalize 12345678901234567890.5M)` is
+  exact where a double round-trip would lose the low digits. A value whose
+  trailing digits are zeros reduces to the integer (`(rationalize 1.0M)` is
+  `1`), which is a machine integer in cljw where clj has a BigInt (AD-072; the
+  values are `=`).
+- **A value that is not a form evaluates to itself.** `(eval f)` on a function
+  value raised, and so did `(eval #"a+")` and `(eval (atom 1))`, where clj
+  answers the value: an object that is not source has nothing left to compile.
+  cljw sent every argument through the analyzer, which has no rule for a
+  runtime object and reported it as unanalyzable. Only the tags that can *be* a
+  form now reach the analyzer (a list or seq, a symbol, and the collection
+  literals whose elements still need evaluating); everything else is returned
+  unchanged. `clojure.core-test.eval` goes from 2 errors to green.
+- **A `re-matcher` is `Indexed`, so `nth` reaches its capture groups.**
+  `(nth m 2)` raised "No implementation of method `-nth` on protocol `Indexed`"
+  for a Matcher, where clj answers group n. The Matcher's methods were all
+  registered under an empty protocol name, so nothing could reach them through a
+  protocol at all; `-nth` now registers under `Indexed`. The semantics are clj's,
+  including one asymmetry the oracle showed: a negative index raises in the
+  2-arity but answers the not-found value in the 3-arity.
+  `clojure.core-test.nth` goes from 7 errors to green.
+- **`int`, `byte` and `short` enforce their own range, and range-check a double
+  before narrowing it.** `int` shared one body with `long`, so it never checked
+  the int range: `(int 2147483648)` passed the value straight through where clj
+  raises. The two are separate now. A double is also range-checked before it
+  narrows, so `(byte 127.9)` raises instead of quietly becoming `127`; clj picks
+  that behaviour by static type, which cljw has no equivalent of, so it applies
+  uniformly (AD-070). An out-of-range cast now raises cljw's
+  `IllegalArgumentException` rather than a `ClassCastException`, matching what
+  clj throws and what user `catch` clauses expect. `NaN` follows clj's own
+  asymmetry: `0` for `int` / `long`, a raise for `byte` / `short`. The results
+  stay Longs, since cljw has no Integer / Byte / Short (AD-069).
+- **`derive` validates the shape of its tag and parent.** cljw accepted any
+  value in either position, so `(derive :user/tag 42)` silently installed a
+  number as a parent and `(derive ::a :b)` accepted an un-namespaced parent into
+  the GLOBAL hierarchy, where one library's `:shape` can collide with another's.
+  clj's 2-arity is deliberately stricter than its 3-arity on exactly that point
+  (a hierarchy value you pass in is your own), and both arities are now checked
+  the same way clj checks them. `clojure.core-test.derive` goes from 11 failures
+  to 1. The residual one is deliberate: cljw permits a CLASS parent, where clj
+  raises `ClassCastException`, because ADR-0109 makes a host class a first-class
+  hierarchy participant -- `(derive ::x Object)` then `(isa? ::x Object)` is a
+  tracked behaviour in `test/e2e/phase14_opaque_host_class.sh`, and the `isa?`
+  is false without that derive, so the edge is real rather than implied by
+  `Object` being the universal supertype.
+- **`assoc!` accepts a trailing key with no value, as clj does.** clj makes
+  `assoc!` deliberately more lenient than `assoc`: the missing value is `nil`,
+  so `(assoc! (transient []) 0 1 1)` is `[1 nil]`. cljw applied `assoc`'s
+  even-arity rule and rejected it. The arity check also ran second, so
+  `(assoc! tm :b)` reported a key-without-value error where clj reports an
+  `ArityException`; too few args is an arity fault, and it is checked first now.
+- **A live transient is readable and callable, not just `get`-able.** D-199 made
+  a transient a first-class read target, but only `get` on a transient map and
+  vector was wired: `((transient m) :k)` raised "Cannot call value of type",
+  `(:k (transient m))` and `(get (transient #{x}) x)` quietly answered `nil`.
+  All three now behave as clj does. The arities are clj's and are deliberately
+  not uniform, each checked against the oracle: a transient map and a transient
+  set take an optional not-found (a persistent set is 1-arity only), while a
+  transient vector is 1-arity and throws on a bad index. Pinned in
+  `test/diff/clj_corpus/transient_read_surface.txt`.
+- **`(transient nil)` throws instead of answering an empty transient vector.**
+  clj throws; returning a value turned a typo into a silently empty
+  accumulator.
+- **`conj!` on a transient map accepts `nil` and another map.** Persistent
+  `conj` on a map already merged an overlay map and treated `nil` as a no-op;
+  the transient twin still required a `[k v]` pair and raised
+  `IllegalArgumentException` for either, which also broke
+  `(into (transient {}) {…})`. Both now behave as clj does, verified against the
+  oracle and pinned in `test/diff/clj_corpus/transient_conj_merge.txt`.
+- **Reader metadata on a collection literal survives macroexpansion.** A macro's
+  return value is converted back into a Form so it can be re-analyzed, and that
+  converter rebuilt a collection from its elements only, never reading the
+  Value's metadata, so `^:a []` came back stripped. The symbol arm had carried
+  metadata across since ADR-0110; collections were missed. Because every
+  `clojure.test` assertion sits inside a `deftest` body, this made correct
+  functions fail their own upstream suite while passing every direct probe:
+  `clojure.core-test.group-by` went from 6 failures to 0 with no change to
+  `group-by` itself.
+- **Golden snapshots in the hive-test fixture are anchored, and a missing one
+  now fails instead of being captured.** `clojure.java.io/resource` returns nil
+  for every name by design (D-359: cljw has no classpath resource loader), so
+  hive-test's classpath walk-up resolved a golden against the process working
+  directory. A session rooted at the repository therefore wrote an unreviewed
+  baseline at the repo root and reported success. The fixture now anchors
+  through hive-test's own `*project-root*` / `*store*` seams and refuses to
+  create a reviewed golden unless `UPDATE_GOLDEN=true`; `cljw -M:anchor-test`
+  covers the rule on both runtimes without touching disk.
+
 ## [1.14.4] - 2026-09-10
 
 ### Fixed

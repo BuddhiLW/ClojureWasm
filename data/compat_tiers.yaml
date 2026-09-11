@@ -270,7 +270,7 @@ tiers:
           surface: runtime/java/io/File.zig
           impl: runtime/file_io.zig
           clojure_peer: lang/primitive/file_io.zig
-        methods: [canRead, createTempFile, delete, exists, getAbsolutePath, getCanonicalPath, getName, getParent, getParentFile, getPath, isAbsolute, isDirectory, isFile, length, list, listFiles, listRoots, mkdir, mkdirs]
+        methods: [canRead, createTempFile, delete, exists, getAbsoluteFile, getAbsolutePath, getCanonicalFile, getCanonicalPath, getName, getParent, getParentFile, getPath, isAbsolute, isDirectory, isFile, length, list, listFiles, listRoots, mkdir, mkdirs]
         static_fields: ["pathSeparator", "pathSeparatorChar", "separator", "separatorChar"]
         clojure_peer_vars: [clojure.core/slurp, clojure.core/spit]
       - {fqn: "java.io.InputStream", native_ns: "cljw.host.java.io.InputStream", phase: 6}

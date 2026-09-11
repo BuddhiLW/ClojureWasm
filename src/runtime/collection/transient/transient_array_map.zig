@@ -53,6 +53,8 @@ const SourceLocation = error_mod.SourceLocation;
 const tag_ops = @import("../../gc/tag_ops.zig");
 const gc_heap_mod = @import("../../gc/gc_heap.zig");
 const mark_sweep = @import("../../gc/mark_sweep.zig");
+
+const root_set = @import("../../gc/root_set.zig");
 const map_mod = @import("../map.zig");
 const vector_mod = @import("../vector.zig");
 const sub_vector_mod = @import("../sub_vector.zig");
@@ -247,16 +249,49 @@ pub fn dissoc(rt: *Runtime, tm_val: Value, k: Value, loc: SourceLocation) !Value
 /// vector `[k v]` OR a distinct MapEntry (D-209 / ADR-0078; the `into {}`
 /// path conj!s the entries a map-seq yields, which are now `.map_entry`).
 pub fn conjEntry(rt: *Runtime, tm_val: Value, entry: Value, loc: SourceLocation) !Value {
+    // clj's `conj!` on a map accepts everything persistent `conj` on a map
+    // accepts, not just a [k v] pair: `(conj! tm nil)` is a no-op and
+    // `(conj! tm {:a 1})` merges every entry. Both used to raise here, which
+    // also made `(into (transient {}) {…})` fail. Verified against the oracle:
+    // clj answers {} , {} and {:a 1} for nil / {} / {:a 1}.
+    if (entry.isNil()) return tm_val;
+
+    if (entry.tag() == .array_map or entry.tag() == .hash_map) {
+        // Same shape as the persistent `map.mergeInto` right above this file's
+        // import of it: iterate the overlay through the shared `forEachEntry`
+        // rather than re-deriving a walk per map representation.
+        //
+        // GC-ROOT: `assoc` below allocates, so a collect mid-merge would sweep
+        // the source map and the accumulator, neither of which the GC can see
+        // in a Zig local [ref: .dev/gc_rooting.md §C].
+        var croots: [2]Value = .{ entry, tm_val };
+        var csp: u16 = 2;
+        var cframe: root_set.EvalFrame = .{ .stack = &croots, .sp = &csp, .locals = &.{}, .parent = root_set.eval_frame_head };
+        root_set.eval_frame_head = &cframe;
+        defer root_set.eval_frame_head = cframe.parent;
+
+        const Ctx = struct { rt: *Runtime, acc: Value, loc: SourceLocation, roots: *[2]Value };
+        var ctx = Ctx{ .rt = rt, .acc = tm_val, .loc = loc, .roots = &croots };
+        try map_mod.forEachEntry(entry, &ctx, struct {
+            fn put(c: *Ctx, k: Value, v: Value) anyerror!void {
+                c.acc = try assoc(c.rt, c.acc, k, v, c.loc);
+                c.roots[1] = c.acc;
+            }
+        }.put);
+        return ctx.acc;
+    }
+
     if (entry.tag() == .map_entry) {
         return try assoc(rt, tm_val, map_entry_mod.keyOf(entry), map_entry_mod.valOf(entry), loc);
     }
     const entry_is_sub = entry.tag() == .sub_vector;
     const entry_cnt = if (entry_is_sub) sub_vector_mod.count(entry) else vector_mod.count(entry);
     if ((entry.tag() != .vector and !entry_is_sub) or entry_cnt != 2) {
-        // A non-[k v] entry conj!-ed into a transient map → IllegalArgumentException
-        // in clj (mirrors the persistent `(conj {} 1)` path), NOT the
-        // ClassCastException of a wrong-transient-KIND mismatch. D-459 (this is the
-        // path `(into {} [1])` takes — into builds via a transient).
+        // A non-nil, non-map, non-[k v] entry conj!-ed into a transient map →
+        // IllegalArgumentException in clj (mirrors the persistent `(conj {} 1)`
+        // path), NOT the ClassCastException of a wrong-transient-KIND mismatch.
+        // D-459 (this is the path `(into {} [1])` takes — into builds via a
+        // transient).
         return error_catalog.raise(.arg_value_invalid, loc, .{
             .fn_name = "conj!",
             .expected = "2-element [k v] vector",

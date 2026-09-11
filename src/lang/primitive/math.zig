@@ -195,13 +195,15 @@ fn denominator(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation
 /// 3602879701896397/36028797018963968). cw v1 floats render full-decimal
 /// (no exponent), so the parse is just sign / integer / fractional digits:
 /// numerator = the digits with the point removed, denominator = 10^(frac
-/// digit count), then gcd-reduce. NaN / Inf raise.
+/// digit count), then gcd-reduce. NaN / Inf raise. A BigDecimal is already an
+/// exact decimal, so it takes `bigDecRationalize` instead of a float round-trip.
 fn rationalize(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
     _ = env;
     try error_catalog.checkArity("rationalize", args, 1, loc);
     const v = args[0];
     switch (v.tag()) {
         .integer, .big_int, .ratio => return v,
+        .big_decimal => return bigDecRationalize(rt, v, loc),
         .float => {},
         else => |t| return error_catalog.raise(.type_arg_not_number, loc, .{ .fn_name = "rationalize", .actual = @tagName(t) }),
     }
@@ -243,6 +245,61 @@ fn rationalize(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation
 
     if (try ratio_mod.allocFromManagedPair(rt, &num_m, &den_m)) |ratio_v| return ratio_v;
     return promote.wrapManaged(rt, &num_m);
+}
+
+/// `(rationalize 1.5M)` = 3/2. A BigDecimal carries its own exact value,
+/// `unscaled * 10^(-scale)`, so it never goes through a float: a positive scale
+/// is the denominator, and a non-positive one is trailing zeros on the digits,
+/// which makes the result an integer with no ratio to reduce. Going via a float
+/// would lose precision that the BigDecimal was chosen to keep.
+fn bigDecRationalize(rt: *Runtime, v: Value, loc: SourceLocation) anyerror!Value {
+    const bd = v.decodePtr(*const big_decimal_mod.BigDecimal);
+    // Unscaled digits, sign included. The bound mirrors the float path's
+    // buffers; a wider significand than this raises rather than truncating.
+    var digitbuf: [512]u8 = undefined;
+    var dw: std.Io.Writer = .fixed(&digitbuf);
+    dw.print("{f}", .{bd.unscaled.m}) catch
+        return error_catalog.raise(.arg_value_invalid, loc, .{ .fn_name = "rationalize", .expected = "a BigDecimal within rationalize's digit range", .actual = "too many significand digits" });
+    const digits = dw.buffered();
+
+    if (bd.scale <= 0) {
+        const zeros: usize = @intCast(-@as(i64, bd.scale));
+        var intbuf: [1040]u8 = undefined;
+        if (digits.len + zeros > intbuf.len)
+            return error_catalog.raise(.arg_value_invalid, loc, .{ .fn_name = "rationalize", .expected = "a BigDecimal within rationalize's digit range", .actual = "too many trailing zeros" });
+        @memcpy(intbuf[0..digits.len], digits);
+        @memset(intbuf[digits.len .. digits.len + zeros], '0');
+        var int_m = try big_int_mod.parseBase10(rt, intbuf[0 .. digits.len + zeros]);
+        defer int_m.deinit();
+        return promote.wrapManaged(rt, &int_m);
+    }
+
+    var num_m = try big_int_mod.parseBase10(rt, digits);
+    defer num_m.deinit();
+    const scale: usize = @intCast(bd.scale);
+    // denominator = 10^scale, written as "1" followed by `scale` zeros.
+    var denbuf: [1040]u8 = undefined;
+    if (1 + scale > denbuf.len)
+        return error_catalog.raise(.arg_value_invalid, loc, .{ .fn_name = "rationalize", .expected = "a BigDecimal within rationalize's scale range", .actual = "scale too large" });
+    denbuf[0] = '1';
+    @memset(denbuf[1 .. 1 + scale], '0');
+    var den_m = try big_int_mod.parseBase10(rt, denbuf[0 .. 1 + scale]);
+    defer den_m.deinit();
+
+    if (try ratio_mod.allocFromManagedPair(rt, &num_m, &den_m)) |ratio_v| return ratio_v;
+    // Null means the reduction collapsed to an integer, and the caller emits
+    // it. The quotient has to be computed here: `allocFromManagedPair` takes
+    // its pair as `const`, so `num_m` is still the UNREDUCED numerator, and
+    // wrapping it answers 10 for 1.0M. A BigDecimal reaches this arm whenever
+    // its trailing digits are zeros (1.0M, 1.00M, 10.0M), where the float path
+    // above cannot: a normalised float render carries no trailing zero, so its
+    // numerator is never divisible by 10^scale.
+    var quot_m = try std.math.big.int.Managed.init(rt.gc.infra);
+    defer quot_m.deinit();
+    var rem_m = try std.math.big.int.Managed.init(rt.gc.infra);
+    defer rem_m.deinit();
+    try quot_m.divTrunc(&rem_m, &num_m, &den_m);
+    return promote.wrapManaged(rt, &quot_m);
 }
 
 // --- comparison ---
@@ -840,52 +897,81 @@ pub fn max(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) an
     return best;
 }
 
-/// `(int x)` / `(long x)` — coerce to a Long across the numeric tower.
-/// A float / BigDecimal / Ratio truncates toward zero; a char yields its
-/// codepoint; an integer / BigInt passes through its value. cw v1 has a
-/// single Long type so `int` and `long` share this body (no i32 narrowing
-/// — see the no-i32-type divergence). The exact-integer result rides
-/// `promote.wrapI64` so a value beyond i48 stays exact (D-165). A value
-/// outside i64 range raises (JVM's out-of-range coercion error).
+/// `(int x)` narrows across the numeric tower to the int RANGE, as clj's
+/// `RT.intCast` does: a value outside -2^31..2^31-1 raises rather than passing
+/// through. cljw carries a single Long type (F-005 / ADR-0059), so the result is
+/// an ordinary integer within that range and `(class (int 5))` is Long, the
+/// AD-069 divergence; the range check is clj's and is not optional. `long` does
+/// the tower coercion without narrowing (see `longCoerce`). cw v1 tier: A.
 pub fn intCoerce(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
     _ = env;
-    try error_catalog.checkArity("int", args, 1, loc);
+    return coerceRanged(rt, args, "int", -2147483648, 2147483647, .zero, loc);
+}
+
+/// `(long x)` coerces across the numeric tower to cljw's single Long. A float
+/// truncates toward zero (NaN narrows to 0, Java's float-to-int rule); a
+/// BigDecimal / Ratio truncates; a char yields its codepoint; an integer /
+/// BigInt passes its value through. The exact-integer result rides
+/// `promote.wrapI64` so a value beyond i48 stays exact (D-165). A value outside
+/// i64 range raises, as clj's out-of-range coercion does. cw v1 tier: A.
+pub fn longCoerce(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
+    _ = env;
+    try error_catalog.checkArity("long", args, 1, loc);
     const v = args[0];
+    if (v.tag() == .float and std.math.isNan(v.asFloat())) return promote.wrapI64(rt, 0);
     const i = promote.truncToI64(rt, v) catch |err| switch (err) {
-        error.OutOfRange => return error_catalog.raise(.type_arg_invalid, loc, .{ .fn_name = "int", .expected = "a value within Long range", .actual = "out-of-range number" }),
-        error.NotANumber => return error_catalog.raise(.type_arg_not_number, loc, .{ .fn_name = "int", .actual = @tagName(v.tag()) }),
+        // Out of range is clj's IllegalArgumentException, hence .value_error.
+        error.OutOfRange => return error_catalog.raise(.arg_value_invalid, loc, .{ .fn_name = "long", .expected = "a value within Long range", .actual = "out-of-range number" }),
+        error.NotANumber => return error_catalog.raise(.type_arg_not_number, loc, .{ .fn_name = "long", .actual = @tagName(v.tag()) }),
         else => return err,
     };
     return promote.wrapI64(rt, i);
 }
 
-/// Shared body for `byte` / `short`: truncate toward zero (like `int`), then
-/// range-check; clj throws IllegalArgumentException on overflow. cljw has no
-/// distinct Byte/Short types (F-005 / ADR-0059), so the result is an ordinary
-/// integer in range — `(class (byte 5))` is Long, an accepted divergence.
-fn coerceRanged(rt: *Runtime, args: []const Value, comptime name: []const u8, lo: i64, hi: i64, loc: SourceLocation) anyerror!Value {
+/// What a narrowing cast does with a NaN argument. clj is asymmetric here and
+/// this is oracle-verified, not inferred: `(int ##NaN)` and `(long ##NaN)` are
+/// 0 (Java's float-to-int rule), while `(byte ##NaN)` and `(short ##NaN)`
+/// raise IllegalArgumentException.
+const NanPolicy = enum { zero, raise };
+
+fn coerceRanged(rt: *Runtime, args: []const Value, comptime name: []const u8, lo: i64, hi: i64, nan: NanPolicy, loc: SourceLocation) anyerror!Value {
     try error_catalog.checkArity(name, args, 1, loc);
     const v = args[0];
+    // An out-of-range value is a VALUE rejection, not a type mismatch: clj
+    // throws IllegalArgumentException here, so the Kind has to be .value_error
+    // for `(catch IllegalArgumentException …)` to behave as it does on clj.
+    const range = "a value within " ++ name ++ " range";
+    // clj range-checks a double BEFORE narrowing it, so 127.9 is out of byte
+    // range rather than truncating into it.
+    if (v.tag() == .float) {
+        const f = v.asFloat();
+        if (std.math.isNan(f)) return switch (nan) {
+            .zero => promote.wrapI64(rt, 0),
+            .raise => error_catalog.raise(.arg_value_invalid, loc, .{ .fn_name = name, .expected = range, .actual = "NaN" }),
+        };
+        if (f < @as(f64, @floatFromInt(lo)) or f > @as(f64, @floatFromInt(hi)))
+            return error_catalog.raise(.arg_value_invalid, loc, .{ .fn_name = name, .expected = range, .actual = "out-of-range number" });
+        return promote.wrapI64(rt, @intFromFloat(f));
+    }
     const i = promote.truncToI64(rt, v) catch |err| switch (err) {
-        error.OutOfRange => return error_catalog.raise(.type_arg_invalid, loc, .{ .fn_name = name, .expected = "a value within " ++ name ++ " range", .actual = "out-of-range number" }),
+        error.OutOfRange => return error_catalog.raise(.arg_value_invalid, loc, .{ .fn_name = name, .expected = range, .actual = "out-of-range number" }),
         error.NotANumber => return error_catalog.raise(.type_arg_not_number, loc, .{ .fn_name = name, .actual = @tagName(v.tag()) }),
         else => return err,
     };
     if (i < lo or i > hi)
-        return error_catalog.raise(.type_arg_invalid, loc, .{ .fn_name = name, .expected = "a value within " ++ name ++ " range", .actual = "out-of-range number" });
+        return error_catalog.raise(.arg_value_invalid, loc, .{ .fn_name = name, .expected = range, .actual = "out-of-range number" });
     return promote.wrapI64(rt, i);
 }
 
 /// `(byte x)` — coerce to a byte-range integer (-128..127). cw v1 tier: A.
 pub fn byteCoerce(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
     _ = env;
-    return coerceRanged(rt, args, "byte", -128, 127, loc);
+    return coerceRanged(rt, args, "byte", -128, 127, .raise, loc);
 }
 
-/// `(short x)` — coerce to a short-range integer (-32768..32767). cw v1 tier: A.
 pub fn shortCoerce(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
     _ = env;
-    return coerceRanged(rt, args, "short", -32768, 32767, loc);
+    return coerceRanged(rt, args, "short", -32768, 32767, .raise, loc);
 }
 
 /// `(bigint x)` — coerce to an arbitrary-precision integer (`…N`). A BigInt
@@ -1244,8 +1330,10 @@ const ENTRIES = [_]Entry{
     .{ .name = "int", .f = &intCoerce },
     .{ .name = "byte", .f = &byteCoerce },
     .{ .name = "short", .f = &shortCoerce },
-    // long ≡ int in cw v1 (a single i64 integer type — no 32-bit int).
-    .{ .name = "long", .f = &intCoerce },
+    // long carries the tower coercion without int's range check: cw v1 has a
+    // single i64 integer type, but clj's `int` still REJECTS a value outside
+    // int range, so the two cannot share one body (AD-069).
+    .{ .name = "long", .f = &longCoerce },
     .{ .name = "bigint", .f = &bigintCoerce },
     // biginteger ≡ bigint in cw v1: cljw collapses clj's BigInt/BigInteger
     // into one `.big_int` type (F-005), so `(biginteger x)` yields the same

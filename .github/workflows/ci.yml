@@ -207,32 +207,40 @@ jobs:
 
       # Warm the build cache in a step that can RECOVER from a poisoned restore.
       # A restored `.zig-cache` can reference a file it does not contain (a job
-      # cancelled mid-build used to save one — see the save step below), and
-      # Zig treats that as a hard compilation error rather than rebuilding:
-      #     error: failed to check cache: '…/bootstrap_sources_stub.zig' file_hash FileNotFound
+      # cancelled mid-build used to save one, see the save step below), and
+      # Zig treats that as a hard compilation error rather than rebuilding.
       # Left alone, `restore-keys` hands that same entry to every later run and
-      # CI stays red until a human deletes it through the API. Wiping a
-      # content-addressed cache is always safe — it costs a rebuild, nothing
-      # else — so recovery is simply: clear it and build again, once.
+      # CI stays red until a human deletes it through the API.
       #
-      # This is not extra work: the gate's own first step is this same build,
-      # so a healthy run does it here and finds it warm there.
+      # The recovery is UNCONDITIONAL: on any failed warm build, clear the cache
+      # and build once more. Wiping a content-addressed cache is always safe (it
+      # costs a rebuild, nothing else), and the retry is a better discriminator
+      # than any log predicate, because a failure with NO cache present is
+      # unambiguously about the source.
+      #
+      # This step used to gate the recovery on `grep "failed to check cache"`,
+      # the exact wording of the first poisoning observed. A restored cache has
+      # at least two spellings for one condition, and the second one landed on
+      # the v1.14.5 release PR (2026-09-10):
+      #     error: failed to spawn build runner .zig-cache/o/<hash>/build: FileNotFound
+      # The predicate did not match, so the step printed "build failed for a
+      # reason unrelated to the cache" and failed the release for the very
+      # condition it was written to heal. Matching a symptom's wording is how a
+      # self-heal reports a false negative with confidence; not matching at all
+      # cannot.
+      #
+      # This is not extra work on a healthy run: the gate's own first step is
+      # this same build, so a healthy run does it here and finds it warm there.
       - name: Warm build (self-healing)
         shell: bash
         run: |
           set -uo pipefail
-          log=$(mktemp)
-          if zig build -Dwasm -Doptimize=ReleaseSafe 2>&1 | tee "$log"; then
+          if zig build -Dwasm -Doptimize=ReleaseSafe; then
             exit 0
           fi
-          if grep -q "failed to check cache" "$log"; then
-            echo "::warning::restored .zig-cache is inconsistent — clearing and rebuilding"
-            rm -rf .zig-cache
-            zig build -Dwasm -Doptimize=ReleaseSafe
-          else
-            echo "::error::build failed for a reason unrelated to the cache"
-            exit 1
-          fi
+          echo "::warning::warm build failed, clearing the restored .zig-cache and rebuilding once"
+          rm -rf .zig-cache
+          zig build -Dwasm -Doptimize=ReleaseSafe
 
       - name: ci_gate.sh
         shell: bash

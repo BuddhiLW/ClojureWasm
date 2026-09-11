@@ -2332,8 +2332,43 @@
             m (cons source (get sources source)))))
 
 (def derive
-  (fn* ([tag parent] (swap! -global-hierarchy derive tag parent) nil)
+  (fn* ([tag parent]
+        ;; clj's 2-arity is STRICTER than its 3-arity, and the difference is
+        ;; real rather than an oversight. Verified against the oracle:
+        ;;   (derive ::a :b)                    -> throws (parent not namespaced)
+        ;;   (derive (make-hierarchy) ::a :b)   -> SUCCEEDS
+        ;; The global hierarchy is shared across every namespace, so an
+        ;; un-namespaced parent there would let one library's :shape collide
+        ;; with another's; a hierarchy VALUE you passed in is your own.
+        ;;
+        ;; DELIBERATE DIVERGENCE: a CLASS parent is allowed here, where clj
+        ;; throws (its `(assert (namespace parent))` hits a Class and raises
+        ;; ClassCastException). ADR-0109 makes a host class a first-class
+        ;; hierarchy participant in cljw — `(derive ::x Object)` then
+        ;; `(isa? ::x Object)` is a tracked behaviour in
+        ;; test/e2e/phase14_opaque_host_class.sh, and `(isa? ::x Object)` is
+        ;; FALSE without that derive, so the edge is real rather than implied by
+        ;; Object being the universal supertype. Upstream's
+        ;; `(derive ::tag String)`-throws case therefore stays divergent and
+        ;; wants an AD row; every OTHER bad shape below is rejected as clj does.
+        (when-not (or (symbol? parent) (keyword? parent) (class? parent))
+          (throw (ClassCastException.
+                   (str "derive: parent must be a symbol, keyword or class, got " (pr-str parent)))))
+        (when-not (or (class? parent) (namespace parent))
+          (throw (ex-info (str "derive: parent must be namespaced, got " (pr-str parent)) {})))
+        (when-not (or (class? tag)
+                      (and (or (symbol? tag) (keyword? tag)) (namespace tag)))
+          (throw (ex-info (str "derive: tag must be a class or a namespaced symbol/keyword, got "
+                               (pr-str tag))
+                          {})))
+        (swap! -global-hierarchy derive tag parent) nil)
        ([h tag parent]
+        ;; The 3-arity requires only NAMED-ness, not a namespace (see above),
+        ;; and admits a class in either position for the same ADR-0109 reason.
+        (when-not (or (class? tag) (symbol? tag) (keyword? tag))
+          (throw (ex-info (str "derive: tag must be a class, symbol or keyword, got " (pr-str tag)) {})))
+        (when-not (or (class? parent) (symbol? parent) (keyword? parent))
+          (throw (ex-info (str "derive: parent must be a class, symbol or keyword, got " (pr-str parent)) {})))
         ;; clj: self-derive → AssertionError; a non-map hierarchy field →
         ;; NullPointerException (it invokes the field as a fn). Both throw here
         ;; (exception-Kind divergence is AD-007). The 2-arity global path always

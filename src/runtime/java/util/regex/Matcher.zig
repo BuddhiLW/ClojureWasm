@@ -8,7 +8,7 @@
 //! Backend: impl-only
 //! Impl deps: regex
 //! Clojure peer: clojure.core/re-matcher, clojure.core/re-groups,
-//!   clojure.core/re-find (matcher 1-arity)
+//!   clojure.core/re-find (matcher 1-arity), clojure.core/nth (Indexed)
 //!
 //! state[0] = the regex Value, state[1] = the input string Value (both GC-
 //! marked via `host_trace` — the Iterator precedent), state[2] = *MutState on
@@ -222,6 +222,23 @@ fn reset(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anye
     return args[0];
 }
 
+/// `Indexed/-nth`, clj `RT.nth` on a Matcher: capture group n of the last
+/// match (0 is the whole match). An index outside `0..groupCount` raises, or
+/// answers the not-found value in the 3-arity, which covers a NEGATIVE index
+/// too (clj's not-found arm returns early for one; the 2-arity raises).
+fn nthImpl(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
+    if (args.len < 2 or args.len > 3)
+        return error_catalog.raise(.arity_out_of_range, loc, .{ .fn_name = "nth", .got = args.len, .min = 2, .max = 3 });
+    if (args[1].tag() != .integer)
+        return error_catalog.raise(.type_arg_not_integer, loc, .{ .fn_name = "nth", .actual = @tagName(args[1].tag()) });
+    const n = args[1].asInteger();
+    if (n < 0 or n > programOf(args[0]).capture_count) {
+        if (args.len == 3) return args[2];
+        return error_catalog.raise(.index_out_of_range, loc, .{ .fn_name = "nth" });
+    }
+    return group(rt, env, args[0..2], loc);
+}
+
 /// GC-trace the regex (state[0]) + input string (state[1]) Values held in raw
 /// `u64` slots. Decode goes through `heapHeader` (the G1 membrane), so an
 /// immediate is correctly skipped.
@@ -240,7 +257,11 @@ fn finaliseState(infra: std.mem.Allocator, state: *[host_instance.STATE_WORDS]u6
     infra.destroy(ms);
 }
 
-const MethodSpec = struct { name: []const u8, f: *const fn (*Runtime, *Env, []const Value, SourceLocation) anyerror!Value };
+const MethodSpec = struct {
+    name: []const u8,
+    proto: []const u8 = "",
+    f: *const fn (*Runtime, *Env, []const Value, SourceLocation) anyerror!Value,
+};
 
 const METHODS = [_]MethodSpec{
     .{ .name = "find", .f = &find },
@@ -251,6 +272,8 @@ const METHODS = [_]MethodSpec{
     .{ .name = "start", .f = &startIndex },
     .{ .name = "end", .f = &endIndex },
     .{ .name = "reset", .f = &reset },
+    // Indexed so `nth` reaches the capture groups, as clj's RT.nth does.
+    .{ .name = "-nth", .proto = "Indexed", .f = &nthImpl },
 };
 
 fn initMatcherDescriptor(td: *type_descriptor.TypeDescriptor, gpa: std.mem.Allocator) anyerror!void {
@@ -261,7 +284,7 @@ fn initMatcherDescriptor(td: *type_descriptor.TypeDescriptor, gpa: std.mem.Alloc
     const entries = try gpa.alloc(type_descriptor.TypeDescriptor.MethodEntry, METHODS.len);
     for (METHODS, 0..) |m, i| {
         entries[i] = .{
-            .protocol_name = "",
+            .protocol_name = m.proto,
             .method_name = try gpa.dupe(u8, m.name),
             .method_val = Value.initBuiltinFn(m.f),
         };

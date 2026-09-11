@@ -20,3 +20,25 @@
   (is (= "true" (pr-str (not-any? (fn* [x] (= x 9)) [1 2 3]))) "not_any_true")
   (is (= "false" (pr-str (not-any? (fn* [x] (= x 2)) [1 2 3]))) "not_any_false")
   (is (= "[1 2]" (pr-str (into [] (butlast [1 2 3])))) "butlast_vec"))
+
+;; keys / vals demand a map, eagerly (AD-071).
+;; clj answers nil for an EMPTY non-map (`(keys #{})`, `(keys "")`) and throws
+;; on realization for a non-empty one, because its KeySeq wraps `seq(coll)` and
+;; only casts each element when walked. cljw checks the argument instead, so
+;; every non-map raises. These assertions pin cljw's side of that row: the empty
+;; cases must keep RAISING rather than drifting to clj's nil, and a seq of
+;; vector pairs must keep WORKING, where clj's per-element IMapEntry cast
+;; rejects it.
+(deftest keys-vals-demand-a-map
+  (is (nil? (keys nil)))
+  (is (nil? (vals nil)))
+  (is (nil? (keys {})))
+  (is (= [:a] (keys {:a 1})))
+  (is (= [1] (vals {:a 1})))
+  (is (thrown? Throwable (keys #{})))
+  (is (thrown? Throwable (keys #{1})))
+  (is (thrown? Throwable (keys "")))
+  (is (thrown? Throwable (vals #{})))
+  (is (thrown? Throwable (keys 0)))
+  (is (= [:a] (keys (list [:a 1]))))
+  (is (= [1] (vals (list [:a 1])))))

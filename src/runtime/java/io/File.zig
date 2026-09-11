@@ -199,6 +199,23 @@ fn getCanonicalPath(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLoc
     return string_mod.alloc(rt, abs);
 }
 
+/// The File-returning twin of getCanonicalPath. The JVM publishes both
+/// spellings of each resolution (`getCanonicalPath` -> String,
+/// `getCanonicalFile` -> File), and a caller that keeps composing paths wants
+/// the File one so it can go straight back into `new File(parent, child)`.
+/// Only the String halves existed here, so `.getCanonicalFile` raised
+/// "No implementation of method" on a real library call.
+fn getCanonicalFile(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
+    try error_catalog.checkArity("getCanonicalFile", args, 1, loc);
+    return allocFile(rt, try getCanonicalPath(rt, env, args, loc));
+}
+
+/// The File-returning twin of getAbsolutePath, for the same reason.
+fn getAbsoluteFile(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
+    try error_catalog.checkArity("getAbsoluteFile", args, 1, loc);
+    return allocFile(rt, try getAbsolutePath(rt, env, args, loc));
+}
+
 // --- FS-touching query methods (jail-resolved) ---
 
 fn exists(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
@@ -388,8 +405,12 @@ const METHODS = [_]MethodSpec{
     .{ .name = "getParent", .f = &getParent },
     .{ .name = "getParentFile", .f = &getParentFile },
     .{ .name = "isAbsolute", .f = &isAbsolute },
+    // Each resolution is published in both JVM spellings, the String half and
+    // the File half. Only the String halves were registered before.
     .{ .name = "getAbsolutePath", .f = &getAbsolutePath },
+    .{ .name = "getAbsoluteFile", .f = &getAbsoluteFile },
     .{ .name = "getCanonicalPath", .f = &getCanonicalPath },
+    .{ .name = "getCanonicalFile", .f = &getCanonicalFile },
     .{ .name = "exists", .f = &exists },
     .{ .name = "isFile", .f = &isFile },
     .{ .name = "isDirectory", .f = &isDirectory },
