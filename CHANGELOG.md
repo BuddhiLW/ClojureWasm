@@ -7,6 +7,25 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Hashing a String that is not valid UTF-8 no longer ABORTS the process.**
+  `(hash (slurp "some.wasm"))` core-dumped cljw and took the REPL with it. A
+  cljw String is raw bytes (AD-009), so it can hold anything a file or a Wasm
+  guest buffer contains, but `javaStringHashCode` and `hashUnencodedChars`
+  both walked it with `std.unicode.Utf8View.initUnchecked`. That call promises
+  the caller has already validated; its iterator reads past the end of a
+  truncated sequence and trips `unreachable`, which is a process abort in
+  every safe build, not a catchable Clojure error.
+
+  Both now decode through `nextCodepointLossy`, which yields U+FFFD and
+  advances one byte for any sequence that is not valid UTF-8. Hashing has to
+  be total, because a value that cannot be hashed cannot be put in a map, and
+  a String must not become un-mappable for a reason the caller cannot see.
+  Valid UTF-8 decodes byte-identically to what the checked iterator produced,
+  so the JVM parity values are unchanged. Two distinct invalid strings may now
+  collide, which a hash is allowed to do; `=` still compares the bytes.
+
 ## [1.14.5] - 2026-09-11
 
 ### Added
