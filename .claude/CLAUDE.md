@@ -35,8 +35,10 @@ does not override the smell sensor. Mechanism: `.dev/principle.md`.
 - **Branches**: work lands on `staging`; `main` is reached by PR
   (`staging` -> `main`), which is what cuts a release. Commit **and** push in
   the same step; local commits never accumulate.
-- **Shipped through v1.14.4.** Release mechanics + the ledger of what is
-  unfinished live in `.dev/handover.md`.
+- **Shipped through v1.14.5.** Release mechanics: memory
+  `20260911001201-09a51b5b`. Commit and gate hygiene (the smell-audit trailer
+  needs `<digit>: <summary>`, CI is ONE configuration): `20260911001202-2ee19e2f`.
+  What is unfinished: `.dev/debt.yaml` + the kanban board.
 - **Read-only references**: cw v0 through git only (`git show v0.5.0:<path>`,
   or `git worktree add ../cw-v0 v0.5.0`). zwasm clone at
   `~/PP/referential-projects/zwasm`. The `~/Documents/OSS/{clojure,babashka,zig}`
@@ -153,13 +155,15 @@ zig fmt src/
 ```
 
 Never a bare `zig build test` without `-Dwasm`. Never a Debug binary for a
-behaviour probe. Never a build during the full gate. Cadence SSOT:
-`.claude/rules/gate_cadence.md`.
+behaviour probe. Never a build during the full gate. Cadence SSOT: memory
+`20260909234752-16ad5476` (gate_cadence).
 
 ## References
 
 - `.dev/ROADMAP.md` authoritative mission and plan. **If this file conflicts
   with the roadmap, the roadmap wins.**
-- `.dev/handover.md` current state, <= 100 lines, driving doc not session log.
+- Current state: `git log`, the CHANGELOG, and the kanban board. There is no
+  handover file (retired 2026-09-11, `20260910235746-74389f7f`); the resume path
+  is `project workflow catchup`, which drains the axioms and the live cards.
 - `.dev/decisions/` ADRs; numbers are time-ordered, newest wins on conflict.
 - `.dev/project_facts.md` the F-NNN invariants this chain starts from.
