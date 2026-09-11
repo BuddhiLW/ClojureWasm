@@ -7,7 +7,7 @@
 # same commit. Additionally rejects PROVISIONAL: marker text that
 # lacks a well-formed `[refs: D-NNN, feature_deps.yaml#<key>]` block.
 #
-# Discipline source: .claude/rules/provisional_marker.md.
+# Discipline source: memory 20260909234453-094762cc (provisional_marker).
 # Deterministic enforcement layer behind the probabilistic
 # CLAUDE.md / rule prose.
 #
@@ -278,7 +278,7 @@ src/**/*.clj, build.zig*, test/e2e/*.sh) is malformed, cites a
 ref that does not resolve, or — in hook mode — changed without
 the matching SSOT edits in the same commit.
 
-Required canonical marker shape (see .claude/rules/provisional_marker.md):
+Required canonical marker shape (see memory 20260909234453-094762cc (provisional_marker)):
     // PROVISIONAL: <one-line why> [refs: D-NNN, feature_deps.yaml#<key>]
     ;; PROVISIONAL: <one-line why> [refs: D-NNN, feature_deps.yaml#<key>]
 
@@ -308,7 +308,7 @@ EOF
 
   cat >&2 <<'EOF'
 
-(Discipline source: .claude/rules/provisional_marker.md +
+(Discipline source: memory 20260909234453-094762cc (provisional_marker) +
 .dev/principle.md Silent default-shift entry.)
 EOF
   exit 2

@@ -8,7 +8,7 @@
 #
 # Discipline source: handover_framing.md "How `/continue` enforces
 # this" section. Lifted from manual resume-time grep to deterministic
-# hook at Wave 16 (W16-3) per `.claude/rules/framework_completion.md`
+# hook at Wave 16 (W16-3) per `memory 20260909234612-6f9c927b (framework_completion)`
 # — previously a forbidden phrase could land on the remote before the
 # next resume's Step 1 scan caught it.
 #

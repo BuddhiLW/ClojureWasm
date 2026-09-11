@@ -9,7 +9,7 @@
 # (e.g. `(count (interleave (range 50000) …))`). When a gate is killed or
 # times out, its `cljw` children **re-parent to PID 1 and keep running**,
 # so the pile drives load to 10–17 and garbles tool output. (Incident
-# 2026-05-31; see `.claude/rules/orphan_prevention.md` + memory
+# 2026-05-31; see `memory 20260909234832-598b7c16 (orphan_prevention)` + memory
 # `premature-gate-notification`.) The SessionStart `cleanup_orphans.sh`
 # only reaps at etime > 30 min — far too long for a ~50 s gate.
 #

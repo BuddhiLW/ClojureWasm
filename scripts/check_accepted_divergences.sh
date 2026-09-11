@@ -3,7 +3,7 @@
 #
 # Auto-defense for the accepted-clj-divergence SSOT (.dev/accepted_divergences.yaml).
 # An "accepted divergence" is a behaviour where cljw INTENTIONALLY differs from
-# JVM Clojure (rule: .claude/rules/accepted_divergences.md). This gate makes the
+# JVM Clojure (rule: memory 20260909234822-74759eeb (accepted_divergences)). This gate makes the
 # ledger trustworthy so a divergence cannot (a) be added without a justification
 # or (b) drift out of sync with the docs / its pinning test.
 #
