@@ -840,52 +840,81 @@ pub fn max(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) an
     return best;
 }
 
-/// `(int x)` / `(long x)` — coerce to a Long across the numeric tower.
-/// A float / BigDecimal / Ratio truncates toward zero; a char yields its
-/// codepoint; an integer / BigInt passes through its value. cw v1 has a
-/// single Long type so `int` and `long` share this body (no i32 narrowing
-/// — see the no-i32-type divergence). The exact-integer result rides
-/// `promote.wrapI64` so a value beyond i48 stays exact (D-165). A value
-/// outside i64 range raises (JVM's out-of-range coercion error).
+/// `(int x)` narrows across the numeric tower to the int RANGE, as clj's
+/// `RT.intCast` does: a value outside -2^31..2^31-1 raises rather than passing
+/// through. cljw carries a single Long type (F-005 / ADR-0059), so the result is
+/// an ordinary integer within that range and `(class (int 5))` is Long, the
+/// AD-069 divergence; the range check is clj's and is not optional. `long` does
+/// the tower coercion without narrowing (see `longCoerce`). cw v1 tier: A.
 pub fn intCoerce(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
     _ = env;
-    try error_catalog.checkArity("int", args, 1, loc);
+    return coerceRanged(rt, args, "int", -2147483648, 2147483647, .zero, loc);
+}
+
+/// `(long x)` coerces across the numeric tower to cljw's single Long. A float
+/// truncates toward zero (NaN narrows to 0, Java's float-to-int rule); a
+/// BigDecimal / Ratio truncates; a char yields its codepoint; an integer /
+/// BigInt passes its value through. The exact-integer result rides
+/// `promote.wrapI64` so a value beyond i48 stays exact (D-165). A value outside
+/// i64 range raises, as clj's out-of-range coercion does. cw v1 tier: A.
+pub fn longCoerce(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
+    _ = env;
+    try error_catalog.checkArity("long", args, 1, loc);
     const v = args[0];
+    if (v.tag() == .float and std.math.isNan(v.asFloat())) return promote.wrapI64(rt, 0);
     const i = promote.truncToI64(rt, v) catch |err| switch (err) {
-        error.OutOfRange => return error_catalog.raise(.type_arg_invalid, loc, .{ .fn_name = "int", .expected = "a value within Long range", .actual = "out-of-range number" }),
-        error.NotANumber => return error_catalog.raise(.type_arg_not_number, loc, .{ .fn_name = "int", .actual = @tagName(v.tag()) }),
+        // Out of range is clj's IllegalArgumentException, hence .value_error.
+        error.OutOfRange => return error_catalog.raise(.arg_value_invalid, loc, .{ .fn_name = "long", .expected = "a value within Long range", .actual = "out-of-range number" }),
+        error.NotANumber => return error_catalog.raise(.type_arg_not_number, loc, .{ .fn_name = "long", .actual = @tagName(v.tag()) }),
         else => return err,
     };
     return promote.wrapI64(rt, i);
 }
 
-/// Shared body for `byte` / `short`: truncate toward zero (like `int`), then
-/// range-check; clj throws IllegalArgumentException on overflow. cljw has no
-/// distinct Byte/Short types (F-005 / ADR-0059), so the result is an ordinary
-/// integer in range — `(class (byte 5))` is Long, an accepted divergence.
-fn coerceRanged(rt: *Runtime, args: []const Value, comptime name: []const u8, lo: i64, hi: i64, loc: SourceLocation) anyerror!Value {
+/// What a narrowing cast does with a NaN argument. clj is asymmetric here and
+/// this is oracle-verified, not inferred: `(int ##NaN)` and `(long ##NaN)` are
+/// 0 (Java's float-to-int rule), while `(byte ##NaN)` and `(short ##NaN)`
+/// raise IllegalArgumentException.
+const NanPolicy = enum { zero, raise };
+
+fn coerceRanged(rt: *Runtime, args: []const Value, comptime name: []const u8, lo: i64, hi: i64, nan: NanPolicy, loc: SourceLocation) anyerror!Value {
     try error_catalog.checkArity(name, args, 1, loc);
     const v = args[0];
+    // An out-of-range value is a VALUE rejection, not a type mismatch: clj
+    // throws IllegalArgumentException here, so the Kind has to be .value_error
+    // for `(catch IllegalArgumentException …)` to behave as it does on clj.
+    const range = "a value within " ++ name ++ " range";
+    // clj range-checks a double BEFORE narrowing it, so 127.9 is out of byte
+    // range rather than truncating into it.
+    if (v.tag() == .float) {
+        const f = v.asFloat();
+        if (std.math.isNan(f)) return switch (nan) {
+            .zero => promote.wrapI64(rt, 0),
+            .raise => error_catalog.raise(.arg_value_invalid, loc, .{ .fn_name = name, .expected = range, .actual = "NaN" }),
+        };
+        if (f < @as(f64, @floatFromInt(lo)) or f > @as(f64, @floatFromInt(hi)))
+            return error_catalog.raise(.arg_value_invalid, loc, .{ .fn_name = name, .expected = range, .actual = "out-of-range number" });
+        return promote.wrapI64(rt, @intFromFloat(f));
+    }
     const i = promote.truncToI64(rt, v) catch |err| switch (err) {
-        error.OutOfRange => return error_catalog.raise(.type_arg_invalid, loc, .{ .fn_name = name, .expected = "a value within " ++ name ++ " range", .actual = "out-of-range number" }),
+        error.OutOfRange => return error_catalog.raise(.arg_value_invalid, loc, .{ .fn_name = name, .expected = range, .actual = "out-of-range number" }),
         error.NotANumber => return error_catalog.raise(.type_arg_not_number, loc, .{ .fn_name = name, .actual = @tagName(v.tag()) }),
         else => return err,
     };
     if (i < lo or i > hi)
-        return error_catalog.raise(.type_arg_invalid, loc, .{ .fn_name = name, .expected = "a value within " ++ name ++ " range", .actual = "out-of-range number" });
+        return error_catalog.raise(.arg_value_invalid, loc, .{ .fn_name = name, .expected = range, .actual = "out-of-range number" });
     return promote.wrapI64(rt, i);
 }
 
 /// `(byte x)` — coerce to a byte-range integer (-128..127). cw v1 tier: A.
 pub fn byteCoerce(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
     _ = env;
-    return coerceRanged(rt, args, "byte", -128, 127, loc);
+    return coerceRanged(rt, args, "byte", -128, 127, .raise, loc);
 }
 
-/// `(short x)` — coerce to a short-range integer (-32768..32767). cw v1 tier: A.
 pub fn shortCoerce(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
     _ = env;
-    return coerceRanged(rt, args, "short", -32768, 32767, loc);
+    return coerceRanged(rt, args, "short", -32768, 32767, .raise, loc);
 }
 
 /// `(bigint x)` — coerce to an arbitrary-precision integer (`…N`). A BigInt
@@ -1244,8 +1273,10 @@ const ENTRIES = [_]Entry{
     .{ .name = "int", .f = &intCoerce },
     .{ .name = "byte", .f = &byteCoerce },
     .{ .name = "short", .f = &shortCoerce },
-    // long ≡ int in cw v1 (a single i64 integer type — no 32-bit int).
-    .{ .name = "long", .f = &intCoerce },
+    // long carries the tower coercion without int's range check: cw v1 has a
+    // single i64 integer type, but clj's `int` still REJECTS a value outside
+    // int range, so the two cannot share one body (AD-069).
+    .{ .name = "long", .f = &longCoerce },
     .{ .name = "bigint", .f = &bigintCoerce },
     // biginteger ≡ bigint in cw v1: cljw collapses clj's BigInt/BigInteger
     // into one `.big_int` type (F-005), so `(biginteger x)` yields the same

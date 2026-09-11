@@ -99,6 +99,43 @@
     (is (= "5" (pr-str (long 5N))))               ; long_bigint
     (is (= "3" (pr-str (long 7/2))))))            ; long_ratio
 
+;; --- narrowing-cast range contract (AD-069 / AD-070) ---
+;; `int` / `byte` / `short` enforce clj's range check; the RESULT is a Long,
+;; because cljw has no Integer / Byte / Short (AD-069). Every case below was
+;; taken from the clj oracle, including the two asymmetries: a double is
+;; range-checked BEFORE it narrows (so 127.9 is not a byte), which cljw applies
+;; to a boxed double too where clj selects its cast overload by static type
+;; (AD-070); and NaN narrows to 0 for `int` / `long` but raises for
+;; `byte` / `short`, which is clj's own inconsistency, not cljw's.
+(deftest narrowing-cast-range
+  (testing "in range, and long is never narrowed"
+    (is (= 2147483647 (int 2147483647)))
+    (is (= -2147483648 (int -2147483648)))
+    (is (= 127 (byte 127)))
+    (is (= -32768 (short -32768)))
+    (is (= 1 (int 1.9)))
+    (is (= 2147483648 (long 2147483648))))
+  (testing "outside the target range raises"
+    (is (thrown? Throwable (int 2147483648)))
+    (is (thrown? Throwable (int -2147483649)))
+    (is (thrown? Throwable (int 2147483648N)))
+    (is (thrown? Throwable (byte 128)))
+    (is (thrown? Throwable (short 32768))))
+  (testing "a double is range-checked before it narrows, boxed included"
+    (is (thrown? Throwable (byte 127.9)))
+    (is (thrown? Throwable (byte 127.000001)))
+    (is (thrown? Throwable (byte (identity 127.000001))))
+    (is (thrown? Throwable (int 2.147483647000001E9))))
+  (testing "NaN: 0 for int / long, raises for byte / short"
+    (is (= 0 (int ##NaN)))
+    (is (= 0 (long ##NaN)))
+    (is (thrown? Throwable (byte ##NaN)))
+    (is (thrown? Throwable (short ##NaN))))
+  (testing "unchecked casts still wrap instead of raising"
+    (is (= -128 (unchecked-byte 128)))
+    (is (= -2147483648 (unchecked-int 2147483648)))
+    (is (= -32768 (unchecked-short 32768)))))
+
 (deftest long-num-coercion
   (is (= 3 (long 3.7)))
   (is (= 5 (long 5)))

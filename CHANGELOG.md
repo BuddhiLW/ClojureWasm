@@ -17,6 +17,25 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 
 ### Fixed
 
+- **A `re-matcher` is `Indexed`, so `nth` reaches its capture groups.**
+  `(nth m 2)` raised "No implementation of method `-nth` on protocol `Indexed`"
+  for a Matcher, where clj answers group n. The Matcher's methods were all
+  registered under an empty protocol name, so nothing could reach them through a
+  protocol at all; `-nth` now registers under `Indexed`. The semantics are clj's,
+  including one asymmetry the oracle showed: a negative index raises in the
+  2-arity but answers the not-found value in the 3-arity.
+  `clojure.core-test.nth` goes from 7 errors to green.
+- **`int`, `byte` and `short` enforce their own range, and range-check a double
+  before narrowing it.** `int` shared one body with `long`, so it never checked
+  the int range: `(int 2147483648)` passed the value straight through where clj
+  raises. The two are separate now. A double is also range-checked before it
+  narrows, so `(byte 127.9)` raises instead of quietly becoming `127`; clj picks
+  that behaviour by static type, which cljw has no equivalent of, so it applies
+  uniformly (AD-070). An out-of-range cast now raises cljw's
+  `IllegalArgumentException` rather than a `ClassCastException`, matching what
+  clj throws and what user `catch` clauses expect. `NaN` follows clj's own
+  asymmetry: `0` for `int` / `long`, a raise for `byte` / `short`. The results
+  stay Longs, since cljw has no Integer / Byte / Short (AD-069).
 - **`derive` validates the shape of its tag and parent.** cljw accepted any
   value in either position, so `(derive :user/tag 42)` silently installed a
   number as a parent and `(derive ::a :b)` accepted an un-namespaced parent into
