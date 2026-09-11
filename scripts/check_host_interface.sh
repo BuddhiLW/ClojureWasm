@@ -21,7 +21,8 @@
 #        pass). `-`-prefixed identity guards are excluded; Object-method-family
 #        targets are matched on key-presence (yaml documents them via `wires_to`).
 #
-# See memory query :tags ["adr" "adr-0102"] + F-013 + .dev/principle.md
+# See memory query :tags ["adr" "adr-0102"] + F-013 + the Bad Smell catalogue
+# (memory query :tags ["bad-smell"])
 # "Ad-hoc-pass smell".
 #
 # Modes:

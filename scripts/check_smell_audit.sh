@@ -101,7 +101,7 @@ Examples:
     Smell-audited: 3: ADR-0027 amendment 1 landed (commit abc1234)
 
 To recover:
-  1. Re-read .dev/principle.md Bad Smell catalogue (8 entries
+  1. Re-read the Bad Smell catalogue in memory: query :tags ["bad-smell"] (24 entries
      incl. Smallest-diff bias / Reservation-as-bias /
      Progress-pressure).
   2. Self-audit the staged diff (depth 0 if clean, 1-4 otherwise).

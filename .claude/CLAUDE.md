@@ -15,7 +15,12 @@ A Clojure runtime written in Zig 0.16.0. Binary and package name: `cljw`.
 3. Implementation decisions, all in memory now (ADRs tagged `adr-NNNN`, the rule
    corpus tagged `cljw-rule`; both indexed below). Amendable by the loop
    autonomously (depth 2-4) by editing the ENTRY, never by re-creating a file.
-4. `.dev/principle.md` smell sensors, depth selection.
+4. The smell sensors and depth selection, in memory: the catalogue is
+   `memory query :tags ["bad-smell"]` (24 entries, open set); the premises and the
+   three finished-form questions are `20260911004145-29ffd52a`; depth 1-4 plus the
+   mandatory devil's-advocate fork at depth >= 2 are `20260901165122-24182b0a`
+   and `20260901164941-6357af6c`; structural imagination and its F-003 / F-015
+   scope boundary are `20260911004146-720ff81e`.
 5. AI judgement fills in the rest.
 
 Treating an F-NNN as "informational" / "tie-breaker" / "recommendation" is the
@@ -24,7 +29,8 @@ Smallest-diff bias smell and is forbidden.
 **Project spirit: the finished form's cleanliness wins.** Shipping fast and
 avoiding rework are second-tier. Big surgery is welcome; reservations (ADR
 numbers, NaN-box slots, debt rows) are memos, not contracts; progress pressure
-does not override the smell sensor. Mechanism: `.dev/principle.md`.
+does not override the smell sensor. Mechanism: the smell corpus in memory, layer
+4 above.
 
 ## Identity (verified 2026-09-10)
 

@@ -213,7 +213,7 @@ EOF
 
 (Discipline source: memory 20260909234759-18586426 (dual_backend_parity) +
 memory query :tags ["adr" "adr-0036"] +
-.dev/principle.md "Dual-backend drift" entry.)
+memory 20260911004145-390e301f, the Dual-backend drift smell.)
 EOF
   exit 2
 }

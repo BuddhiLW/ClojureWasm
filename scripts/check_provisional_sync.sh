@@ -309,7 +309,7 @@ EOF
   cat >&2 <<'EOF'
 
 (Discipline source: memory 20260909234453-094762cc (provisional_marker) +
-.dev/principle.md Silent default-shift entry.)
+memory 20260901172301-1919d835, the Silent default-shift smell.)
 EOF
   exit 2
 }
