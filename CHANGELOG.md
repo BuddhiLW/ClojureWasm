@@ -7,6 +7,8 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 
 ## [Unreleased]
 
+## [1.14.5] - 2026-09-11
+
 ### Added
 
 - **`java.io.File` publishes `getCanonicalFile` and `getAbsoluteFile`.** The
