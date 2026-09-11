@@ -2,7 +2,7 @@
 # scripts/check_debt_id_refs.sh
 #
 # Recurrence guard from the 2026-05-31 tech-debt consolidation audit
-# (.dev/tech_debt_consolidation.md, failure mode M5). Every `D-NNN`
+# (memory 20260911004940-38e9586e, failure mode M5). Every `D-NNN`
 # referenced in source / docs MUST resolve to an entry in `.dev/debt.yaml`;
 # a phantom ID (`D-NEW`, a typo, a never-filed placeholder) silently
 # detaches the comment that cites it from the Step-0.5 trigger system.
@@ -45,7 +45,7 @@ search_paths=(src .dev .claude scripts test data/feature_deps.yaml data/placemen
 # ID in immutable history to resolve to a live row fights that immutability,
 # and ADRs do not drive the Step-0.5 trigger system (debt.yaml rows do). The
 # check guards LIVE trigger sites (src + live docs), not history.
-exclude='\.dev/debt\.ya?ml|\.dev/decisions/|tech_debt_consolidation\.md|audit-lens|check_debt_id_refs\.sh'
+exclude='\.dev/debt\.ya?ml|audit-lens|check_debt_id_refs\.sh'
 
 # A git worktree nested inside this checkout (e.g. `.claude/worktrees/<branch>`)
 # is a DIFFERENT checkout: its `src` / `.dev` / `scripts` sit under a scan root

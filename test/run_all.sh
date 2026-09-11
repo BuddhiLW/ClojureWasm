@@ -351,7 +351,7 @@ run_step "runner_reach"         "bash scripts/check_runner_reach.sh"
 # Informational (no --gate): every D-NNN cited in source/docs must resolve
 # to a debt.yaml row (kills phantom IDs), + prints the quality-loop-floor
 # backlog so the F-010 loop sees it. Tech-debt consolidation 2026-05-31 /
-# .dev/tech_debt_consolidation.md. Gate-promotion tracked in D-175.
+# memory 20260911004940-38e9586e (the M1-M5 leak modes). Gate-promotion tracked in D-175.
 run_step "debt_id_refs"         "bash scripts/check_debt_id_refs.sh --gate"
 
 # CHANGELOG.md is the release-history SSOT, so an `[Unreleased]` entry that
