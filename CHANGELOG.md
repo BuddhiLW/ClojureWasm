@@ -26,22 +26,30 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
   through it. Exports the new build keeps retain their Var identity, and a Var
   the user `def`ined (or `def`ined over an export name) is never touched.
 
-- **Hashing a String that is not valid UTF-8 no longer ABORTS the process.**
-  `(hash (slurp "some.wasm"))` core-dumped cljw and took the REPL with it. A
-  cljw String is raw bytes (AD-009), so it can hold anything a file or a Wasm
-  guest buffer contains, but `javaStringHashCode` and `hashUnencodedChars`
-  both walked it with `std.unicode.Utf8View.initUnchecked`. That call promises
-  the caller has already validated; its iterator reads past the end of a
-  truncated sequence and trips `unreachable`, which is a process abort in
-  every safe build, not a catchable Clojure error.
+- **Hashing or comparing a String that is not valid UTF-8 no longer ABORTS
+  the process.** `(hash (slurp "some.wasm"))` core-dumped cljw and took the
+  REPL with it; `(compare a b)` on such a String did the same. A cljw String
+  is raw bytes (AD-009), so it can hold anything a file or a Wasm guest buffer
+  contains, but `javaStringHashCode`, `hashUnencodedChars` and
+  `javaStringCompareTo` all walked it with `std.unicode.Utf8View.initUnchecked`.
+  That call promises the caller has already validated; its iterator reads past
+  the end of a truncated sequence and trips `unreachable`, which is a process
+  abort in every safe build, not a catchable Clojure error.
 
-  Both now decode through `nextCodepointLossy`, which yields U+FFFD and
-  advances one byte for any sequence that is not valid UTF-8. Hashing has to
-  be total, because a value that cannot be hashed cannot be put in a map, and
-  a String must not become un-mappable for a reason the caller cannot see.
-  Valid UTF-8 decodes byte-identically to what the checked iterator produced,
-  so the JVM parity values are unchanged. Two distinct invalid strings may now
-  collide, which a hash is allowed to do; `=` still compares the bytes.
+  All three now decode through `utf8_total.Iterator`, a drop-in for
+  `std.unicode.Utf8Iterator` that is total over arbitrary bytes and substitutes
+  U+FFFD exactly as the JDK does: one replacement per MAXIMAL SUBPART, not per
+  byte, so `{0x41, 0xE2, 0x82}` hashes as `['A', U+FFFD]` on both runtimes.
+  The two places the JDK departs from the plain Unicode reading are
+  reproduced (`ED` accepts `80..BF` as its second byte; a complete 3-byte
+  surrogate encoding is ONE ill-formed span), measured against JDK 25 and 26.
+  Hashing has to be total, because a value that cannot be hashed cannot be put
+  in a map, and a String must not become un-mappable for a reason the caller
+  cannot see. Valid UTF-8 decodes byte-identically to what the checked
+  iterator produced, so the JVM parity values are unchanged. `compare` falls
+  back to byte order when the decoded sequences tie, so it returns 0 exactly
+  when the strings are `=`. Two distinct invalid strings may now hash equal,
+  which a hash is allowed to do; `=` still compares the bytes.
 
 ## [1.14.5] - 2026-09-11
 
