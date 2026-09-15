@@ -19,14 +19,14 @@
 # .dev/debt.yaml where it can carry a barrier — today exactly one var
 # (clojure.string/escape, D-094). ADR-0033 D2-D5 remains the placement rule.
 #
-# Read with yq per .claude/rules/yaml_ssot_yq.md.
+# Read with yq per memory 20260909234558-3c83a76a (yaml_ssot_yq).
 
 schema_version: "2.0"
 summary:
   namespaces_required: 34
-  total: 1422
-  zig: 406
-  clj: 795
+  total: 1425
+  zig: 407
+  clj: 797
   value: 215
   unbound: 6
 vars:
@@ -143,9 +143,11 @@ vars:
   "cljw.test/source-file?": { impl: clj, flags: "private" }
   "cljw.test/source-path": { impl: clj, flags: "private" }
   "cljw.test/strip-extension": { impl: clj, flags: "private" }
+  "cljw.wasm/component-var?": { impl: clj, flags: "private" }
   "cljw.wasm/require-component": { impl: clj, flags: "macro" }
   "cljw.wasm/require-component*": { impl: clj, flags: "-" }
   "cljw.wasm/require-component-libspec": { impl: clj, flags: "-" }
+  "cljw.wasm/retire-var!": { impl: clj, flags: "private" }
   "cljw.wasm/strip-export-name": { impl: clj, flags: "private" }
   "cljw.wasm/with-resource": { impl: clj, flags: "macro" }
   "clojure.core-meta/fill": { impl: clj, flags: "private" }
@@ -653,6 +655,7 @@ vars:
   "clojure.core/ns-refers": { impl: zig, flags: "-" }
   "clojure.core/ns-resolve": { impl: zig, flags: "-" }
   "clojure.core/ns-unalias": { impl: zig, flags: "-" }
+  "clojure.core/ns-unmap": { impl: zig, flags: "-" }
   "clojure.core/nth": { impl: zig, flags: "-" }
   "clojure.core/nthnext": { impl: clj, flags: "-" }
   "clojure.core/nthrest": { impl: clj, flags: "-" }

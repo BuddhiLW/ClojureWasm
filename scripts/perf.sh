@@ -13,7 +13,7 @@
 #   "campaign" once chased Debug ghosts: `(count (vec (range 1e6)))`
 #   read **121s in Debug** but **0.01s in ReleaseFast**; startup read
 #   0.48s in Debug but ~ms in ReleaseFast (matching cw v0's ~4ms).
-#   See `.claude/rules/perf_measure_release.md`.
+#   See `memory 20260909234455-390c5332 (perf_measure_release)`.
 #
 # RULE: measure runtime speed ONLY through this script (or the
 # ReleaseFast `bench/`). NEVER `time zig-out/bin/cljw` — that is Debug.

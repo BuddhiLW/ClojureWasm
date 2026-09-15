@@ -228,8 +228,8 @@ hits. Do not edit `debt.yaml` from this doc; the main loop creates the rows.
    **The library-incorporation campaign is now on STAY (user 2026-06-07)**; the loop
    self-selects remaining quality work. For a future re-expansion, the patterns +
    gap-taxonomy + coverage-raising know-how are in
-   **`.dev/library_incorporation_playbook.md`**. SSOT =
-   `.dev/convergence_campaign.md` Stage 1.3 item 3.
+   **memory `20260911004716-29dac88c`** (the 12 blocker classes). SSOT =
+   memory `20260911004834-0aebca5a` (the SSOT wiring audit).
 
 Cross-cutting blocker (not a single row): **no deps.edn / Maven resolver
 yet** (Campaign Stage 1.2). Every transitive dependency must be fetched and

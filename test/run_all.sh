@@ -351,7 +351,7 @@ run_step "runner_reach"         "bash scripts/check_runner_reach.sh"
 # Informational (no --gate): every D-NNN cited in source/docs must resolve
 # to a debt.yaml row (kills phantom IDs), + prints the quality-loop-floor
 # backlog so the F-010 loop sees it. Tech-debt consolidation 2026-05-31 /
-# .dev/tech_debt_consolidation.md. Gate-promotion tracked in D-175.
+# memory 20260911004940-38e9586e (the M1-M5 leak modes). Gate-promotion tracked in D-175.
 run_step "debt_id_refs"         "bash scripts/check_debt_id_refs.sh --gate"
 
 # CHANGELOG.md is the release-history SSOT, so an `[Unreleased]` entry that
@@ -361,10 +361,6 @@ run_step "changelog_reachability" "bash scripts/check_changelog_reachability.sh 
 # ADR-0004 locked the analyzer's special-form enum on day one and nothing
 # enforced it; the ADR and the enum had diverged in both directions.
 run_step "special_form_enum"    "bash scripts/check_special_form_enum.sh"
-
-# ADR-0020 mandates an "Affected files" section and nothing enforced it; 51
-# of 172 ADRs never got one. Enforced prospectively above a pinned mark.
-run_step "adr_affected_files"   "bash scripts/check_adr_affected_files.sh"
 
 # Accepted clj-divergence ledger (.dev/accepted_divergences.yaml): every
 # AD-NNN cites a justifying invariant + a pinning test, and COVERAGE.md
@@ -702,6 +698,8 @@ run_step "e2e_phase16_wasm_run"             "bash test/e2e/phase16_wasm_run.sh"
 run_step "e2e_phase16_wasm_run_output_cap" "bash test/e2e/phase16_wasm_run_output_cap.sh"
 run_step "e2e_phase16_wasm_component"       "bash test/e2e/phase16_wasm_component.sh"
 run_step "e2e_phase16_wasm_require_component" "bash test/e2e/phase16_wasm_require_component.sh"
+# The reswap coverage moved to suites/wasm-require-component-reswap-test: it
+# asserts values, not the process boundary, so it runs in-process now.
 run_step "e2e_phase15_ns_import"            "bash test/e2e/phase15_ns_import.sh"
 run_step "e2e_phase15_var_get_set"          "bash test/e2e/phase15_var_get_set.sh"
 run_step "e2e_phase15_with_local_vars"      "bash test/e2e/phase15_with_local_vars.sh"

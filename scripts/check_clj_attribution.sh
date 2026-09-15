@@ -3,7 +3,7 @@
 #
 # PreToolUse hook on Bash that physically blocks `git commit` when any
 # Clojure-namespace source file in the working tree lacks the EPL-2.0
-# attribution header. Enforces .claude/rules/clj_attribution.md (D-366):
+# attribution header. Enforces memory 20260909234633-115f1e0c (clj_attribution) (D-366):
 # every `src/lang/clj/clojure/**/*.clj` MUST carry
 # `SPDX-License-Identifier: EPL-2.0` (both header variants ① upstream-text
 # banner and ② independent-reimpl carry this single line, so one check
@@ -74,7 +74,7 @@ if [[ ${#missing[@]} -eq 0 ]]; then
       comm -13 <(printf '%s\n' "$banner_files") <(printf '%s\n' "$notice_files") | sed 's/^/    /'
       echo
       echo "A file reproducing upstream text must appear in legal/NOTICE, and the count"
-      echo "sentence at the top must match. See .claude/rules/clj_attribution.md."
+      echo "sentence at the top must match. See memory 20260909234633-115f1e0c (clj_attribution)."
     } >&2
     exit 2
   fi
@@ -92,7 +92,7 @@ Required first-line marker (both header variants carry it):
     ;; SPDX-License-Identifier: EPL-2.0
 
 To recover, prepend the standard header from
-.claude/rules/clj_attribution.md (B-1 of the D-366 work order):
+memory 20260909234633-115f1e0c (clj_attribution) (B-1 of the D-366 work order):
   - variant ② (independent reimplementation — the common case): the
     4-line CW-copyright header citing the upstream namespace lineage.
   - variant ① (upstream source text reproduced — template.clj and
@@ -104,7 +104,7 @@ printf '  %s\n' "${missing[@]}" >&2
 
 cat >&2 <<'EOF'
 
-(Rule: .claude/rules/clj_attribution.md. Discovery recipe:
+(Rule: memory 20260909234633-115f1e0c (clj_attribution). Discovery recipe:
   find src/lang/clj/clojure -name '*.clj' | xargs grep -L 'SPDX-License-Identifier: EPL-2.0'
 Discipline source: D-366 license attribution; framework_completion.md
 requires the rule + this hook to land in the same cycle as the retrofit.)

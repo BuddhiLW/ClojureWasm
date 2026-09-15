@@ -102,8 +102,6 @@ binary_size_report|-|yes|via-gate|bash scripts/binary_size_report.sh --check zig
 #              kept because the ADR's resumption clause needs it.
 #   todo:      UNRESOLVED. check_runner_reach.sh fails on it — an exclusion
 #              either has one of the settled kinds above or the script goes.
-check_adr_affected_files|-|yes|via-gate|bash scripts/check_adr_affected_files.sh
-check_adr_history|-|no|on-demand|bash scripts/check_adr_history.sh
 check_compat_tiers_sync|-|no|on-demand,informational|bash scripts/check_compat_tiers_sync.sh
 check_facts_immutable|-|no|hook|bash scripts/check_facts_immutable.sh
 check_learning_doc|-|no|hook,dormant|bash scripts/check_learning_doc.sh
@@ -114,7 +112,6 @@ check_tier_d_error_msg|-|no|on-demand,informational|bash scripts/check_tier_d_er
 check_vm_parity|-|no|on-demand|bash scripts/check_vm_parity.sh
 # Authoring-time checks: they inspect a commit or a document being written, so
 # they have no meaning in a batch run of the suite.
-check_handover_framing|-|no|authoring|bash scripts/check_handover_framing.sh
 check_roadmap_amendment|-|no|authoring|bash scripts/check_roadmap_amendment.sh
 check_stale_git_lock|-|no|authoring|bash scripts/check_stale_git_lock.sh
 check_gate_cadence|-|no|authoring|bash scripts/check_gate_cadence.sh

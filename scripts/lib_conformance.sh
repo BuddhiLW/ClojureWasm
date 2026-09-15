@@ -275,7 +275,7 @@ all_libs() {
         echo "> Per-lib FUNCTION-surface conformance vs the clj oracle (D-405,"
         echo "> ROADMAP §1.5 track 1). Corpus format + methodology: the script header."
         echo "> Known-DIFF lines carry D-NNN / AD-NNN tags per"
-        echo "> \`.claude/rules/accepted_divergences.md\`; load-only status lives in"
+        echo "> \`memory 20260909234822-74759eeb (accepted_divergences)\`; load-only status lives in"
         echo "> \`docs/works/ladder.md\`, load-proof projects in \`test/conformance/verified_projects/\`."
         echo
         echo "| lib | golden ok | known-DIFF | coverage |"

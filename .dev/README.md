@@ -13,7 +13,7 @@ Project-level design and operational metadata. Tracked in git. English.
   enforced** via [`.claude/rules/handover_framing.md`](../.claude/rules/handover_framing.md)
   (≤ 100 lines, no log accumulation, no forecast tables, no stop-
   rationalisation phrases).
-- [`cw_v0_parity_and_gap_plan.md`](./cw_v0_parity_and_gap_plan.md) — the
+- v0 parity and gap incorporation, now memory `20260911004837-4f399769` + `20260911004838-1e222586` — the
   2026-05-29 cw-v0-vs-cw-v1 parity snapshot + the plan for incorporating
   v0's gaps into cw v1 (redesigned, not copied; per-gap ordering +
   ROADMAP-amendment hooks). CLOSED 2026-07-02 (banner in the file; the

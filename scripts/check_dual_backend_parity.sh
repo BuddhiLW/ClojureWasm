@@ -6,8 +6,8 @@
 # `// VM-DEFER:` marker, or when a VM-DEFER marker is malformed
 # (missing the `[refs: D-NNN, feature_deps.yaml#<key>]` block).
 #
-# Discipline source: .claude/rules/dual_backend_parity.md +
-# .dev/decisions/0036_dual_backend_parity_contract.md.
+# Discipline source: memory 20260909234759-18586426 (dual_backend_parity) +
+# memory query :tags ["adr" "adr-0036"].
 # Sibling hook: scripts/check_provisional_sync.sh (PROVISIONAL marker
 # discipline) — the present hook adapts the same shape.
 #
@@ -181,7 +181,7 @@ A VM compile arm body ships as a silent gap without a
 and lacks the required `[refs: D-NNN, feature_deps.yaml#<key>]`
 block.
 
-Required canonical marker shape (see .claude/rules/dual_backend_parity.md):
+Required canonical marker shape (see memory 20260909234759-18586426 (dual_backend_parity)):
     // VM-DEFER: <one-line why> [refs: D-NNN, feature_deps.yaml#<key>]
     return error.NotImplemented;
 
@@ -211,9 +211,9 @@ EOF
 
   cat >&2 <<'EOF'
 
-(Discipline source: .claude/rules/dual_backend_parity.md +
-.dev/decisions/0036_dual_backend_parity_contract.md +
-.dev/principle.md "Dual-backend drift" entry.)
+(Discipline source: memory 20260909234759-18586426 (dual_backend_parity) +
+memory query :tags ["adr" "adr-0036"] +
+memory 20260911004145-390e301f, the Dual-backend drift smell.)
 EOF
   exit 2
 }

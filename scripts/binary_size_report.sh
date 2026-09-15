@@ -118,7 +118,7 @@ if [[ "$MODE" == "check" ]]; then
     if [[ "$ACTUAL" -gt "$EFFECTIVE_CEILING" ]]; then
         echo "size_claims: built binary ${ACTUAL_MB} MB (${ACTUAL} B) exceeds the ADR-0172 derived ceiling ($EFFECTIVE_CEILING B — $CEILING_NOTE)." >&2
         echo "  Attribute with 'bash scripts/binary_size_report.sh' (-Dprofile build for symbols), then land a lever" >&2
-        echo "  or consciously amend the budget table in .dev/decisions/0172_binary_size_budget_and_ledger.md." >&2
+        echo "  or consciously amend the budget table in memory query :tags ["adr" "adr-0172"]." >&2
         echo "  Do NOT raise PLATFORM_SIZE_FACTOR to pass — it encodes a measured mac/Linux ratio, not a slack knob." >&2
         exit 1
     fi
