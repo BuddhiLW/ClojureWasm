@@ -7,6 +7,8 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 
 ## [Unreleased]
 
+## [1.14.6] - 2026-09-15
+
 ### Added
 
 - **`ns-unmap`** (`clojure.core`, upstream surface). Removes a name from a
