@@ -7,15 +7,7 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 
 ## [Unreleased]
 
-## [1.14.6] - 2026-09-15
-
 ### Added
-
-- **`ns-unmap`** (`clojure.core`, upstream surface). Removes a name from a
-  namespace's mappings and refers. The Var survives the unmapping, as on the
-  JVM: compiled code and a captured `#'ns/x` keep working through it. It moves
-  to the namespace's `retired` list, which the GC root walk visits and
-  namespace teardown frees, so an unmap can neither dangle nor leak.
 
 - **`wasm/load-component` takes the same budget map as `wasm/load`**:
   `(wasm/load-component "c.wasm" {:fuel N :max-memory-pages M})`. A missing
@@ -34,7 +26,21 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
   one cause that cannot be confused with those three. `wasm/call` now raises
   `'<export>' exhausted the module's fuel budget` and a component call raises
   `component exhausted its fuel budget`; a genuine guest fault still reads
-  `trapped`.
+  `trapped`. A component that fails to open now names the engine's reason
+  (`UnsupportedWasiImport`, for one) instead of "failed to compile or
+  instantiate".
+
+## [1.14.6] - 2026-09-15
+
+### Added
+
+- **`ns-unmap`** (`clojure.core`, upstream surface). Removes a name from a
+  namespace's mappings and refers. The Var survives the unmapping, as on the
+  JVM: compiled code and a captured `#'ns/x` keep working through it. It moves
+  to the namespace's `retired` list, which the GC root walk visits and
+  namespace teardown frees, so an unmap can neither dangle nor leak.
+
+### Fixed
 
 - **Re-requiring a Wasm component no longer leaves the previous build's Vars
   interned.** `cljw.wasm/require-component` tags every Var it interns; on a
