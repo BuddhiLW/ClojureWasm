@@ -30,6 +30,29 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
   (`UnsupportedWasiImport`, for one) instead of "failed to compile or
   instantiate".
 
+- **A Rust `wasm32-wasip2` component built against `std` now instantiates.**
+  Any such guest that links `std::fs` imports `wasi:filesystem/types@0.2`
+  `metadata-hash-at`, which the embedded engine had no row for, so the whole
+  component failed to link before a single instruction ran; a `println!`-only
+  guest passed because it never linked the filesystem interface. Fixed in the
+  engine (see Changed), together with the 0.2 filesystem error-code ordinals
+  past `no-lock`, which were one too high and reported every "unsupported"
+  stub as "Not a tty". Still not there on the 0.2 path: `std::fs` reads and
+  writes (`read-via-stream` / `write-via-stream` stay engine stubs), which now
+  fail with `ENOTSUP` instead of instantiating nothing.
+
+### Changed
+
+- **The embedded Wasm engine is zwasm v2.7.0 plus two fixes, pinned to the
+  `cljw` branch of this project's fork (BuddhiLW/zwasm) until upstream carries
+  them.** v2.7.0 brings cross-module composition on the default engine,
+  engine observability hooks, and one behaviour change: a module the JIT judges
+  invalid is refused on the default engine instead of silently rerun on the
+  interpreter. The two fixes, both found from cljw and sent upstream as PRs:
+  a component's second and later exported interfaces resolve (they were
+  invisible to `wasm/component-exports` and `require-component`), and the
+  wasip2 `std` fix above.
+
 ## [1.14.6] - 2026-09-15
 
 ### Added

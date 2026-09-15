@@ -14,21 +14,31 @@
         // zwasm v2 embedding API (F-001 / D-037). `lazy` so the DEFAULT build +
         // gate never resolve it — only `-Dwasm` (b.lazyDependency) does.
         //
-        // PINNED to STABLE tag **v2.6.0** (2026-09-05, user direction: unpin
-        // from v2.5.0, track the latest release). zwasm is maintained
-        // separately at its own `zwasm` org since 2026-08-12; this pin moves on
-        // this fork's schedule, on user direction (F-001 Revision history).
+        // PINNED to the `cljw` branch of THIS FORK, BuddhiLW/zwasm
+        // (2026-09-14, user direction: "use our zwasm for now"). That branch
+        // is upstream v2.7.0 (d09d9248) plus two fixes found from cljw that
+        // upstream does not carry yet: every exported interface of a
+        // component resolves (fix/instance-reexport, cljw card
+        // ZWASM-INSTANCE-REEXPORT) and a rust-std wasip2 guest that touches
+        // the filesystem links (fix/p2-metadata-hash-at: the 0.2
+        // metadata-hash / metadata-hash-at rows plus the shifted 0.2
+        // error-code ordinals, cljw card CLJW-WASIP2-STD). Both are on the
+        // fork as PR-ready branches for github.com/zwasm/zwasm; when upstream
+        // carries them the pin returns to a zwasm/zwasm tag.
         //
-        // One embedding-API change since v2.5.0: zwasm #257 widened the
-        // captured-run stdin from `?[]const u8` to a `StdinSource` union
-        // (adapted in `src/runtime/cljw/wasm/engine.zig`; `.inherit` is not
-        // wired). v2.6.0 does NOT fix zwasm/D-584 / zwasm/D-585, the per-call
-        // JIT cost measured in `.dev/wasm_percall_findings.md`.
+        // Previous pin: stable tag v2.6.0 (2026-09-05). The v2.6.0 -> v2.7.0
+        // embedding-API delta is additive (five engine hooks,
+        // `Instance.engine()`, two appended trap kinds); one behaviour change,
+        // `.auto` no longer retries the interpreter on a JIT validity verdict.
+        // The per-call JIT cost (zwasm/D-584 / D-585,
+        // `.dev/wasm_percall_findings.md`) is still open.
         //
         // Bumping: `zig fetch` rejects the annotated TAG object (NotACommit);
-        // peel it with `git rev-parse 'vX.Y.Z^{}'` to get the commit sha.
+        // peel it with `git rev-parse 'vX.Y.Z^{}'` to get the commit sha. A
+        // branch pin names the commit the same way (`?ref=<branch>#<sha>`).
         //
-        // Pin history: v2.5.0 (2026-08-12) full WASI 0.3 coverage + the 81
+        // Pin history: v2.6.0 (2026-09-05) StdinSource union (#257);
+        // v2.5.0 (2026-08-12) full WASI 0.3 coverage + the 81
         // C-API symbols (#161); v2.4.1 (2026-08-04) two cljw-found fixes,
         // #157 (multi-export components) and #158/#159 (captured-run output
         // bound, D-349); v2.4.0 (2026-08-03) external-consumer release; v2.3.0
@@ -37,13 +47,13 @@
         // surface (Engine/Module/Instance on `.auto`, D-488) is unchanged
         // since v2.2.0.
         //
-        // The URL is the canonical `zwasm/zwasm` org; do NOT rely on GitHub's
-        // transfer redirect from `clojurewasm/zwasm`, which stops being an
-        // alias the moment anything else claims that name. The `.hash` is
-        // content-addressed, so the org move did not change it.
+        // Upstream is the `zwasm/zwasm` org; do NOT rely on GitHub's transfer
+        // redirect from `clojurewasm/zwasm`, which stops being an alias the
+        // moment anything else claims that name. The `.hash` is
+        // content-addressed, so the host of the URL never changes it.
         .zwasm = .{
-            .url = "git+https://github.com/zwasm/zwasm.git?ref=v2.6.0#3831e68b9af2e59a54ebc623fc11d5d1c24fc974",
-            .hash = "zwasm-2.6.0-FT1Fv3i-lgDA0y5x6L4L0V17CEoG6Bxg7p0_6kN6LUuy",
+            .url = "git+https://github.com/BuddhiLW/zwasm.git?ref=cljw#544f9c12fa19fbe952144b64ebcabf781c14a497",
+            .hash = "zwasm-2.7.0-FT1Fv_ZInADJZP5qmVfBJwpwDOJBdw4smLQ3wP5AVDBe",
             .lazy = true,
         },
     },
