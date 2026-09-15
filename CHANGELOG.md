@@ -7,6 +7,8 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 
 ## [Unreleased]
 
+## [1.14.7] - 2026-09-15
+
 ### Added
 
 - **`wasm/load-component` takes the same budget map as `wasm/load`**:
