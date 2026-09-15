@@ -6,7 +6,10 @@ cd "$(dirname "$0")/../.."
 BIN=${CLJW_BIN:-zig-out/bin/cljw}
 [[ -x "$BIN" ]] || { echo "Missing cljw binary: $BIN" >&2; exit 2; }
 # An outer bound makes a broken fuel implementation fail without hanging CI.
-timeout --kill-after=2s 20s "$BIN" - <<'CLJ'
+# timeout -> gtimeout -> unbounded: hosted macOS runners ship neither GNU
+# timeout nor coreutils gtimeout (same idiom as phase16_gc_torture.sh).
+run_bounded() { local s="$1"; shift; if command -v timeout >/dev/null 2>&1; then timeout "$s" "$@"; elif command -v gtimeout >/dev/null 2>&1; then gtimeout "$s" "$@"; else "$@"; fi; }
+run_bounded 20 "$BIN" - <<'CLJ'
 (def path "test/e2e/fixtures/wasm/spin_component.wasm")
 (def core-path "test/e2e/fixtures/wasm/spin.wasm")
 (defn check [label value]

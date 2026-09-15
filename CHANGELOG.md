@@ -51,7 +51,10 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
   interpreter. The two fixes, both found from cljw and sent upstream as PRs:
   a component's second and later exported interfaces resolve (they were
   invisible to `wasm/component-exports` and `require-component`), and the
-  wasip2 `std` fix above.
+  wasip2 `std` fix above. The engine bump grows the shipped binary from
+  7.55 MB to 8.14 MB (8,141,512 bytes, macOS arm64 reference build), under
+  the 8.8 MB ceiling; the size figures in the README, `docs/landscape.md`
+  and `bench/RELEASE_METRICS.md` follow.
 
 ## [1.14.6] - 2026-09-15
 

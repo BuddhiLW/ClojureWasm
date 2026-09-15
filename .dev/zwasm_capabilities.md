@@ -331,6 +331,9 @@ have surfaced it.
   the interpreter, which no e2e exercises. Verified: ReleaseSafe `-Dwasm`
   build, all nine `phase16_wasm_*` e2e (the budget step is new since
   v1.14.6), and the wasip2 `std` guest hive-addon-wasm text-tools lists its
-  seven exports across both interfaces where 2.6.0 failed to link. The full
-  gate runs on the next release PR's CI. The pin returns to a `zwasm/zwasm`
-  tag when a release carries both fixes.
+  seven exports across both interfaces where 2.6.0 failed to link. Measured
+  cljw effect on the release PR's macOS leg: shipped binary 7,549,512 ->
+  **8,141,512 B (+592 KB)**, within the 8,800,000 B ceiling; the size claims
+  were updated to 8.14 MB in the same batch. The full gate ran on that PR's
+  CI. The pin returns to a `zwasm/zwasm` tag when a release carries both
+  fixes.

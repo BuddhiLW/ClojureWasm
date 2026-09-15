@@ -13,7 +13,7 @@ corner, and the only numbers it claims are its own measured ones.
 | **jank**           | LLVM / C++. Native code and seamless C++ interop.                                 | Native.                                 |
 | **ClojureDart**    | Dart / Flutter. Mobile and cross-platform UI.                                     | App bundles.                            |
 | **clojurust**      | Rust. Cranelift JIT, AOT to native, Rust libraries as `cdylib` plugins.           | Native binary.                          |
-| **ClojureWasm**    | Zig. Embeds a Wasm engine so Clojure calls modules from Rust/Go/C (polyglot FFI). | ~7.5 MB native binary, starts in ~6 ms. |
+| **ClojureWasm**    | Zig. Embeds a Wasm engine so Clojure calls modules from Rust/Go/C (polyglot FFI). | ~8.1 MB native binary, starts in ~6 ms. |
 
 The other rows are respectful summaries of what each runtime is known for, not
 evaluations. The ClojureWasm row lists only its own

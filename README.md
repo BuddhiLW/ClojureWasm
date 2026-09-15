@@ -5,7 +5,7 @@
 <h1 align="center">ClojureWasm</h1>
 
 <p align="center">
-  <em>A JVM-free Clojure runtime in Zig. One 7.5 MB binary, a Wasm FFI, and a sandbox per module.</em>
+  <em>A JVM-free Clojure runtime in Zig. One 8.1 MB binary, a Wasm FFI, and a sandbox per module.</em>
 </p>
 
 <p align="center">
@@ -59,7 +59,7 @@ vectors, `result<T, E>` as `[:ok v]` / `[:err e]`.
 (:arglists (meta #'tp/process))               ;; => ([input])
 ```
 
-**Short-lived processes.** 7.5 MB on disk, about 6 ms from process start to
+**Short-lived processes.** 8.1 MB on disk, about 6 ms from process start to
 first eval, and `cljw build app.clj -o app` produces a self-contained
 executable. CLI tools, serverless handlers, scripts that run a thousand times
 a day.
@@ -174,10 +174,10 @@ checked against the built binary by a gate on every push.
 
 ```mermaid
 xychart-beta
-    title "Binary size, MB (cljw 7.55 MB, others measured 2026-07-16)"
+    title "Binary size, MB (cljw 8.14 MB, others measured 2026-07-16)"
     x-axis ["cljw", "Joker", "babashka", "jank"]
     y-axis "MB" 0 --> 140
-    bar [7.55, 28.8, 71.2, 129.7]
+    bar [8.14, 28.8, 71.2, 129.7]
 ```
 
 ```mermaid
