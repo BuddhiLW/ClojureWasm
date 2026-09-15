@@ -7,6 +7,55 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 
 ## [Unreleased]
 
+### Added
+
+- **`wasm/load-component` takes the same budget map as `wasm/load`**:
+  `(wasm/load-component "c.wasm" {:fuel N :max-memory-pages M})`. A missing
+  axis keeps zwasm's finite default (1e9 fuel, 4096 pages); `0` or a negative
+  value removes that cap for a trusted component. Fuel is per instance and is
+  not refilled between calls, so an exhausted handle stays exhausted and a
+  fresh load is the refill. `:engine` and `:timeout-ms` are refused, because a
+  component is pinned to the interpreter and no wall-clock deadline is
+  enforced on this path; a caller that needs one puts it around the call.
+
+### Fixed
+
+- **Running out of fuel is reported as running out of fuel.** A guest that
+  consumed its whole budget surfaced as the generic trap message ("trapped
+  (e.g. divide-by-zero, out-of-bounds, or an unreachable instruction)"), the
+  one cause that cannot be confused with those three. `wasm/call` now raises
+  `'<export>' exhausted the module's fuel budget` and a component call raises
+  `component exhausted its fuel budget`; a genuine guest fault still reads
+  `trapped`. A component that fails to open now names the engine's reason
+  (`UnsupportedWasiImport`, for one) instead of "failed to compile or
+  instantiate".
+
+- **A Rust `wasm32-wasip2` component built against `std` now instantiates.**
+  Any such guest that links `std::fs` imports `wasi:filesystem/types@0.2`
+  `metadata-hash-at`, which the embedded engine had no row for, so the whole
+  component failed to link before a single instruction ran; a `println!`-only
+  guest passed because it never linked the filesystem interface. Fixed in the
+  engine (see Changed), together with the 0.2 filesystem error-code ordinals
+  past `no-lock`, which were one too high and reported every "unsupported"
+  stub as "Not a tty". Still not there on the 0.2 path: `std::fs` reads and
+  writes (`read-via-stream` / `write-via-stream` stay engine stubs), which now
+  fail with `ENOTSUP` instead of instantiating nothing.
+
+### Changed
+
+- **The embedded Wasm engine is zwasm v2.7.0 plus two fixes, pinned to the
+  `cljw` branch of this project's fork (BuddhiLW/zwasm) until upstream carries
+  them.** v2.7.0 brings cross-module composition on the default engine,
+  engine observability hooks, and one behaviour change: a module the JIT judges
+  invalid is refused on the default engine instead of silently rerun on the
+  interpreter. The two fixes, both found from cljw and sent upstream as PRs:
+  a component's second and later exported interfaces resolve (they were
+  invisible to `wasm/component-exports` and `require-component`), and the
+  wasip2 `std` fix above. The engine bump grows the shipped binary from
+  7.55 MB to 8.14 MB (8,141,512 bytes, macOS arm64 reference build), under
+  the 8.8 MB ceiling; the size figures in the README, `docs/landscape.md`
+  and `bench/RELEASE_METRICS.md` follow.
+
 ## [1.14.6] - 2026-09-15
 
 ### Added

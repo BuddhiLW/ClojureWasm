@@ -76,9 +76,9 @@ not yours.
 - **One concern per PR.** A 30-line fix with a test merges; a 600-line
   refactor bundled with a fix stalls.
 - **A test that fails before your change and passes after it.** The test
-  taxonomy is in [`.claude/rules/test_taxonomy.md`](../.claude/rules/test_taxonomy.md);
-  in short, unit tests live in `test "..."` blocks next to the code and CLI
-  behaviour lives in `test/e2e/*.sh`.
+  taxonomy is in [`docs/testing.md`](../docs/testing.md); in short, unit
+  tests live in `test "..."` blocks next to the code and CLI behaviour lives
+  in `test/e2e/*.sh`.
 - For a `clojure.core` behaviour change, **a line in the relevant corpus under
   `test/diff/clj_corpus/`**, so the behaviour stays checked against real `clj`
   from then on.
@@ -89,11 +89,12 @@ reviewed the same way — on whether the code is right, not on who wrote it.
 
 ## Design context, if you want it
 
-Load-bearing decisions are recorded as ADRs under
-[`.dev/decisions/`](../.dev/decisions/); the plan and its principles live in
-[`.dev/ROADMAP.md`](../.dev/ROADMAP.md); the development loop itself is
-described in [`.claude/CLAUDE.md`](../.claude/CLAUDE.md). None of this is
-required reading to send a patch — it is there if you want to know why
+Load-bearing decisions are ADRs, cited by number (`ADR-NNNN`) in commit
+messages; the plan and its principles live in
+[`.dev/ROADMAP.md`](../.dev/ROADMAP.md), the invariants in
+[`.dev/project_facts.md`](../.dev/project_facts.md), and the shape of the
+runtime in [`docs/architecture.md`](../docs/architecture.md). None of this is
+required reading to send a patch; it is there if you want to know why
 something is the way it is.
 
 ## Getting in touch

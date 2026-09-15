@@ -41,7 +41,26 @@ under § Pin.
 
 ## Pin
 
-- **TAG PIN — v2.6.0, pinned 2026-09-05 (user direction).** `build.zig.zon`
+- **FORK-BRANCH PIN — BuddhiLW/zwasm `cljw` @ `544f9c12`, pinned 2026-09-14
+  (user direction: "use our zwasm for now. And also pull their latest changes
+  locally").** `build.zig.zon` `.zwasm` = `.url =
+  "git+https://github.com/BuddhiLW/zwasm.git?ref=cljw#544f9c12…"` + `.hash =
+  "zwasm-2.7.0-FT1Fv_ZInADJZP5qmVfBJwpwDOJBdw4smLQ3wP5AVDBe"`. The branch is
+  upstream **v2.7.0** (`d09d9248`, 2026-09-14: cross-module composition on the
+  default engine, five observability hooks, `Instance.engine()`, two appended
+  trap kinds, `.auto` no longer retries the interpreter on a JIT validity
+  verdict) plus two cherry-picks found from cljw that upstream does not carry:
+  `f1b0dc97` every exported interface of a component resolves (was: the second
+  interface invisible, ZWASM-INSTANCE-REEXPORT) and `544f9c12` the 0.2
+  `metadata-hash` / `metadata-hash-at` rows made real plus the 0.2 error-code
+  ordinals past `no-lock` corrected (was: any rust-std wasip2 guest that links
+  `std::fs` failed to instantiate, CLJW-WASIP2-STD). Both sit on the fork as
+  PR-ready branches (`fix/instance-reexport`, `fix/p2-metadata-hash-at`) for
+  `zwasm/zwasm`; the pin returns to an upstream tag when a release carries
+  them. Embedding-API delta for cljw: none required (the additions are
+  additive; cljw's `.auto` path is unchanged in shape). Verified: see the
+  Revision log entry of 2026-09-14.
+- Prior: **TAG PIN — v2.6.0, pinned 2026-09-05 (user direction).** `build.zig.zon`
   `.zwasm` = `.url = "git+…/zwasm.git?ref=v2.6.0#3831e68b"` +
   `.hash = "zwasm-2.6.0-FT1Fv3i-…"`. One embedding-API delta: zwasm #257
   widened `runWasmCapturedFull`'s stdin from `?[]const u8` to a `StdinSource`
@@ -297,3 +316,24 @@ have surfaced it.
   Gotcha recorded under § Pin: `zig fetch` wants the peeled commit, not the
   annotated tag object. Verified: ReleaseSafe `-Dwasm` build, all eight
   `phase16_wasm_*` e2e, the full gate.
+- **2026-09-14** — **FORK-BRANCH PIN** (user-directed: "use our zwasm for now.
+  And also pull their latest changes locally"). Pin moved v2.6.0 ->
+  BuddhiLW/zwasm `cljw` @ `544f9c12` = upstream v2.7.0 (`d09d9248`) + two
+  cherry-picks found from cljw that upstream lacks: `f1b0dc97` every exported
+  interface of a component resolves (ZWASM-INSTANCE-REEXPORT) and `544f9c12`
+  the 0.2 `metadata-hash` / `metadata-hash-at` rows made real + the 0.2
+  error-code ordinals past `no-lock` corrected (CLJW-WASIP2-STD). Both sit on
+  the fork as PR-ready branches for `zwasm/zwasm` (the account has READ there;
+  a push to the fork must go over SSH, the `gh` OAuth token lacks the
+  `workflow` scope). v2.6.0 -> v2.7.0 embedding delta: additive (five engine
+  hooks, `Instance.engine()`, two appended trap kinds); one behaviour change,
+  `.auto` refuses a module the JIT judges invalid instead of rerunning it on
+  the interpreter, which no e2e exercises. Verified: ReleaseSafe `-Dwasm`
+  build, all nine `phase16_wasm_*` e2e (the budget step is new since
+  v1.14.6), and the wasip2 `std` guest hive-addon-wasm text-tools lists its
+  seven exports across both interfaces where 2.6.0 failed to link. Measured
+  cljw effect on the release PR's macOS leg: shipped binary 7,549,512 ->
+  **8,141,512 B (+592 KB)**, within the 8,800,000 B ceiling; the size claims
+  were updated to 8.14 MB in the same batch. The full gate ran on that PR's
+  CI. The pin returns to a `zwasm/zwasm` tag when a release carries both
+  fixes.
