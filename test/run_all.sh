@@ -701,6 +701,10 @@ run_step "e2e_phase16_wasm_require_component" "bash test/e2e/phase16_wasm_requir
 # Caller-set :fuel / :max-memory-pages on wasm/load-component, and the fuel
 # diagnostic on both call paths (a budget kill must not read as a guest trap).
 run_step "e2e_phase16_wasm_component_budget" "bash test/e2e/phase16_wasm_component_budget.sh"
+# docs/examples/polyglot: the C / Zig / Rust / Go guests the README shows, run
+# as committed AND rebuilt from their source headers (each toolchain on PATH),
+# plus hosts.cljc on every Clojure host present. A README claim with a gate.
+run_step "e2e_phase16_wasm_polyglot"        "bash test/e2e/phase16_wasm_polyglot.sh"
 # The reswap coverage moved to suites/wasm-require-component-reswap-test: it
 # asserts values, not the process boundary, so it runs in-process now.
 run_step "e2e_phase15_ns_import"            "bash test/e2e/phase15_ns_import.sh"

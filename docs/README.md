@@ -14,6 +14,9 @@ GitHub wiki.
   first when something behaves unexpectedly; the answer is often a listed,
   intentional difference.
 - [`../README.md`](../README.md) — install, quickstart, the Wasm FFI.
+- [`examples/polyglot/`](./examples/polyglot/README.md) — C, Zig, Rust and Go
+  guests through the FFI, each with its build line, and one `.cljc` that runs
+  on `cljw`, `cljrs` and the JVM. Run it before writing your own guest.
 - [`works/ladder.md`](./works/ladder.md) — which real-world Clojure libraries
   load and run today.
 
