@@ -454,6 +454,14 @@ pub const Code = enum {
     /// A component-model invoke or resource drop failed inside the guest
     /// (ADR-0135). The core-module path is `wasm_trap`.
     wasm_component_trap,
+    /// args: `.{ .name = "..." }` — a `wasm/call` export consumed the whole
+    /// fuel budget its module was loaded with. Distinct from `wasm_trap`, so a
+    /// budget kill cannot be read as a guest bug.
+    wasm_fuel_exhausted,
+    /// args: `.{}` — a component call consumed the whole fuel budget its handle
+    /// was loaded with. The budget is per instance, so the handle stays
+    /// exhausted; a fresh `wasm/load-component` is the only refill.
+    wasm_component_fuel_exhausted,
     /// The `wasm_*` surface taxonomy (FIX-4): every `wasm/load` + `wasm/call`
     /// error is a CATCHABLE cljw exception (a request-derived bad arg or a
     /// faulty module on an edge request must not end the whole process). Each
@@ -474,6 +482,11 @@ pub const Code = enum {
     /// args: `.{}` — `wasm/load`'s bytes did not compile / instantiate as a
     /// valid WebAssembly module.
     wasm_load_failed,
+    /// args: `.{ .reason = @errorName(e) }` — a component failed to open
+    /// (decode, link its imports, or instantiate). The engine's error name is
+    /// the only signal that separates "an import this host does not provide"
+    /// from "a malformed file", so it rides along.
+    wasm_component_open_failed,
     /// args: `.{ .fn_name = "..." }` — the first argument of `wasm/call` or a
     /// `wasm/mem-*` fn was not a loaded module handle.
     wasm_handle_invalid,
@@ -1708,6 +1721,16 @@ pub fn entry(comptime code: Code) Entry {
             .phase = .eval,
             .template = "WebAssembly component trapped (e.g. divide-by-zero, out-of-bounds, or an unreachable instruction)",
         },
+        .wasm_fuel_exhausted => .{
+            .kind = .value_error,
+            .phase = .eval,
+            .template = "wasm/call: '{[name]s}' exhausted the module's fuel budget; load it with a larger :fuel, or {{:fuel 0}} for a trusted module",
+        },
+        .wasm_component_fuel_exhausted => .{
+            .kind = .value_error,
+            .phase = .eval,
+            .template = "WebAssembly component exhausted its fuel budget; the handle stays exhausted, so load it again with a larger :fuel, or {{:fuel 0}} for a trusted component",
+        },
         .wasm_path_invalid => .{
             .kind = .type_error,
             .phase = .eval,
@@ -1727,6 +1750,11 @@ pub fn entry(comptime code: Code) Entry {
             .kind = .value_error,
             .phase = .eval,
             .template = "wasm/load: the module failed to compile or instantiate",
+        },
+        .wasm_component_open_failed => .{
+            .kind = .value_error,
+            .phase = .eval,
+            .template = "wasm/load-component: the component failed to compile, link or instantiate ({[reason]s})",
         },
         .wasm_handle_invalid => .{
             .kind = .type_error,

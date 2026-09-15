@@ -30,7 +30,8 @@ GitHub wiki.
 
 **…deciding whether to depend on it**
 
-- [`landscape.md`](./landscape.md) — where cljw sits among Clojure runtimes.
+- [`landscape.md`](./landscape.md) — where cljw sits among Clojure runtimes,
+  and how it pairs with its Rust-hosted sibling `cljrs`.
 - [`works/binary_size.md`](./works/binary_size.md) — the measured size
   comparison behind the headline number.
 - [`works/collection_performance.md`](./works/collection_performance.md) — cljw
@@ -53,7 +54,8 @@ Not everything is in `docs/`, and the split is deliberate:
 
 | You want | Look in |
 |---|---|
-| Why a design is the way it is | `.dev/decisions/` — the ADR record, one file per load-bearing decision |
+| Why a design is the way it is | Commit messages cite `ADR-NNNN`; the ADR record itself is kept in the maintainer's knowledge base, not in the tree |
+| Which invariants are law | `.dev/project_facts.md` — the `F-NNN` facts every other document aligns to |
 | What is known-broken or deferred | `.dev/debt.yaml` — the debt ledger, with a testable barrier per row |
 | What a divergence from JVM Clojure costs and why it was accepted | `.dev/accepted_divergences.yaml` |
 | What a gate script checks | The script's own header in `scripts/` — each is its own SSOT |

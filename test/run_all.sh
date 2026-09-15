@@ -698,6 +698,9 @@ run_step "e2e_phase16_wasm_run"             "bash test/e2e/phase16_wasm_run.sh"
 run_step "e2e_phase16_wasm_run_output_cap" "bash test/e2e/phase16_wasm_run_output_cap.sh"
 run_step "e2e_phase16_wasm_component"       "bash test/e2e/phase16_wasm_component.sh"
 run_step "e2e_phase16_wasm_require_component" "bash test/e2e/phase16_wasm_require_component.sh"
+# Caller-set :fuel / :max-memory-pages on wasm/load-component, and the fuel
+# diagnostic on both call paths (a budget kill must not read as a guest trap).
+run_step "e2e_phase16_wasm_component_budget" "bash test/e2e/phase16_wasm_component_budget.sh"
 # The reswap coverage moved to suites/wasm-require-component-reswap-test: it
 # asserts values, not the process boundary, so it runs in-process now.
 run_step "e2e_phase15_ns_import"            "bash test/e2e/phase15_ns_import.sh"

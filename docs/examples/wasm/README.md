@@ -17,7 +17,7 @@ name, marshalling arguments and results from the export's signature
 ## Run it
 
 The **released binaries** (GitHub releases, `brew install
-clojurewasm/tap/cljw`) are wasm-enabled — `cljw --version` shows `wasm` —
+buddhilw/tap/cljw`) are wasm-enabled — `cljw --version` shows `wasm` —
 so they run this demo directly. Building from source, the FFI is behind a
 build flag (`-Dwasm`); a bare `zig build` does not embed zwasm:
 

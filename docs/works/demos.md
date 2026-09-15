@@ -72,8 +72,8 @@ the numeric tower, ratios, lazy seqs, STM, and the Wasm modules.
 ## The honest edges
 
 - Verified on macOS arm64 + Ubuntu x86_64 only.
-- Throughput/GC have headroom; the strengths are startup (~4–5 ms), size (<4 MB),
-  and a small footprint.
+- Throughput/GC have headroom; the strengths are startup (~6 ms), size
+  (one 7.5 MB static binary, Wasm engine included), and a small footprint.
 - The demos ran a Debian-slim (glibc) image with the full `-Dwasm` build, so the
   polyglot Wasm FFI was live in production, not just in tests. (A static-musl
   build still omits `-Dwasm` — zwasm's GC uses a glibc-only

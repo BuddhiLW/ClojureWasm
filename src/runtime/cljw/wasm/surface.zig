@@ -81,7 +81,7 @@ pub fn wasmLoadFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocat
 /// `engine.LoadOpts`. A missing budget key leaves that axis at zwasm's finite
 /// default; a non-positive value (`<= 0`) selects `.unmetered`; a positive value
 /// caps the axis. `:engine` selects `:auto` (default) / `:jit` / `:interp`.
-fn parseLoadOpts(rt: *Runtime, m: Value, loc: SourceLocation) anyerror!engine.LoadOpts {
+pub fn parseLoadOpts(rt: *Runtime, m: Value, loc: SourceLocation) anyerror!engine.LoadOpts {
     const tag = m.tag();
     if (tag != .array_map and tag != .hash_map)
         return error_catalog.raise(.wasm_opts_invalid, loc, .{ .detail = "the options argument must be a map" });
@@ -160,7 +160,9 @@ pub fn wasmCallFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocat
     // not a crash. The per-trap-kind 1:1 map is Phase-16 (ADR-0099 trap_map).
     // ADR-0196: the message names the export, its signature and the engine,
     // plus the remedy when the shape is a known engine gap.
-    loaded.invoke(name, in, out) catch {
+    loaded.invoke(name, in, out) catch |e| {
+        if (e == error.OutOfFuel)
+            return error_catalog.raise(.wasm_fuel_exhausted, loc, .{ .name = name });
         var sig_buf: [192]u8 = undefined;
         const gap = gaps.find(loaded.engine_kind, sig);
         return error_catalog.raise(.wasm_trap, loc, .{
