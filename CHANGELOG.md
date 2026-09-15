@@ -15,7 +15,24 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
   to the namespace's `retired` list, which the GC root walk visits and
   namespace teardown frees, so an unmap can neither dangle nor leak.
 
+- **`wasm/load-component` takes the same budget map as `wasm/load`**:
+  `(wasm/load-component "c.wasm" {:fuel N :max-memory-pages M})`. A missing
+  axis keeps zwasm's finite default (1e9 fuel, 4096 pages); `0` or a negative
+  value removes that cap for a trusted component. Fuel is per instance and is
+  not refilled between calls, so an exhausted handle stays exhausted and a
+  fresh load is the refill. `:engine` and `:timeout-ms` are refused, because a
+  component is pinned to the interpreter and no wall-clock deadline is
+  enforced on this path; a caller that needs one puts it around the call.
+
 ### Fixed
+
+- **Running out of fuel is reported as running out of fuel.** A guest that
+  consumed its whole budget surfaced as the generic trap message ("trapped
+  (e.g. divide-by-zero, out-of-bounds, or an unreachable instruction)"), the
+  one cause that cannot be confused with those three. `wasm/call` now raises
+  `'<export>' exhausted the module's fuel budget` and a component call raises
+  `component exhausted its fuel budget`; a genuine guest fault still reads
+  `trapped`.
 
 - **Re-requiring a Wasm component no longer leaves the previous build's Vars
   interned.** `cljw.wasm/require-component` tags every Var it interns; on a

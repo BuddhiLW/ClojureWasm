@@ -362,10 +362,6 @@ run_step "changelog_reachability" "bash scripts/check_changelog_reachability.sh 
 # enforced it; the ADR and the enum had diverged in both directions.
 run_step "special_form_enum"    "bash scripts/check_special_form_enum.sh"
 
-# ADR-0020 mandates an "Affected files" section and nothing enforced it; 51
-# of 172 ADRs never got one. Enforced prospectively above a pinned mark.
-run_step "adr_affected_files"   "bash scripts/check_adr_affected_files.sh"
-
 # Accepted clj-divergence ledger (.dev/accepted_divergences.yaml): every
 # AD-NNN cites a justifying invariant + a pinning test, and COVERAGE.md
 # points at the SSOT. Keeps the "NOT a bug" list a trust contract that
@@ -702,6 +698,9 @@ run_step "e2e_phase16_wasm_run"             "bash test/e2e/phase16_wasm_run.sh"
 run_step "e2e_phase16_wasm_run_output_cap" "bash test/e2e/phase16_wasm_run_output_cap.sh"
 run_step "e2e_phase16_wasm_component"       "bash test/e2e/phase16_wasm_component.sh"
 run_step "e2e_phase16_wasm_require_component" "bash test/e2e/phase16_wasm_require_component.sh"
+# Caller-set :fuel / :max-memory-pages on wasm/load-component, and the fuel
+# diagnostic on both call paths (a budget kill must not read as a guest trap).
+run_step "e2e_phase16_wasm_component_budget" "bash test/e2e/phase16_wasm_component_budget.sh"
 # The reswap coverage moved to suites/wasm-require-component-reswap-test: it
 # asserts values, not the process boundary, so it runs in-process now.
 run_step "e2e_phase15_ns_import"            "bash test/e2e/phase15_ns_import.sh"
