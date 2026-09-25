@@ -7,6 +7,8 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 
 ## [Unreleased]
 
+## [1.14.8] - 2026-09-25
+
 ### Added
 
 - **`docs/examples/polyglot/`: every guest language through the FFI, gated.**
