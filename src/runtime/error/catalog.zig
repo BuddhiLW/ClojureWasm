@@ -587,6 +587,16 @@ pub const Code = enum {
     net_io_failed,
     /// args: `.{}` — a `cljw.net` operation was attempted on a closed socket.
     net_socket_closed,
+    /// args: `.{ .detail = "..." }` — a `cljw.process/run` argument was
+    /// malformed (argv not a non-empty vector of strings, bad option type).
+    process_arg_invalid,
+    /// args: `.{ .program = "...", .detail = "..." }` — the host could not
+    /// start the program (not found on PATH, not executable, bad :dir).
+    process_spawn_failed,
+    /// args: `.{ .program = "...", .reason = "..." }` — `cljw.process/run` was
+    /// called under a containment mechanism a child process would escape (the
+    /// filesystem jail, an eval budget; `restriction.zig`), so it is refused.
+    process_spawn_restricted,
 
     // --- System ---
     out_of_memory,
@@ -1905,6 +1915,21 @@ pub fn entry(comptime code: Code) Entry {
             .kind = .value_error,
             .phase = .eval,
             .template = "cljw.net: the socket is closed",
+        },
+        .process_arg_invalid => .{
+            .kind = .type_error,
+            .phase = .eval,
+            .template = "cljw.process/run: {[detail]s}",
+        },
+        .process_spawn_failed => .{
+            .kind = .io_error,
+            .phase = .eval,
+            .template = "cljw.process/run: cannot run program '{[program]s}' ({[detail]s})",
+        },
+        .process_spawn_restricted => .{
+            .kind = .value_error,
+            .phase = .eval,
+            .template = "cljw.process/run: cannot run program '{[program]s}' because {[reason]s}; a child process would escape it",
         },
         .internal_error => .{
             .kind = .internal_error,

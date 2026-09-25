@@ -9,6 +9,17 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 
 ### Added
 
+- **`clojure.java.shell` over a native `cljw.process/run` (ADR-0199).** `sh`,
+  `with-sh-dir` and `with-sh-env` run any host program by argv (never through
+  a shell) and return `{:exit :out :err}`; a non-zero exit is data. `:in` is
+  fed concurrently, so a large input cannot deadlock; `:env` replaces the child
+  environment as JVM `sh` does. A child process escapes every in-process
+  containment, so `run` is refused under `CLJW_FS_ROOT` or inside
+  `cljw.eval/with-budget` (`restriction.zig`, one predicate for both), and a
+  worker thread blocked in it no longer holds up a collection. This is the seam
+  for driving native tools unchanged: AutoPDF's Clojure client runs the Go
+  `autopdf` CLI and renders the same PDF on cljw, clojurust and the JVM.
+
 - **`docs/examples/polyglot/`: every guest language through the FFI, gated.**
   A C kernel (`zig cc`, 2.3 KB) and a Zig kernel (267 B) over `wasm/load` +
   `wasm/call` with guest-owned buffers, a `no_std` Rust module (401 B), a

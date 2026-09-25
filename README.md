@@ -73,6 +73,26 @@ All five run in [`docs/examples/polyglot`](./docs/examples/polyglot/README.md),
 sources and build lines included; CI rebuilds them from source and runs them on
 every push.
 
+**Native tools, unchanged.** When the tool already exists as a native binary,
+nothing needs recompiling to Wasm and nothing needs bindings: its seam is its
+command line. `clojure.java.shell/sh` runs any program by argv (never through a
+shell) and returns `{:exit :out :err}`, with a non-zero exit as data. The same
+call runs on the JVM and on clojurust, so the client that wraps the tool is one
+`.cljc`.
+
+```clojure
+(require '[clojure.java.shell :refer [sh]])
+(sh "autopdf" "build" "invoice.tex" "invoice.json" "clean" :dir "examples")
+;; => {:exit 0, :out "...", :err "..."}   ; a Go binary, driven as is
+```
+
+[AutoPDF's Clojure client](https://github.com/BuddhiLW/AutoPDF/tree/main/clients/clojure)
+drives the unmodified Go `autopdf` CLI this way and renders the same PDF,
+byte for byte, on cljw, clojurust and the JVM. A child process escapes every
+in-process containment, so `sh` is refused under a filesystem root
+(`CLJW_FS_ROOT`) or inside `cljw.eval/with-budget`: pick Wasm when the guest
+must be confined, the process seam when the tool is trusted.
+
 **Short-lived processes.** 8.1 MB on disk, about 6 ms from process start to
 first eval, and `cljw build app.clj -o app` produces a self-contained
 executable. CLI tools, serverless handlers, scripts that run a thousand times

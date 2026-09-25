@@ -39,7 +39,7 @@ read -r -d '' PROBE <<'CLJ' || true
             clojure.data clojure.math clojure.pprint clojure.test clojure.template
             clojure.stacktrace clojure.instant clojure.uuid clojure.java.io clojure.repl
             clojure.datafy clojure.core.protocols clojure.core.reducers clojure.data.json
-            clojure.data.csv clojure.tools.cli])
+            clojure.data.csv clojure.tools.cli clojure.java.shell])
 (doseq [n nses]
   (try (require n) (catch Throwable _ nil))
   (doseq [s (sort (map key (filter (fn [[_ v]] (not (:doc (meta v)))) (ns-publics n))))]
