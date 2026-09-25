@@ -26,6 +26,7 @@ const error_mod = @import("../../error/info.zig");
 const SourceLocation = error_mod.SourceLocation;
 const error_catalog = @import("../../error/catalog.zig");
 const keyword_mod = @import("../../keyword.zig");
+const safepoint = @import("../../concurrency/safepoint.zig");
 const string_mod = @import("../../collection/string.zig");
 const map_mod = @import("../../collection/map.zig");
 const client = @import("client.zig");
@@ -125,7 +126,9 @@ pub fn runServer(
         return error_catalog.raiseInternal(loc, "cljw.http.server: listen/bind failed (port in use?)");
 
     while (true) {
-        var stream = server.accept(io) catch continue;
+        // Waits on the network run under safepoint.blocking, so a server started
+        // in a `future` does not stall collections between requests.
+        var stream = safepoint.blocking(std.Io.net.Server.accept, .{ &server, io }) catch continue;
         defer stream.close(io);
         // D-339: bound the request-head read BEFORE the first read on this
         // connection, so a peer that stalls mid-head cannot hold the serial
@@ -136,7 +139,7 @@ pub fn runServer(
         var sr = stream.reader(io, &rbuf);
         var sw = stream.writer(io, &wbuf);
         var hs = std.http.Server.init(&sr.interface, &sw.interface);
-        var req = hs.receiveHead() catch continue;
+        var req = safepoint.blocking(std.http.Server.receiveHead, .{&hs}) catch continue;
 
         // Build the Ring request map (cycle: method + uri; headers/body = D-257).
         const req_map = buildRequest(rt, &req, kw_method, kw_uri) catch {
@@ -232,53 +235,69 @@ pub fn runServer(
 /// server). A larger body yields `:body nil` rather than an unbounded read.
 const max_body_bytes = 8 * 1024 * 1024;
 
-fn buildRequest(rt: *Runtime, req: *std.http.Server.Request, kw_method: Value, kw_uri: Value) !Value {
-    // Everything sourced from the head (method / target / headers) is copied into
-    // cljw Values FIRST: reading the body via readerExpectNone invalidates the
-    // head's string memory, so the order here is load-bearing.
-    const method_kw = try methodKeyword(rt, req.head.method);
+/// A request as plain bytes owned by a scratch arena. Nothing here is a GC
+/// Value, so reading the body cannot leave a half-built map for a collection.
+const RequestBytes = struct {
+    method: std.http.Method,
+    target: []const u8,
+    /// `{lowercased-name, value}` pairs (Ring lowercases names).
+    headers: []const [2][]const u8,
+    body: ?[]const u8,
+};
+
+/// Copy the head, then read the body. The head is copied FIRST: reading the
+/// body via readerExpectContinue invalidates the head's string memory.
+fn collectRequest(arena: std.mem.Allocator, req: *std.http.Server.Request) !RequestBytes {
+    const target = try arena.dupe(u8, req.head.target);
+    var headers: std.ArrayList([2][]const u8) = .empty;
+    var hit = req.iterateHeaders();
+    while (hit.next()) |h|
+        try headers.append(arena, .{ try std.ascii.allocLowerString(arena, h.name), try arena.dupe(u8, h.value) });
+
+    // Read ONLY when the client declared a body (Content-Length or chunked); a
+    // body-less request with no length would otherwise read to EOF and block.
+    const has_body = req.head.content_length != null or req.head.transfer_encoding == .chunked;
+    const body: ?[]const u8 = if (has_body) blk: {
+        var body_buf: [16384]u8 = undefined;
+        const reader = req.readerExpectContinue(&body_buf) catch break :blk null;
+        const bytes = reader.allocRemaining(arena, std.Io.Limit.limited(max_body_bytes)) catch break :blk null;
+        break :blk if (bytes.len == 0) null else bytes;
+    } else null;
+    return .{ .method = req.head.method, .target = target, .headers = headers.items, .body = body };
+}
+
+/// The Ring request map for `rb`. Built in a fabrication region: every
+/// intermediate is an unrooted local until the map is returned.
+fn requestValue(rt: *Runtime, rb: RequestBytes, kw_method: Value, kw_uri: Value) !Value {
+    rt.gc.enterFabrication();
+    defer rt.gc.exitFabrication();
 
     // Ring splits the path from the query: `:uri` is the path, `:query-string`
     // the part after `?` (nil when absent).
-    const target = req.head.target;
-    const q_idx = std.mem.findScalar(u8, target, '?');
-    const path = if (q_idx) |i| target[0..i] else target;
-    const uri_str = try string_mod.alloc(rt, path);
-    const kw_query = try keyword_mod.intern(rt, null, "query-string");
-    const query_val: Value = if (q_idx) |i| try string_mod.alloc(rt, target[i + 1 ..]) else Value.nil_val;
+    const q_idx = std.mem.findScalar(u8, rb.target, '?');
+    const path = if (q_idx) |i| rb.target[0..i] else rb.target;
+    const query_val: Value = if (q_idx) |i| try string_mod.alloc(rt, rb.target[i + 1 ..]) else Value.nil_val;
 
-    // Headers → a cljw map {lowercased-name => value} (Ring lowercases names).
-    const kw_headers = try keyword_mod.intern(rt, null, "headers");
     var headers = map_mod.empty();
-    var hit = req.iterateHeaders();
-    while (hit.next()) |h| {
-        const lname = try std.ascii.allocLowerString(rt.gpa, h.name);
-        defer rt.gpa.free(lname);
-        const hk = try string_mod.alloc(rt, lname);
-        const hv = try string_mod.alloc(rt, h.value);
-        headers = try map_mod.assoc(rt, headers, hk, hv);
-    }
+    for (rb.headers) |h|
+        headers = try map_mod.assoc(rt, headers, try string_mod.alloc(rt, h[0]), try string_mod.alloc(rt, h[1]));
 
-    // Body → a cljw string (nil when there is none). Read ONLY when the client
-    // declared a body (Content-Length or chunked); a body-less request with no
-    // length would otherwise read the raw stream until EOF and block.
-    const kw_body = try keyword_mod.intern(rt, null, "body");
-    const has_body = req.head.content_length != null or req.head.transfer_encoding == .chunked;
-    const body_val: Value = if (has_body) blk: {
-        var body_buf: [16384]u8 = undefined;
-        const reader = req.readerExpectContinue(&body_buf) catch break :blk Value.nil_val;
-        const bytes = reader.allocRemaining(rt.gpa, std.Io.Limit.limited(max_body_bytes)) catch break :blk Value.nil_val;
-        defer rt.gpa.free(bytes);
-        break :blk if (bytes.len == 0) Value.nil_val else try string_mod.alloc(rt, bytes);
-    } else Value.nil_val;
+    const body_val: Value = if (rb.body) |b| try string_mod.alloc(rt, b) else Value.nil_val;
 
     var m = map_mod.empty();
-    m = try map_mod.assoc(rt, m, kw_method, method_kw);
-    m = try map_mod.assoc(rt, m, kw_uri, uri_str);
-    m = try map_mod.assoc(rt, m, kw_query, query_val);
-    m = try map_mod.assoc(rt, m, kw_headers, headers);
-    m = try map_mod.assoc(rt, m, kw_body, body_val);
+    m = try map_mod.assoc(rt, m, kw_method, try methodKeyword(rt, rb.method));
+    m = try map_mod.assoc(rt, m, kw_uri, try string_mod.alloc(rt, path));
+    m = try map_mod.assoc(rt, m, try keyword_mod.intern(rt, null, "query-string"), query_val);
+    m = try map_mod.assoc(rt, m, try keyword_mod.intern(rt, null, "headers"), headers);
+    m = try map_mod.assoc(rt, m, try keyword_mod.intern(rt, null, "body"), body_val);
     return m;
+}
+
+fn buildRequest(rt: *Runtime, req: *std.http.Server.Request, kw_method: Value, kw_uri: Value) !Value {
+    var arena_state = std.heap.ArenaAllocator.init(rt.gpa);
+    defer arena_state.deinit();
+    const rb = try safepoint.blocking(collectRequest, .{ arena_state.allocator(), req });
+    return requestValue(rt, rb, kw_method, kw_uri);
 }
 
 // --- Clojure surface (cljw.http.server / cljw.http.client) ---

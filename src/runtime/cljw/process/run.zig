@@ -3,6 +3,10 @@
 //! (ADR-0199). The substrate under `clojure.java.shell/sh`; the native
 //! sibling of `wasm/run`, with the same exit-as-data contract (ADR-0124).
 //!
+//! Backend: impl-only
+//! Impl deps: none
+//! Clojure peer: cljw.process/run
+//!
 //! Surface: `(cljw.process/run argv)` / `(cljw.process/run argv opts)`
 //!   argv = a non-empty vector of strings, program first (resolved on PATH)
 //!   opts = `{:in "<stdin>" :dir "<cwd>" :env {"NAME" "value" …}}`
@@ -17,10 +21,6 @@
 //! text cannot inject shell syntax. `:in` is written from a concurrent task
 //! while stdout/stderr drain, so a child that answers before it finishes
 //! reading cannot deadlock the pipe pair.
-//!
-//! Backend: impl-only
-//! Impl deps: none
-//! Clojure peer: cljw.process/run
 const std = @import("std");
 const Runtime = @import("../../runtime.zig").Runtime;
 const Env = @import("../../env.zig").Env;
@@ -33,7 +33,6 @@ const map_mod = @import("../../collection/map.zig");
 const keyword_mod = @import("../../keyword.zig");
 const restriction = @import("../../restriction.zig");
 const safepoint = @import("../../concurrency/safepoint.zig");
-const root_set = @import("../../gc/root_set.zig");
 
 const Io = std.Io;
 
@@ -176,17 +175,8 @@ pub fn runFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) 
     if (restriction.active(rt)) |r|
         return error_catalog.raise(.process_spawn_restricted, loc, .{ .program = req.argv[0], .reason = r.describe() });
 
-    // `execute` blocks in the OS and touches no GC memory. A registered worker
-    // counts as parked for that span, so a collection another thread requests
-    // does not wait for the child to exit. Nothing is raised inside the span:
-    // a failure comes back as data and is raised after it.
-    const blocked = root_set.is_registered_worker;
-    if (blocked) safepoint.enterBlocked();
     var failure: []const u8 = "";
-    const outcome = execute(rt.io, rt.gpa, req, &failure);
-    if (blocked) safepoint.exitBlocked();
-
-    const done = outcome catch |e| switch (e) {
+    const done = safepoint.blocking(execute, .{ rt.io, rt.gpa, req, &failure }) catch |e| switch (e) {
         error.ProcessFailed => return error_catalog.raise(.process_spawn_failed, loc, .{ .program = req.argv[0], .detail = failure }),
         error.OutOfMemory => return e,
     };

@@ -39,6 +39,22 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
   shape and needs `{:engine :interp}` or a result value, and the linker's
   default 1 MB shadow stack makes a C module ask for 17 pages.
 
+### Fixed
+
+- **A `future` blocked in a host call no longer stalls every collection.** A
+  worker waiting in `Thread/sleep`, a `cljw.net` accept, read, write or dial,
+  or a `cljw.http.client` request was not a safepoint, so a collection another
+  thread requested waited for the call to return, and forever if the peer never
+  answered. Each of these waits now runs under `safepoint.blocking`, which
+  counts the worker as parked for the call. The `cljw.http.server` accept and
+  request read are bracketed the same way.
+
+- **`cljw.http.client` could return a response with `:status` missing.** The
+  response map was built in an unrooted local, and a collection at the body
+  allocation swept it half-built. The http server's request map and the wasm
+  component `exports` and result lift had the same shape. Each now builds
+  inside a fabrication region.
+
 ## [1.14.7] - 2026-09-15
 
 ### Added

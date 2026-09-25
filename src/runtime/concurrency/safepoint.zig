@@ -165,6 +165,19 @@ pub fn exitBlocked() void {
     if (gc_requested.load(.acquire)) park();
 }
 
+/// Call `f` with `args`, counting a registered worker as parked for the call so
+/// a collection another thread requests does not wait for it to return. For
+/// calls that block in the OS (a child process, a socket, DNS). `f` must not
+/// allocate GC memory, create a Value or raise: it returns data or a Zig error,
+/// and the caller builds or raises after this returns. On the main /
+/// unregistered thread it is a plain call.
+pub fn blocking(comptime f: anytype, args: anytype) @TypeOf(@call(.auto, f, args)) {
+    if (!root_set.is_registered_worker) return @call(.auto, f, args);
+    enterBlocked();
+    defer exitBlocked();
+    return @call(.auto, f, args);
+}
+
 /// Acquire `m` at a GC safepoint when running on a registered worker: a worker
 /// that may block here while the COLLECTING thread holds `m` across a collect
 /// must not stall the rendezvous. The main / unregistered thread (the collector
@@ -474,4 +487,20 @@ test "collectStopTheWorld parks real workers allocating through gc.alloc, then r
     for (&threads) |t| t.join();
     try testing.expect(Shared.allocs.load(.acquire) > 0); // workers really ran
     try testing.expectEqual(@as(u32, 0), parkedCountForTest()); // all resumed cleanly
+}
+
+test "blocking counts a registered worker as parked for the call and passes the result through" {
+    const Probe = struct {
+        fn seen(bump: u32) error{Refused}!u32 {
+            if (bump == 0) return error.Refused;
+            return parkedCountForTest() + bump;
+        }
+    };
+    try testing.expectEqual(@as(u32, 1), try blocking(Probe.seen, .{1}));
+
+    root_set.is_registered_worker = true;
+    defer root_set.is_registered_worker = false;
+    try testing.expectEqual(@as(u32, 2), try blocking(Probe.seen, .{1}));
+    try testing.expectError(error.Refused, blocking(Probe.seen, .{0}));
+    try testing.expectEqual(@as(u32, 0), parkedCountForTest());
 }

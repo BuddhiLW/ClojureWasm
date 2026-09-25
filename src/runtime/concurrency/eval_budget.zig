@@ -36,6 +36,7 @@ const error_catalog = @import("../error/catalog.zig");
 const clock = @import("../clock.zig");
 const io_default = @import("io_default.zig");
 const Latch = @import("latch.zig").Latch;
+const safepoint = @import("safepoint.zig");
 const ClojureWasmError = error_catalog.ClojureWasmError;
 
 /// The budget metering THIS thread's evaluation, or null (unmetered).
@@ -234,12 +235,14 @@ pub fn budgetedSleep(io: std.Io, total_ns: u64, cancel: ?*Latch) ClojureWasmErro
     var deadline = now +| span;
     if (deadlineOf()) |d| deadline = @min(deadline, d);
 
+    // The wait makes no GC allocation, so a registered worker counts as parked
+    // for it and a sleeping `future` does not stall a collection.
     if (cancel) |latch| {
         // Returns early iff the cancel fired; the caller re-checks and unwinds.
-        _ = latch.wait(deadline);
+        _ = safepoint.blocking(Latch.wait, .{ latch, deadline });
     } else {
         const remaining = deadline - clock.nanoTime(io);
-        if (remaining > 0) io_default.sleep(@intCast(remaining));
+        if (remaining > 0) safepoint.blocking(io_default.sleep, .{@as(u64, @intCast(remaining))});
     }
 
     // A deadline that landed during the sleep still trips, so the caller unwinds
