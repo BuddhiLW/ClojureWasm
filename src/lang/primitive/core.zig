@@ -1545,8 +1545,16 @@ const Entry = struct {
 /// `(eval form)` — evaluate a runtime data Value as code (ADR-0058 / D-197).
 /// Delegates to `driver.evalValue` (valueToForm → analyze → evalForm), which
 /// dispatches to the active backend, so eval is backend-neutral. A top-level
-/// form has no enclosing locals; the transient arena holds the reconstructed
-/// form + node and is freed after (the result Value is GC-allocated, survives).
+/// form has no enclosing locals.
+///
+/// The form, Node and compiled chunks live on `rt.load_arena` (session
+/// lifetime), the arena `require` uses, for the same reason: a fn the eval'd
+/// form `def`s or returns keeps its bytecode chunks, and `traceFunction` walks
+/// their constant pools on every collect. A transient arena freed on return
+/// left `(eval '(defn g …))` holding freed chunks; the next collect traced
+/// garbage (GPF / segfault at 0x0, index-out-of-bounds in `traceArrayMap`).
+/// The cost is that eval-heavy code keeps each form's analysis for the session,
+/// as a JVM eval keeps each generated class.
 pub fn evalFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
     try error_catalog.checkArity("eval", args, 1, loc);
     // clj analyses only a COLLECTION or a SYMBOL; every other value is
@@ -1561,12 +1569,10 @@ pub fn evalFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation)
         .list, .cons, .lazy_seq, .chunked_cons, .range, .array_seq, .string_seq, .vector, .sub_vector, .array_map, .hash_map, .hash_set, .symbol => {},
         else => return args[0],
     }
-    var arena = std.heap.ArenaAllocator.init(rt.gpa);
-    defer arena.deinit();
     // A fresh top-level locals frame (the eval'd form's own `let*` / macro
     // expansions index into it), sized like the runner's top-level frame.
     var locals: [driver.MAX_LOCALS]Value = [_]Value{.nil_val} ** driver.MAX_LOCALS;
-    return driver.evalValue(rt, env, &locals, arena.allocator(), args[0], loc);
+    return driver.evalValue(rt, env, &locals, rt.load_arena.allocator(), args[0], loc);
 }
 
 pub fn hashFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
