@@ -24,8 +24,8 @@
 schema_version: "2.0"
 summary:
   namespaces_required: 35
-  total: 1433
-  zig: 408
+  total: 1434
+  zig: 409
   clj: 802
   value: 217
   unbound: 6
@@ -79,6 +79,7 @@ vars:
   "cljw.internal/__instance-of?": { impl: zig, flags: "-" }
   "cljw.internal/__kv-reduce-or": { impl: zig, flags: "-" }
   "cljw.internal/__lazy-seq-create": { impl: zig, flags: "-" }
+  "cljw.internal/__load-source": { impl: zig, flags: "-" }
   "cljw.internal/__locking": { impl: zig, flags: "-" }
   "cljw.internal/__make-multifn": { impl: zig, flags: "-" }
   "cljw.internal/__make-protocol!": { impl: zig, flags: "-" }
