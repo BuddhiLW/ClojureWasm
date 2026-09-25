@@ -29,6 +29,7 @@ const SourceLocation = @import("../../error/info.zig").SourceLocation;
 const error_catalog = @import("../../error/catalog.zig");
 const parse = @import("../../numeric/parse.zig");
 const promote = @import("../../numeric/promote.zig");
+const big_int = @import("../../numeric/big_int.zig");
 const string_mod = @import("../../collection/string.zig");
 
 /// Parse `s` as an i64 in `radix`, wrapping through `promote.wrapI64`
@@ -73,6 +74,24 @@ fn valueOf(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) an
         .string => parseI64(rt, string_mod.asString(args[0]), 10, "Long/valueOf", loc),
         .integer => args[0],
         else => error_catalog.raise(.type_arg_not_number, loc, .{ .fn_name = "Long/valueOf", .actual = @tagName(args[0].tag()) }),
+    };
+}
+
+/// `(Long. x)` / `(new Long x)`: a String parses base-10 (NumberFormatException
+/// when malformed), a Long is itself. Answers the plain cljw value, as every
+/// box ctor does: there is no boxed Long (ADR-0059). Any other argument
+/// matches no ctor. JVM reference: java.lang.Long#Long(long|String).
+fn ctor(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
+    _ = env;
+    try error_catalog.checkArity("Long.", args, 1, loc);
+    return switch (args[0].tag()) {
+        .string => parseI64(rt, string_mod.asString(args[0]), 10, "Long.", loc),
+        .integer => args[0],
+        .big_int => if (big_int.originOf(args[0]) == .long)
+            args[0]
+        else
+            error_catalog.raise(.ctor_unmatched, loc, .{ .class = "java.lang.Long" }),
+        else => error_catalog.raise(.ctor_unmatched, loc, .{ .class = "java.lang.Long" }),
     };
 }
 
@@ -307,6 +326,7 @@ fn initLong(td: *type_descriptor.TypeDescriptor, gpa: std.mem.Allocator) anyerro
         .{ "max", &BinOp2(.max, "max").call },
         .{ "min", &BinOp2(.min, "min").call },
         .{ "valueOf", &valueOf },
+        .{ "<init>", &ctor },
         .{ "toString", &toString },
         .{ "toBinaryString", &RadixString("b", "toBinaryString").call },
         .{ "toHexString", &RadixString("x", "toHexString").call },

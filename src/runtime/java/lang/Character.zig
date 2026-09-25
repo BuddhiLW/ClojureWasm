@@ -331,6 +331,19 @@ fn valueOf(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) an
     return args[0];
 }
 
+/// `(Character. c)` / `(new Character c)`: the char itself (cljw chars are
+/// already values, ADR-0059). Character has the one `(char)` ctor, which clj
+/// reaches by casting, so anything else, a one-char String included, is a
+/// ClassCastException there and a type error here.
+/// JVM reference: java.lang.Character#Character(char).
+fn ctor(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
+    _ = rt;
+    _ = env;
+    try error_catalog.checkArity("Character.", args, 1, loc);
+    _ = try argChar(args[0], "Character.", loc);
+    return args[0];
+}
+
 /// `(Character/compare x y)` — the numeric difference `x - y` (JVM exact
 /// semantics, not a clamped sign). JVM ref: Character#compare.
 fn compare(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
@@ -581,6 +594,7 @@ fn initCharacter(td: *type_descriptor.TypeDescriptor, gpa: std.mem.Allocator) an
         .{ "hashCode", &hashCode },
         .{ "compare", &compare },
         .{ "valueOf", &valueOf },
+        .{ "<init>", &ctor },
         .{ "isSpace", &isSpace },
         .{ "reverseBytes", &reverseBytes },
     };

@@ -94,6 +94,26 @@ fn valueOf(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) an
     return Value.initFloat(try error_catalog.expectNumber(args[0], "Float/valueOf", loc));
 }
 
+/// `(Float. x)` / `(new Float x)`: a String parses (NumberFormatException when
+/// malformed), a float is itself (cljw has no separate float width, AD-004).
+/// Answers the plain cljw value (ADR-0059). An integer matches no ctor, as in
+/// clj. JVM reference: java.lang.Float#Float(float|double|String).
+fn ctor(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
+    _ = rt;
+    _ = env;
+    try error_catalog.checkArity("Float.", args, 1, loc);
+    return switch (args[0].tag()) {
+        .string => blk: {
+            const s = string_mod.asString(args[0]);
+            const f = parse.parseFloat(s) catch
+                return error_catalog.raise(.number_format_invalid, loc, .{ .fn_name = "Float.", .text = s });
+            break :blk Value.initFloat(f);
+        },
+        .float => args[0],
+        else => error_catalog.raise(.ctor_unmatched, loc, .{ .class = "java.lang.Float" }),
+    };
+}
+
 /// JVM `Float.floatToIntBits` total order: all NaNs collapse to one canonical
 /// bit pattern; -0.0 sorts below +0.0. Narrows to f32 first — the contract is
 /// defined on the 32-bit pattern. Used by `compare` and `hashCode`.
@@ -190,6 +210,7 @@ fn initFloat(td: *type_descriptor.TypeDescriptor, gpa: std.mem.Allocator) anyerr
         .{ "isFinite", &Predicate("isFinite", isFiniteF).call },
         .{ "toString", &toString },
         .{ "valueOf", &valueOf },
+        .{ "<init>", &ctor },
         .{ "compare", &FBinOp2(.compare, "compare").call },
         .{ "max", &FBinOp2(.max, "max").call },
         .{ "min", &FBinOp2(.min, "min").call },

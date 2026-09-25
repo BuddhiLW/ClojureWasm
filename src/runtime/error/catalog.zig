@@ -298,6 +298,12 @@ pub const Code = enum {
     /// `assoc`, a wrong-typed `format` conversion arg (Java
     /// IllegalFormatConversionException ⊂ IllegalArgumentException). D-459.
     arg_value_invalid,
+    /// args: `.{ .class = "java.lang.Long" }`
+    /// `(new C args…)` where no constructor of C accepts those arguments: a
+    /// class with no constructor given arguments, or a box ctor handed a value
+    /// of the wrong kind (`(Double. 5)`, `(Short. 7.0)`). clj throws
+    /// IllegalArgumentException with this text, so Kind `.value_error`.
+    ctor_unmatched,
     /// `(symbol x)` on a value that is not a symbol/string/keyword. clj throws
     /// `IllegalArgumentException` here (NOT the `ClassCastException` of a plain
     /// type slot) — so this is `.value_error`, distinct from `type_arg_invalid`.
@@ -1537,6 +1543,11 @@ pub fn entry(comptime code: Code) Entry {
             .kind = .value_error,
             .phase = .eval,
             .template = "{[fn_name]s}: expected {[expected]s}, got {[actual]s}",
+        },
+        .ctor_unmatched => .{
+            .kind = .value_error,
+            .phase = .eval,
+            .template = "No matching ctor found for class {[class]s}",
         },
         .symbol_conversion_invalid => .{
             .kind = .value_error,

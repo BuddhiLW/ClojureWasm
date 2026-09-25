@@ -1176,3 +1176,17 @@ accepted:
     why: clj routes rationalize through BigDecimal.toBigInteger, so the result type is fixed by the OPERATION and a small value still carries the BigInt tag. cljw has one exact-integer type whose storage tier is chosen by MAGNITUDE (F-005), so a value that fits the machine integer is stored and printed as one no matter which operation produced it. Adopting cljs answer would mean a second exact-integer type that exists only to print an N, which F-005 exists to refuse. The same shape is already accepted in the other direction as AD-016.
     derives_from: F-005 (one exact-integer type, tier chosen by magnitude), read with AD-016 which accepts the mirror case.
     pin: suites.numeric-tower-test/rationalize-bigdec-is-exact - pins that the integral arm answers the exact INTEGER (1.0M is 1, never the unscaled 10) and that the wide-significand cases keep every digit.
+  - id: AD-073
+    area: interop
+    summary: '`(Boolean. x)` answers the plain `true`/`false`, so `(if (Boolean. "false") :t :f)` is `:f` in cljw where clj''s non-nil Boolean box makes it `:t`.'
+    example: (if (Boolean. "false") :truthy :falsey) => cljw :falsey / clj :truthy. (Boolean. "true") => true in both, and (= false (Boolean. "false")) is true in both.
+    why: cljw has no boxed Boolean; `true` and `false` are the only booleans (ADR-0059), and every box ctor answers the nearest cljw VALUE, the shape AD-004 (float) and AD-069 (int) already accept. The only observable consequence is the truthiness of a false box, the footgun Java deprecated this constructor over. A box that is `=` to false yet truthy would need a second false value that exists only to reproduce it.
+    derives_from: ADR-0059 (class/type answer an interned descriptor; there is no boxed-primitive object), read with AD-004 and AD-069 which accept the same value-not-box shape for float and int.
+    pin: suites.box-ctors-test/boolean-ctor-is-the-plain-value - pins that `(Boolean. "false")` is `false` itself, so the false branch is taken.
+  - id: AD-074
+    area: interop
+    summary: '`(Short. 7)` and `(Byte. 7)` answer 7 in cljw, where clj throws IllegalArgumentException because a long literal matches neither the `(short)` nor the `(byte)` ctor.'
+    example: (Short. 7) => cljw 7 / clj IllegalArgumentException. (Short. (short 7)) => 7 in both. (Short. 99999) raises IllegalArgumentException in both.
+    why: cljw has no short or byte type (AD-069), so `(short 7)` IS the Long 7 and the ctor cannot tell `(Short. (short 7))`, which clj accepts, from `(Short. 7)`, which it rejects. Rejecting integers would break the valid form to reproduce the error on the invalid one. The range check still holds, so every value a Short or Byte could not hold is refused as in clj.
+    derives_from: F-005 (no short/byte primitive; one exact-integer type), read with AD-069 which accepts `(short x)` / `(byte x)` yielding a Long.
+    pin: suites.box-ctors-test/short-and-byte-take-in-range-integers - pins that `(Short. 7)` and `(Short. (short 7))` both answer 7 and that an out-of-range integer still raises IllegalArgumentException.

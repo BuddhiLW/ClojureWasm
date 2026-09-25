@@ -20,6 +20,17 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
   for driving native tools unchanged: AutoPDF's Clojure client runs the Go
   `autopdf` CLI and renders the same PDF on cljw, clojurust and the JVM.
 
+- **The primitive-wrapper constructors.** `(Long. x)`, `(Integer. x)`,
+  `(Short. x)`, `(Byte. x)`, `(Double. x)`, `(Float. x)`, `(Character. c)` and
+  `(Boolean. x)` (and their `new` spellings) answer the plain cljw value, so
+  the result joins arithmetic, `=`, coercion and `str`. Strings parse as the
+  JVM ctors do (NumberFormatException when malformed or out of range). An
+  argument no ctor accepts raises IllegalArgumentException "No matching ctor
+  found for class …", which is now also what any constructor-less class
+  answers when given arguments. Two recorded divergences: `(if (Boolean.
+  "false") …)` takes the false branch (AD-073), and `(Short. 7)` / `(Byte. 7)`
+  answer 7 because cljw cannot tell them from `(Short. (short 7))` (AD-074).
+
 - **`docs/examples/polyglot/`: every guest language through the FFI, gated.**
   A C kernel (`zig cc`, 2.3 KB) and a Zig kernel (267 B) over `wasm/load` +
   `wasm/call` with guest-owned buffers, a `no_std` Rust module (401 B), a

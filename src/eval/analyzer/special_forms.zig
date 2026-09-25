@@ -162,8 +162,10 @@ pub fn constructInstance(
         const vt = rt.vtable orelse return error.NoVTable;
         return vt.callFn(rt, env, me.method_val, args, loc);
     }
+    // No constructor takes arguments: clj's IllegalArgumentException, not an
+    // arity error against an imaginary 0-arg ctor.
     if (args.len != 0)
-        return error_catalog.raise(.arity_not_expected, loc, .{ .got = args.len, .fn_name = type_name, .expected = 0 });
+        return error_catalog.raise(.ctor_unmatched, loc, .{ .class = td.fqcn orelse type_name });
     return error_catalog.raise(.symbol_unresolved, loc, .{ .sym = type_name });
 }
 
