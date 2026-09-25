@@ -221,23 +221,6 @@ assert_alloc 'map_promote'    '(count (into {} [[1 1] [2 2] [3 3] [4 4] [5 5] [6
 # bench's intermittent 19000-vs-20000, deterministic 0 under alloc-torture).
 assert_alloc 'json_nested'    '(do (require (quote [clojure.data.json :as json])) (count (get (json/read-str (json/write-str {:users (vec (map (fn [i] {:id i :tags ["a" "b"]}) (range 20)))})) "users")))' '20'
 
-# map seq/keys/vals builders held the partial list and each fresh MapEntry in
-# Zig locals across the next alloc with no fabrication bracket; a collect
-# swept the tail and `(next (seq m))` looped back to the first entry (malli's
-# -vmap over a map literal overran its object-array).
-assert_alloc 'map_seq_next'    '(second (seq {:a 1 :b 2}))'                  '[:b 2]'
-assert_alloc 'map_seq_walk'    '(count (loop [s (seq {:a 1 :b 2 :c 3 :d 4 :e 5 :f 6}) acc []] (if s (recur (next s) (conj acc (first s))) acc)))' '6'
-assert_alloc 'map_keys_vals'   '[(vec (keys {:a 1 :b 2})) (vec (vals {:a 1 :b 2}))]' '[[:a :b] [1 2]]'
-# sorted map/set: insert/delete rebuilt nodes unrooted across allocs and user
-# comparators, folds kept the accumulator in a Zig local, and the tree walks
-# had no bracket (`(count (sorted-set 1))` was 0; build recursed into a
-# recycled cycle and overflowed the stack).
-assert_alloc 'sorted_map_seq'  '(vec (seq (sorted-map 3 :c 1 :a 2 :b)))'    '[[1 :a] [2 :b] [3 :c]]'
-assert_alloc 'sorted_set_rseq' '(vec (rseq (sorted-set 3 1 2)))'            '[3 2 1]'
-assert_alloc 'sorted_disj'     '(vec (disj (into (sorted-set) (range 20)) 5 7 11))' '[0 1 2 3 4 6 8 9 10 12 13 14 15 16 17 18 19]'
-assert_alloc 'sorted_by_dissoc' '(vec (keys (dissoc (into (sorted-map-by (fn [a b] (compare b a))) (map vector (range 12) (range 12))) 3 4)))' '[11 10 9 8 7 6 5 2 1 0]'
-assert_alloc 'sorted_subseq'   '(vec (subseq (into (sorted-map) (map vector (range 20) (range 20))) > 15))' '[[16 16] [17 17] [18 18] [19 19]]'
-
 # D-244 #4b — eval-REENTRANT lazy-seq realization / reduce over a RANGE source.
 # Before the fix these returned 1 / nil-errors under alloc-torture (the range
 # ChunkBuffer / -take-eager cursor were swept mid-realization). Small N (alloc
@@ -269,6 +252,8 @@ assert_alloc 'for_range'         '(pr-str (doall (for [i (range 2)] (+ 1 i))))' 
 # enables allocation torture, which skips registered nREPL workers.
 CLJW_GC_TORTURE=0 CLJW_GC_TORTURE_ALLOC=1 run_bounded 60 "$BIN" \
     test/clj/torture/lazy_seqable.clj
+CLJW_GC_TORTURE=0 CLJW_GC_TORTURE_ALLOC=1 run_bounded 120 "$BIN" \
+    test/clj/torture/rooting_regressions.clj
 
 # D-418 fabrication-window guard (DETERMINISTIC — the discharge proof). The agent
 # enqueue path injects a STW collect into the exact send/await window under
@@ -333,22 +318,5 @@ assert_eq 'self_recursive_survives' "$("$BIN" -e '(let [a [7]] (letfn [(go [n] (
 # be live BEFORE the binder runs, or the rest-cons alloc sweeps the executing
 # fn out from under its own binding.
 assert_eq 'variadic_callee_rooted_before_bind' "$(CLJW_GC_TORTURE_ALLOC=1 "$BIN" -e '(reduce + (apply (fn [& xs] xs) [1 2 3 4 5]))')" '15'
-
-# `eval` analysed into a transient arena freed on return, so a fn it `def`d kept
-# bytecode chunks in freed memory and the next collect's `traceFunction` walked
-# garbage constant pools (GPF / segfault 0x0 / traceArrayMap OOB). Found when
-# clojure-elisp's compiler (which evals user macros) ran a large file, then
-# allocated. The first case needs no torture: the normal threshold collect in
-# `(vec (range 200000))` traces the evaluated fns. The second forces a collect
-# at every alloc while the eval'd fns stay dormant in their vars.
-assert_eq 'eval_defn_survives_collect' "$(unset CLJW_GC_TORTURE; "$BIN" -e '(do (dotimes [i 20] (eval (list (quote defn) (symbol (str "g" i)) (quote [x]) (list (quote str) (str "n" i "=") (quote x) {:a [i] :b #{i}})))) (count (vec (range 200000))) (g7 1))')" '"n7=1{:a [7], :b #{7}}"'
-# A user macro's `&form` is the call list with a `{:line :column}` meta map.
-# buildAmpForm held the list and then the meta map in Zig locals across the
-# next alloc, so a collect swept the meta map and the list kept a dangling
-# pointer (traceArrayMap index 16 of 16). Alloc torture only collects inside a
-# live VM eval, so the analysis has to run under one: `eval` here, a nested
-# `require` in the wild (malli.core under alloc torture).
-assert_eq 'macro_amp_form_meta_rooted' "$(CLJW_GC_TORTURE=0 CLJW_GC_TORTURE_ALLOC=1 "$BIN" -e '(do (defmacro m [] :k) (eval (quote (def ep (m)))) ep)')" ':k'
-assert_eq 'eval_defn_alloc_torture' "$(CLJW_GC_TORTURE=0 CLJW_GC_TORTURE_ALLOC=1 "$BIN" -e '(do (eval (quote (defn eg [x] (str "v=" x [x])))) (count (vec (range 50))) (eg 3))')" '"v=3[3]"'
 
 echo "ALL phase16_gc_torture PASS"
