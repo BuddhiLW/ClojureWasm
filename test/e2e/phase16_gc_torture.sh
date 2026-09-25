@@ -252,6 +252,8 @@ assert_alloc 'for_range'         '(pr-str (doall (for [i (range 2)] (+ 1 i))))' 
 # enables allocation torture, which skips registered nREPL workers.
 CLJW_GC_TORTURE=0 CLJW_GC_TORTURE_ALLOC=1 run_bounded 60 "$BIN" \
     test/clj/torture/lazy_seqable.clj
+CLJW_GC_TORTURE=0 CLJW_GC_TORTURE_ALLOC=1 run_bounded 120 "$BIN" \
+    test/clj/torture/rooting_regressions.clj
 
 # D-418 fabrication-window guard (DETERMINISTIC — the discharge proof). The agent
 # enqueue path injects a STW collect into the exact send/await window under

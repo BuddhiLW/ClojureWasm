@@ -54,3 +54,8 @@ __pycache__/
 
 # nREPL writes the live port here at `cljw nrepl` startup — machine-local.
 .nrepl-port
+
+# The Go guest of the polyglot demo carries the Go runtime (~4.5 MB); it is
+# built on demand from jsonsum.go (docs/examples/polyglot/README.md), never
+# committed. The C, Zig and Rust guests are a few hundred bytes and are.
+docs/examples/polyglot/go/jsonsum.wasm

@@ -161,13 +161,21 @@ pub fn expandIfMacro(
 /// (cljw list Values carry meta even though symbols do not — ADR-0037).
 fn buildAmpForm(arena: std.mem.Allocator, rt: *Runtime, env: *Env, call_form: Form, loc: SourceLocation) ExpandError!Value {
     const analyzer_mod = @import("analyzer/analyzer.zig");
+    // D-430: `form_val` sits in a Zig local while the meta map is built, and
+    // `meta_val` while `withMeta` allocates the new list cell. Either alloc can
+    // collect (a nested load's analysis runs inside a live VM eval), so root
+    // both on the analysis frame. Unrooted, the meta map was swept and the
+    // `&form` list kept a dangling pointer to it: the next collect traced
+    // freed memory (`traceArrayMap` index 16 of 16 under alloc torture).
     const form_val = try analyzer_mod.formToValue(rt, env, call_form);
+    try root_set.pushAnalysisRoot(form_val);
     const meta_pairs = try arena.alloc(Form, 4);
     meta_pairs[0] = .{ .data = .{ .keyword = .{ .name = "line" } }, .location = loc };
     meta_pairs[1] = .{ .data = .{ .integer = @intCast(call_form.location.line) }, .location = loc };
     meta_pairs[2] = .{ .data = .{ .keyword = .{ .name = "column" } }, .location = loc };
     meta_pairs[3] = .{ .data = .{ .integer = @intCast(call_form.location.column) }, .location = loc };
     const meta_val = try analyzer_mod.formToValue(rt, env, .{ .data = .{ .map = meta_pairs }, .location = loc });
+    try root_set.pushAnalysisRoot(meta_val);
     if (form_val.tag() == .list)
         return list_collection.withMeta(rt, form_val, meta_val) catch |e| return narrowCallFnError(e, loc);
     return form_val;

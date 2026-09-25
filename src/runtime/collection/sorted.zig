@@ -24,6 +24,7 @@ const Env = @import("../env.zig").Env;
 const tag_ops = @import("../gc/tag_ops.zig");
 const gc_heap_mod = @import("../gc/gc_heap.zig");
 const mark_sweep = @import("../gc/mark_sweep.zig");
+const root_set = @import("../gc/root_set.zig");
 const compare_mod = @import("../compare.zig");
 const equal = @import("../equal.zig");
 const hash_mod = @import("../hash.zig");
@@ -154,25 +155,24 @@ fn insert(rt: *Runtime, env: *Env, comparator: Value, h: Value, key: Value, val:
         return .{ .node = try newNode(rt, key, val, Value.nil_val, Value.nil_val, RED), .added = true };
     }
     const hn = h.decodePtr(*const RbNode);
+    // Descend first: every comparison (a custom comparator is user code) runs
+    // before this level allocates, so nothing fresh is live across user code.
     const order = try compareKeys(rt, env, comparator, key, hn.key, loc);
-    var added = false;
-    var built: Value = undefined;
-    switch (order) {
-        .lt => {
-            const r = try insert(rt, env, comparator, hn.left, key, val, loc);
-            added = r.added;
-            built = try newNode(rt, hn.key, hn.val, r.node, hn.right, hn.color);
-        },
-        .gt => {
-            const r = try insert(rt, env, comparator, hn.right, key, val, loc);
-            added = r.added;
-            built = try newNode(rt, hn.key, hn.val, hn.left, r.node, hn.color);
-        },
-        .eq => {
-            built = try newNode(rt, hn.key, val, hn.left, hn.right, hn.color);
-        },
-    }
-    return .{ .node = try balance(rt, built), .added = added };
+    const sub: ?InsResult = switch (order) {
+        .lt => try insert(rt, env, comparator, hn.left, key, val, loc),
+        .gt => try insert(rt, env, comparator, hn.right, key, val, loc),
+        .eq => null,
+    };
+    // ADR-0150: the rebuilt node and the balance rotations are pure-Zig
+    // multi-alloc work holding `sub.node` and each fresh node in locals.
+    rt.gc.enterFabrication();
+    defer rt.gc.exitFabrication();
+    const built = switch (order) {
+        .lt => try newNode(rt, hn.key, hn.val, sub.?.node, hn.right, hn.color),
+        .gt => try newNode(rt, hn.key, hn.val, hn.left, sub.?.node, hn.color),
+        .eq => try newNode(rt, hn.key, val, hn.left, hn.right, hn.color),
+    };
+    return .{ .node = try balance(rt, built), .added = if (sub) |s| s.added else false };
 }
 
 fn makeBlack(rt: *Runtime, root: Value) !Value {
@@ -242,19 +242,30 @@ fn deleteMin(rt: *Runtime, h: Value) !Value {
 /// Delete `key` from a non-empty subtree known to contain it; returns the
 /// rebalanced subtree (nil if it became empty).
 fn deleteNode(rt: *Runtime, env: *Env, comparator: Value, h: Value, key: Value, loc: SourceLocation) !Value {
+    // GC-ROOT: C. `n` is a fresh node (moveRed*/rotate results) held across
+    // comparisons that may run a user comparator, and `child` across the
+    // parent's rebuild alloc. The pure restructuring steps are fabrication
+    // regions (ADR-0150); the comparisons stay outside them.
+    var roots = [_]Value{ h, .nil_val };
+    var sp: u16 = 2;
+    var frame: root_set.EvalFrame = .{ .stack = &roots, .sp = &sp, .locals = &.{}, .parent = root_set.eval_frame_head };
+    root_set.eval_frame_head = &frame;
+    defer root_set.eval_frame_head = frame.parent;
     var n = h;
     if (try compareKeys(rt, env, comparator, key, n.decodePtr(*const RbNode).key, loc) == .lt) {
         var nn = n.decodePtr(*const RbNode);
         if (!isRed(nn.left) and !isRed(leftOf(nn.left))) {
-            n = try moveRedLeft(rt, n);
+            n = try fabricate(rt, moveRedLeft, n);
+            roots[0] = n;
             nn = n.decodePtr(*const RbNode);
         }
-        const new_left = try deleteNode(rt, env, comparator, nn.left, key, loc);
-        n = try newNode(rt, nn.key, nn.val, new_left, nn.right, nn.color);
+        roots[1] = try deleteNode(rt, env, comparator, nn.left, key, loc);
+        n = try newNode(rt, nn.key, nn.val, roots[1], nn.right, nn.color);
     } else {
         var nn = n.decodePtr(*const RbNode);
         if (isRed(nn.left)) {
-            n = try rotateRight(rt, n);
+            n = try fabricate(rt, rotateRight, n);
+            roots[0] = n;
             nn = n.decodePtr(*const RbNode);
         }
         // Leaf with matching key (after the right-lean fix): drop it.
@@ -262,21 +273,31 @@ fn deleteNode(rt: *Runtime, env: *Env, comparator: Value, h: Value, key: Value, 
             return Value.nil_val;
         }
         if (!isRed(nn.right) and !isRed(leftOf(nn.right))) {
-            n = try moveRedRight(rt, n);
+            n = try fabricate(rt, moveRedRight, n);
+            roots[0] = n;
             nn = n.decodePtr(*const RbNode);
         }
         if (try compareKeys(rt, env, comparator, key, nn.key, loc) == .eq) {
             // Replace with in-order successor (min of right subtree), then
             // delete that successor from the right subtree.
             const succ = minNode(nn.right).decodePtr(*const RbNode);
-            const new_right = try deleteMin(rt, nn.right);
-            n = try newNode(rt, succ.key, succ.val, nn.left, new_right, nn.color);
+            roots[1] = try fabricate(rt, deleteMin, nn.right);
+            n = try newNode(rt, succ.key, succ.val, nn.left, roots[1], nn.color);
         } else {
-            const new_right = try deleteNode(rt, env, comparator, nn.right, key, loc);
-            n = try newNode(rt, nn.key, nn.val, nn.left, new_right, nn.color);
+            roots[1] = try deleteNode(rt, env, comparator, nn.right, key, loc);
+            n = try newNode(rt, nn.key, nn.val, nn.left, roots[1], nn.color);
         }
     }
-    return balance(rt, n);
+    return fabricate(rt, balance, n);
+}
+
+/// Run a pure-Zig multi-alloc tree step (rotation, recolor, balance,
+/// deleteMin) inside an ADR-0150 fabrication region: it holds fresh nodes in
+/// locals across its own allocs and never calls user code.
+fn fabricate(rt: *Runtime, comptime step: anytype, h: Value) !Value {
+    rt.gc.enterFabrication();
+    defer rt.gc.exitFabrication();
+    return step(rt, h);
 }
 
 // --- SortedMap public API ---
@@ -398,9 +419,36 @@ pub fn forEachElem(
     try forEachEntry(s_val.decodePtr(*const SortedSet).map, ctx, Wrap.entry);
 }
 
+/// GC-ROOT: C. Every public sorted mutator roots its own operands for the
+/// whole call. A custom comparator is user code that can collect mid-walk,
+/// and callers fold (`sorted-map`, multi-key `assoc`/`dissoc`/`disj`,
+/// `print`, TreeMap/TreeSet) with the accumulator in a Zig local. Collects
+/// only happen inside these calls, so rooting the operand here roots the
+/// caller's accumulator too.
+const OperandRoots = struct {
+    roots: [3]Value,
+    sp: u16 = 3,
+    frame: root_set.EvalFrame = undefined,
+
+    fn push(self: *OperandRoots) void {
+        self.frame = .{ .stack = &self.roots, .sp = &self.sp, .locals = &.{}, .parent = root_set.eval_frame_head };
+        root_set.eval_frame_head = &self.frame;
+    }
+
+    fn pop(self: *OperandRoots) void {
+        root_set.eval_frame_head = self.frame.parent;
+    }
+};
+
 pub fn assoc(rt: *Runtime, env: *Env, m_val: Value, key: Value, val: Value, loc: SourceLocation) !Value {
+    var operands: OperandRoots = .{ .roots = .{ m_val, key, val } };
+    operands.push();
+    defer operands.pop();
     const m = m_val.decodePtr(*const SortedMap);
     const r = try insert(rt, env, m.comparator, m.root, key, val, loc);
+    // ADR-0150: the new root is unrooted across makeBlack + the wrapper alloc.
+    rt.gc.enterFabrication();
+    defer rt.gc.exitFabrication();
     const black = try makeBlack(rt, r.node);
     const nm = try rt.gc.alloc(SortedMap);
     nm.* = .{
@@ -442,6 +490,9 @@ pub fn contains(rt: *Runtime, env: *Env, m_val: Value, key: Value, loc: SourceLo
 }
 
 pub fn dissoc(rt: *Runtime, env: *Env, m_val: Value, key: Value, loc: SourceLocation) !Value {
+    var operands: OperandRoots = .{ .roots = .{ m_val, key, .nil_val } };
+    operands.push();
+    defer operands.pop();
     const m = m_val.decodePtr(*const SortedMap);
     if (m.root.tag() != .rb_node) return m_val;
     if (!try contains(rt, env, m_val, key, loc)) return m_val; // absent → no-op (count stays)
@@ -451,7 +502,11 @@ pub fn dissoc(rt: *Runtime, env: *Env, m_val: Value, key: Value, loc: SourceLoca
     if (!isRed(rn.left) and !isRed(rn.right)) {
         root = try newNode(rt, rn.key, rn.val, rn.left, rn.right, RED);
     }
-    root = try makeBlack(rt, try deleteNode(rt, env, m.comparator, root, key, loc));
+    const deleted = try deleteNode(rt, env, m.comparator, root, key, loc);
+    // ADR-0150: the new root is unrooted across makeBlack + the wrapper alloc.
+    rt.gc.enterFabrication();
+    defer rt.gc.exitFabrication();
+    root = try makeBlack(rt, deleted);
     const nm = try rt.gc.alloc(SortedMap);
     nm.* = .{
         .header = HeapHeader.init(.sorted_map),
@@ -496,7 +551,12 @@ fn seqInto(rt: *Runtime, h: Value, acc: Value) !Value {
     return seqInto(rt, hn.left, result);
 }
 
+// ADR-0150: every tree walk below holds its partial list (and seq's fresh
+// MapEntry) in Zig locals across the next consHeap alloc, so each public
+// entry brackets the walk in a fabrication region (pure Zig, no eval).
 pub fn keys(rt: *Runtime, v: Value) !Value {
+    rt.gc.enterFabrication();
+    defer rt.gc.exitFabrication();
     return switch (v.tag()) {
         .sorted_map => try keysInto(rt, v.decodePtr(*const SortedMap).root, Value.nil_val),
         .sorted_set => try keysInto(rt, mapOf(v).decodePtr(*const SortedMap).root, Value.nil_val),
@@ -505,10 +565,14 @@ pub fn keys(rt: *Runtime, v: Value) !Value {
 }
 
 pub fn vals(rt: *Runtime, v: Value) !Value {
+    rt.gc.enterFabrication();
+    defer rt.gc.exitFabrication();
     return try valsInto(rt, v.decodePtr(*const SortedMap).root, Value.nil_val);
 }
 
 pub fn seq(rt: *Runtime, v: Value) !Value {
+    rt.gc.enterFabrication();
+    defer rt.gc.exitFabrication();
     return switch (v.tag()) {
         .sorted_map => try seqInto(rt, v.decodePtr(*const SortedMap).root, Value.nil_val),
         .sorted_set => try keysInto(rt, mapOf(v).decodePtr(*const SortedMap).root, Value.nil_val),
@@ -538,6 +602,8 @@ fn rseqMapInto(rt: *Runtime, h: Value, acc: Value) !Value {
 
 /// Reverse seq: descending [k v] pairs (map) / descending elements (set).
 pub fn rseq(rt: *Runtime, v: Value) !Value {
+    rt.gc.enterFabrication();
+    defer rt.gc.exitFabrication();
     return switch (v.tag()) {
         .sorted_map => try rseqMapInto(rt, v.decodePtr(*const SortedMap).root, Value.nil_val),
         .sorted_set => try rseqSetInto(rt, mapOf(v).decodePtr(*const SortedMap).root, Value.nil_val),
@@ -586,14 +652,21 @@ fn subseqWalk(rt: *Runtime, env: *Env, is_map: bool, comparator: Value, h: Value
     const hn = h.decodePtr(*const RbNode);
     const first = if (ascending) hn.right else hn.left;
     const second = if (ascending) hn.left else hn.right;
-    var result = try subseqWalk(rt, env, is_map, comparator, first, b, ascending, acc, loc);
+    // GC-ROOT: C. The partial list crosses `inRange` (user test fns and
+    // comparator) and the entry/cons allocs; the fresh entry crosses the cons.
+    var roots = [_]Value{ acc, .nil_val };
+    var sp: u16 = 2;
+    var frame: root_set.EvalFrame = .{ .stack = &roots, .sp = &sp, .locals = &.{}, .parent = root_set.eval_frame_head };
+    root_set.eval_frame_head = &frame;
+    defer root_set.eval_frame_head = frame.parent;
+    roots[0] = try subseqWalk(rt, env, is_map, comparator, first, b, ascending, acc, loc);
     if (try inRange(rt, env, comparator, hn.key, b, loc)) {
-        // Map entries, not 2-vectors — same contract as `seqInto`, so
+        // Map entries, not 2-vectors, same contract as `seqInto`, so
         // `(key (first (subseq …)))` works like every other map seq.
-        const entry = if (is_map) try map_entry_mod.make(rt, hn.key, hn.val) else hn.key;
-        result = try list_mod.consHeap(rt, entry, result);
+        roots[1] = if (is_map) try map_entry_mod.make(rt, hn.key, hn.val) else hn.key;
+        roots[0] = try list_mod.consHeap(rt, roots[1], roots[0]);
     }
-    return subseqWalk(rt, env, is_map, comparator, second, b, ascending, result, loc);
+    return subseqWalk(rt, env, is_map, comparator, second, b, ascending, roots[0], loc);
 }
 
 /// `(subseq sc …)` / `(rsubseq sc …)` — entries whose key satisfies `b`,
@@ -648,6 +721,9 @@ pub fn emptySet(rt: *Runtime) !Value {
 
 /// Empty sorted-set ordered by a custom comparator (nil = default).
 pub fn emptySetBy(rt: *Runtime, comparator: Value) !Value {
+    // ADR-0150: `inner` is unrooted across the SortedSet alloc.
+    rt.gc.enterFabrication();
+    defer rt.gc.exitFabrication();
     const inner = try emptyMapBy(rt, comparator);
     const s = try rt.gc.alloc(SortedSet);
     s.* = .{ .header = HeapHeader.init(.sorted_set), .map = inner };
@@ -659,8 +735,14 @@ pub fn isSortedSet(v: Value) bool {
 }
 
 pub fn conjSet(rt: *Runtime, env: *Env, set_val: Value, elem: Value, loc: SourceLocation) !Value {
+    var operands: OperandRoots = .{ .roots = .{ set_val, elem, .nil_val } };
+    operands.push();
+    defer operands.pop();
     const s = set_val.decodePtr(*const SortedSet);
     const new_map = try assoc(rt, env, s.map, elem, elem, loc);
+    // ADR-0150: `new_map` is unrooted across the SortedSet alloc.
+    rt.gc.enterFabrication();
+    defer rt.gc.exitFabrication();
     const ns = try rt.gc.alloc(SortedSet);
     ns.* = .{ .header = HeapHeader.init(.sorted_set), .count = new_map.decodePtr(*const SortedMap).count, .map = new_map, .meta = s.meta };
     return Value.encodeHeapPtr(.sorted_set, ns);
@@ -671,8 +753,14 @@ pub fn setContains(rt: *Runtime, env: *Env, set_val: Value, elem: Value, loc: So
 }
 
 pub fn disjSet(rt: *Runtime, env: *Env, set_val: Value, elem: Value, loc: SourceLocation) !Value {
+    var operands: OperandRoots = .{ .roots = .{ set_val, elem, .nil_val } };
+    operands.push();
+    defer operands.pop();
     const s = set_val.decodePtr(*const SortedSet);
     const new_map = try dissoc(rt, env, s.map, elem, loc);
+    // ADR-0150: `new_map` is unrooted across the SortedSet alloc.
+    rt.gc.enterFabrication();
+    defer rt.gc.exitFabrication();
     const ns = try rt.gc.alloc(SortedSet);
     ns.* = .{ .header = HeapHeader.init(.sorted_set), .count = new_map.decodePtr(*const SortedMap).count, .map = new_map, .meta = s.meta };
     return Value.encodeHeapPtr(.sorted_set, ns);

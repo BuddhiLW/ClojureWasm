@@ -52,12 +52,26 @@ vectors, `result<T, E>` as `[:ok v]` / `[:err e]`.
 
 ```clojure
 (ns my.app
-  (:require ["typed_payload.wasm" :as tp]))   ; built from Rust, Go, C, Zig...
+  (:require ["./typed_payload.wasm" :as tp]))  ; Rust + wit-bindgen, 51 KB
 
-(tp/process {:xs [3 4 5] :label "data"})
-;; => {:xs [3 4 5 12], :label "data!"}
+(tp/process {:xs [3 4 5] :label "data"})      ;; => [:ok {:xs [3 4 5 12], :label "data!"}]
+(tp/process {:xs [] :label "fail"})           ;; => [:err "boom: fail"]
 (:arglists (meta #'tp/process))               ;; => ([input])
 ```
+
+Each guest language has a natural shape, and cljw has an entry point for each:
+
+| guest | built with | crosses the boundary as | entry point |
+|---|---|---|---|
+| C | `zig cc -target wasm32-freestanding` | scalars, arrays in a guest-owned buffer | `wasm/load`, `wasm/call`, `wasm/mem-*` |
+| Zig | `zig build-exe -target wasm32-freestanding` | scalars | `wasm/load`, `wasm/call` |
+| Rust, `no_std` | `rustc --target wasm32-unknown-unknown` | scalars | `wasm/load`, `wasm/call` |
+| Rust, wit-bindgen | `cargo build --target wasm32-wasip2` | records, lists, strings, results | `(:require ["x.wasm" :as x])` |
+| Go | `GOOS=wasip1 GOARCH=wasm go build` | argv, env, stdin, stdout, exit code | `wasm/run` |
+
+All five run in [`docs/examples/polyglot`](./docs/examples/polyglot/README.md),
+sources and build lines included; CI rebuilds them from source and runs them on
+every push.
 
 **Short-lived processes.** 8.1 MB on disk, about 6 ms from process start to
 first eval, and `cljw build app.clj -o app` produces a self-contained
@@ -67,8 +81,10 @@ a day.
 **One program, two runtimes.** `cljw` reads `.cljc` under the feature set
 `{:cljw :clj :default}`, and its sibling [clojurust](https://github.com/BuddhiLW/clojurust)
 (`cljrs`, Rust-hosted, Cranelift JIT) reads `{:rust}`. A host-free `.cljc`
-runs unchanged on the JVM, on `cljw` and on `cljrs`, and the same Rust crate
-can serve both: as a zero-import Wasm component on `cljw`, as a native
+runs unchanged on the JVM, on `cljw` and on `cljrs`
+([`hosts.cljc`](./docs/examples/polyglot/hosts.cljc) prints the same map on
+all three, ratios and bigints included, and CI checks that), and the same Rust
+crate can serve both: as a zero-import Wasm component on `cljw`, as a native
 `cdylib` on `cljrs`. The program picks confinement or speed without a rewrite.
 
 ```mermaid
@@ -143,15 +159,18 @@ cljw build script.clj -o app       # one self-contained native binary
 ## The Wasm FFI in one screen
 
 ```clojure
-;; A core module: numbers in, numbers out, linear memory by hand.
-(def m (wasm/load "kernel.wasm" {:fuel 1000000 :max-memory-pages 16 :engine :jit}))
-(wasm/mem-write! m :f64 0 [1.0 2.0 3.0 4.0])
-(wasm/call m "sum_f64" 0 4)                 ;=> 10.0
-(wasm/mem-read m :f64 0 4)                  ;=> [1.0 2.0 3.0 4.0]
+;; A core module (docs/examples/polyglot/c/kernel.c): numbers in, numbers
+;; out, arrays in a buffer the guest owns and hands out by address.
+(def m (wasm/load "docs/examples/polyglot/c/kernel.wasm" {:fuel 1000000 :max-memory-pages 16}))
+(def buf (wasm/call m "buf_addr"))
+(wasm/mem-write! m :f64 buf [1.0 2.0 3.0 4.0])
+(wasm/call m "sum_f64" buf 4)               ;=> 10.0
+(wasm/mem-read m :f64 buf 4)                ;=> [1.0 2.0 3.0 4.0]
 
 ;; A WIT component: typed, so arguments and results are plain Clojure data.
-(wasm/component-exports "greet.wasm")       ;=> ({:name "greet", ...})
-(def c (wasm/load-component "greet.wasm" {:fuel 100000}))
+(def g "test/e2e/fixtures/wasm/greet_component.wasm")
+(wasm/component-exports g)                  ;=> ({:name "greet", ...})
+(def c (wasm/load-component g {:fuel 100000}))
 (wasm/component-call c "greet" "zwasm")     ;=> "Hello, zwasm!"
 
 ;; A fault in the guest is a catchable Clojure exception, never a host crash.

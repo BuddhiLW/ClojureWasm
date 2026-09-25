@@ -446,6 +446,10 @@ pub fn contains(v: Value, k: Value) !bool {
 /// list when `m` is empty per Clojure; returns nil here for empty
 /// to match `(seq m)` semantics).
 pub fn keys(rt: *Runtime, v: Value) !Value {
+    // ADR-0150: the list builders below hold the partial list in a Zig local
+    // across each consHeap alloc (pure Zig, no eval), so no collect may run.
+    rt.gc.enterFabrication();
+    defer rt.gc.exitFabrication();
     return switch (v.tag()) {
         .array_map => try keysArrayMap(rt, v.decodePtr(*const ArrayMap)),
         .hash_map => try keysHashMap(rt, v.decodePtr(*const PersistentHashMap)),
@@ -470,6 +474,9 @@ fn keysArrayMap(rt: *Runtime, am: *const ArrayMap) !Value {
 /// `(vals m)` — returns a list of values in iteration order
 /// (nil for empty, matching `(seq m)`).
 pub fn vals(rt: *Runtime, v: Value) !Value {
+    // ADR-0150: same unrooted partial-list window as `keys`.
+    rt.gc.enterFabrication();
+    defer rt.gc.exitFabrication();
     return switch (v.tag()) {
         .array_map => try valsArrayMap(rt, v.decodePtr(*const ArrayMap)),
         .hash_map => try valsHashMap(rt, v.decodePtr(*const PersistentHashMap)),
@@ -494,6 +501,13 @@ fn valsArrayMap(rt: *Runtime, am: *const ArrayMap) !Value {
 /// (D-209 / ADR-0078), so `(map-entry? (first {…}))` is true while the
 /// entry still behaves as `[k v]`.
 pub fn seq(rt: *Runtime, v: Value) !Value {
+    // ADR-0150: the builders hold the partial list AND each fresh MapEntry in
+    // Zig locals across the next alloc (pure Zig, no eval). Unbracketed, an
+    // alloc-boundary collect swept the list tail; the recycled cell made
+    // `(next (seq m))` loop back to the first entry (malli.core's -vmap over a
+    // map literal overran its object-array under alloc torture).
+    rt.gc.enterFabrication();
+    defer rt.gc.exitFabrication();
     return switch (v.tag()) {
         .array_map => try seqArrayMap(rt, v.decodePtr(*const ArrayMap)),
         .hash_map => try seqHashMap(rt, v.decodePtr(*const PersistentHashMap)),

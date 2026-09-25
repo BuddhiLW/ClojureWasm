@@ -7,6 +7,27 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 
 ## [Unreleased]
 
+### Added
+
+- **`docs/examples/polyglot/`: every guest language through the FFI, gated.**
+  A C kernel (`zig cc`, 2.3 KB) and a Zig kernel (267 B) over `wasm/load` +
+  `wasm/call` with guest-owned buffers, a `no_std` Rust module (401 B), a
+  wit-bindgen Rust component required as a namespace (records, lists and
+  `result` as Clojure data), and a Go program run as a WASI command through
+  `wasm/run` with argv, env and stdin. `hosts.cljc` is one program that prints
+  the same value on `cljw`, `cljrs` and JVM Clojure. `phase16_wasm_polyglot`
+  runs the committed guests, rebuilds each one whose toolchain is on PATH from
+  the recipe in its source header, and diffs the hosts, so the README's
+  polyglot claims fail in CI before they fail for a reader.
+
+### Changed
+
+- README: the typed-component example now names a committed fixture, and its
+  result reads `[:ok {...}]`, which is what a WIT `result<T, E>` returns.
+  Documented from the demo: a void export that takes an `f64` has no JIT call
+  shape and needs `{:engine :interp}` or a result value, and the linker's
+  default 1 MB shadow stack makes a C module ask for 17 pages.
+
 ## [1.14.7] - 2026-09-15
 
 ### Added

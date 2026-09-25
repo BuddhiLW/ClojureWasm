@@ -43,7 +43,9 @@ wat2wasm add.wat -o add.wasm
 
 Any language that compiles to WebAssembly works the same way — a Rust crate, a
 Zig module, a C function — once built to a `.wasm`, its exports are callable
-from Clojure through `wasm/load` + `wasm/call`.
+from Clojure through `wasm/load` + `wasm/call`. The worked, gated versions of
+that sentence (C, Zig, Rust core module, Rust WIT component, Go WASI command,
+each with its build line) are in [`../polyglot/`](../polyglot/README.md).
 
 ## Sandboxing
 
