@@ -7,7 +7,7 @@
 ;; Migrated from test/e2e/phase14_core_cluster.sh (29 `cljw -e` spawns). Every
 ;; case was a value assertion, so the shell is retired entirely.
 (ns suites.core-cluster-test
-  (:require [clojure.test :refer [deftest is]]
+  (:require [clojure.test :refer [deftest is testing]]
             [clojure.string :as str]))
 
 ;; --- get-in ---
@@ -113,6 +113,28 @@
 
 (deftest load-string-empty-is-nil
   (is (nil? (load-string ""))))
+
+;; load-string reads each form only after the previous one ran (the `require`
+;; loader), so a `(ns …)` in the string decides how the forms after it read.
+;; It used to read the whole string up front and eval one `(do …)`: `::k` and
+;; syntax-quote resolved in the CALLER's ns, and a def's computed `^meta`
+;; stayed an unevaluated list (so a loaded deftest's `:test` was not callable).
+(deftest load-string-reads-each-form-after-the-last-ran
+  (let [before (ns-name *ns*)]
+    (load-string "(ns ls-cluster-ns) (def k ::here) (def s `here)")
+    (testing "a (ns …) in the string governs how its later forms read"
+      (is (= :ls-cluster-ns/here @(resolve 'ls-cluster-ns/k)))
+      (is (= 'ls-cluster-ns/here @(resolve 'ls-cluster-ns/s))))
+    (testing "the caller's ns is restored"
+      (is (= before (ns-name *ns*))))))
+
+(deftest load-string-evaluates-def-metadata
+  (load-string "(ns ls-cluster-meta) (def ^{:k (+ 1 2)} v 1)")
+  (is (= 3 (:k (meta (resolve 'ls-cluster-meta/v))))))
+
+(deftest load-string-deftest-is-runnable
+  (load-string "(ns ls-cluster-t (:require [clojure.test :refer [deftest is]])) (deftest t (is (= 1 1)))")
+  (is (fn? (:test (meta (resolve 'ls-cluster-t/t))))))
 
 (deftest memfn-zero-arg
   (is (= "HI" ((memfn toUpperCase) "hi"))))

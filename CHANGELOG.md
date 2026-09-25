@@ -55,6 +55,16 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
   component `exports` and result lift had the same shape. Each now builds
   inside a fabrication region.
 
+- **`load-file` and `load-string` read each form after the previous one ran.**
+  They read the whole text up front and evaluated one `(do …)`, so `::kw` and
+  syntax-quote in a loaded file resolved in the caller's namespace, not the
+  file's `(ns …)`. They now share the `require` loader's loop, label errors
+  with the file, and restore the caller's namespace afterwards. A `def`
+  evaluated from a locationless caller (such as `load-string` itself) also kept
+  its computed metadata unevaluated (`^{:k (+ 1 2)}` stayed a list), which left
+  every `deftest` loaded this way with an uncallable `:test`; computed metadata
+  is now always evaluated.
+
 ## [1.14.7] - 2026-09-15
 
 ### Added

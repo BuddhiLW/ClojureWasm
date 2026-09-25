@@ -499,10 +499,10 @@ pub fn analyzeDefmacro(
     // D-563(b): the wire-riding meta EXPRESSION for macro Vars — the same
     // merged map plus the compiler-minted :line/:column/:file, wholesale-
     // quoted to one composite constant (mirrors analyzeDef's def_meta_expr;
-    // macro docstrings now survive AOT artifacts too).
+    // macro docstrings now survive AOT artifacts too). A locationless macro
+    // gets no location keys; its user meta and arglists still evaluate.
     const macro_meta_expr: ?*const Node = blk: {
         const src_loc = items[1].location;
-        if (src_loc.line == 0) break :blk null;
         var meta_items: std.ArrayList(Form) = .empty;
         if (items[1].meta) |mf| try meta_items.appendSlice(arena, mf.data.map);
         if (attr_form) |a| try meta_items.appendSlice(arena, a.data.map);
@@ -526,16 +526,18 @@ pub fn analyzeDefmacro(
         agq[0] = macro_dispatch.makeSymbol("quote", form.location);
         agq[1] = .{ .data = .{ .list = arglists_inner2 }, .location = form.location };
         try meta_items.append(arena, .{ .data = .{ .list = agq }, .location = form.location });
-        const kws = [_]struct { name: []const u8, v: i64 }{
-            .{ .name = "line", .v = @intCast(src_loc.line) },
-            .{ .name = "column", .v = @intCast(src_loc.column) },
-        };
-        for (kws) |kv| {
-            try meta_items.append(arena, .{ .data = .{ .keyword = .{ .name = kv.name } }, .location = form.location });
-            try meta_items.append(arena, .{ .data = .{ .integer = kv.v }, .location = form.location });
+        if (src_loc.line != 0) {
+            const kws = [_]struct { name: []const u8, v: i64 }{
+                .{ .name = "line", .v = @intCast(src_loc.line) },
+                .{ .name = "column", .v = @intCast(src_loc.column) },
+            };
+            for (kws) |kv| {
+                try meta_items.append(arena, .{ .data = .{ .keyword = .{ .name = kv.name } }, .location = form.location });
+                try meta_items.append(arena, .{ .data = .{ .integer = kv.v }, .location = form.location });
+            }
+            try meta_items.append(arena, .{ .data = .{ .keyword = .{ .name = "file" } }, .location = form.location });
+            try meta_items.append(arena, .{ .data = .{ .string = src_loc.file }, .location = form.location });
         }
-        try meta_items.append(arena, .{ .data = .{ .keyword = .{ .name = "file" } }, .location = form.location });
-        try meta_items.append(arena, .{ .data = .{ .string = src_loc.file }, .location = form.location });
         const meta_map2: Form = .{ .data = .{ .map = try arena.dupe(Form, meta_items.items) }, .location = form.location };
         // Real-expression analysis, mirroring analyzeDef (D-316): quoted
         // arglists stay data, computed values evaluate, `:tag` symbols resolve
@@ -662,11 +664,12 @@ pub fn analyzeDef(
     // literal is last-key-wins, so the source location overrides a user
     // `^{:line …}` — clj parity). Both backends evaluate it at def time and
     // set `Var.meta`, so def meta rides the AOT wire (the analyze-time lift
-    // above only covers the pre-eval window). Skipped for locationless
-    // internal defs (line 0 = no real source position).
+    // above only covers the pre-eval window). A locationless def (line 0: an
+    // internal def, or a form `eval`'d from a bootstrap-compiled caller such
+    // as `load-string`) gets no location keys, but its user meta is still
+    // evaluated; with neither there is nothing to evaluate.
     const def_meta_expr: ?*const Node = blk: {
         const src_loc = items[1].location;
-        if (src_loc.line == 0) break :blk null;
         var meta_items: std.ArrayList(Form) = .empty;
         if (items[1].meta) |mf| {
             if (mf.data == .map) try meta_items.appendSlice(arena, mf.data.map);
@@ -675,16 +678,19 @@ pub fn analyzeDef(
             try meta_items.append(arena, .{ .data = .{ .keyword = .{ .name = "doc" } }, .location = form.location });
             try meta_items.append(arena, d);
         }
-        const kws = [_]struct { name: []const u8, v: i64 }{
-            .{ .name = "line", .v = @intCast(src_loc.line) },
-            .{ .name = "column", .v = @intCast(src_loc.column) },
-        };
-        for (kws) |kv| {
-            try meta_items.append(arena, .{ .data = .{ .keyword = .{ .name = kv.name } }, .location = form.location });
-            try meta_items.append(arena, .{ .data = .{ .integer = kv.v }, .location = form.location });
+        if (src_loc.line != 0) {
+            const kws = [_]struct { name: []const u8, v: i64 }{
+                .{ .name = "line", .v = @intCast(src_loc.line) },
+                .{ .name = "column", .v = @intCast(src_loc.column) },
+            };
+            for (kws) |kv| {
+                try meta_items.append(arena, .{ .data = .{ .keyword = .{ .name = kv.name } }, .location = form.location });
+                try meta_items.append(arena, .{ .data = .{ .integer = kv.v }, .location = form.location });
+            }
+            try meta_items.append(arena, .{ .data = .{ .keyword = .{ .name = "file" } }, .location = form.location });
+            try meta_items.append(arena, .{ .data = .{ .string = src_loc.file }, .location = form.location });
         }
-        try meta_items.append(arena, .{ .data = .{ .keyword = .{ .name = "file" } }, .location = form.location });
-        try meta_items.append(arena, .{ .data = .{ .string = src_loc.file }, .location = form.location });
+        if (meta_items.items.len == 0) break :blk null;
         const meta_map: Form = .{ .data = .{ .map = try arena.dupe(Form, meta_items.items) }, .location = form.location };
         // The map analyzes as a REAL EXPRESSION (D-316): quoted values stay
         // data (defn's synthesized `:arglists '([x])` — now quoted at the
