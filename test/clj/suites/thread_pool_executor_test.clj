@@ -4,6 +4,7 @@
   (:require [clojure.test :refer [deftest is testing]])
   (:import [java.util.concurrent Executors
                                  Callable
+                                 Future
                                  LinkedBlockingQueue
                                  Semaphore
                                  ThreadFactory
@@ -34,6 +35,25 @@
     (is (true? (.isShutdown pool)))
     (is (true? (.awaitTermination pool 1000 TimeUnit/MILLISECONDS)))
     (is (true? (.isTerminated pool)))))
+
+(deftest native-and-reified-future-java-methods
+  (let [pool (Executors/newFixedThreadPool 1)]
+    (try
+      (let [f (.submit pool (reify Callable (call [_] 73)))]
+        (is (= 73 (.get f 1 TimeUnit/SECONDS)))
+        (is (true? (.isDone f)))
+        (is (false? (.isCancelled f)))
+        (is (false? (.cancel f false))))
+      (let [f (reify Future
+                (get [_] :ready)
+                (isDone [_] true)
+                (isCancelled [_] false)
+                (cancel [_ _] false))]
+        (is (= :ready (.get f)))
+        (is (true? (.isDone f)))
+        (is (false? (.cancel f true))))
+      (finally (.shutdown pool)))
+    (is (true? (.awaitTermination pool 1000 TimeUnit/MILLISECONDS)))))
 
 (deftest supplied-thread-factory-creates-the-real-workers
   (let [created (AtomicLong. 0)
