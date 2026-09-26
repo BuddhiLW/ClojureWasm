@@ -79,9 +79,10 @@ fn valueOf(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) an
 
 /// `(Integer. x)` / `(new Integer x)`: a String parses as a 32-bit int
 /// (NumberFormatException when malformed or out of range), an integer within
-/// int range is itself, one outside it is IllegalArgumentException (clj's
-/// `RT.intCast`). Answers the plain cljw value (ADR-0059); any other argument
-/// matches no ctor. JVM reference: java.lang.Integer#Integer(int|String).
+/// int range is itself, one outside it is an integer overflow
+/// (ArithmeticException, measured against clj: the reflective narrowing to
+/// `int` overflows). Answers the plain cljw value (ADR-0059); any other
+/// argument matches no ctor. JVM reference: java.lang.Integer#Integer(int|String).
 fn ctor(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
     _ = rt;
     _ = env;
@@ -91,7 +92,7 @@ fn ctor(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyer
         .integer => if (std.math.cast(i32, args[0].asInteger()) != null)
             args[0]
         else
-            error_catalog.raise(.arg_value_invalid, loc, .{ .fn_name = "Integer.", .expected = "a value within int range", .actual = "out-of-range number" }),
+            error_catalog.raise(.integer_overflow, loc, .{}),
         else => error_catalog.raise(.ctor_unmatched, loc, .{ .class = "java.lang.Integer" }),
     };
 }

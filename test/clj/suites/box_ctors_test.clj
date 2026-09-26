@@ -49,7 +49,8 @@
     (is (= 7 (Byte. (byte 7)) (Byte. 7))))
   (is (= "IllegalArgumentException" (thrown-class #(Short. 99999))))
   (is (= "IllegalArgumentException" (thrown-class #(Byte. 300))))
-  (is (= "IllegalArgumentException" (thrown-class #(Integer. 3000000000)))))
+  (testing "Integer narrows the long and overflows, as clj's reflective call does"
+    (is (= "ArithmeticException" (thrown-class #(Integer. 3000000000))))))
 
 (deftest malformed-and-out-of-range-strings
   (is (= "NumberFormatException" (thrown-class #(Integer. "abc"))))

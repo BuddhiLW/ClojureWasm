@@ -78,3 +78,5 @@
 ;;=> <clj-error> NumberFormatException
 (Double. "x")
 ;;=> <clj-error> NumberFormatException
+(Integer. 3000000000)
+;;=> <clj-error> ArithmeticException
