@@ -85,6 +85,22 @@
       (is (< took budget-ms) (str "allocation loop took " took " ms"))
       (is (= {:status 200 :body "ok"} (deref res 10000 :timeout))))))
 
+(deftest http-respond-on-a-worker
+  (testing "a server future writing a large response to a slow reader does not stall collections"
+    ;; 16 MB fills the loopback socket buffers, so the write blocks until the
+    ;; client (another process) starts reading 5 s after it connects.
+    (let [port (+ 20000 (rand-int 20000))
+          chunk (apply str (repeat 16384 "x"))
+          big (apply str (repeat 1024 chunk))
+          _srv (future (cljw.http.server/run-server (fn [_] big) {:port port}))
+          _ (Thread/sleep 300)
+          _ (detach! "bash" "-c"
+                     "exec 3<>/dev/tcp/127.0.0.1/$0; printf 'GET / HTTP/1.1\\r\\nHost: x\\r\\n\\r\\n' >&3; sleep 5; cat <&3 >/dev/null"
+                     (str port))
+          _ (Thread/sleep 800)
+          took (alloc-loop-ms)]
+      (is (< took budget-ms) (str "allocation loop took " took " ms")))))
+
 (deftest sleep-on-a-worker
   (testing "a sleeping future does not stall collections"
     (let [f (future (Thread/sleep 3000) :slept)

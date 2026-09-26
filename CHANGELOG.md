@@ -57,8 +57,10 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
   or a `cljw.http.client` request was not a safepoint, so a collection another
   thread requested waited for the call to return, and forever if the peer never
   answered. Each of these waits now runs under `safepoint.blocking`, which
-  counts the worker as parked for the call. The `cljw.http.server` accept and
-  request read are bracketed the same way.
+  counts the worker as parked for the call. The `cljw.http.server` accept,
+  request read and response write are bracketed the same way; the response is
+  first copied out of the handler's value, so a slow reader cannot stall a
+  collection either.
 
 - **A `future` waiting on a promise, a future, an agent or a Thread no longer
   deadlocks the collector.** `@(promise)`, `@(future ...)`, `(await agent)`
