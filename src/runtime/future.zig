@@ -381,7 +381,8 @@ pub fn errorValue(v: Value) ?Value {
 pub fn waitRealised(io: std.Io, v: Value, timeout_ms: i64) bool {
     std.debug.assert(v.tag() == .future);
     const f = v.decodePtr(*Future);
-    return f.cell.settled.wait(clock.nanoTime(io) + @max(timeout_ms, 0) * std.time.ns_per_ms);
+    // Saturating: `(deref f Long/MAX_VALUE v)` must wait "forever", not overflow.
+    return f.cell.settled.wait(clock.nanoTime(io) +| (@max(timeout_ms, 0) *| std.time.ns_per_ms));
 }
 
 /// `(realized? f)` — non-blocking: true iff the worker has finished (value or

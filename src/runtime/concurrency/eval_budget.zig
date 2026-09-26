@@ -235,11 +235,12 @@ pub fn budgetedSleep(io: std.Io, total_ns: u64, cancel: ?*Latch) ClojureWasmErro
     var deadline = now +| span;
     if (deadlineOf()) |d| deadline = @min(deadline, d);
 
-    // The wait makes no GC allocation, so a registered worker counts as parked
-    // for it and a sleeping `future` does not stall a collection.
+    // A registered worker counts as parked for either wait, so a sleeping
+    // `future` does not stall a collection: `Latch.wait` brackets itself, the
+    // plain sleep goes through `safepoint.blocking` here.
     if (cancel) |latch| {
         // Returns early iff the cancel fired; the caller re-checks and unwinds.
-        _ = safepoint.blocking(Latch.wait, .{ latch, deadline });
+        _ = latch.wait(deadline);
     } else {
         const remaining = deadline - clock.nanoTime(io);
         if (remaining > 0) safepoint.blocking(io_default.sleep, .{@as(u64, @intCast(remaining))});

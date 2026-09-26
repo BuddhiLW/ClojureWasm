@@ -44,6 +44,7 @@ const host_instance = @import("../../../host_instance.zig");
 const vector_mod = @import("../../../collection/vector.zig");
 const equal = @import("../../../equal.zig");
 const eval_budget = @import("../../../concurrency/eval_budget.zig");
+const safepoint = @import("../../../concurrency/safepoint.zig");
 const future = @import("../../../future.zig");
 const clock = @import("../../../clock.zig");
 const TimeUnit = @import("TimeUnit.zig");
@@ -84,11 +85,14 @@ fn lockPtr(recv: Value) *u64 {
 }
 
 /// Take the per-instance spin lock. Critical sections are a handful of vector
-/// ops, so spinning beats parking; nothing sleeps while holding it.
+/// ops, so spinning beats parking. `contains` and `remove` hold it across a
+/// user `=`, which can collect, so the spin is a safepoint.
 fn lock(recv: Value) void {
     const p = lockPtr(recv);
-    while (atomics.cmpxchgWeak(u64, p, 0, 1, .acquire, .monotonic) != null)
+    while (atomics.cmpxchgWeak(u64, p, 0, 1, .acquire, .monotonic) != null) {
+        safepoint.poll();
         std.atomic.spinLoopHint();
+    }
 }
 
 fn unlock(recv: Value) void {

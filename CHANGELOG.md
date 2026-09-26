@@ -60,6 +60,18 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
   counts the worker as parked for the call. The `cljw.http.server` accept and
   request read are bracketed the same way.
 
+- **A `future` waiting on a promise, a future, an agent or a Thread no longer
+  deadlocks the collector.** `@(promise)`, `@(future ...)`, `(await agent)`
+  and `(.join thread)` on a worker, an idle `Executors` pool worker, and
+  `(realized? delay)` while another thread forces it all waited uncounted, so
+  the next collection waited for them, and their waker (often the collecting
+  thread) waited for it: a deadlock. The latch under every deref now counts
+  its waiter as parked, the pool's idle wait and Thread join are bracketed,
+  `realized?` on a delay reads its state lock-free (which also stops a thunk
+  that asks about its own delay from deadlocking), and the ref-read and
+  LinkedBlockingQueue spin locks poll the safepoint. A timed deref with a huge
+  timeout no longer overflows.
+
 - **`cljw.http.client` could return a response with `:status` missing.** The
   response map was built in an unrooted local, and a collection at the body
   allocation swept it half-built. The http server's request map and the wasm

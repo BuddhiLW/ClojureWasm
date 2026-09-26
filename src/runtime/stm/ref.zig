@@ -38,6 +38,7 @@ const tag_ops = @import("../gc/tag_ops.zig");
 const gc_heap_mod = @import("../gc/gc_heap.zig");
 const mark_sweep = @import("../gc/mark_sweep.zig");
 const tval_mod = @import("tval.zig");
+const safepoint = @import("../concurrency/safepoint.zig");
 const TVal = tval_mod.TVal;
 
 /// Heap layout for an STM Ref. Carries the ring head + ring-growth
@@ -111,7 +112,12 @@ pub fn isRef(v: Value) bool {
 /// `v` is a Ref. Mirrors the in-transaction `lock_tx.doGet` read discipline.
 pub fn current(v: Value) Value {
     const r: *Ref = @constCast(v.decodePtr(*const Ref));
-    while (!r.lock.tryLock()) std.atomic.spinLoopHint();
+    // A committer holds this lock across user code (a commute fn, a
+    // validator) that can collect, so the spin is a safepoint.
+    while (!r.lock.tryLock()) {
+        safepoint.poll();
+        std.atomic.spinLoopHint();
+    }
     defer r.lock.unlock();
     return r.tvals.val;
 }
