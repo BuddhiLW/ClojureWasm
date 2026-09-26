@@ -315,6 +315,35 @@ pub fn emptyMapBy(rt: *Runtime, comparator: Value) !Value {
     return Value.encodeHeapPtr(.sorted_map, m);
 }
 
+/// Metadata of a sorted map / sorted set (or nil).
+pub fn metaOf(v: Value) Value {
+    return switch (v.tag()) {
+        .sorted_map => v.decodePtr(*const SortedMap).meta,
+        .sorted_set => v.decodePtr(*const SortedSet).meta,
+        else => Value.nil_val,
+    };
+}
+
+/// `(with-meta s m)` on a sorted map / set — a shallow copy sharing the tree
+/// (or inner map), meta replaced (clj PersistentTreeMap/TreeSet.withMeta).
+pub fn withMeta(rt: *Runtime, v: Value, m: Value) !Value {
+    switch (v.tag()) {
+        .sorted_map => {
+            const sm = v.decodePtr(*const SortedMap);
+            const nm = try rt.gc.alloc(SortedMap);
+            nm.* = .{ .header = HeapHeader.init(.sorted_map), .count = sm.count, .comparator = sm.comparator, .root = sm.root, .meta = m };
+            return Value.encodeHeapPtr(.sorted_map, nm);
+        },
+        .sorted_set => {
+            const ss = v.decodePtr(*const SortedSet);
+            const ns = try rt.gc.alloc(SortedSet);
+            ns.* = .{ .header = HeapHeader.init(.sorted_set), .count = ss.count, .map = ss.map, .meta = m };
+            return Value.encodeHeapPtr(.sorted_set, ns);
+        },
+        else => unreachable,
+    }
+}
+
 pub fn isSortedMap(v: Value) bool {
     return v.tag() == .sorted_map;
 }

@@ -131,7 +131,16 @@ fn conjOne(rt: *Runtime, env: *Env, coll: Value, x: Value, loc: SourceLocation) 
         // through public `cons` would mint a clojure.lang.Cons and break the
         // list-only IPersistentStack contract (`peek`/`pop`). Other ISeqs use
         // public cons so their distinct tail/class semantics stay centralized.
-        .list => try list.consHeap(rt, x, coll),
+        .list => blk: {
+            // PersistentList.cons carries the list's meta (clj `new
+            // PersistentList(meta(), o, this, count+1)`).
+            const m = list.metaOf(coll);
+            if (m.isNil()) break :blk try list.consHeap(rt, x, coll);
+            rt.gc.enterFabrication();
+            defer rt.gc.exitFabrication();
+            const c = try list.consHeap(rt, x, coll);
+            break :blk try list.withMeta(rt, c, m);
+        },
         .cons, .lazy_seq, .chunked_cons, .range, .string_seq, .array_seq => try sequence.consFn(rt, env, &.{ x, coll }, loc),
         .hash_set => try set.conj(rt, coll, x),
         // conj on a queue appends to the rear (FIFO, ADR-0087).
