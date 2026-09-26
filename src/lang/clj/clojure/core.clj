@@ -2954,3 +2954,16 @@
   ;; the one visible nuance (D-563c note).
   {'inst (fn [form] ((requiring-resolve 'clojure.instant/read-instant-date) form))
    'uuid (fn [form] ((requiring-resolve 'clojure.uuid/default-uuid-reader) form))})
+
+;; `monitor-enter` / `monitor-exit` are Zig primitives (locking.zig). On the JVM
+;; they are special forms, so the generated core_meta.clj has no row for them;
+;; their docs are attached here, into the var meta `(:doc (meta v))` reads.
+(alter-meta! (var monitor-enter) merge
+             {:doc "Acquires the monitor of x, returning nil. The caller is responsible
+  for the matching monitor-exit; prefer `locking`, which releases on both
+  normal and error exit. Throws if x is nil."
+              :arglists (quote ([x]))})
+(alter-meta! (var monitor-exit) merge
+             {:doc "Releases the monitor of x, returning nil. Pairs with monitor-enter.
+  Throws if x is nil."
+              :arglists (quote ([x]))})

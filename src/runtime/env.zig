@@ -70,11 +70,13 @@ pub const MetadataMap = struct {
     zig_leaf: bool = false,
     /// `^:unsupported` — declare-only placeholder; raises on call.
     unsupported: bool = false,
-    /// `^:doc` string. Stored on the Var for `(doc fn-name)`.
-    doc: ?[]const u8 = null,
-    /// `^:arglists` (human-readable summary). Stored on the Var
-    /// for `(doc fn-name)`.
-    arglists: ?[]const u8 = null,
+    // No `doc` / `arglists` here: a docstring lives ONLY in `Var.meta`
+    // (`(:doc (meta v))`, what `clojure.repl/doc`, `find-doc` and
+    // `scripts/check_doc_coverage.sh` read). A Zig-interned primitive gets
+    // its docs from `.clj` via `alter-meta!` — `core_meta.clj` for
+    // clojure.core, the owning namespace's `.clj` otherwise (e.g.
+    // `clojure/data/csv.clj` for `read-csv`). The former string fields were
+    // stored on the Var and read by nothing user-visible.
 };
 
 /// Clojure's `Var`: a named value holder produced by `def`.
@@ -95,10 +97,6 @@ pub const Var = struct {
     meta: ?Value = null,
     /// dynamic / macro / private / zig_leaf / unsupported flags.
     flags: VarFlags = .{},
-    /// `^:doc` — docstring for `(doc fn-name)`. Set via MetadataMap.
-    doc: ?[]const u8 = null,
-    /// `^:arglists` — human-readable signature for `(doc fn-name)`.
-    arglists: ?[]const u8 = null,
     /// Watch map `{key -> fn}` (`add-watch` / `remove-watch`), or nil. Fires
     /// `(fn key var old new)` from `alter-var-root` only (a dynamic-binding
     /// `set!` does NOT notify, matching JVM `Var`). The Var is gpa-owned and
@@ -794,8 +792,6 @@ fn applyMetadata(v: *Var, m: MetadataMap) void {
     v.flags.private = m.private;
     v.flags.zig_leaf = m.zig_leaf;
     v.flags.unsupported = m.unsupported;
-    v.doc = m.doc;
-    v.arglists = m.arglists;
 }
 
 // --- tests ---
@@ -1060,8 +1056,7 @@ test "Env.intern with null metadata leaves flags + doc default" {
     try testing.expect(!v.flags.private);
     try testing.expect(!v.flags.zig_leaf);
     try testing.expect(!v.flags.unsupported);
-    try testing.expect(v.doc == null);
-    try testing.expect(v.arglists == null);
+    try testing.expect(v.meta == null);
 }
 
 test "Env.intern with MetadataMap sets all fields" {
@@ -1077,14 +1072,10 @@ test "Env.intern with MetadataMap sets all fields" {
         .private = true,
         .zig_leaf = true,
         .unsupported = false,
-        .doc = "a private leaf",
-        .arglists = "([x])",
     });
     try testing.expect(v.flags.private);
     try testing.expect(v.flags.zig_leaf);
     try testing.expect(!v.flags.unsupported);
-    try testing.expectEqualStrings("a private leaf", v.doc.?);
-    try testing.expectEqualStrings("([x])", v.arglists.?);
 }
 
 test "Env.intern re-intern with new metadata overwrites previous metadata" {

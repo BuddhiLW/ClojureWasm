@@ -44,3 +44,24 @@
   (testing "a frame with no ns omits the ns/ prefix"
     (is (= "eval1 (NO_SOURCE_FILE:1)"
            (repl/stack-element-str {:fn "eval1" :file "NO_SOURCE_FILE" :line 1})))))
+
+;; --- Zig-primitive docstrings live in the var meta ---
+;; `read-csv` / `monitor-enter` / `monitor-exit` are Zig-interned primitives.
+;; Their docs used to sit in `Var.doc` / `Var.arglists` string fields that no
+;; user-visible reader consulted, so `(doc clojure.data.csv/read-csv)` printed
+;; no docstring and the doc-coverage gate listed them as undocumented. The one
+;; home of a docstring is `(:doc (meta v))`.
+(require 'clojure.data.csv)
+
+(deftest zig-primitive-docs-are-var-meta
+  (testing "(meta #'x) carries :doc and :arglists"
+    (doseq [v [#'clojure.data.csv/read-csv #'monitor-enter #'monitor-exit]]
+      (is (string? (:doc (meta v))) (str v))
+      (is (seq (:arglists (meta v))) (str v))))
+  (testing "the arglists are data, not a pre-rendered string"
+    (is (= '([s] [s & options]) (:arglists (meta #'clojure.data.csv/read-csv))))
+    (is (= '([x]) (:arglists (meta #'monitor-enter)))))
+  (testing "clojure.repl/doc prints the docstring"
+    (let [out (with-out-str (repl/doc clojure.data.csv/read-csv))]
+      (is (re-find #"Reads CSV-data from the string s" out))
+      (is (re-find #"\(\[s\] \[s & options\]\)" out)))))
