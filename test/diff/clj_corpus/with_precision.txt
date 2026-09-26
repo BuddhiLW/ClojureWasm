@@ -22,3 +22,15 @@
 ;;=> 0.33M
 (with-precision 10 (/ 1M 1024))
 ;;=> 0.0009765625M
+(with-precision 3 (+ 1.2345M 2.3456M))
+;;=> 3.58M
+(with-precision 3 (- 3.4567M 1.1111M))
+;;=> 2.35M
+(with-precision 3 (* 1.2345M 2.3456M))
+;;=> 2.90M
+(with-precision 3 :rounding DOWN (/ 1M 6M))
+;;=> 0.166M
+(with-precision 3 :rounding HALF_EVEN (+ 1.245M 0M))
+;;=> 1.24M
+(with-precision 3 (+ 1M 2M))
+;;=> 3M

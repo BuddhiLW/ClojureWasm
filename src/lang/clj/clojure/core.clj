@@ -2663,14 +2663,18 @@
 (defmacro bound-fn [& fntail]
   `(bound-fn* (fn* ~@fntail)))
 
-;; `(with-precision precision & body)` — bind `*math-context*` so BigDecimal
-;; division in body rounds the quotient to `precision` significant figures
-;; (HALF_UP) instead of raising on a non-terminating expansion (D-467). clj also
-;; accepts a leading `:rounding mode`; cljw implements HALF_UP only for now, so the
-;; `:rounding mode` pair is accepted-and-ignored (other modes are a follow-up).
+;; Bind a MathContext so every BigDecimal operation observes significant-digit
+;; precision and the requested rounding mode (not just division).
 (defmacro with-precision [precision & body]
-  (let [body (if (= :rounding (first body)) (nnext body) body)]
-    `(binding [*math-context* ~precision] ~@body)))
+  (let [rounding? (= :rounding (first body))
+        mode (second body)
+        body (if rounding? (nnext body) body)
+        mode-expr (when rounding?
+                    (symbol "java.math.RoundingMode" (name mode)))]
+    `(binding [*math-context* ~(if rounding?
+                                  `(java.math.MathContext. ~precision ~mode-expr)
+                                  `(java.math.MathContext. ~precision))]
+       ~@body)))
 
 (defmacro with-open
   "bindings => [name init ...]. Evaluates body in a try expression with

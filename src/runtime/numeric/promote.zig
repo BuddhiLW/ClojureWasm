@@ -28,6 +28,7 @@ const env_mod = @import("../env.zig");
 const Runtime = @import("../runtime.zig").Runtime;
 const big_int = @import("big_int.zig");
 const nb = @import("../value/nan_box.zig");
+const host_instance = @import("../host_instance.zig");
 
 const Managed = std.math.big.int.Managed;
 
@@ -422,11 +423,15 @@ fn coerceToBigDecimal(rt: *Runtime, v: Value) !Value {
 fn bigdecContagion(rt: *Runtime, a: Value, b: Value, op: BdOp) !Value {
     const ba = try coerceToBigDecimal(rt, a);
     const bb = try coerceToBigDecimal(rt, b);
-    return switch (op) {
+    const result = try switch (op) {
         .add => big_decimal_mod.allocAdd(rt, ba, bb),
         .sub => big_decimal_mod.allocSub(rt, ba, bb),
         .mul => big_decimal_mod.allocMul(rt, ba, bb),
     };
+    if (mathContext(rt)) |mc| {
+        return big_decimal_mod.allocRoundPrecision(rt, result, mc.precision, mc.mode);
+    }
+    return result;
 }
 
 /// `a + b` with auto-promotion. Both inputs MUST be numeric (caller
@@ -547,16 +552,23 @@ pub fn mulPromoting(rt: *Runtime, a: Value, b: Value) !Value {
 /// `a / b` with auto-promotion. Integer/Integer evenly-divisible
 /// returns the quotient; not-evenly-divisible returns a Ratio.
 /// Mirrors `Numbers.divide(Number, Number)` in JVM Clojure.
-/// The active `*math-context*` precision (from `with-precision`), or null when
-/// unbound / not a positive integer. Read lock-free from the dynamic-binding
-/// stack on this thread (D-467).
-fn mathContextPrecision(rt: *Runtime) ?u32 {
+/// Decode the active MathContext (precision + rounding mode). An integer
+/// binding is accepted for callers of the older internal precision var.
+const DecimalContext = struct { precision: u32, mode: i64 };
+fn mathContext(rt: *Runtime) ?DecimalContext {
     const vp = rt.math_context_var orelse return null;
     const v: *const env_mod.Var = @ptrCast(@alignCast(vp));
     const val = v.deref();
     if (val.tag() == .integer) {
         const p = val.asInteger();
-        if (p > 0) return @intCast(p);
+        if (p >= 0 and p <= std.math.maxInt(u32)) return .{ .precision = @intCast(p), .mode = 4 };
+    }
+    if (val.tag() == .host_instance) {
+        const hi = host_instance.asHostInstance(val);
+        if (hi.descriptor.fqcn) |fqcn| {
+            if (std.mem.eql(u8, fqcn, "java.math.MathContext"))
+                return .{ .precision = @intCast(hi.state[0]), .mode = @intCast(hi.state[1]) };
+        }
     }
     return null;
 }
@@ -574,8 +586,10 @@ pub fn divPromoting(rt: *Runtime, a: Value, b: Value) !Value {
         const bb = try coerceToBigDecimal(rt, b);
         // A `with-precision` binding rounds the quotient to that many significant
         // figures (HALF_UP); else exact (raises on a non-terminating expansion). D-467.
-        if (mathContextPrecision(rt)) |p|
-            return try big_decimal_mod.allocDivPrecision(rt, ba, bb, p, 4); // HALF_UP
+        if (mathContext(rt)) |mc| {
+            if (mc.precision > 0)
+                return try big_decimal_mod.allocDivPrecision(rt, ba, bb, mc.precision, mc.mode);
+        }
         return try big_decimal_mod.allocDiv(rt, ba, bb);
     }
 
