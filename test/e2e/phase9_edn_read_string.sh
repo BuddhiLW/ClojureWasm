@@ -98,6 +98,23 @@ got=$("$BIN" - <<'EOF' 2>/dev/null
 EOF
 ) || fail "case8b: non-zero exit ($got)"
 assert_eq 'edn_read_eof_opt' "$(last_line "$got")" ':none'
+# JVM: one-arity defaults to nil at EOF; two-arity without :eof THROWS,
+# even when the source contains only a comment or a discarded form.
+for source in '""' '"; comment"' '"#_1"'; do
+    assert_eq 'edn_one_arg_eof' "$($BIN -e "(clojure.edn/read-string $source)")" 'nil'
+    if out=$($BIN -e "(clojure.edn/read-string {} $source)" 2>&1); then
+        fail "edn_two_arg_eof: unexpectedly accepted $source ($out)"
+    fi
+    case "$out" in *EOF*|*eof*) echo "PASS edn_two_arg_eof -> error" ;; *) fail "edn_two_arg_eof: $out" ;; esac
+done
+assert_eq 'edn_discard_then_value' "$($BIN -e '(clojure.edn/read-string {} "#_1 2")')" '2'
+# Neither nil nor an arbitrary scalar is an options map on the JVM.
+for opts in nil 42; do
+    if out=$($BIN -e "(clojure.edn/read-string $opts \"1\")" 2>&1); then
+        fail "edn_invalid_opts: unexpectedly accepted $opts ($out)"
+    fi
+    echo 'PASS edn_invalid_opts -> error'
+done
 
 # --- Case 9: nested ---
 got=$("$BIN" - <<'EOF' 2>/dev/null
