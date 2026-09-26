@@ -74,14 +74,10 @@ const Entry = struct {
 
 const ENTRIES = [_]Entry{
     .{ .name = "__locking", .f = &lockingFn },
-    .{ .name = "monitor-enter", .f = &monitorEnter, .meta = .{
-        .doc = "Acquires the monitor of x, returning nil. The caller is responsible\n  for the matching monitor-exit; prefer `locking`, which releases on both\n  normal and error exit. Throws if x is nil.",
-        .arglists = "([x])",
-    } },
-    .{ .name = "monitor-exit", .f = &monitorExit, .meta = .{
-        .doc = "Releases the monitor of x, returning nil. Pairs with monitor-enter.\n  Throws if x is nil.",
-        .arglists = "([x])",
-    } },
+    // :doc / :arglists for these two are attached in clojure/core.clj
+    // (alter-meta!), where `(:doc (meta v))` can see them.
+    .{ .name = "monitor-enter", .f = &monitorEnter },
+    .{ .name = "monitor-exit", .f = &monitorExit },
 };
 
 pub fn register(env: *Env, rt_ns: *env_mod.Namespace) !void {
