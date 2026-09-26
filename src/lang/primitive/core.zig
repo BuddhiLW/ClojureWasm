@@ -30,6 +30,7 @@ const hash_mod = @import("../../runtime/hash.zig");
 const sequence = @import("sequence.zig");
 const list = @import("../../runtime/collection/list.zig");
 const map = @import("../../runtime/collection/map.zig");
+const set_mod = @import("../../runtime/collection/set.zig");
 const print_mod = @import("../../runtime/print.zig");
 const charset_mod = @import("../../runtime/charset.zig");
 const writer_value_mod = @import("../../runtime/writer_value.zig");
@@ -97,6 +98,24 @@ pub fn classIsaPrim(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLoc
     // `class_name.classIsa` so `isa?` and multimethod dispatch cannot drift
     // (D-464). The ad-hoc `derive` hierarchy + equality stay in the `.clj` isa?.
     return if (class_name.classIsa(child, parent)) .true_val else .false_val;
+}
+
+/// Java String's immediate interfaces plus Object. JVM's `Class.getInterfaces`
+/// includes Comparable, Serializable, CharSequence, Constable, ConstantDesc.
+/// The latter two are opaque host class descriptors in cljw.
+/// `Object` has no parent. This set is additive to ad-hoc hierarchy parents.
+pub fn classParentsPrim(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
+    _ = env;
+    try error_catalog.checkArity("__class-parents", args, 1, loc);
+    if (args[0].tag() != .type_descriptor) return .nil_val;
+    const name = td_mod.asTypeDescriptorRef(args[0]).fqcn orelse return .nil_val;
+    if (!std.mem.eql(u8, name, "String") and !std.mem.eql(u8, name, "java.lang.String")) return .nil_val;
+    var result = set_mod.empty();
+    for ([_][]const u8{ "Object", "java.lang.Comparable", "java.io.Serializable", "java.lang.CharSequence", "java.lang.constant.Constable", "java.lang.constant.ConstantDesc" }) |parent_name| {
+        const descriptor = try rt.classDescriptor(parent_name);
+        result = try set_mod.conj(rt, result, try td_mod.makeTypeDescriptorRef(rt, descriptor));
+    }
+    return result;
 }
 
 /// `(ifn? x)` — true iff `x` is callable (implements IFn): a fn / builtin /
@@ -2037,6 +2056,7 @@ const ENTRIES = [_]Entry{
     .{ .name = "alter-var-root", .f = &alterVarRootFn },
     .{ .name = "__instance-of?", .f = &instanceOf },
     .{ .name = "__class-isa?", .f = &classIsaPrim },
+    .{ .name = "__class-parents", .f = &classParentsPrim },
     .{ .name = "ifn?", .f = &ifnQ },
     .{ .name = "var?", .f = &varQ },
     .{ .name = "thread-bound?", .f = &threadBoundQ },
