@@ -52,6 +52,14 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 
 ### Fixed
 
+- **The reader splits tokens and ends comments where clj's does (ADR-0200).**
+  `@`, `^`, backtick and `~` now end a symbol, keyword or character token, so
+  `[a@b]` reads as `[a (clojure.core/deref b)]` instead of the symbol `a@b`
+  (`'` and `#` stay constituents, as in clj). A `;` or `#!` comment ends at a
+  carriage return as well as a line feed, so a CR-only source no longer loses
+  the forms after its first comment. `~x` and `~@x` read as data outside a
+  syntax-quote are the lists `(clojure.core/unquote x)` and
+  `(clojure.core/unquote-splicing x)`, where `read-string` used to raise.
 - **A `future` blocked in a host call no longer stalls every collection.** A
   worker waiting in `Thread/sleep`, a `cljw.net` accept, read, write or dial,
   or a `cljw.http.client` request was not a safepoint, so a collection another

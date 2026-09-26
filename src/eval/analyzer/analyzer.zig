@@ -1443,7 +1443,11 @@ pub fn formToValue(rt: *Runtime, env: *Env, form: Form) AnalyzeError!Value {
             const template = try syntax_quote.expand(sq_arena.allocator(), rt, env, inner.*, form.location);
             break :blk try formToValue(rt, env, template);
         },
-        .unquote, .unquote_splicing => return error_catalog.raise(.token_invalid, form.location, .{ .token = "~ / ~@ outside a syntax-quote" }),
+        // `~x` / `~@x` outside a syntax-quote is DATA to the reader: clj reads
+        // it as `(clojure.core/unquote x)` / `(clojure.core/unquote-splicing
+        // x)`, so read-string and quote lift that list rather than raising.
+        .unquote => |inner| try wrappedToValue(rt, env, "unquote", inner.*, form.location),
+        .unquote_splicing => |inner| try wrappedToValue(rt, env, "unquote-splicing", inner.*, form.location),
     };
     // D-186: honour a reader `^meta` map on a literal. The reader (readMeta)
     // parks normalised meta on `Form.meta`; lift + attach it to an IObj value:
@@ -1615,6 +1619,16 @@ fn setFormToValue(rt: *Runtime, env: *Env, items: []const Form) AnalyzeError!Val
         roots[0] = out;
     }
     return out;
+}
+
+/// `(clojure.core/<name> inner)` as data: the value of a reader wrapper
+/// (`~x`, `~@x`) read outside a syntax-quote.
+fn wrappedToValue(rt: *Runtime, env: *Env, name: []const u8, inner: Form, loc: SourceLocation) AnalyzeError!Value {
+    const items = [_]Form{
+        .{ .data = .{ .symbol = .{ .ns = "clojure.core", .name = name } }, .location = loc },
+        inner,
+    };
+    return listFormToValue(rt, env, &items);
 }
 
 /// Build a heap List Value by recursively lifting each element to a
