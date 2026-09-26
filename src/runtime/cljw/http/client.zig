@@ -25,6 +25,7 @@ const SourceLocation = @import("../../error/info.zig").SourceLocation;
 const string_mod = @import("../../collection/string.zig");
 const map_mod = @import("../../collection/map.zig");
 const keyword_mod = @import("../../keyword.zig");
+const safepoint = @import("../../concurrency/safepoint.zig");
 
 /// Shared request path for every method. `args[0]` is the URL string; `args[1]`
 /// (optional) is an opts map (`:headers`, `:body`).
@@ -86,15 +87,21 @@ fn doRequest(rt: *Runtime, method: std.http.Method, args: []const Value, loc: So
     var body_buf: std.Io.Writer.Allocating = .init(rt.gpa);
     defer body_buf.deinit();
 
-    const res = client.fetch(.{
+    // The fetch blocks on the network and touches only gpa memory, so a
+    // registered worker waiting on a slow peer does not stall a collection.
+    const res = safepoint.blocking(std.http.Client.fetch, .{ &client, std.http.Client.FetchOptions{
         .location = .{ .url = url },
         .method = method,
         .payload = payload,
         .response_writer = &body_buf.writer,
         .extra_headers = extra_headers,
-    }) catch return error_catalog.raise(.http_request_failed, loc, .{ .url = url });
+    } }) catch return error_catalog.raise(.http_request_failed, loc, .{ .url = url });
 
-    // {:status <int> :body "<captured body>"}
+    // {:status <int> :body "<captured body>"}. Built in a fabrication region:
+    // `result` is an unrooted local, and a collection between the two assocs
+    // (the body alloc can trigger one) would sweep the half-built map.
+    rt.gc.enterFabrication();
+    defer rt.gc.exitFabrication();
     var result = map_mod.empty();
     result = try map_mod.assoc(rt, result, try keyword_mod.intern(rt, null, "status"), Value.initInteger(@intFromEnum(res.status)));
     result = try map_mod.assoc(rt, result, try keyword_mod.intern(rt, null, "body"), try string_mod.alloc(rt, body_buf.writer.buffered()));

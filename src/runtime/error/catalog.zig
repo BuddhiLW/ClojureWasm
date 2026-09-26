@@ -78,6 +78,7 @@ pub const Code = enum {
     big_decimal_literal_invalid,
     string_unterminated,
     map_literal_arity_odd,
+    literal_key_duplicate,
 
     // --- Analysis (def / if / let / symbol resolution / arity) ---
     def_arity_invalid,
@@ -298,6 +299,12 @@ pub const Code = enum {
     /// `assoc`, a wrong-typed `format` conversion arg (Java
     /// IllegalFormatConversionException ⊂ IllegalArgumentException). D-459.
     arg_value_invalid,
+    /// args: `.{ .class = "java.lang.Long" }`
+    /// `(new C args…)` where no constructor of C accepts those arguments: a
+    /// class with no constructor given arguments, or a box ctor handed a value
+    /// of the wrong kind (`(Double. 5)`, `(Short. 7.0)`). clj throws
+    /// IllegalArgumentException with this text, so Kind `.value_error`.
+    ctor_unmatched,
     /// `(symbol x)` on a value that is not a symbol/string/keyword. clj throws
     /// `IllegalArgumentException` here (NOT the `ClassCastException` of a plain
     /// type slot) — so this is `.value_error`, distinct from `type_arg_invalid`.
@@ -587,6 +594,16 @@ pub const Code = enum {
     net_io_failed,
     /// args: `.{}` — a `cljw.net` operation was attempted on a closed socket.
     net_socket_closed,
+    /// args: `.{ .detail = "..." }` — a `cljw.process/run` argument was
+    /// malformed (argv not a non-empty vector of strings, bad option type).
+    process_arg_invalid,
+    /// args: `.{ .program = "...", .detail = "..." }` — the host could not
+    /// start the program (not found on PATH, not executable, bad :dir).
+    process_spawn_failed,
+    /// args: `.{ .program = "...", .reason = "..." }` — `cljw.process/run` was
+    /// called under a containment mechanism a child process would escape (the
+    /// filesystem jail, an eval budget; `restriction.zig`), so it is refused.
+    process_spawn_restricted,
 
     // --- System ---
     out_of_memory,
@@ -698,6 +715,14 @@ pub fn entry(comptime code: Code) Entry {
             .kind = .syntax_error,
             .phase = .parse,
             .template = "Map literal must contain an even number of forms",
+        },
+        // ADR-0200: clj's reader builds a map or set literal with
+        // createWithCheck, so an equal key or element twice is an
+        // IllegalArgumentException, not last-wins.
+        .literal_key_duplicate => .{
+            .kind = .value_error,
+            .phase = .parse,
+            .template = "Duplicate key: {[key]s}",
         },
 
         // --- Analysis ---
@@ -1528,6 +1553,11 @@ pub fn entry(comptime code: Code) Entry {
             .phase = .eval,
             .template = "{[fn_name]s}: expected {[expected]s}, got {[actual]s}",
         },
+        .ctor_unmatched => .{
+            .kind = .value_error,
+            .phase = .eval,
+            .template = "No matching ctor found for class {[class]s}",
+        },
         .symbol_conversion_invalid => .{
             .kind = .value_error,
             .phase = .eval,
@@ -1905,6 +1935,21 @@ pub fn entry(comptime code: Code) Entry {
             .kind = .value_error,
             .phase = .eval,
             .template = "cljw.net: the socket is closed",
+        },
+        .process_arg_invalid => .{
+            .kind = .type_error,
+            .phase = .eval,
+            .template = "cljw.process/run: {[detail]s}",
+        },
+        .process_spawn_failed => .{
+            .kind = .io_error,
+            .phase = .eval,
+            .template = "cljw.process/run: cannot run program '{[program]s}' ({[detail]s})",
+        },
+        .process_spawn_restricted => .{
+            .kind = .value_error,
+            .phase = .eval,
+            .template = "cljw.process/run: cannot run program '{[program]s}' because {[reason]s}; a child process would escape it",
         },
         .internal_error => .{
             .kind = .internal_error,

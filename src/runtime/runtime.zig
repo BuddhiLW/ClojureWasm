@@ -384,6 +384,9 @@ pub const Runtime = struct {
     /// `info.location.file` here for the per-file source-line preview.
     /// Keys + SourceContext field slices are gpa-owned.
     source_registry: std.StringHashMapUnmanaged(SourceContext) = .empty,
+    /// Texts `replaceSource` swapped out of `source_registry`, kept alive
+    /// until deinit in case a renderer on another thread still reads one.
+    retired_sources: std.ArrayListUnmanaged([]const u8) = .empty,
     /// C5'-b (ADR-0173): registry-miss fallback installed by the bootstrap
     /// layer — decompresses a bundled `.clj`'s text on demand (the shipped
     /// binary carries flate sources, not raw). Vtable-style injection keeps
@@ -891,6 +894,8 @@ pub const Runtime = struct {
             self.gpa.free(entry.value_ptr.text);
         }
         self.source_registry.deinit(self.gpa);
+        for (self.retired_sources.items) |t| self.gpa.free(t);
+        self.retired_sources.deinit(self.gpa);
 
         // (gc.deinit moved up — D-481: it must run before the descriptor frees.)
         self.symbols.deinit();
@@ -918,6 +923,25 @@ pub const Runtime = struct {
             .file = owned_file,
             .text = owned_text,
         });
+    }
+
+    /// Register `(label, text)`, replacing the text of an existing entry: a
+    /// file `load-file`d again after an edit must render its errors against
+    /// the new text, not the first version's. The old text is retired rather
+    /// than freed, because an error being rendered on another thread may still
+    /// hold a slice of it; retired texts are freed at deinit.
+    pub fn replaceSource(
+        self: *Runtime,
+        label: []const u8,
+        text: []const u8,
+    ) !void {
+        const entry = self.source_registry.getPtr(label) orelse
+            return self.registerSource(label, text);
+        if (std.mem.eql(u8, entry.text, text)) return;
+        const owned_text = try self.gpa.dupe(u8, text);
+        errdefer self.gpa.free(owned_text);
+        try self.retired_sources.append(self.gpa, entry.text);
+        entry.text = owned_text;
     }
 
     /// Look up a registered source. Returns `null` when `label` is

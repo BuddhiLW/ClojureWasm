@@ -109,16 +109,20 @@ pub fn force(rt: *Runtime, env: anytype, v: Value, loc: anytype) !Value {
     const vtable = rt.vtable orelse return error.InternalError;
     const result = try vtable.callFn(rt, env, d.thunk, &.{}, loc);
     d.cached = result;
-    d.state = .realised;
+    // Release: a lock-free `isRealised` that sees .realised also sees `cached`.
+    @atomicStore(DelayState, &d.state, .realised, .release);
     return result;
 }
 
+/// `(realized? d)`. Lock-free: realisation is monotonic, so an acquire load of
+/// the state answers without taking the once-lock `force` holds across the
+/// thunk. Taking that lock stalled every collection while another thread
+/// forced (the thunk can collect), and deadlocked a thunk that asked about its
+/// own delay.
 pub fn isRealised(v: Value) bool {
     if (v.tag() != .delay) return false;
     const d = v.decodePtr(*Delay);
-    io_default.lockMutex(&d.cell.mutex);
-    defer io_default.unlockMutex(&d.cell.mutex);
-    return d.state == .realised;
+    return @atomicLoad(DelayState, &d.state, .acquire) == .realised;
 }
 
 pub fn traceGc(gc_ptr: *anyopaque, header: *HeapHeader) void {

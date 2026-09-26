@@ -27,6 +27,7 @@
 const std = @import("std");
 const io_default = @import("io_default.zig");
 const clock = @import("../clock.zig");
+const safepoint = @import("safepoint.zig");
 
 /// A monotonic one-shot flag. Zero value is "not yet".
 pub const Latch = struct {
@@ -49,7 +50,18 @@ pub const Latch = struct {
     /// No polling: with no deadline this is one uninterrupted futex wait, and
     /// with one it is a single wait that lands on the instant. The loop
     /// iterates only on a spurious wakeup.
+    ///
+    /// A registered worker counts as parked for the wait (`safepoint.blocking`),
+    /// so a collection another thread requests does not wait for the latch.
+    /// Without it, a future derefing a promise that the collecting thread will
+    /// deliver after its collection is a deadlock. The wait allocates nothing
+    /// and raises nothing, which is the bracket's contract.
     pub fn wait(self: *Latch, deadline_ns: ?i64) bool {
+        if (self.isSet()) return true;
+        return safepoint.blocking(waitUnbracketed, .{ self, deadline_ns });
+    }
+
+    fn waitUnbracketed(self: *Latch, deadline_ns: ?i64) bool {
         const io = io_default.get();
         while (true) {
             if (self.isSet()) return true;

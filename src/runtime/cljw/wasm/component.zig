@@ -177,6 +177,9 @@ pub fn componentExportsFn(rt: *Runtime, env: *Env, args: []const Value, loc: Sou
     var type_arena = std.heap.ArenaAllocator.init(rt.gpa);
     defer type_arena.deinit();
 
+    // `out` and each export map are unrooted locals until returned.
+    rt.gc.enterFabrication();
+    defer rt.gc.exitFabrication();
     var out = vector_mod.empty();
     for (funcs) |f| {
         const sig = (opened.resolveFuncSig(type_arena.allocator(), f.name) catch null) orelse continue;
@@ -664,6 +667,9 @@ fn invokeWithSig(rt: *Runtime, opened: *comp.Opened, sig: anytype, fname: []cons
     };
     if (out) |o| {
         defer o.deinit(rt.gpa);
+        // `lift` builds nested collections from unrooted locals.
+        rt.gc.enterFabrication();
+        defer rt.gc.exitFabrication();
         return try lift(rt, o, loc, component_handle);
     }
     return Value.nil_val;

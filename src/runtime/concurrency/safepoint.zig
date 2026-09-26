@@ -141,6 +141,11 @@ pub fn noteWorkerLeft() void {
 /// torture deadlock: `force` runs the thunk under the once-lock, so the COLLECTING
 /// main thread holds it across a collect while a worker blocks on it).
 pub fn enterBlocked() void {
+    // Brackets nest (a blocking call inside a blocked region): only the
+    // outermost one counts, or the worker is counted parked twice and a
+    // collection can start while another worker is still running.
+    blocked_depth += 1;
+    if (blocked_depth > 1) return;
     // ADR-0150 am1 / D-559: same invariant as `park` — counting a mid-bracket
     // thread as parked would let the collector proceed over its unrooted
     // builder intermediates (the side door the alloc-prologue gate does not
@@ -156,13 +161,34 @@ pub fn enterBlocked() void {
 /// End an `enterBlocked` region. Decrement the parked count; if a collection
 /// armed while we were blocked, park now (re-checking the flag) so the
 /// post-acquire heap-touching code does not run before the collector resumes.
+/// An inner bracket of a nested pair only unwinds the depth.
 pub fn exitBlocked() void {
+    std.debug.assert(blocked_depth > 0);
+    blocked_depth -= 1;
+    if (blocked_depth > 0) return;
     {
         io_default.lockMutex(&sp_mutex);
         defer io_default.unlockMutex(&sp_mutex);
         parked_count -= 1;
     }
     if (gc_requested.load(.acquire)) park();
+}
+
+/// How many `enterBlocked` brackets this thread is inside. Only the outermost
+/// one changes `parked_count`.
+threadlocal var blocked_depth: u32 = 0;
+
+/// Call `f` with `args`, counting a registered worker as parked for the call so
+/// a collection another thread requests does not wait for it to return. For
+/// calls that block in the OS (a child process, a socket, DNS). `f` must not
+/// allocate GC memory, create a Value or raise: it returns data or a Zig error,
+/// and the caller builds or raises after this returns. On the main /
+/// unregistered thread it is a plain call.
+pub fn blocking(comptime f: anytype, args: anytype) @TypeOf(@call(.auto, f, args)) {
+    if (!root_set.is_registered_worker) return @call(.auto, f, args);
+    enterBlocked();
+    defer exitBlocked();
+    return @call(.auto, f, args);
 }
 
 /// Acquire `m` at a GC safepoint when running on a registered worker: a worker
@@ -179,6 +205,14 @@ pub fn lockMutexAtSafepoint(m: *std.Io.Mutex) void {
     enterBlocked();
     io_default.lockMutex(m);
     exitBlocked();
+}
+
+/// The poll for a spin loop on a registered worker: park if a collection is
+/// pending. A thread spinning on a lock whose holder can park (or collect)
+/// never reaches another safepoint, so the spin itself must be one. Call it
+/// only while holding nothing another thread needs to finish the collection.
+pub fn poll() void {
+    if (root_set.is_registered_worker and gc_requested.load(.acquire)) park();
 }
 
 /// Resume the world: clear the safe-point flag and wake every parked worker.
@@ -474,4 +508,20 @@ test "collectStopTheWorld parks real workers allocating through gc.alloc, then r
     for (&threads) |t| t.join();
     try testing.expect(Shared.allocs.load(.acquire) > 0); // workers really ran
     try testing.expectEqual(@as(u32, 0), parkedCountForTest()); // all resumed cleanly
+}
+
+test "blocking counts a registered worker as parked for the call and passes the result through" {
+    const Probe = struct {
+        fn seen(bump: u32) error{Refused}!u32 {
+            if (bump == 0) return error.Refused;
+            return parkedCountForTest() + bump;
+        }
+    };
+    try testing.expectEqual(@as(u32, 1), try blocking(Probe.seen, .{1}));
+
+    root_set.is_registered_worker = true;
+    defer root_set.is_registered_worker = false;
+    try testing.expectEqual(@as(u32, 2), try blocking(Probe.seen, .{1}));
+    try testing.expectError(error.Refused, blocking(Probe.seen, .{0}));
+    try testing.expectEqual(@as(u32, 0), parkedCountForTest());
 }

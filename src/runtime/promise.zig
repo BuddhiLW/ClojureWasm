@@ -121,7 +121,8 @@ pub fn isRealised(v: Value) bool {
 pub fn waitDelivered(io: std.Io, v: Value, timeout_ms: i64) bool {
     std.debug.assert(v.tag() == .promise);
     const p = v.decodePtr(*Promise);
-    return p.cell.delivered.wait(clock.nanoTime(io) + @max(timeout_ms, 0) * std.time.ns_per_ms);
+    // Saturating: `(deref p Long/MAX_VALUE v)` must wait "forever", not overflow.
+    return p.cell.delivered.wait(clock.nanoTime(io) +| (@max(timeout_ms, 0) *| std.time.ns_per_ms));
 }
 
 pub fn traceGc(gc_ptr: *anyopaque, header: *HeapHeader) void {

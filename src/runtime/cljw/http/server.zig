@@ -26,6 +26,7 @@ const error_mod = @import("../../error/info.zig");
 const SourceLocation = error_mod.SourceLocation;
 const error_catalog = @import("../../error/catalog.zig");
 const keyword_mod = @import("../../keyword.zig");
+const safepoint = @import("../../concurrency/safepoint.zig");
 const string_mod = @import("../../collection/string.zig");
 const map_mod = @import("../../collection/map.zig");
 const client = @import("client.zig");
@@ -125,7 +126,9 @@ pub fn runServer(
         return error_catalog.raiseInternal(loc, "cljw.http.server: listen/bind failed (port in use?)");
 
     while (true) {
-        var stream = server.accept(io) catch continue;
+        // Waits on the network run under safepoint.blocking, so a server started
+        // in a `future` does not stall collections between requests.
+        var stream = safepoint.blocking(std.Io.net.Server.accept, .{ &server, io }) catch continue;
         defer stream.close(io);
         // D-339: bound the request-head read BEFORE the first read on this
         // connection, so a peer that stalls mid-head cannot hold the serial
@@ -136,11 +139,11 @@ pub fn runServer(
         var sr = stream.reader(io, &rbuf);
         var sw = stream.writer(io, &wbuf);
         var hs = std.http.Server.init(&sr.interface, &sw.interface);
-        var req = hs.receiveHead() catch continue;
+        var req = safepoint.blocking(std.http.Server.receiveHead, .{&hs}) catch continue;
 
         // Build the Ring request map (cycle: method + uri; headers/body = D-257).
         const req_map = buildRequest(rt, &req, kw_method, kw_uri) catch {
-            req.respond("Internal Server Error\n", .{ .status = .internal_server_error, .keep_alive = false }) catch {};
+            safepoint.blocking(respondBytes, .{ &req, ResponseBytes.server_error });
             continue;
         };
 
@@ -148,137 +151,167 @@ pub fn runServer(
         const vtable = rt.vtable orelse
             return error_catalog.raiseInternal(loc, "cljw.http.server: runtime vtable not installed");
         const resp = vtable.callFn(rt, env, handler, &.{req_map}, loc) catch {
-            req.respond("Internal Server Error\n", .{ .status = .internal_server_error, .keep_alive = false }) catch {};
+            safepoint.blocking(respondBytes, .{ &req, ResponseBytes.server_error });
             continue;
         };
 
-        // Render the response: a bare string is a 200 body; a map yields
-        // {:status :body :headers}. `:headers` is a string→string map written
-        // verbatim as response headers (Content-Type / Set-Cookie / etc.) — a
-        // real web app on cljw needs to declare its content type and cookies
-        // (D-257 follow-on). std.http writes no default content-type, so a
-        // handler serving HTML must set `"content-type" "text/html; charset=utf-8"`.
-        var status: std.http.Status = .ok;
-        var body: []const u8 = "";
-        // Response headers are tiny (≤8) and stay an array_map, so iterate its
-        // flat entries directly rather than walk a HAMT. The string slices point
-        // into the GC strings, valid for the synchronous respond() below.
-        var header_buf: [16]std.http.Header = undefined;
-        var n_headers: usize = 0;
-        // SE-5: set false the moment a handler header name/value carries a control
-        // byte (CRLF injection / std.http abort vector). A dirty response → 500.
-        var headers_clean: bool = true;
-        if (resp.tag() == .string) {
-            body = string_mod.asString(resp);
-        } else {
-            const s = map_mod.get(resp, kw_status) catch Value.nil_val;
-            // Validate the handler-supplied status to a real HTTP range BEFORE the
-            // cast. A bare `@intCast(u10, …)` panics the whole server process on any
-            // `:status` outside 0..1023 (the `respond` catch below does NOT cover a
-            // cast panic here), and 0..1023 non-codes write a bogus status. Clamp to
-            // the valid 100..599 range; anything else falls back to 500 rather than
-            // crashing on handler (or request-derived) data.
-            if (s.isInt()) {
-                const code = s.asInteger();
-                status = if (code >= 100 and code <= 599)
-                    @enumFromInt(@as(u10, @intCast(code)))
-                else
-                    .internal_server_error;
-            }
-            const b = map_mod.get(resp, kw_body) catch Value.nil_val;
-            if (b.tag() == .string) body = string_mod.asString(b);
-            const h = map_mod.get(resp, kw_headers) catch Value.nil_val;
-            if (h.tag() == .array_map or h.tag() == .hash_map) {
-                // Iterate via the generic `forEachEntry`: a 9+-entry :headers
-                // map promotes to hash_map and the old array_map-only decode
-                // dropped ALL custom headers past that boundary (Discussion
-                // #12 bug class). The 16-header cap + SE-5 CRLF check are
-                // preserved inside the callback.
-                const HdrEmit = struct {
-                    header_buf: *[16]std.http.Header,
-                    n_headers: *usize,
-                    headers_clean: *bool,
-                    fn put(c: *@This(), hk: Value, hv: Value) anyerror!void {
-                        if (!c.headers_clean.* or c.n_headers.* >= c.header_buf.len) return;
-                        if (hk.tag() != .string or hv.tag() != .string) return;
-                        const nm = string_mod.asString(hk);
-                        const vl = string_mod.asString(hv);
-                        if (!headerFieldClean(nm) or !headerFieldClean(vl)) {
-                            c.headers_clean.* = false;
-                            return;
-                        }
-                        c.header_buf[c.n_headers.*] = .{ .name = nm, .value = vl };
-                        c.n_headers.* += 1;
-                    }
-                };
-                var hctx: HdrEmit = .{ .header_buf = &header_buf, .n_headers = &n_headers, .headers_clean = &headers_clean };
-                // The callback never errors and the tag is guarded above, so a
-                // failure here is unreachable; swallow to keep the serve loop
-                // crash-free on handler data (the surrounding contract).
-                map_mod.forEachEntry(h, &hctx, HdrEmit.put) catch {};
-            }
-        }
-        // SE-5: a control byte in any response header would split the response (or
-        // abort std.http) — fail the response as a 500 rather than emit it.
-        if (!headers_clean) {
-            req.respond("Internal Server Error\n", .{ .status = .internal_server_error, .keep_alive = false }) catch {};
-            continue;
-        }
-        req.respond(body, .{ .status = status, .keep_alive = false, .extra_headers = header_buf[0..n_headers] }) catch {};
+        // Copy the response into arena bytes, then write them. The write can
+        // block on a slow peer, so it runs under safepoint.blocking; `resp` is
+        // an unrooted local, so nothing it owns may be referenced while this
+        // worker counts as parked.
+        var resp_arena = std.heap.ArenaAllocator.init(rt.gpa);
+        defer resp_arena.deinit();
+        const rb = collectResponse(resp_arena.allocator(), resp, kw_status, kw_body, kw_headers) catch
+            ResponseBytes.server_error;
+        safepoint.blocking(respondBytes, .{ &req, rb });
     }
+}
+
+/// A response as plain bytes owned by a scratch arena: the collect stratum of
+/// the write, as `RequestBytes` is of the read.
+const ResponseBytes = struct {
+    status: std.http.Status,
+    body: []const u8,
+    headers: []const std.http.Header,
+
+    const server_error: ResponseBytes = .{
+        .status = .internal_server_error,
+        .body = "Internal Server Error\n",
+        .headers = &.{},
+    };
+};
+
+/// Render the handler's response Value into `arena` bytes. A bare string is a
+/// 200 body; a map yields {:status :body :headers}. `:headers` is a
+/// string→string map written verbatim as response headers (Content-Type /
+/// Set-Cookie / etc.); std.http writes no default content-type, so a handler
+/// serving HTML must set `"content-type" "text/html; charset=utf-8"`.
+fn collectResponse(arena: std.mem.Allocator, resp: Value, kw_status: Value, kw_body: Value, kw_headers: Value) !ResponseBytes {
+    if (resp.tag() == .string)
+        return .{ .status = .ok, .body = try arena.dupe(u8, string_mod.asString(resp)), .headers = &.{} };
+
+    var status: std.http.Status = .ok;
+    const s = map_mod.get(resp, kw_status) catch Value.nil_val;
+    // Validate the handler-supplied status to a real HTTP range BEFORE the
+    // cast. A bare `@intCast(u10, …)` panics the whole server process on any
+    // `:status` outside 0..1023, and 0..1023 non-codes write a bogus status.
+    // Clamp to 100..599; anything else falls back to 500.
+    if (s.isInt()) {
+        const code = s.asInteger();
+        status = if (code >= 100 and code <= 599)
+            @enumFromInt(@as(u10, @intCast(code)))
+        else
+            .internal_server_error;
+    }
+    var body: []const u8 = "";
+    const b = map_mod.get(resp, kw_body) catch Value.nil_val;
+    if (b.tag() == .string) body = try arena.dupe(u8, string_mod.asString(b));
+
+    var headers: std.ArrayList(std.http.Header) = .empty;
+    const h = map_mod.get(resp, kw_headers) catch Value.nil_val;
+    if (h.tag() == .array_map or h.tag() == .hash_map) {
+        // Iterate via the generic `forEachEntry`: a 9+-entry :headers map
+        // promotes to hash_map (Discussion #12 bug class). At most 16 headers.
+        // SE-5: a control byte in any name or value (CRLF injection / std.http
+        // abort vector) fails the whole response as a 500.
+        const HdrCollect = struct {
+            arena: std.mem.Allocator,
+            list: *std.ArrayList(std.http.Header),
+            clean: *bool,
+            fn put(c: *@This(), hk: Value, hv: Value) anyerror!void {
+                if (!c.clean.* or c.list.items.len >= 16) return;
+                if (hk.tag() != .string or hv.tag() != .string) return;
+                const nm = string_mod.asString(hk);
+                const vl = string_mod.asString(hv);
+                if (!headerFieldClean(nm) or !headerFieldClean(vl)) {
+                    c.clean.* = false;
+                    return;
+                }
+                try c.list.append(c.arena, .{ .name = try c.arena.dupe(u8, nm), .value = try c.arena.dupe(u8, vl) });
+            }
+        };
+        var clean = true;
+        var hctx: HdrCollect = .{ .arena = arena, .list = &headers, .clean = &clean };
+        try map_mod.forEachEntry(h, &hctx, HdrCollect.put);
+        if (!clean) return ResponseBytes.server_error;
+    }
+    return .{ .status = status, .body = body, .headers = headers.items };
+}
+
+/// Write `rb` to the peer. It blocks on the network and touches no GC memory,
+/// so callers run it under `safepoint.blocking`. A failed write is dropped:
+/// the connection closes either way.
+fn respondBytes(req: *std.http.Server.Request, rb: ResponseBytes) void {
+    req.respond(rb.body, .{ .status = rb.status, .keep_alive = false, .extra_headers = rb.headers }) catch {};
 }
 
 /// Cap on the request body cljw will buffer (DoS guard for the public edge
 /// server). A larger body yields `:body nil` rather than an unbounded read.
 const max_body_bytes = 8 * 1024 * 1024;
 
-fn buildRequest(rt: *Runtime, req: *std.http.Server.Request, kw_method: Value, kw_uri: Value) !Value {
-    // Everything sourced from the head (method / target / headers) is copied into
-    // cljw Values FIRST: reading the body via readerExpectNone invalidates the
-    // head's string memory, so the order here is load-bearing.
-    const method_kw = try methodKeyword(rt, req.head.method);
+/// A request as plain bytes owned by a scratch arena. Nothing here is a GC
+/// Value, so reading the body cannot leave a half-built map for a collection.
+const RequestBytes = struct {
+    method: std.http.Method,
+    target: []const u8,
+    /// `{lowercased-name, value}` pairs (Ring lowercases names).
+    headers: []const [2][]const u8,
+    body: ?[]const u8,
+};
+
+/// Copy the head, then read the body. The head is copied FIRST: reading the
+/// body via readerExpectContinue invalidates the head's string memory.
+fn collectRequest(arena: std.mem.Allocator, req: *std.http.Server.Request) !RequestBytes {
+    const target = try arena.dupe(u8, req.head.target);
+    var headers: std.ArrayList([2][]const u8) = .empty;
+    var hit = req.iterateHeaders();
+    while (hit.next()) |h|
+        try headers.append(arena, .{ try std.ascii.allocLowerString(arena, h.name), try arena.dupe(u8, h.value) });
+
+    // Read ONLY when the client declared a body (Content-Length or chunked); a
+    // body-less request with no length would otherwise read to EOF and block.
+    const has_body = req.head.content_length != null or req.head.transfer_encoding == .chunked;
+    const body: ?[]const u8 = if (has_body) blk: {
+        var body_buf: [16384]u8 = undefined;
+        const reader = req.readerExpectContinue(&body_buf) catch break :blk null;
+        const bytes = reader.allocRemaining(arena, std.Io.Limit.limited(max_body_bytes)) catch break :blk null;
+        break :blk if (bytes.len == 0) null else bytes;
+    } else null;
+    return .{ .method = req.head.method, .target = target, .headers = headers.items, .body = body };
+}
+
+/// The Ring request map for `rb`. Built in a fabrication region: every
+/// intermediate is an unrooted local until the map is returned.
+fn requestValue(rt: *Runtime, rb: RequestBytes, kw_method: Value, kw_uri: Value) !Value {
+    rt.gc.enterFabrication();
+    defer rt.gc.exitFabrication();
 
     // Ring splits the path from the query: `:uri` is the path, `:query-string`
     // the part after `?` (nil when absent).
-    const target = req.head.target;
-    const q_idx = std.mem.findScalar(u8, target, '?');
-    const path = if (q_idx) |i| target[0..i] else target;
-    const uri_str = try string_mod.alloc(rt, path);
-    const kw_query = try keyword_mod.intern(rt, null, "query-string");
-    const query_val: Value = if (q_idx) |i| try string_mod.alloc(rt, target[i + 1 ..]) else Value.nil_val;
+    const q_idx = std.mem.findScalar(u8, rb.target, '?');
+    const path = if (q_idx) |i| rb.target[0..i] else rb.target;
+    const query_val: Value = if (q_idx) |i| try string_mod.alloc(rt, rb.target[i + 1 ..]) else Value.nil_val;
 
-    // Headers → a cljw map {lowercased-name => value} (Ring lowercases names).
-    const kw_headers = try keyword_mod.intern(rt, null, "headers");
     var headers = map_mod.empty();
-    var hit = req.iterateHeaders();
-    while (hit.next()) |h| {
-        const lname = try std.ascii.allocLowerString(rt.gpa, h.name);
-        defer rt.gpa.free(lname);
-        const hk = try string_mod.alloc(rt, lname);
-        const hv = try string_mod.alloc(rt, h.value);
-        headers = try map_mod.assoc(rt, headers, hk, hv);
-    }
+    for (rb.headers) |h|
+        headers = try map_mod.assoc(rt, headers, try string_mod.alloc(rt, h[0]), try string_mod.alloc(rt, h[1]));
 
-    // Body → a cljw string (nil when there is none). Read ONLY when the client
-    // declared a body (Content-Length or chunked); a body-less request with no
-    // length would otherwise read the raw stream until EOF and block.
-    const kw_body = try keyword_mod.intern(rt, null, "body");
-    const has_body = req.head.content_length != null or req.head.transfer_encoding == .chunked;
-    const body_val: Value = if (has_body) blk: {
-        var body_buf: [16384]u8 = undefined;
-        const reader = req.readerExpectContinue(&body_buf) catch break :blk Value.nil_val;
-        const bytes = reader.allocRemaining(rt.gpa, std.Io.Limit.limited(max_body_bytes)) catch break :blk Value.nil_val;
-        defer rt.gpa.free(bytes);
-        break :blk if (bytes.len == 0) Value.nil_val else try string_mod.alloc(rt, bytes);
-    } else Value.nil_val;
+    const body_val: Value = if (rb.body) |b| try string_mod.alloc(rt, b) else Value.nil_val;
 
     var m = map_mod.empty();
-    m = try map_mod.assoc(rt, m, kw_method, method_kw);
-    m = try map_mod.assoc(rt, m, kw_uri, uri_str);
-    m = try map_mod.assoc(rt, m, kw_query, query_val);
-    m = try map_mod.assoc(rt, m, kw_headers, headers);
-    m = try map_mod.assoc(rt, m, kw_body, body_val);
+    m = try map_mod.assoc(rt, m, kw_method, try methodKeyword(rt, rb.method));
+    m = try map_mod.assoc(rt, m, kw_uri, try string_mod.alloc(rt, path));
+    m = try map_mod.assoc(rt, m, try keyword_mod.intern(rt, null, "query-string"), query_val);
+    m = try map_mod.assoc(rt, m, try keyword_mod.intern(rt, null, "headers"), headers);
+    m = try map_mod.assoc(rt, m, try keyword_mod.intern(rt, null, "body"), body_val);
     return m;
+}
+
+fn buildRequest(rt: *Runtime, req: *std.http.Server.Request, kw_method: Value, kw_uri: Value) !Value {
+    var arena_state = std.heap.ArenaAllocator.init(rt.gpa);
+    defer arena_state.deinit();
+    const rb = try safepoint.blocking(collectRequest, .{ arena_state.allocator(), req });
+    return requestValue(rt, rb, kw_method, kw_uri);
 }
 
 // --- Clojure surface (cljw.http.server / cljw.http.client) ---

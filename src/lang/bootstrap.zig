@@ -219,6 +219,10 @@ pub const FILES: []const FileEntry = &.{
     // protocol, no JVM class extension; require-on-demand (the proxy macro
     // requiring-resolves it). Appended last so earlier FILES[N] indices stay stable.
     f("cljw.proxy", "clj/cljw/proxy.clj"),
+    // clojure.java.shell (ADR-0199, D-273) — `sh` over the native
+    // `cljw.process/run`, resolved at call time so a WASI build (no
+    // cljw.process) still loads it. require-on-demand, as in clj. Appended last.
+    f("clojure.java.shell", "clj/clojure/java/shell.clj"),
 };
 
 /// The build-active subset of `FILES`. **Every walk that compiles, emits, or

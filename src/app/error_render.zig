@@ -274,26 +274,27 @@ pub fn renderAndExit(stderr: *Writer, ctx: error_print.SourceContext, err: anyer
     std.process.exit(code);
 }
 
-/// Registry-aware variant of `renderAndExit`. ADR-0035 D7: looks up
-/// `info.location.file` in `rt.source_registry` for the per-file
-/// source-line preview; falls back to `default_ctx` when the location
-/// is unknown or not registered.
+/// Registry-aware variant of `renderAndExit`. ADR-0035 D7: the source-line
+/// preview comes from `rt.source_registry` for `info.location.file` (a file
+/// the script loaded or required), falling back to `default_ctx` when the
+/// location is unknown or not registered. Only the CONTEXT is registry-aware:
+/// the text/EDN format, the thrown-value synthesis and the log file stay
+/// `renderError`'s, so both variants render alike.
 pub fn renderAndExitRegistry(
     stderr: *Writer,
     rt: *Runtime,
     default_ctx: error_print.SourceContext,
     err: anyerror,
 ) noreturn {
-    const code: u8 = if (error_mod.peekLastError()) |info|
-        kindToExitCode(info.kind)
-    else
-        1;
-    if (error_mod.getLastError()) |info| {
-        error_print.formatErrorWithRegistry(info, rt, default_ctx, stderr, .{}) catch {};
-        stderr.flush() catch {};
-    } else {
-        stderr.print("{s}: error: {s}\n", .{ default_ctx.file, @errorName(err) }) catch {};
-        stderr.flush() catch {};
-    }
+    const peeked = error_mod.peekLastError();
+    const code: u8 = if (peeked) |info| kindToExitCode(info.kind) else 1;
+    const ctx = if (peeked) |info| blk: {
+        const file = info.location.file;
+        if (file.len == 0 or std.mem.eql(u8, file, "unknown")) break :blk default_ctx;
+        break :blk rt.lookupSource(file) orelse default_ctx;
+    } else default_ctx;
+    renderError(stderr, ctx, err) catch {
+        // stderr write failed (closed pipe?); proceed to exit anyway.
+    };
     std.process.exit(code);
 }

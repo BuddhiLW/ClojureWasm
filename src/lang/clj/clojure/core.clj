@@ -2541,25 +2541,24 @@
   (cljw.internal/__future-call (bound-fn* f)))
 
 ;; `(load-string s)` — sequentially read+eval every form in s, return the last
-;; value (clj 1.0). clj routes through a StringReader + load-reader; cljw has no
-;; reader streams, so it wraps the forms in a single `(do …)` and evals that —
-;; identical observable result (forms run in order; defs visible to later forms;
-;; value of the last form returned; empty string → nil).
+;; value (clj 1.0). Each form is read only after the previous one ran, as
+;; `require` loads a file, so a `(ns …)` in s governs how its later forms read
+;; (`::kw`, syntax-quote) and the caller's ns is restored afterwards. Empty
+;; string → nil.
 (defn load-string
   "Sequentially read and evaluate the set of forms contained in the string."
   [s]
-  (eval (read-string (str "(do " s "\n)"))))
+  (cljw.internal/__load-source "NO_SOURCE_PATH" s))
 
 ;; `(load-file name)`: read+eval every form in the file at path `name`,
-;; returning the last form's value (clj 1.0). clj routes through
-;; Compiler.loadFile over a reader stream; cljw has no reader streams, so it
-;; slurps the file and delegates to `load-string`, binding `*file*` to `name`
-;; so the loaded forms observe the source path.
+;; returning the last form's value (clj 1.0). Same form-at-a-time loader as
+;; `load-string`, labelled with `name` so errors and `:file` meta name the
+;; file, with `*file*` bound to `name`.
 (defn load-file
   "Sequentially read and evaluate the set of forms contained in the file."
   [name]
   (binding [*file* name]
-    (load-string (slurp name))))
+    (cljw.internal/__load-source name (slurp name))))
 
 
 ;; `(definline name & decl)` — mainline defines an `:inline`-carrying fn (a

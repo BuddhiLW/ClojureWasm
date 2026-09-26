@@ -31,6 +31,10 @@
 //! `Io` so the ADR-0106 `host_finalise` hook can close a dropped socket at
 //! sweep without a Runtime. `state` carries no `Value`, so no `host_trace`.
 //!
+//! Every call that can block in the OS (dial, accept, read, write, flush) runs
+//! under `safepoint.blocking`, so a `future` waiting on a quiet peer does not
+//! stall a collection another thread requests.
+//!
 //! Byte arrays are Value-erased (F-004 / F-005), so transfers convert
 //! element-wise between the cljw array and a gpa scratch `[]u8`.
 const std = @import("std");
@@ -43,6 +47,7 @@ const string_mod = @import("../../collection/string.zig");
 const java_array = @import("../../collection/java_array.zig");
 const host_instance = @import("../../host_instance.zig");
 const type_descriptor = @import("../../type_descriptor.zig");
+const safepoint = @import("../../concurrency/safepoint.zig");
 
 /// Reader/writer buffer size, and therefore the most one `.read` can return.
 /// A `SocketBox` costs 2 * IO_BUF; a caller draining a multi-megabyte response
@@ -91,14 +96,15 @@ fn connectFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) 
     // An IP literal connects directly; a name goes through HostName.connect,
     // which races EVERY resolved address. Resolving to a single address strands
     // the common case where a name yields ::1 first and the peer is v4-only.
+    const opts: std.Io.net.IpAddress.ConnectOptions = .{ .mode = .stream };
     const stream = if (std.Io.net.IpAddress.parse(host, port)) |parsed| blk: {
-        var addr = parsed;
-        break :blk std.Io.net.IpAddress.connect(&addr, rt.io, .{ .mode = .stream }) catch
+        const addr = parsed;
+        break :blk safepoint.blocking(std.Io.net.IpAddress.connect, .{ &addr, rt.io, opts }) catch
             return error_catalog.raise(.net_connect_failed, loc, .{ .host = host, .port = port_i });
     } else |_| blk: {
         const name = std.Io.net.HostName.init(host) catch
             return error_catalog.raise(.net_arg_invalid, loc, .{ .detail = "the host is not a valid IP address or host name" });
-        break :blk name.connect(rt.io, port, .{ .mode = .stream }) catch
+        break :blk safepoint.blocking(std.Io.net.HostName.connect, .{ name, rt.io, port, opts }) catch
             return error_catalog.raise(.net_connect_failed, loc, .{ .host = host, .port = port_i });
     };
 
@@ -142,9 +148,9 @@ fn writeMethod(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation
         scratch[i] = @truncate(@as(u64, @bitCast(@as(i64, v.asInteger()))));
     }
 
-    box.writer.interface.writeAll(scratch) catch
+    safepoint.blocking(std.Io.Writer.writeAll, .{ &box.writer.interface, scratch }) catch
         return error_catalog.raise(.net_io_failed, loc, .{ .op = "write" });
-    box.writer.interface.flush() catch
+    safepoint.blocking(std.Io.Writer.flush, .{&box.writer.interface}) catch
         return error_catalog.raise(.net_io_failed, loc, .{ .op = "flush" });
 
     return Value.initInteger(@intCast(n));
@@ -163,7 +169,7 @@ fn readMethod(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation)
 
     const r = &box.reader.interface;
     if (r.buffered().len == 0) {
-        _ = r.fillMore() catch |e| switch (e) {
+        safepoint.blocking(std.Io.Reader.fillMore, .{r}) catch |e| switch (e) {
             error.EndOfStream => return Value.initInteger(-1),
             else => return error_catalog.raise(.net_io_failed, loc, .{ .op = "read" }),
         };
@@ -308,7 +314,7 @@ fn acceptMethod(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocatio
     try error_catalog.checkArity("cljw.net accept", args, 1, loc);
     const box = try expectServer(args[0], loc);
 
-    const stream = box.server.accept(box.io) catch
+    const stream = safepoint.blocking(std.Io.net.Server.accept, .{ &box.server, box.io }) catch
         return error_catalog.raise(.net_io_failed, loc, .{ .op = "accept" });
 
     const sock = rt.gpa.create(SocketBox) catch |e| {
@@ -428,7 +434,7 @@ fn connectUnixFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocati
 
     const ua = std.Io.net.UnixAddress.init(path) catch
         return error_catalog.raise(.net_arg_invalid, loc, .{ .detail = "the socket path is longer than the 108 bytes the OS allows" });
-    const stream = ua.connect(rt.io) catch
+    const stream = safepoint.blocking(std.Io.net.UnixAddress.connect, .{ &ua, rt.io }) catch
         return error_catalog.raise(.net_unix_connect_failed, loc, .{ .path = path });
 
     const box = rt.gpa.create(SocketBox) catch |e| {

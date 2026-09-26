@@ -734,7 +734,7 @@ tiers:
       # Still planned (not yet implemented / verified):
       clojure.data: {status: "planned (clojure.data/diff)"}
       clojure.java.io: {status: "planned (cw-native rewrite)"}
-      clojure.java.shell: {status: "planned"}
+      clojure.java.shell: {status: "implemented (sh / with-sh-dir / with-sh-env over cljw.process/run; UTF-8 or :bytes out, ADR-0199)"}
       # Down-tiered from A 2026-05-29, then IMPLEMENTED in the post-v0.1.0
       # F-010 quality loop (verified 2026-08-17): all three are bundled .clj
       # under src/lang/clj/clojure/, eager-loaded by bootstrap.zig, and

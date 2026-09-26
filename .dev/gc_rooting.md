@@ -170,6 +170,17 @@ Fixed by bracketing the alloc in the ADR-0150 fabrication no-collect region
 `range.seqChunk`). e2e guards: `phase16_gc_torture` `rest_range` /
 `rest_rest_range` / `lazywalk_range` / `for_range` + `phase16_bfs_queue_gc`.
 
+Host-call result builders, the same alloc-boundary window (2026-09-25): a host
+fn that assocs several entries into a Zig-local map swept the half-built map
+at the second alloc. Found as `cljw.http.client/get` answering `{:body "ok"}`
+with `:status` gone. Now bracketed in fabrication regions:
+`http/client.zig` (response), `http/server.zig` `requestValue` (request map,
+built after `collectRequest` has read the body into arena bytes, so no I/O
+runs inside the region), `wasm/component.zig` `componentExportsFn` and the
+top-level `lift`, alongside the existing `process/run.zig` `resultValue` and
+`wasm/surface.zig`. e2e guards: `phase16_gc_torture`
+`alloc/http_client_response` / `alloc/http_server_request`.
+
 ## D. Permanent / pinned roots
 
 | #  | Mechanism                                                                                                | Roots                                                                                                                                                                                                                                                                                                                                                                          |

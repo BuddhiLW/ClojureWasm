@@ -319,4 +319,32 @@ assert_eq 'self_recursive_survives' "$("$BIN" -e '(let [a [7]] (letfn [(go [n] (
 # fn out from under its own binding.
 assert_eq 'variadic_callee_rooted_before_bind' "$(CLJW_GC_TORTURE_ALLOC=1 "$BIN" -e '(reduce + (apply (fn [& xs] xs) [1 2 3 4 5]))')" '15'
 
+# Host-call result builders (http client response, http server request map)
+# assoc into an unrooted local map; a collect between two assocs swept the
+# half-built map (`{:body "ok"}` with :status gone). Each side runs under
+# allocation torture against a plain peer in another process.
+# (1) client: one GET against a child cljw that answers `ok`.
+port_file="$(mktemp)"
+: > "$port_file"
+CLJW_GC_TORTURE=0 run_bounded 60 "$BIN" -e "(let [s (cljw.net/listen \"127.0.0.1\" 0)] (spit \"$port_file\" (str (.port s))) (let [c (.accept s)] (.read c (byte-array 4096)) (.write c (.getBytes \"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok\")) (.close c)))" >/dev/null 2>&1 &
+peer=$!
+for _ in $(seq 200); do [ -s "$port_file" ] && break; sleep 0.05; done
+port="$(cat "$port_file")"
+rm -f "$port_file"
+got="$(CLJW_GC_TORTURE=0 CLJW_GC_TORTURE_ALLOC=1 run_bounded 60 "$BIN" -e "(pr-str (cljw.http.client/get \"http://127.0.0.1:$port/\"))" 2>&1)"
+wait "$peer" || true
+assert_eq 'alloc/http_client_response' "$got" '"{:status 200, :body \"ok\"}"'
+# (2) server: a tortured server echoes the request map a plain client sends.
+port=$((20000 + RANDOM % 20000))
+CLJW_GC_TORTURE=0 CLJW_GC_TORTURE_ALLOC=1 run_bounded 60 "$BIN" -e "(cljw.http.server/run-server (fn [req] (pr-str (select-keys req [:request-method :uri :query-string :body]))) {:port $port})" >/dev/null 2>&1 &
+server=$!
+got=""
+for _ in $(seq 100); do
+    got="$(CLJW_GC_TORTURE=0 "$BIN" -e "(:body (cljw.http.client/post \"http://127.0.0.1:$port/p?q=1\" {:body \"hi\"}))" 2>/dev/null)" && [ -n "$got" ] && break
+    sleep 0.1
+done
+kill "$server" 2>/dev/null || true
+wait "$server" 2>/dev/null || true
+assert_eq 'alloc/http_server_request' "$got" '"{:request-method :post, :uri \"/p\", :query-string \"q=1\", :body \"hi\"}"'
+
 echo "ALL phase16_gc_torture PASS"

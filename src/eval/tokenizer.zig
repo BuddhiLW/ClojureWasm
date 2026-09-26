@@ -352,7 +352,7 @@ pub const Tokenizer = struct {
                 return self.makeToken(.meta_caret, start, start_line, start_col);
             },
             '!' => {
-                while (self.pos < self.source.len and self.source[self.pos] != '\n') self.advance();
+                self.skipLineComment();
                 return self.next(); // skip shebang line, return next real token
             },
             '"' => return self.readRegexLiteral(start, start_line, start_col),
@@ -402,9 +402,16 @@ pub const Tokenizer = struct {
             if (isWhitespace(c)) {
                 self.advance();
             } else if (c == ';') {
-                while (self.pos < self.source.len and self.source[self.pos] != '\n') self.advance();
+                self.skipLineComment();
             } else break;
         }
+    }
+
+    /// Consume a `;` or `#!` comment up to, not including, the line end. A
+    /// line ends at LF or CR (clj CommentReader), so a CR-only source does
+    /// not swallow the forms after its first comment.
+    fn skipLineComment(self: *Tokenizer) void {
+        while (self.pos < self.source.len and !isLineEnd(self.source[self.pos])) self.advance();
     }
 
     fn advance(self: *Tokenizer) void {
@@ -460,13 +467,19 @@ fn isWhitespace(c: u8) bool {
     };
 }
 
+fn isLineEnd(c: u8) bool {
+    return c == '\n' or c == '\r';
+}
+
 fn isTerminator(c: u8) bool {
-    // `#` is NOT a terminator: it is a symbol/keyword constituent mid-token
-    // (clj `foo#` auto-gensym, `foo#bar`). A token-START `#` is still a reader
-    // dispatch — the main `next` switch matches `'#' => readDispatch` before
-    // any symbol read begins, so only a non-leading `#` reaches a symbol body.
+    // clj LispReader isTerminatingMacro: every macro char except `#`, `'` and
+    // `%` ends a token, so `a@b` is `a (deref b)` and `x~y` is `x (unquote y)`.
+    // `#` stays a symbol/keyword constituent mid-token (`foo#` auto-gensym,
+    // `foo#bar`); a token-START `#` is still a reader dispatch, because the
+    // main `next` switch matches `'#' => readDispatch` before any symbol read
+    // begins. `'` stays a constituent too (`a'b` is one symbol).
     return isWhitespace(c) or switch (c) {
-        '"', ';', '(', ')', '[', ']', '{', '}', '\\' => true,
+        '"', ';', '(', ')', '[', ']', '{', '}', '\\', '@', '^', '`', '~' => true,
         else => false,
     };
 }
@@ -659,4 +672,38 @@ test "'(1 2) emits quote then list" {
     try testing.expectEqual(TokenKind.integer, t.next().kind);
     try testing.expectEqual(TokenKind.integer, t.next().kind);
     try testing.expectEqual(TokenKind.rparen, t.next().kind);
+}
+
+test "a line comment ends at CR as well as LF" {
+    var t = Tokenizer.init(";c\r3\n5");
+    try testing.expectEqualStrings("3", t.next().text(t.source));
+    try testing.expectEqualStrings("5", t.next().text(t.source));
+    var s = Tokenizer.init("#!shebang\r7");
+    try testing.expectEqualStrings("7", s.next().text(s.source));
+}
+
+test "@ ^ backtick ~ end a symbol, keyword or char token; ' and # do not" {
+    var t = Tokenizer.init("a@b :k^m x`y z~w q'r g#");
+    try testing.expectEqualStrings("a", t.next().text(t.source));
+    try testing.expectEqual(TokenKind.deref, t.next().kind);
+    try testing.expectEqualStrings("b", t.next().text(t.source));
+    try testing.expectEqualStrings(":k", t.next().text(t.source));
+    try testing.expectEqual(TokenKind.meta_caret, t.next().kind);
+    try testing.expectEqualStrings("m", t.next().text(t.source));
+    try testing.expectEqualStrings("x", t.next().text(t.source));
+    try testing.expectEqual(TokenKind.syntax_quote, t.next().kind);
+    try testing.expectEqualStrings("y", t.next().text(t.source));
+    try testing.expectEqualStrings("z", t.next().text(t.source));
+    try testing.expectEqual(TokenKind.unquote, t.next().kind);
+    try testing.expectEqualStrings("w", t.next().text(t.source));
+    try testing.expectEqualStrings("q'r", t.next().text(t.source));
+    try testing.expectEqualStrings("g#", t.next().text(t.source));
+
+    var c = Tokenizer.init("\\a@b \\@");
+    const a = c.next();
+    try testing.expectEqual(TokenKind.char_lit, a.kind);
+    try testing.expectEqualStrings("\\a", a.text(c.source));
+    try testing.expectEqual(TokenKind.deref, c.next().kind);
+    try testing.expectEqualStrings("b", c.next().text(c.source));
+    try testing.expectEqualStrings("\\@", c.next().text(c.source));
 }

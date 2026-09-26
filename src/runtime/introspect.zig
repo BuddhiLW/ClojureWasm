@@ -271,6 +271,9 @@ pub fn forEachStaticMember(rt_ptr: anytype, context_ns: ?*Namespace, class_head:
         if (!cb(ctx, .{ .name = sf.name, .ns = null, .kind = .static_field })) return;
     }
     for (td.method_table) |me| {
+        // `<init>` is the constructor entry `new` / `(Class. …)` consults, not
+        // a member a user can call as `Class/<init>`.
+        if (std.mem.eql(u8, me.method_name, "<init>")) continue;
         if (!memberMatches(member_prefix, me.method_name)) continue;
         if (!cb(ctx, .{ .name = me.method_name, .ns = null, .kind = .static_method })) return;
     }

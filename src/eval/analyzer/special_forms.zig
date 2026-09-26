@@ -162,8 +162,10 @@ pub fn constructInstance(
         const vt = rt.vtable orelse return error.NoVTable;
         return vt.callFn(rt, env, me.method_val, args, loc);
     }
+    // No constructor takes arguments: clj's IllegalArgumentException, not an
+    // arity error against an imaginary 0-arg ctor.
     if (args.len != 0)
-        return error_catalog.raise(.arity_not_expected, loc, .{ .got = args.len, .fn_name = type_name, .expected = 0 });
+        return error_catalog.raise(.ctor_unmatched, loc, .{ .class = td.fqcn orelse type_name });
     return error_catalog.raise(.symbol_unresolved, loc, .{ .sym = type_name });
 }
 
@@ -465,78 +467,72 @@ pub fn analyzeDefmacro(
     placeholder_var.flags.macro_ = true;
 
     // D-187: lower docstring / attr-map / synthesized :arglists into
-    // Var.meta (mirrors defn's D-183(d), so `(:doc (meta #'m))` works);
-    // reader `^meta` on the name merges first. :arglists is always present.
-    {
-        var meta_items: std.ArrayList(Form) = .empty;
-        if (items[1].meta) |mf| try meta_items.appendSlice(arena, mf.data.map);
-        if (attr_form) |a| try meta_items.appendSlice(arena, a.data.map);
-        if (doc_form) |d| {
-            try meta_items.append(arena, .{ .data = .{ .keyword = .{ .name = "doc" } }, .location = form.location });
-            try meta_items.append(arena, d);
+    // Var.meta (mirrors defn's D-183(d), so `(:doc (meta #'m))` works).
+    // Layered as clj's defn (which defmacro expands to) layers them, each
+    // over the last: reader `^meta` on the name, then :arglists, then the
+    // docstring, then the attr-map, so an attr-map `{:doc …}` or
+    // `{:arglists …}` wins. :arglists is always present.
+    //
+    // :arglists is the list of param vectors: `([params])` for single
+    // arity, `([a] [a b] …)` for multi-arity (each clause's vector).
+    const arglists_inner = if (multi_arity) blk: {
+        const clauses = items[head..];
+        const av = try arena.alloc(Form, clauses.len);
+        for (clauses, 0..) |c, j| {
+            if (c.data != .list or c.data.list.len == 0 or c.data.list[0].data != .vector)
+                return error_catalog.raise(.defmacro_params_not_vector, c.location, .{});
+            av[j] = c.data.list[0];
         }
-        // :arglists is the list of param vectors: `([params])` for single
-        // arity, `([a] [a b] …)` for multi-arity (each clause's vector).
-        const arglists_inner = if (multi_arity) blk: {
-            const clauses = items[head..];
-            const av = try arena.alloc(Form, clauses.len);
-            for (clauses, 0..) |c, j| {
-                if (c.data != .list or c.data.list.len == 0 or c.data.list[0].data != .vector)
-                    return error_catalog.raise(.defmacro_params_not_vector, c.location, .{});
-                av[j] = c.data.list[0];
-            }
-            break :blk av;
-        } else blk: {
-            const av = try arena.alloc(Form, 1);
-            av[0] = items[head];
-            break :blk av;
-        };
-        try meta_items.append(arena, .{ .data = .{ .keyword = .{ .name = "arglists" } }, .location = form.location });
-        try meta_items.append(arena, .{ .data = .{ .list = arglists_inner }, .location = form.location });
-        const meta_map: Form = .{ .data = .{ .map = try arena.dupe(Form, meta_items.items) }, .location = form.location };
+        break :blk av;
+    } else blk: {
+        const av = try arena.alloc(Form, 1);
+        av[0] = items[head];
+        break :blk av;
+    };
+    const arglists_key: Form = .{ .data = .{ .keyword = .{ .name = "arglists" } }, .location = form.location };
+    const doc_key: Form = .{ .data = .{ .keyword = .{ .name = "doc" } }, .location = form.location };
+    {
+        var meta: form_mod.MapBuilder = .{};
+        if (items[1].meta) |mf| try meta.merge(arena, mf.data.map);
+        try meta.put(arena, arglists_key, .{ .data = .{ .list = arglists_inner }, .location = form.location });
+        if (doc_form) |d| try meta.put(arena, doc_key, d);
+        if (attr_form) |a| try meta.merge(arena, a.data.map);
+        const meta_map = try meta.toForm(arena, form.location);
         placeholder_var.meta = try analyzer_mod.formToValue(rt, env, try unquoteMetaValues(arena, meta_map));
     }
     // D-563(b): the wire-riding meta EXPRESSION for macro Vars — the same
     // merged map plus the compiler-minted :line/:column/:file, wholesale-
     // quoted to one composite constant (mirrors analyzeDef's def_meta_expr;
-    // macro docstrings now survive AOT artifacts too).
+    // macro docstrings now survive AOT artifacts too). A locationless macro
+    // gets no location keys; its user meta and arglists still evaluate.
     const macro_meta_expr: ?*const Node = blk: {
         const src_loc = items[1].location;
-        if (src_loc.line == 0) break :blk null;
-        var meta_items: std.ArrayList(Form) = .empty;
-        if (items[1].meta) |mf| try meta_items.appendSlice(arena, mf.data.map);
-        if (attr_form) |a| try meta_items.appendSlice(arena, a.data.map);
-        if (doc_form) |d| {
-            try meta_items.append(arena, .{ .data = .{ .keyword = .{ .name = "doc" } }, .location = form.location });
-            try meta_items.append(arena, d);
-        }
-        const arglists_inner2 = if (multi_arity) blk2: {
-            const clauses = items[head..];
-            const av = try arena.alloc(Form, clauses.len);
-            for (clauses, 0..) |c, j| av[j] = c.data.list[0];
-            break :blk2 av;
-        } else blk2: {
-            const av = try arena.alloc(Form, 1);
-            av[0] = items[head];
-            break :blk2 av;
-        };
-        try meta_items.append(arena, .{ .data = .{ .keyword = .{ .name = "arglists" } }, .location = form.location });
+        var meta: form_mod.MapBuilder = .{};
+        if (items[1].meta) |mf| try meta.merge(arena, mf.data.map);
         // Synthesized arglists are DATA — quoted, like clj's defn/defmacro.
         const agq = try arena.alloc(Form, 2);
         agq[0] = macro_dispatch.makeSymbol("quote", form.location);
-        agq[1] = .{ .data = .{ .list = arglists_inner2 }, .location = form.location };
-        try meta_items.append(arena, .{ .data = .{ .list = agq }, .location = form.location });
-        const kws = [_]struct { name: []const u8, v: i64 }{
-            .{ .name = "line", .v = @intCast(src_loc.line) },
-            .{ .name = "column", .v = @intCast(src_loc.column) },
-        };
-        for (kws) |kv| {
-            try meta_items.append(arena, .{ .data = .{ .keyword = .{ .name = kv.name } }, .location = form.location });
-            try meta_items.append(arena, .{ .data = .{ .integer = kv.v }, .location = form.location });
+        agq[1] = .{ .data = .{ .list = arglists_inner }, .location = form.location };
+        try meta.put(arena, arglists_key, .{ .data = .{ .list = agq }, .location = form.location });
+        if (doc_form) |d| try meta.put(arena, doc_key, d);
+        if (attr_form) |a| try meta.merge(arena, a.data.map);
+        if (src_loc.line != 0) {
+            const kws = [_]struct { name: []const u8, v: i64 }{
+                .{ .name = "line", .v = @intCast(src_loc.line) },
+                .{ .name = "column", .v = @intCast(src_loc.column) },
+            };
+            for (kws) |kv| try meta.put(
+                arena,
+                .{ .data = .{ .keyword = .{ .name = kv.name } }, .location = form.location },
+                .{ .data = .{ .integer = kv.v }, .location = form.location },
+            );
+            try meta.put(
+                arena,
+                .{ .data = .{ .keyword = .{ .name = "file" } }, .location = form.location },
+                .{ .data = .{ .string = src_loc.file }, .location = form.location },
+            );
         }
-        try meta_items.append(arena, .{ .data = .{ .keyword = .{ .name = "file" } }, .location = form.location });
-        try meta_items.append(arena, .{ .data = .{ .string = src_loc.file }, .location = form.location });
-        const meta_map2: Form = .{ .data = .{ .map = try arena.dupe(Form, meta_items.items) }, .location = form.location };
+        const meta_map2 = try meta.toForm(arena, form.location);
         // Real-expression analysis, mirroring analyzeDef (D-316): quoted
         // arglists stay data, computed values evaluate, `:tag` symbols resolve
         // uniformly (a Class value or a name error — clj parity).
@@ -646,46 +642,48 @@ pub fn analyzeDef(
     // Combine the reader `^meta` map (if any) with an optional `:doc` from the
     // `(def name doc init)` form, then lift into Var.meta.
     if (items[1].meta != null or doc_form != null) {
-        var meta_items: std.ArrayList(Form) = .empty;
+        var meta: form_mod.MapBuilder = .{};
         if (items[1].meta) |mf| {
-            if (mf.data == .map) try meta_items.appendSlice(arena, mf.data.map);
+            if (mf.data == .map) try meta.merge(arena, mf.data.map);
         }
-        if (doc_form) |d| {
-            try meta_items.append(arena, .{ .data = .{ .keyword = .{ .name = "doc" } }, .location = form.location });
-            try meta_items.append(arena, d);
-        }
-        const meta_map: Form = .{ .data = .{ .map = try arena.dupe(Form, meta_items.items) }, .location = form.location };
+        if (doc_form) |d| try meta.put(arena, .{ .data = .{ .keyword = .{ .name = "doc" } }, .location = form.location }, d);
+        const meta_map = try meta.toForm(arena, form.location);
         var_ptr.meta = try analyzer_mod.formToValue(rt, env, try unquoteMetaValues(arena, meta_map));
     }
     // D-563(b): the full Var-meta EXPRESSION — user `^meta` + `:doc`, with the
-    // compiler-minted `:line`/`:column`/`:file` appended AFTER them (a map
-    // literal is last-key-wins, so the source location overrides a user
-    // `^{:line …}` — clj parity). Both backends evaluate it at def time and
-    // set `Var.meta`, so def meta rides the AOT wire (the analyze-time lift
-    // above only covers the pre-eval window). Skipped for locationless
-    // internal defs (line 0 = no real source position).
+    // compiler-minted `:line`/`:column`/`:file` merged OVER them (so the
+    // source location overrides a user `^{:line …}` — clj parity). Both
+    // backends evaluate it at def time and set `Var.meta`, so def meta rides
+    // the AOT wire (the analyze-time lift above only covers the pre-eval
+    // window). A locationless def (line 0: an internal def, or a form
+    // `eval`'d from a bootstrap-compiled caller such as `load-string`) gets no
+    // location keys, but its user meta is still evaluated; with neither there
+    // is nothing to evaluate.
     const def_meta_expr: ?*const Node = blk: {
         const src_loc = items[1].location;
-        if (src_loc.line == 0) break :blk null;
-        var meta_items: std.ArrayList(Form) = .empty;
+        var meta: form_mod.MapBuilder = .{};
         if (items[1].meta) |mf| {
-            if (mf.data == .map) try meta_items.appendSlice(arena, mf.data.map);
+            if (mf.data == .map) try meta.merge(arena, mf.data.map);
         }
-        if (doc_form) |d| {
-            try meta_items.append(arena, .{ .data = .{ .keyword = .{ .name = "doc" } }, .location = form.location });
-            try meta_items.append(arena, d);
+        if (doc_form) |d| try meta.put(arena, .{ .data = .{ .keyword = .{ .name = "doc" } }, .location = form.location }, d);
+        if (src_loc.line != 0) {
+            const kws = [_]struct { name: []const u8, v: i64 }{
+                .{ .name = "line", .v = @intCast(src_loc.line) },
+                .{ .name = "column", .v = @intCast(src_loc.column) },
+            };
+            for (kws) |kv| try meta.put(
+                arena,
+                .{ .data = .{ .keyword = .{ .name = kv.name } }, .location = form.location },
+                .{ .data = .{ .integer = kv.v }, .location = form.location },
+            );
+            try meta.put(
+                arena,
+                .{ .data = .{ .keyword = .{ .name = "file" } }, .location = form.location },
+                .{ .data = .{ .string = src_loc.file }, .location = form.location },
+            );
         }
-        const kws = [_]struct { name: []const u8, v: i64 }{
-            .{ .name = "line", .v = @intCast(src_loc.line) },
-            .{ .name = "column", .v = @intCast(src_loc.column) },
-        };
-        for (kws) |kv| {
-            try meta_items.append(arena, .{ .data = .{ .keyword = .{ .name = kv.name } }, .location = form.location });
-            try meta_items.append(arena, .{ .data = .{ .integer = kv.v }, .location = form.location });
-        }
-        try meta_items.append(arena, .{ .data = .{ .keyword = .{ .name = "file" } }, .location = form.location });
-        try meta_items.append(arena, .{ .data = .{ .string = src_loc.file }, .location = form.location });
-        const meta_map: Form = .{ .data = .{ .map = try arena.dupe(Form, meta_items.items) }, .location = form.location };
+        if (meta.entries.items.len == 0) break :blk null;
+        const meta_map = try meta.toForm(arena, form.location);
         // The map analyzes as a REAL EXPRESSION (D-316): quoted values stay
         // data (defn's synthesized `:arglists '([x])` — now quoted at the
         // generator), literals embed, and a COMPUTED value like

@@ -11,6 +11,28 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 
 ### Added
 
+- **`clojure.java.shell` over a native `cljw.process/run` (ADR-0199).** `sh`,
+  `with-sh-dir` and `with-sh-env` run any host program by argv (never through
+  a shell) and return `{:exit :out :err}`; a non-zero exit is data. `:in` is
+  fed concurrently, so a large input cannot deadlock; `:env` replaces the child
+  environment as JVM `sh` does. A child process escapes every in-process
+  containment, so `run` is refused under `CLJW_FS_ROOT` or inside
+  `cljw.eval/with-budget` (`restriction.zig`, one predicate for both), and a
+  worker thread blocked in it no longer holds up a collection. This is the seam
+  for driving native tools unchanged: AutoPDF's Clojure client runs the Go
+  `autopdf` CLI and renders the same PDF on cljw, clojurust and the JVM.
+
+- **The primitive-wrapper constructors.** `(Long. x)`, `(Integer. x)`,
+  `(Short. x)`, `(Byte. x)`, `(Double. x)`, `(Float. x)`, `(Character. c)` and
+  `(Boolean. x)` (and their `new` spellings) answer the plain cljw value, so
+  the result joins arithmetic, `=`, coercion and `str`. Strings parse as the
+  JVM ctors do (NumberFormatException when malformed or out of range). An
+  argument no ctor accepts raises IllegalArgumentException "No matching ctor
+  found for class …", which is now also what any constructor-less class
+  answers when given arguments. Two recorded divergences: `(if (Boolean.
+  "false") …)` takes the false branch (AD-073), and `(Short. 7)` / `(Byte. 7)`
+  answer 7 because cljw cannot tell them from `(Short. (short 7))` (AD-074).
+
 - **`docs/examples/polyglot/`: every guest language through the FFI, gated.**
   A C kernel (`zig cc`, 2.3 KB) and a Zig kernel (267 B) over `wasm/load` +
   `wasm/call` with guest-owned buffers, a `no_std` Rust module (401 B), a
@@ -29,6 +51,72 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
   Documented from the demo: a void export that takes an `f64` has no JIT call
   shape and needs `{:engine :interp}` or a result value, and the linker's
   default 1 MB shadow stack makes a C module ask for 17 pages.
+
+### Fixed
+
+- **A duplicate map key or set element is an error, as in clj (ADR-0200).**
+  `{:a 1 :a 2}`, `#{1 1}` and `#:a{:b 1 :a/b 2}` raise IllegalArgumentException
+  ("Duplicate key: :a") in source and in `read-string` /
+  `clojure.edn/read-string`, instead of silently keeping the last entry.
+  Source is checked as it is read, so a duplicate in a destructuring map or a
+  macro argument is caught too. `read-string` checks by value and in source
+  order, so `{1 :a 1N :b}` is caught and an earlier missing tag reader is still
+  the error reported. `#(...)` params are clj-style gensyms (`p1__N#`), so two
+  identical `#()` literals are distinct forms and `#{#(inc %) #(inc %)}` holds
+  two fns. `defn` and `defmacro` let an attr-map's `:doc` or `:arglists` win
+  over the docstring and the synthesized arglists, as clj does.
+- **The reader splits tokens and ends comments where clj's does (ADR-0200).**
+  `@`, `^`, backtick and `~` now end a symbol, keyword or character token, so
+  `[a@b]` reads as `[a (clojure.core/deref b)]` instead of the symbol `a@b`
+  (`'` and `#` stay constituents, as in clj). A `;` or `#!` comment ends at a
+  carriage return as well as a line feed, so a CR-only source no longer loses
+  the forms after its first comment. `~x` and `~@x` read as data outside a
+  syntax-quote are the lists `(clojure.core/unquote x)` and
+  `(clojure.core/unquote-splicing x)`, where `read-string` used to raise.
+- **A `future` blocked in a host call no longer stalls every collection.** A
+  worker waiting in `Thread/sleep`, a `cljw.net` accept, read, write or dial,
+  or a `cljw.http.client` request was not a safepoint, so a collection another
+  thread requested waited for the call to return, and forever if the peer never
+  answered. Each of these waits now runs under `safepoint.blocking`, which
+  counts the worker as parked for the call. The `cljw.http.server` accept,
+  request read and response write are bracketed the same way; the response is
+  first copied out of the handler's value, so a slow reader cannot stall a
+  collection either.
+
+- **A `future` waiting on a promise, a future, an agent or a Thread no longer
+  deadlocks the collector.** `@(promise)`, `@(future ...)`, `(await agent)`
+  and `(.join thread)` on a worker, an idle `Executors` pool worker, and
+  `(realized? delay)` while another thread forces it all waited uncounted, so
+  the next collection waited for them, and their waker (often the collecting
+  thread) waited for it: a deadlock. The latch under every deref now counts
+  its waiter as parked, the pool's idle wait and Thread join are bracketed,
+  `realized?` on a delay reads its state lock-free (which also stops a thunk
+  that asks about its own delay from deadlocking), and the ref-read and
+  LinkedBlockingQueue spin locks poll the safepoint. A timed deref with a huge
+  timeout no longer overflows.
+
+- **An error inside a loaded or required file shows that file's source.** A
+  script's uncaught error rendered its snippet from the script itself: an
+  error at `lib.clj:3` printed line 3 of the running script. The script
+  runner now resolves the snippet by the error's file, and a file
+  `load-file`d again after an edit renders against its new text, not the
+  first version's.
+
+- **`cljw.http.client` could return a response with `:status` missing.** The
+  response map was built in an unrooted local, and a collection at the body
+  allocation swept it half-built. The http server's request map and the wasm
+  component `exports` and result lift had the same shape. Each now builds
+  inside a fabrication region.
+
+- **`load-file` and `load-string` read each form after the previous one ran.**
+  They read the whole text up front and evaluated one `(do …)`, so `::kw` and
+  syntax-quote in a loaded file resolved in the caller's namespace, not the
+  file's `(ns …)`. They now share the `require` loader's loop, label errors
+  with the file, and restore the caller's namespace afterwards. A `def`
+  evaluated from a locationless caller (such as `load-string` itself) also kept
+  its computed metadata unevaluated (`^{:k (+ 1 2)}` stayed a list), which left
+  every `deftest` loaded this way with an uncallable `:test`; computed metadata
+  is now always evaluated.
 
 ## [1.14.7] - 2026-09-15
 

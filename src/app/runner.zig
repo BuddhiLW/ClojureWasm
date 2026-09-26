@@ -173,7 +173,9 @@ pub fn runSource(
             eval_budget.current = null;
             rt.gc.heap_ceiling = null;
             rt.gc.heap_exceeded_hook = null;
-            error_render.renderAndExit(stderr, ctx, err);
+            // Registry-aware: an error inside a file this script load-file'd or
+            // required renders that file's snippet, not this script's line N.
+            error_render.renderAndExitRegistry(stderr, &rt, ctx, err);
         };
 
         // GC-ROOT: D1 — pin the result across printResult [ref: .dev/gc_rooting.md §D]

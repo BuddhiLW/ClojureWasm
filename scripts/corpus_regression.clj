@@ -24,14 +24,17 @@
 (def cli-context-corpora
   #{"thread_bindings"})
 
-(defn evaluate-expr [port stem expr]
+(defn evaluate-expr
+  "Replay `expr` the way clj_diff_sweep recorded its golden: through the oracle
+  form, so an error golden (`<clj-error> Kind`) replays as one."
+  [port stem expr]
   (if (contains? cli-context-corpora stem)
     ;; nREPL intentionally installs a dynamic binding frame. This corpus tests
     ;; the clojure.main baseline itself, so only the CLI context is equivalent.
-    (process/cljw-eval-line (eval/printable-code expr))
+    (process/cljw-eval-line (eval/oracle-code expr))
     (let [conn (eval/open-session host port)]
       (try
-        (eval/eval-line conn expr)
+        (eval/oracle-line conn expr)
         (finally
           (eval/close-session conn))))))
 

@@ -23,11 +23,11 @@
 
 schema_version: "2.0"
 summary:
-  namespaces_required: 34
-  total: 1425
-  zig: 407
-  clj: 797
-  value: 215
+  namespaces_required: 35
+  total: 1434
+  zig: 409
+  clj: 802
+  value: 217
   unbound: 6
 vars:
   "cljw.error/*error-context*": { impl: value, flags: "dynamic" }
@@ -79,6 +79,7 @@ vars:
   "cljw.internal/__instance-of?": { impl: zig, flags: "-" }
   "cljw.internal/__kv-reduce-or": { impl: zig, flags: "-" }
   "cljw.internal/__lazy-seq-create": { impl: zig, flags: "-" }
+  "cljw.internal/__load-source": { impl: zig, flags: "-" }
   "cljw.internal/__locking": { impl: zig, flags: "-" }
   "cljw.internal/__make-multifn": { impl: zig, flags: "-" }
   "cljw.internal/__make-protocol!": { impl: zig, flags: "-" }
@@ -124,6 +125,7 @@ vars:
   "cljw.net/connect-unix": { impl: zig, flags: "-" }
   "cljw.net/listen": { impl: zig, flags: "-" }
   "cljw.net/listen-unix": { impl: zig, flags: "-" }
+  "cljw.process/run": { impl: zig, flags: "-" }
   "cljw.proxy/->ThreadLocalCell": { impl: clj, flags: "-" }
   "cljw.proxy/IThreadLocalCell": { impl: value, flags: "-" }
   "cljw.proxy/ThreadLocalCell": { impl: value, flags: "-" }
@@ -931,6 +933,13 @@ vars:
   "clojure.java.io/reader": { impl: clj, flags: "-" }
   "clojure.java.io/resource": { impl: clj, flags: "-" }
   "clojure.java.io/writer": { impl: clj, flags: "-" }
+  "clojure.java.shell/*sh-dir*": { impl: value, flags: "dynamic" }
+  "clojure.java.shell/*sh-env*": { impl: value, flags: "dynamic" }
+  "clojure.java.shell/env-map": { impl: clj, flags: "private" }
+  "clojure.java.shell/sh": { impl: clj, flags: "-" }
+  "clojure.java.shell/utf-8?": { impl: clj, flags: "private" }
+  "clojure.java.shell/with-sh-dir": { impl: clj, flags: "macro" }
+  "clojure.java.shell/with-sh-env": { impl: clj, flags: "macro" }
   "clojure.math/E": { impl: value, flags: "-" }
   "clojure.math/IEEE-remainder": { impl: clj, flags: "-" }
   "clojure.math/PI": { impl: value, flags: "-" }

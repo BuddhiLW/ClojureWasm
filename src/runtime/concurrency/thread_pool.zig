@@ -17,6 +17,7 @@ const future = @import("../future.zig");
 const dispatch = @import("../dispatch.zig");
 const worker_error = @import("worker_error.zig");
 const io_default = @import("io_default.zig");
+const safepoint = @import("safepoint.zig");
 const eval_budget = @import("eval_budget.zig");
 const clock = @import("../clock.zig");
 const mark_sweep = @import("../gc/mark_sweep.zig");
@@ -118,14 +119,19 @@ pub fn workerEntry(context: *anyopaque, registered: bool) void {
             }
         }
 
+        // The idle wait counts as parked: its wakers (submit, shutdown) run on
+        // user threads, and the collecting thread is one of them, so an
+        // uncounted wait deadlocks the first collection after the pool goes
+        // idle. The bracket closes only after the unlock, so this worker never
+        // parks holding st.mutex and every other locker can take it plainly.
+        if (registered) safepoint.enterBlocked();
         io_default.lockMutex(&st.mutex);
-        if (st.shutting_down) {
-            io_default.unlockMutex(&st.mutex);
-            break;
-        }
-        if (st.generation == observed_generation)
+        const stop = st.shutting_down;
+        if (!stop and st.generation == observed_generation)
             io_default.condWait(&st.work_available, &st.mutex);
         io_default.unlockMutex(&st.mutex);
+        if (registered) safepoint.exitBlocked();
+        if (stop) break;
     }
 
     var release_pool = false;

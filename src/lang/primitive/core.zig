@@ -39,6 +39,7 @@ const interface_membership = @import("../../runtime/interface_membership.zig");
 const protocol_mod = @import("../../runtime/protocol.zig");
 const class_name = @import("../../runtime/class_name.zig");
 const driver = @import("../../eval/driver.zig");
+const loader = @import("../../eval/loader.zig");
 const analyzer = @import("../../eval/analyzer/analyzer.zig");
 const math = @import("math.zig");
 const big_int = @import("../../runtime/numeric/big_int.zig");
@@ -1575,6 +1576,17 @@ pub fn evalFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation)
     return driver.evalValue(rt, env, &locals, rt.load_arena.allocator(), args[0], loc);
 }
 
+/// `(cljw.internal/__load-source label source)` — read and evaluate the forms
+/// of `source` one at a time (`loader.loadSource`); the substrate of
+/// `load-string` and `load-file`. `label` names the source in errors and in
+/// `:file` meta. => the last form's value.
+pub fn loadSourceFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
+    try error_catalog.checkArity("__load-source", args, 2, loc);
+    for (args) |a| if (!a.isString())
+        return error_catalog.raise(.type_arg_not_string, loc, .{ .fn_name = "load-string", .actual = @tagName(a.tag()) });
+    return loader.loadSource(rt, env, string_mod.asString(args[0]), string_mod.asString(args[1]), loc);
+}
+
 pub fn hashFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
     try error_catalog.checkArity("hash", args, 1, loc);
     // ADR-0129: share equal.hashDispatch with the HAMT key-bucketing sites so
@@ -2019,6 +2031,7 @@ const ENTRIES = [_]Entry{
     .{ .name = "var-get", .f = &varGetFn },
     .{ .name = "var-set", .f = &varSetFn },
     .{ .name = "eval", .f = &evalFn },
+    .{ .name = "__load-source", .f = &loadSourceFn },
     .{ .name = "gensym", .f = &gensymFn },
     .{ .name = "__resolve", .f = &resolvePrim },
     .{ .name = "alter-var-root", .f = &alterVarRootFn },

@@ -34,6 +34,7 @@ const Runtime = @import("runtime.zig").Runtime;
 const Env = @import("env.zig").Env;
 const root_set = @import("gc/root_set.zig");
 const io_default = @import("concurrency/io_default.zig");
+const safepoint = @import("concurrency/safepoint.zig");
 const eval_budget = @import("concurrency/eval_budget.zig");
 const lock_tx = @import("concurrency/lock_tx.zig");
 const host_instance = @import("host_instance.zig");
@@ -264,21 +265,30 @@ fn reportUncaught(st: *ThreadState) void {
 /// `.join` — block until done. `timeout_ms` null = indefinite (condition
 /// wait); a timeout polls in slices (no timed condwait in io_default) and
 /// returns when the deadline passes with the thread still alive (JVM
-/// join(ms) semantics: returns, caller re-checks isAlive).
+/// join(ms) semantics: returns, caller re-checks isAlive). Both waits count a
+/// registered worker as parked, so a future joining a Thread does not stall
+/// (or, when the collector is the thread it waits on, deadlock) a collection.
 pub fn join(thread_val: Value, timeout_ms: ?i64) void {
     const st = stateOf(thread_val);
     if (timeout_ms) |ms| {
         if (ms <= 0) return;
         const slice_ns: u64 = 5 * std.time.ns_per_ms;
-        var remaining: u64 = @as(u64, @intCast(ms)) * std.time.ns_per_ms;
+        var remaining: u64 = @as(u64, @intCast(ms)) *| std.time.ns_per_ms;
         while (remaining > 0) {
             if (runState(thread_val) == .done) return;
             const this_slice = @min(remaining, slice_ns);
-            io_default.sleep(this_slice);
+            safepoint.blocking(io_default.sleep, .{this_slice});
             remaining -= this_slice;
         }
         return;
     }
+    safepoint.blocking(waitDone, .{st});
+}
+
+/// The untimed join's wait: the thread's run state reaches `.done`. Takes and
+/// releases the cell mutex itself, so `safepoint.blocking` closes its bracket
+/// only after the unlock and a worker never parks holding the mutex.
+fn waitDone(st: *ThreadState) void {
     io_default.lockMutex(&st.cell.mutex);
     defer io_default.unlockMutex(&st.cell.mutex);
     while (st.run_state != .done) {

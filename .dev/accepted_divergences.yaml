@@ -581,23 +581,6 @@ accepted:
       match clj.
     derives_from: "AD-002 (non-reproducible JVM identity hash is not mirrored) + ADR-0054 (the print path realizes a lazy seq to its elements). clj's LazySeq.toString is the un-overridden Object.toString; no cljw analogue exists."
     pin: "test/clj/suites/lazy_map_test.clj — `str_lazyseq_elements` locks (str (map inc [1 2 3])) => \"(2 3 4)\" and `str_interpose_lazy` locks (str (interpose :x (range 3))) => \"(0 :x 1 :x 2)\" (cljw's deterministic element form, vs clj's identity-hash toString)"
-  - id: "AD-039"
-    summary: "The `#(…)` anonymous-fn reader expands with DETERMINISTIC params `%1`/`%2`/`%&`; clj uses non-reproducible gensyms (`p1__N#` / `rest__N#`)."
-    example: '(read-string "#(+ % 1)") => cljw "(fn* [%1] (+ %1 1))" / clj "(fn* [p1__3#] (+ p1__3# 1))" ; (read-string "#(apply + % %&)") => cljw "(fn* [%1 & %&] (apply + %1 %&))" / clj "(fn* [p1__10# & rest__11#] …)". The CALL behaviour matches: (#(+ % 1) 10) => 11 both.'
-    why: |-
-      clj gensyms the `#()` params (`p1__N#`, counter-suffixed) so a literal `%`
-      in the body cannot collide with an outer binding; the `N` is a process-wide
-      counter, so the printed form is non-reproducible (like AD-002's identity
-      hash). cljw canonicalises `%`→`%1`, `%N` positional, `%&` rest — a fixed,
-      deterministic naming with no counter. Functionally identical (arity + body
-      reference the same params); the only observable difference is the printed
-      param NAMES, and only via `(read-string "#(…)")` + printing the expansion
-      (a macro-author edge). cljw's deterministic form is the right choice: a
-      counter would be non-reproducible for no behavioural gain, and `%N` reads
-      naturally as "the Nth arg". Nested `#()` is a read error in BOTH (so `%`
-      can't span levels — the only real capture hazard the gensym guards).
-    derives_from: "AD-002 (non-reproducible JVM-side token — here a gensym counter — is not mirrored; cljw uses a deterministic name). The fixed `%N`/`%&` naming is sound because nested `#()` is rejected (no `%`-across-levels capture to guard)."
-    pin: "test/e2e/phase14_anon_fn_reader.sh — `anon_readform_pct1` locks (read-string \"#(+ % 1)\") => (fn* [%1] (+ %1 1)) and `anon_readform_rest` locks the `%&` rest form (cljw's deterministic params vs clj's gensyms)"
   - id: "AD-040"
     summary: "A cascading macro (`cond`, and similar) macroexpand-1's to the FULL nested form in cljw, where clj expands ONE clause and leaves a recursive `(clojure.core/cond …)` call. Functionally identical; the expanded form (and the nested macro's namespace) differ."
     example: "(macroexpand-1 '(cond a 1 :else 2)) => cljw \"(if a 1 (if :else 2 nil))\" / clj \"(if a 1 (clojure.core/cond :else 2))\". Running the macro is identical: (cond false 1 :else 2) => 2 both. NOTE: `when` DOES byte-match clj (`(if c (do body))`, fixed) — only the recursive-cascade macros (cond/condp/…) differ."
@@ -1176,3 +1159,17 @@ accepted:
     why: clj routes rationalize through BigDecimal.toBigInteger, so the result type is fixed by the OPERATION and a small value still carries the BigInt tag. cljw has one exact-integer type whose storage tier is chosen by MAGNITUDE (F-005), so a value that fits the machine integer is stored and printed as one no matter which operation produced it. Adopting cljs answer would mean a second exact-integer type that exists only to print an N, which F-005 exists to refuse. The same shape is already accepted in the other direction as AD-016.
     derives_from: F-005 (one exact-integer type, tier chosen by magnitude), read with AD-016 which accepts the mirror case.
     pin: suites.numeric-tower-test/rationalize-bigdec-is-exact - pins that the integral arm answers the exact INTEGER (1.0M is 1, never the unscaled 10) and that the wide-significand cases keep every digit.
+  - id: AD-073
+    area: interop
+    summary: '`(Boolean. x)` answers the plain `true`/`false`, so `(if (Boolean. "false") :t :f)` is `:f` in cljw where clj''s non-nil Boolean box makes it `:t`.'
+    example: (if (Boolean. "false") :truthy :falsey) => cljw :falsey / clj :truthy. (Boolean. "true") => true in both, and (= false (Boolean. "false")) is true in both.
+    why: cljw has no boxed Boolean; `true` and `false` are the only booleans (ADR-0059), and every box ctor answers the nearest cljw VALUE, the shape AD-004 (float) and AD-069 (int) already accept. The only observable consequence is the truthiness of a false box, the footgun Java deprecated this constructor over. A box that is `=` to false yet truthy would need a second false value that exists only to reproduce it.
+    derives_from: ADR-0059 (class/type answer an interned descriptor; there is no boxed-primitive object), read with AD-004 and AD-069 which accept the same value-not-box shape for float and int.
+    pin: suites.box-ctors-test/boolean-ctor-is-the-plain-value - pins that `(Boolean. "false")` is `false` itself, so the false branch is taken.
+  - id: AD-074
+    area: interop
+    summary: '`(Short. 7)` and `(Byte. 7)` answer 7 in cljw, where clj throws IllegalArgumentException because a long literal matches neither the `(short)` nor the `(byte)` ctor.'
+    example: (Short. 7) => cljw 7 / clj IllegalArgumentException. (Short. (short 7)) => 7 in both. (Short. 99999) raises IllegalArgumentException in both.
+    why: cljw has no short or byte type (AD-069), so `(short 7)` IS the Long 7 and the ctor cannot tell `(Short. (short 7))`, which clj accepts, from `(Short. 7)`, which it rejects. Rejecting integers would break the valid form to reproduce the error on the invalid one. The range check still holds, so every value a Short or Byte could not hold is refused as in clj.
+    derives_from: F-005 (no short/byte primitive; one exact-integer type), read with AD-069 which accepts `(short x)` / `(byte x)` yielding a Long.
+    pin: suites.box-ctors-test/short-and-byte-take-in-range-integers - pins that `(Short. 7)` and `(Short. (short 7))` both answer 7 and that an out-of-range integer still raises IllegalArgumentException.
