@@ -4,6 +4,7 @@
   (:require [clojure.test :refer [deftest is testing]])
   (:import [java.util.concurrent Executors
                                  Callable
+                                 Runnable
                                  Future
                                  LinkedBlockingQueue
                                  Semaphore
@@ -138,6 +139,45 @@
           (is (false? (.get ran)))))
       (finally (.shutdown pool)))
     (is (true? (.awaitTermination pool 1000 TimeUnit/MILLISECONDS)))))
+
+(deftest scheduled-pool-runs-at-fixed-rate-and-cancels
+  (let [created (AtomicLong. 0)
+        ticks (AtomicLong. 0)
+        factory (reify ThreadFactory
+                  (newThread [_ runnable]
+                    (.incrementAndGet created)
+                    (Thread. runnable)))
+        pool (Executors/newSingleThreadScheduledExecutor factory)]
+    (try
+      (let [task (.scheduleAtFixedRate pool
+                    (reify Runnable (run [_] (.incrementAndGet ticks)))
+                    0 1 TimeUnit/MILLISECONDS)]
+        (is (= 1 (.get created)))
+        (is (true? (loop [waited 0]
+                     (cond (>= (.get ticks) 2) true
+                           (>= waited 5000) false
+                           :else (do (Thread/sleep 1) (recur (inc waited)))))))
+        (is (true? (.cancel task true)))
+        (is (true? (.isCancelled task))))
+      (finally (.shutdown pool)))
+    (is (true? (.awaitTermination pool 1000 TimeUnit/MILLISECONDS)))))
+
+(deftest shutdown-now-drains-queued-work
+  (let [pool (Executors/newFixedThreadPool 1)
+        gate (Semaphore. 0)
+        running (AtomicBoolean. false)]
+    (let [active (.submit pool (reify Callable (call [_]
+                              (.set running true)
+                              (.acquire gate)
+                              :done)))]
+      (is (true? (await-flag running)))
+      (let [queued (.submit pool (reify Callable (call [_] :never)))]
+        (is (= 1 (count (.shutdownNow pool))))
+        (is (true? (.isCancelled queued)))
+        (is (true? (.isShutdown pool)))
+        (.release gate)
+        (is (= :done (.get active)))
+        (is (true? (.awaitTermination pool 1000 TimeUnit/MILLISECONDS)))))))
 
 (deftest shutdown-rejects-with-the-java-exception-class
   (let [pool (Executors/newSingleThreadExecutor)]
