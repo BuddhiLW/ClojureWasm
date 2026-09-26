@@ -21,11 +21,16 @@
 (defn printable-code [expr]
   (str "(do " (require-prefix expr) " (prn " expr "))"))
 
-(defn oracle-code [expr]
+(defn oracle-code
+  "`expr` printed with `prn`, or `<clj-error> SimpleName` when it throws. The
+  class is reduced to its simple name on both runtimes: clj reports
+  `java.lang.IllegalArgumentException` where cljw reports
+  `IllegalArgumentException` (AD-003), and the kind is what a golden locks."
+  [expr]
   (str "(do " (require-prefix expr)
        " (try (prn " expr ")"
        " (catch Throwable e"
-       " (println (str \"<clj-error> \" (.getName (class e)))))))"))
+       " (println (str \"<clj-error> \" (re-find #\"[^.]+$\" (.getName (class e))))))))"))
 
 (defn first-output-line [msgs]
   (let [output (nrepl/response-output msgs)

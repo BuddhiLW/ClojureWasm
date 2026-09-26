@@ -60,3 +60,21 @@
 ;;=> 3.0
 (= 1.5 (Float. "1.5"))
 ;;=> true
+(Integer. "abc")
+;;=> <clj-error> NumberFormatException
+(Integer. 1.5)
+;;=> <clj-error> IllegalArgumentException
+(Character. "a")
+;;=> <clj-error> ClassCastException
+(Long. 1.5)
+;;=> <clj-error> IllegalArgumentException
+(Double. 5)
+;;=> <clj-error> IllegalArgumentException
+(Float. 5)
+;;=> <clj-error> IllegalArgumentException
+(Short. "99999")
+;;=> <clj-error> NumberFormatException
+(Byte. "300")
+;;=> <clj-error> NumberFormatException
+(Double. "x")
+;;=> <clj-error> NumberFormatException
