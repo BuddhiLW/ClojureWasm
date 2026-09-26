@@ -52,6 +52,19 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 
 ### Fixed
 
+- **Metadata on a value that cannot carry it is an error, as in clj
+  (ADR-0200).** `^:m "s"`, `^:m 1`, `^:m :k`, `^:m nil`, `^:m #"re"` and a
+  tagged literal read to such a value (`^:m #inst "..."`) raise
+  IllegalArgumentException ("Metadata can only be applied to IMetas") in
+  source, `read-string`, `clojure.edn/read-string` and inside a quoted form;
+  the meta used to be dropped silently. The reader attaches meta as clj's
+  does: merged onto the value's existing meta, and reset in place on an atom,
+  agent, ref, var or namespace returned by a tag reader. `^meta` on a tagged
+  literal that reads to a collection, record or queue now attaches in source
+  too. `^[String] x` reads as `{:param-tags [String]}` (clj 1.12), and an
+  invalid meta form (`^1 x`) is IllegalArgumentException with clj's message,
+  reported before the target is read. `with-meta` and `meta` now work on a
+  PersistentQueue.
 - **A duplicate map key or set element is an error, as in clj (ADR-0200).**
   `{:a 1 :a 2}`, `#{1 1}` and `#:a{:b 1 :a/b 2}` raise IllegalArgumentException
   ("Duplicate key: :a") in source and in `read-string` /

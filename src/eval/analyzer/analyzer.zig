@@ -356,8 +356,10 @@ pub fn analyze(
             try analyzeSetLiteral(arena, rt, env, scope, items, form, macro_table),
         // `#tag form` in expression position (ADR-0073): apply the data
         // reader at analyze time (data is data) and emit the result as a
-        // constant. Reuses the `formToValue` lift path.
-        .tagged => |t| try makeConstant(arena, try liftTagged(rt, env, t, form.location, .lenient), form),
+        // constant. The whole literal is data, so it takes the strict lift:
+        // a `^meta` on it attaches, or raises when the value cannot carry
+        // meta, as clj's reader does (ADR-0200).
+        .tagged => try makeConstant(arena, try lift(rt, env, form, .strict), form),
         // `` `form `` (ADR-0082): expand the syntax-quote tree to its template
         // form, then analyze that (the analyzer has env.current_ns for the
         // future qualification pass; stage 1 is non-qualifying).
@@ -1403,12 +1405,13 @@ const bindings = @import("bindings.zig");
 const recur = @import("recur.zig");
 const try_form = @import("try_form.zig");
 
-/// Whether a Form→Value lift also runs the reader's value checks (ADR-0200:
-/// duplicate map keys and set elements), and in which order it lifts. A
-/// DATA read (`read-string`) is `.strict`: its forms skipped the reader's
-/// Form-level checks, and it lifts in source order so the first error in
-/// the text is the one raised. Every other lift (quote, macro arguments,
-/// metadata) is `.lenient`: code was already checked as it was read.
+/// Whether a Form→Value lift also checks for duplicate map keys and set
+/// elements by value (ADR-0200), and in which order it lifts. A DATA read
+/// (`read-string`) and a tagged literal in code are `.strict`: their values
+/// skipped the reader's Form-level check, and they lift in source order so
+/// the first error in the text is the one raised. Every other lift (quote,
+/// macro arguments, metadata) is `.lenient`: code was already checked as it
+/// was read.
 const LiftChecks = enum { lenient, strict };
 
 /// Form atom → Value lift. Handles nil / bool / int / float / char /
@@ -1427,17 +1430,18 @@ pub fn formToValueStrict(rt: *Runtime, env: *Env, form: Form) AnalyzeError!Value
 }
 
 /// D-186: honour a reader `^meta` map on a literal. The reader (readMeta)
-/// parks normalised meta on `Form.meta`; lift + attach it to an IObj value:
-/// collections (vector/map/set/list) AND symbols (ADR-0110 — a symbol carries
-/// value-metadata, e.g. `^String x` → `{:tag String}`; `^:dyn x` → `{:dyn true}`).
-/// Non-IObj values (numbers, keywords, strings, …) cannot carry metadata in
-/// cljw — matching JVM — so the meta is dropped there rather than erroring.
-/// The meta is lifted BEFORE its target, as clj reads it, so a strict lift
-/// raises the meta's own error first.
+/// parks normalised meta on `Form.meta`; lift it and attach it as clj's
+/// MetaReader does (`meta_mod.readerAttachOrNull`: reset on a reference,
+/// merge onto an IObj's existing meta). A target that cannot carry metadata
+/// (a tagged literal read to a number, a string or a Date) is clj's
+/// IllegalArgumentException in every lift (ADR-0200); the reader already
+/// rejected the syntactic cases in code. The meta is lifted BEFORE its
+/// target, as clj reads it, so a strict lift raises the meta's own error
+/// first.
 fn lift(rt: *Runtime, env: *Env, form: Form, checks: LiftChecks) AnalyzeError!Value {
     const meta_form = form.meta orelse return liftBase(rt, env, form, checks);
     // GC-ROOT: C — the lifted meta lives in a Zig local across the target's
-    // lift, and `base` across `withMeta` (a big literal can trigger a
+    // lift, and `base` across the attach (a big literal can trigger a
     // collect that would sweep either). [ref: .dev/gc_rooting.md §C]
     var roots = [_]Value{ .nil_val, .nil_val };
     var sp: u16 = 2;
@@ -1448,14 +1452,9 @@ fn lift(rt: *Runtime, env: *Env, form: Form, checks: LiftChecks) AnalyzeError!Va
     roots[1] = m;
     const base = try liftBase(rt, env, form, checks);
     roots[0] = base;
-    return switch (base.tag()) {
-        .vector => try vector_collection.withMeta(rt, base, m),
-        .array_map, .hash_map => try map_collection.withMeta(rt, base, m),
-        .hash_set => try set_collection.withMeta(rt, base, m),
-        .list => try list_collection.withMeta(rt, base, m),
-        .symbol => try symbol_mod.withMeta(rt, base, m),
-        else => base,
-    };
+    const attached = meta_mod.readerAttachOrNull(rt, env, base, m, form.location) catch |e|
+        return macro_dispatch.narrowCallFnError(e, form.location);
+    return attached orelse error_catalog.raise(.metadata_target_not_imeta, meta_form.location, .{});
 }
 
 /// The value of `form` itself, ignoring its `^meta`.

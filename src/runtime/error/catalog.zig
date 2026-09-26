@@ -92,6 +92,7 @@ pub const Code = enum {
     set_arity_invalid,
     var_set_not_bound,
     metadata_value_invalid,
+    metadata_target_not_imeta,
     symbol_unresolved,
     /// args: `.{ .sym = "ns/name", .ns = "ns" }` — raised when a
     /// `^:private` var is referenced as a symbol from outside its
@@ -776,10 +777,20 @@ pub fn entry(comptime code: Code) Entry {
             .phase = .analysis,
             .template = "Unable to resolve var: '{[sym]s}' in this context",
         },
+        // clj 1.12's MetaReader text; a bad meta form is an
+        // IllegalArgumentException there, reported before the target is read.
         .metadata_value_invalid => .{
-            .kind = .syntax_error,
+            .kind = .value_error,
             .phase = .parse,
-            .template = "Metadata must be Symbol, Keyword, String or Map",
+            .template = "Metadata must be Symbol,Keyword,String,Vector or Map",
+        },
+        // ADR-0200: clj's MetaReader attaches `^meta` only to an IMeta; a
+        // string, number, keyword, char, nil, boolean, regex or a tagged
+        // literal read to one of those is an IllegalArgumentException.
+        .metadata_target_not_imeta => .{
+            .kind = .value_error,
+            .phase = .parse,
+            .template = "Metadata can only be applied to IMetas",
         },
         .symbol_unresolved => .{
             .kind = .name_error,

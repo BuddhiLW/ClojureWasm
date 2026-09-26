@@ -65,13 +65,14 @@ pub const Reader = struct {
     /// (which broke at a trailing closing delimiter — `[1 #_2]`).
     skip: bool = false,
     /// Whether the reader runs its Form-level value checks (ADR-0200:
-    /// duplicate map keys and set elements). On for a CODE read, whose
-    /// forms reach macros and the analyzer as Forms, so the reader is the
-    /// only place that sees every literal as written. A DATA read
-    /// (`read-string`, `clojure.edn/read-string`) turns it off: its caller
-    /// lifts every form with `formToValue`, which checks the same facts by
-    /// value and in source order, so `[#foo 1 {:a 1 :a 2}]` fails on the
-    /// missing tag reader first, as clj's does.
+    /// duplicate map keys and set elements, `^meta` on a target that can
+    /// never carry it). On for a CODE read, whose forms reach macros and the
+    /// analyzer as Forms, so the reader is the only place that sees every
+    /// literal as written. A DATA read (`read-string`,
+    /// `clojure.edn/read-string`) turns it off: its caller lifts every form
+    /// with `formToValueStrict`, which checks the same facts by value and in
+    /// source order, so `[#foo 1 {:a 1 :a 2}]` fails on the missing tag
+    /// reader first, as clj's does.
     form_checks: bool = true,
 
     pub fn init(allocator: std.mem.Allocator, source: []const u8) Reader {
@@ -810,7 +811,9 @@ pub const Reader = struct {
     /// its `Form.meta` side-channel (D-183 part b). `meta` is normalised
     /// to a map Form: `^{m}` keeps the map, `^:kw`→`{:kw true}`,
     /// `^Sym`/`^"s"`→`{:tag <x>}`. Stacked metas (`^:a ^:b x`) merge,
-    /// outer winning on an equal key (`mergeMetaMaps`).
+    /// outer winning on an equal key (`mergeMetaMaps`). As in clj's
+    /// MetaReader, an invalid meta form is reported before the target is
+    /// read, and a target that can never carry meta is an error (ADR-0200).
     fn readMeta(self: *Reader, tok: Token) ReadError!Form {
         const loc = self.locOf(tok);
         self.depth += 1;
@@ -820,11 +823,13 @@ pub const Reader = struct {
 
         const meta_raw = (try self.readValue()) orelse
             return error_catalog.raise(.eof_unexpected, loc, .{});
+        const norm = try self.normalizeMeta(meta_raw, loc);
 
         var target = (try self.readValue()) orelse
             return error_catalog.raise(.eof_unexpected, loc, .{});
+        if (self.form_checks and isNeverIMeta(target))
+            return error_catalog.raise(.metadata_target_not_imeta, loc, .{});
 
-        const norm = try self.normalizeMeta(meta_raw, loc);
         const final_meta = if (target.meta) |inner|
             try self.mergeMetaMaps(inner.*, norm, loc)
         else
@@ -835,11 +840,26 @@ pub const Reader = struct {
         return target;
     }
 
-    /// Normalise a reader metadata form into a map Form. Mirrors JVM's
-    /// reader: keyword → `{:kw true}`, symbol/string → `{:tag <x>}`,
-    /// map → itself. Anything else is a read error.
+    /// Whether `f` reads to a value that can never carry metadata. A tagged
+    /// literal's value is known only after its data reader runs, so the lift
+    /// decides that case (`analyzer.lift`). A syntax-quote of a literal is
+    /// the literal itself; of a symbol or collection, a seq form.
+    fn isNeverIMeta(f: Form) bool {
+        return switch (f.data) {
+            .nil, .boolean, .integer, .float, .char, .string, .keyword => true,
+            .big_int_literal, .big_decimal_literal, .ratio_literal, .regex_literal => true,
+            .symbol, .list, .vector, .map, .set, .tagged => false,
+            .syntax_quote => |inner| isNeverIMeta(inner.*),
+            .unquote, .unquote_splicing => false,
+        };
+    }
+
+    /// Normalise a reader metadata form into a map Form. Mirrors clj 1.12's
+    /// reader: keyword → `{:kw true}`, symbol/string → `{:tag <x>}`, vector →
+    /// `{:param-tags <v>}`, map → itself. Anything else is an
+    /// IllegalArgumentException.
     fn normalizeMeta(self: *Reader, meta_raw: Form, loc: SourceLocation) ReadError!Form {
-        switch (meta_raw.data) {
+        const key: []const u8 = switch (meta_raw.data) {
             .map => return meta_raw,
             .keyword => {
                 const items = self.allocator.alloc(Form, 2) catch return error.OutOfMemory;
@@ -847,14 +867,14 @@ pub const Reader = struct {
                 items[1] = Form{ .data = .{ .boolean = true }, .location = loc };
                 return Form{ .data = .{ .map = items }, .location = loc };
             },
-            .symbol, .string => {
-                const items = self.allocator.alloc(Form, 2) catch return error.OutOfMemory;
-                items[0] = Form{ .data = .{ .keyword = .{ .name = "tag" } }, .location = loc };
-                items[1] = meta_raw;
-                return Form{ .data = .{ .map = items }, .location = loc };
-            },
+            .symbol, .string => "tag",
+            .vector => "param-tags",
             else => return error_catalog.raise(.metadata_value_invalid, loc, .{}),
-        }
+        };
+        const items = self.allocator.alloc(Form, 2) catch return error.OutOfMemory;
+        items[0] = Form{ .data = .{ .keyword = .{ .name = key } }, .location = loc };
+        items[1] = meta_raw;
+        return Form{ .data = .{ .map = items }, .location = loc };
     }
 
     /// Merge stacked metadata: `^:a ^:b x` reads `^:b x` first, then the
@@ -1379,4 +1399,36 @@ test "`#?@` splices the selected branch's elements into the collection" {
     try testing.expectEqualStrings("(a 1 2 3)", try ctx.pr(try ctx.read("(a 1 #?@(:clj (2 3)))")));
     // a top-level splice is rejected
     try testing.expectError(error.SyntaxError, ctx.read("#?@(:clj [1 2])"));
+}
+
+test "`^meta` on a target that can never carry meta is an error (ADR-0200)" {
+    var ctx = TestCtx.init();
+    defer ctx.deinit();
+
+    error_mod.clearLastError();
+    try testing.expectError(error.ValueError, ctx.read("^:m \"s\""));
+    const info = error_mod.getLastError() orelse return error.TestUnexpectedResult;
+    try testing.expectEqual(error_mod.Kind.value_error, info.kind);
+    try testing.expect(std.mem.find(u8, info.message, "IMetas") != null);
+    const never = [_][]const u8{ "^:m 1", "^:m :k", "^:m \\c", "^:m nil", "^:m true", "^:m 1.5", "^:m 1N", "^:m 1/2", "^:m 1.5M", "^:m #\"re\"", "[0 ^:m ^:n 1]", "^:m `1", "^:m `:k" };
+    for (never) |src| try testing.expectError(error.ValueError, ctx.read(src));
+
+    // A tagged literal's value is known only after its reader runs, so the
+    // lift decides; so does a DATA read, which turns the Form checks off. A
+    // syntax-quoted symbol reads to a seq form, which carries meta.
+    try testing.expect((try ctx.read("^:m #t 5")).meta != null);
+    try testing.expect((try ctx.read("^:m `x")).meta != null);
+    var data = Reader.init(ctx.arena.allocator(), "^:m \"s\"");
+    data.form_checks = false;
+    try testing.expect((try data.read()).?.meta != null);
+
+    // clj 1.12: a vector meta form is `{:param-tags <v>}`.
+    try testing.expectEqualStrings("{:param-tags [String]}", try ctx.pr((try ctx.read("^[String] x")).meta.?.*));
+
+    // The meta form is judged before the target is read, as in clj, and a
+    // bad one is an IllegalArgumentException with clj 1.12's text.
+    error_mod.clearLastError();
+    try testing.expectError(error.ValueError, ctx.read("^1 {:a 1 :a 2}"));
+    const bad = error_mod.getLastError() orelse return error.TestUnexpectedResult;
+    try testing.expect(std.mem.find(u8, bad.message, "Symbol,Keyword,String,Vector or Map") != null);
 }
