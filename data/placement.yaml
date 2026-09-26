@@ -24,8 +24,8 @@
 schema_version: "2.0"
 summary:
   namespaces_required: 35
-  total: 1434
-  zig: 409
+  total: 1435
+  zig: 410
   clj: 802
   value: 217
   unbound: 6
@@ -63,6 +63,7 @@ vars:
   "cljw.internal/__chunk-nth": { impl: zig, flags: "-" }
   "cljw.internal/__class": { impl: zig, flags: "-" }
   "cljw.internal/__class-isa?": { impl: zig, flags: "-" }
+  "cljw.internal/__class-parents": { impl: zig, flags: "-" }
   "cljw.internal/__class?": { impl: zig, flags: "-" }
   "cljw.internal/__create-local-var": { impl: zig, flags: "-" }
   "cljw.internal/__defrecord!": { impl: zig, flags: "-" }
