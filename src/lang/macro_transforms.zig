@@ -28,6 +28,7 @@
 const std = @import("std");
 
 const Form = @import("../eval/form.zig").Form;
+const MapBuilder = @import("../eval/form.zig").MapBuilder;
 const macro_dispatch = @import("../eval/macro_dispatch.zig");
 const Runtime = @import("../runtime/runtime.zig").Runtime;
 const env_mod = @import("../runtime/env.zig");
@@ -1856,23 +1857,23 @@ fn expandDefnPrivate(
 ) macro_dispatch.ExpandError!Form {
     if (args.len < 1 or args[0].data != .symbol or args[0].data.symbol.ns != null)
         return error_catalog.raise(.defn_name_invalid, loc, .{});
-    var meta_items: std.ArrayList(Form) = .empty;
-    if (args[0].meta) |m| try meta_items.appendSlice(arena, m.data.map);
-    try meta_items.append(arena, .{ .data = .{ .keyword = .{ .name = "private" } }, .location = loc });
-    try meta_items.append(arena, .{ .data = .{ .boolean = true }, .location = loc });
+    var meta: MapBuilder = .{};
+    if (args[0].meta) |m| try meta.merge(arena, m.data.map);
+    try meta.put(arena, .{ .data = .{ .keyword = .{ .name = "private" } }, .location = loc }, .{ .data = .{ .boolean = true }, .location = loc });
     const meta_form = try arena.create(Form);
-    meta_form.* = .{ .data = .{ .map = try arena.dupe(Form, meta_items.items) }, .location = loc };
+    meta_form.* = try meta.toForm(arena, loc);
     const new_args = try arena.dupe(Form, args);
     new_args[0].meta = meta_form;
     return expandDefn(arena, rt, new_args, loc);
 }
 
-/// Build the `^meta` map Form for a `defn` target. Merges,
-/// in precedence order (last wins at `mapFormToValue`): existing reader
-/// meta on the name → explicit attr-map → `:doc` (docstring) → `:arglists`
-/// (the original param vectors, always added — single-arity `([params])`,
-/// multi-arity `([p0] [p1] ...)`). `body_forms` is the post-head slice and
-/// is already arity-validated by the caller, so `.list`/`[0]` are safe.
+/// Build the `^meta` map Form for a `defn` target, layered as clj's defn
+/// layers it, each over the last: existing reader meta on the name →
+/// `:arglists` (the original param vectors, always added: single-arity
+/// `([params])`, multi-arity `([p0] [p1] ...)`) → `:doc` (docstring) → the
+/// explicit attr-map, so an attr-map `{:doc …}` or `{:arglists …}` wins.
+/// `body_forms` is the post-head slice and is already arity-validated by
+/// the caller, so `.list`/`[0]` are safe.
 fn buildDefnMeta(
     arena: std.mem.Allocator,
     existing: ?*const Form,
@@ -1897,18 +1898,14 @@ fn buildDefnMeta(
     quote_items[1] = arglists_data;
     const arglists: Form = .{ .data = .{ .list = quote_items }, .location = loc };
 
-    var meta_items: std.ArrayList(Form) = .empty;
-    if (existing) |m| try meta_items.appendSlice(arena, m.data.map);
-    if (attr_form) |a| try meta_items.appendSlice(arena, a.data.map);
-    if (doc_form) |d| {
-        try meta_items.append(arena, .{ .data = .{ .keyword = .{ .name = "doc" } }, .location = loc });
-        try meta_items.append(arena, d);
-    }
-    try meta_items.append(arena, .{ .data = .{ .keyword = .{ .name = "arglists" } }, .location = loc });
-    try meta_items.append(arena, arglists);
+    var meta: MapBuilder = .{};
+    if (existing) |m| try meta.merge(arena, m.data.map);
+    try meta.put(arena, .{ .data = .{ .keyword = .{ .name = "arglists" } }, .location = loc }, arglists);
+    if (doc_form) |d| try meta.put(arena, .{ .data = .{ .keyword = .{ .name = "doc" } }, .location = loc }, d);
+    if (attr_form) |a| try meta.merge(arena, a.data.map);
 
     const mp = try arena.create(Form);
-    mp.* = .{ .data = .{ .map = try arena.dupe(Form, meta_items.items) }, .location = loc };
+    mp.* = try meta.toForm(arena, loc);
     return mp;
 }
 
@@ -2122,15 +2119,13 @@ fn expandDefmulti(
     // defmulti does NOT synthesize `:arglists` (unlike defn), so we only carry
     // the explicit attr-map + `:doc`.
     if (doc_form != null or attr_form != null or name_form.meta != null) {
-        var meta_items: std.ArrayList(Form) = .empty;
-        if (name_form.meta) |m| try meta_items.appendSlice(arena, m.data.map);
-        if (attr_form) |a| try meta_items.appendSlice(arena, a.data.map);
-        if (doc_form) |d| {
-            try meta_items.append(arena, .{ .data = .{ .keyword = .{ .name = "doc" } }, .location = loc });
-            try meta_items.append(arena, d);
-        }
+        // clj's defmulti layers name meta < attr-map < docstring.
+        var meta: MapBuilder = .{};
+        if (name_form.meta) |m| try meta.merge(arena, m.data.map);
+        if (attr_form) |a| try meta.merge(arena, a.data.map);
+        if (doc_form) |d| try meta.put(arena, .{ .data = .{ .keyword = .{ .name = "doc" } }, .location = loc }, d);
         const mp = try arena.create(Form);
-        mp.* = .{ .data = .{ .map = try arena.dupe(Form, meta_items.items) }, .location = loc };
+        mp.* = try meta.toForm(arena, loc);
         name_form.meta = mp;
     }
 

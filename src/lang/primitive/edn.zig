@@ -127,11 +127,16 @@ fn readStringImpl(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocat
     }
     var reader = reader_mod.Reader.init(arena.allocator(), source);
     reader.allow_reader_cond = allow_cond;
+    // ADR-0200: every form is lifted with formToValueStrict below, which
+    // checks duplicate keys by value and in source order, so the reader's
+    // Form-level approximation stays off.
+    reader.form_checks = false;
     const form_opt = reader.read() catch |e| {
-        // A specific reader diagnostic (e.g. reader_cond_not_allowed) carries its
-        // own catalog Info; re-raise it so the message survives rather than being
-        // flattened to the generic EDN-reader-error wrapper.
-        if (e == error.SyntaxError) return e;
+        // A specific reader diagnostic (e.g. reader_cond_not_allowed, or an
+        // IllegalArgumentException such as a duplicate key) carries its own
+        // catalog Info; re-raise it so the message and kind survive rather
+        // than being flattened to the generic EDN-reader-error wrapper.
+        if (e == error.SyntaxError or e == error.ValueError) return e;
         // Malformed EDN is bad DATA — clj throws a catchable RuntimeException,
         // and parsing untrusted EDN is exactly when the caller needs the catch.
         return error_catalog.raise(.edn_string_invalid, loc, .{ .reason = @errorName(e) });
@@ -142,7 +147,7 @@ fn readStringImpl(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocat
         if (eof_policy == .nil_on_eof) return Value.nil_val;
         return error_catalog.raise(.eof_unexpected, loc, .{});
     };
-    return try analyzer_mod.formToValue(rt, env, form);
+    return try analyzer_mod.formToValueStrict(rt, env, form);
 }
 
 /// Look up `:key` in an opts map, returning the bound value or null when

@@ -32,6 +32,10 @@ const SourceLocation = error_mod.SourceLocation;
 /// just admits future kinds without churning every signature.
 pub const ReadError = error_mod.ClojureWasmError;
 
+/// Process-wide counter behind the `#()` param gensyms (`p1__N#`), as clj's
+/// RT.nextID: each literal takes the next id, from any thread.
+var fn_lit_ids: std.atomic.Value(u32) = .init(1);
+
 pub const Reader = struct {
     tokenizer: Tokenizer,
     source: []const u8,
@@ -60,6 +64,15 @@ pub const Reader = struct {
     /// keep reading, rather than the macro recursing into the next form
     /// (which broke at a trailing closing delimiter — `[1 #_2]`).
     skip: bool = false,
+    /// Whether the reader runs its Form-level value checks (ADR-0200:
+    /// duplicate map keys and set elements). On for a CODE read, whose
+    /// forms reach macros and the analyzer as Forms, so the reader is the
+    /// only place that sees every literal as written. A DATA read
+    /// (`read-string`, `clojure.edn/read-string`) turns it off: its caller
+    /// lifts every form with `formToValue`, which checks the same facts by
+    /// value and in source order, so `[#foo 1 {:a 1 :a 2}]` fails on the
+    /// missing tag reader first, as clj's does.
+    form_checks: bool = true,
 
     pub fn init(allocator: std.mem.Allocator, source: []const u8) Reader {
         return .{
@@ -460,12 +473,19 @@ pub const Reader = struct {
 
     fn readMap(self: *Reader, tok: Token) ReadError!Form {
         const loc = self.locOf(tok);
+        const items = try self.readMapEntries(loc);
+        try self.checkDistinct(items, 2);
+        return Form{ .data = .{ .map = items }, .location = loc };
+    }
+
+    /// The flat k/v entries of a `{...}` map whose `{` was consumed. Maps
+    /// must have an even number of elements at read time so the analyzer
+    /// can iterate `[k0 v0 k1 v1 ...]` without re-checking.
+    fn readMapEntries(self: *Reader, loc: SourceLocation) ReadError![]const Form {
         const items = try self.readDelimited(.rbrace, loc);
-        // Maps must have an even number of elements at read time so the
-        // analyzer can iterate `[k0 v0 k1 v1 ...]` without re-checking.
         if (items.len % 2 != 0)
             return error_catalog.raise(.map_literal_arity_odd, loc, .{});
-        return Form{ .data = .{ .map = items }, .location = loc };
+        return items;
     }
 
     /// `#{...}` set literal. Mirror of readVector; the closing
@@ -474,20 +494,35 @@ pub const Reader = struct {
     fn readSet(self: *Reader, tok: Token) ReadError!Form {
         const loc = self.locOf(tok);
         const items = try self.readDelimited(.rbrace, loc);
+        try self.checkDistinct(items, 1);
         return Form{ .data = .{ .set = items }, .location = loc };
     }
 
-    /// Accumulator for the `#()` body walk: the highest positional `%N`
-    /// seen (`%` counts as `%1`) and whether `%&` (rest) was used.
-    const FnLitCtx = struct { max_positional: usize = 0, rest: bool = false };
+    /// ADR-0200: a map's keys (stride 2) or a set's elements (stride 1)
+    /// must be distinct, as clj's reader requires, checked once the whole
+    /// collection is read (so after a `#?@` splice). Only Forms that
+    /// certainly read as equal values count (`form_mod.literalEql`), and a
+    /// data read leaves the check to `formToValue` (`form_checks`).
+    fn checkDistinct(self: *Reader, items: []const Form, stride: usize) ReadError!void {
+        if (!self.form_checks) return;
+        const dup = (try form_mod.firstDuplicate(self.allocator, items, stride)) orelse return;
+        var buf: [128]u8 = undefined;
+        return error_catalog.raise(.literal_key_duplicate, dup.location, .{ .key = dup.prStrBounded(&buf) });
+    }
 
-    /// `#(body...)` anonymous fn → `(fn* [%1 … & %&] (body...))`. The
-    /// `#(` was consumed by the tokenizer (`.fn_lit`); read the
-    /// `)`-delimited body, canonicalise bare `%` → `%1` while collecting
-    /// the arity, and synthesise the fn* form. Nested `#()` is rejected
-    /// (JVM-compatible). The params are the literal `%1`…`%N`/`%&`
-    /// symbols the body references — no gensym needed since nesting is
-    /// forbidden (D-146).
+    /// Accumulator for the `#()` body walk: the literal's gensym id, the
+    /// highest positional `%N` seen (`%` counts as `%1`) and whether `%&`
+    /// (rest) was used.
+    const FnLitCtx = struct { id: u32, max_positional: usize = 0, rest: bool = false };
+
+    /// `#(body...)` anonymous fn → `(fn* [p1__N# … & rest__N#] (body...))`.
+    /// The `#(` was consumed by the tokenizer (`.fn_lit`); read the
+    /// `)`-delimited body, rename `%` / `%N` / `%&` to this literal's params
+    /// while collecting the arity, and synthesise the fn* form. Nested `#()`
+    /// is rejected (JVM-compatible, D-146). The params are gensyms, like
+    /// clj's (`N` a process-wide counter), so two equal `#()` texts read as
+    /// DISTINCT forms: `#{#(inc %) #(inc %)}` holds two fns, not a duplicate
+    /// (ADR-0200, which retired the fixed `%1` naming of AD-039).
     fn readFnLit(self: *Reader, tok: Token) ReadError!Form {
         const loc = self.locOf(tok);
         if (self.in_fn_lit)
@@ -497,20 +532,20 @@ pub const Reader = struct {
 
         const raw_body = try self.readDelimited(.rparen, loc);
 
-        var ctx: FnLitCtx = .{};
+        var ctx: FnLitCtx = .{ .id = fn_lit_ids.fetchAdd(1, .monotonic) };
         const body_items = self.allocator.alloc(Form, raw_body.len) catch return error.OutOfMemory;
         for (raw_body, 0..) |f, i| body_items[i] = try self.transformFnLit(f, &ctx);
         const body = Form{ .data = .{ .list = body_items }, .location = loc };
 
         const n = ctx.max_positional;
-        const param_count = n + (if (ctx.rest) @as(usize, 2) else 0); // `&` + `%&`
+        const param_count = n + (if (ctx.rest) @as(usize, 2) else 0); // `&` + the rest param
         const params = self.allocator.alloc(Form, param_count) catch return error.OutOfMemory;
         var k: usize = 1;
         while (k <= n) : (k += 1)
-            params[k - 1] = Form{ .data = .{ .symbol = .{ .name = try pctName(self.allocator, k) } }, .location = loc };
+            params[k - 1] = Form{ .data = .{ .symbol = .{ .name = try self.fnLitParam(k, ctx.id) } }, .location = loc };
         if (ctx.rest) {
             params[n] = Form{ .data = .{ .symbol = .{ .name = "&" } }, .location = loc };
-            params[n + 1] = Form{ .data = .{ .symbol = .{ .name = "%&" } }, .location = loc };
+            params[n + 1] = Form{ .data = .{ .symbol = .{ .name = try self.fnLitParam(null, ctx.id) } }, .location = loc };
         }
         const params_vec = Form{ .data = .{ .vector = params }, .location = loc };
 
@@ -521,33 +556,34 @@ pub const Reader = struct {
         return Form{ .data = .{ .list = fn_items }, .location = loc };
     }
 
-    /// Recursively copy a `#()` body Form, rewriting bare `%` → `%1` and
-    /// recording `%N`/`%&` usage into `ctx`. Scalars pass through; only
-    /// `%`-symbols are rewritten, so the copy is shallow where possible.
+    /// Recursively copy a `#()` body Form, renaming `%` / `%N` / `%&` to
+    /// the literal's params and recording their use into `ctx`. Scalars
+    /// pass through; a rebuilt Form keeps its `^meta` (`^String %`).
     fn transformFnLit(self: *Reader, f: Form, ctx: *FnLitCtx) ReadError!Form {
+        var out = f;
         switch (f.data) {
             .symbol => |s| {
                 if (s.ns == null and s.name.len >= 1 and s.name[0] == '%') {
-                    if (s.name.len == 1) { // bare `%` ≡ `%1`
-                        if (ctx.max_positional < 1) ctx.max_positional = 1;
-                        return Form{ .data = .{ .symbol = .{ .name = "%1" } }, .location = f.location };
-                    }
-                    if (std.mem.eql(u8, s.name, "%&")) {
-                        ctx.rest = true;
-                        return f;
-                    }
-                    if (std.fmt.parseInt(usize, s.name[1..], 10) catch null) |nn| {
-                        if (ctx.max_positional < nn) ctx.max_positional = nn;
-                    }
+                    const n: ?usize = if (s.name.len == 1)
+                        1 // bare `%` ≡ `%1`
+                    else if (std.mem.eql(u8, s.name, "%&"))
+                        null
+                    else
+                        (std.fmt.parseInt(usize, s.name[1..], 10) catch return f);
+                    if (n) |pos| {
+                        if (pos == 0) return f;
+                        if (ctx.max_positional < pos) ctx.max_positional = pos;
+                    } else ctx.rest = true;
+                    out.data = .{ .symbol = .{ .name = try self.fnLitParam(n, ctx.id) } };
                 }
-                return f;
             },
-            .list => |items| return Form{ .data = .{ .list = try self.mapFnLit(items, ctx) }, .location = f.location },
-            .vector => |items| return Form{ .data = .{ .vector = try self.mapFnLit(items, ctx) }, .location = f.location },
-            .map => |items| return Form{ .data = .{ .map = try self.mapFnLit(items, ctx) }, .location = f.location },
-            .set => |items| return Form{ .data = .{ .set = try self.mapFnLit(items, ctx) }, .location = f.location },
-            else => return f,
+            .list => |items| out.data = .{ .list = try self.mapFnLit(items, ctx) },
+            .vector => |items| out.data = .{ .vector = try self.mapFnLit(items, ctx) },
+            .map => |items| out.data = .{ .map = try self.mapFnLit(items, ctx) },
+            .set => |items| out.data = .{ .set = try self.mapFnLit(items, ctx) },
+            else => {},
         }
+        return out;
     }
 
     fn mapFnLit(self: *Reader, items: []const Form, ctx: *FnLitCtx) ReadError![]const Form {
@@ -556,8 +592,14 @@ pub const Reader = struct {
         return out;
     }
 
-    fn pctName(alloc: std.mem.Allocator, n: usize) ReadError![]const u8 {
-        return std.fmt.allocPrint(alloc, "%{d}", .{n}) catch return error.OutOfMemory;
+    /// The name of a `#()` param, as clj spells it: `p<n>__<id>#` for `%n`,
+    /// `rest__<id>#` for `%&` (`n` null).
+    fn fnLitParam(self: *Reader, n: ?usize, id: u32) ReadError![]const u8 {
+        const name = if (n) |pos|
+            std.fmt.allocPrint(self.allocator, "p{d}__{d}#", .{ pos, id })
+        else
+            std.fmt.allocPrint(self.allocator, "rest__{d}#", .{id});
+        return name catch error.OutOfMemory;
     }
 
     fn readDelimited(self: *Reader, closing: TokenKind, opener_loc: SourceLocation) ReadError![]const Form {
@@ -709,13 +751,14 @@ pub const Reader = struct {
         if (map_tok.kind == .eof) return error_catalog.raise(.eof_unexpected, loc, .{});
         if (map_tok.kind != .lbrace)
             return error_catalog.raise(.token_invalid, self.locOf(map_tok), .{ .token = map_tok.text(self.source) });
-        const map_form = try self.readMap(map_tok);
+        const items = try self.readMapEntries(self.locOf(map_tok));
 
-        const items = map_form.data.map;
         const new_items = self.allocator.alloc(Form, items.len) catch return error.OutOfMemory;
         for (items, 0..) |it, idx| {
             new_items[idx] = qualifyKey(it, ns, auto, idx % 2 == 0);
         }
+        // Checked after qualifying: `#:a{:b 1 :a/b 2}` repeats `:a/b`.
+        try self.checkDistinct(new_items, 2);
         return Form{ .data = .{ .map = new_items }, .location = loc };
     }
 
@@ -767,7 +810,7 @@ pub const Reader = struct {
     /// its `Form.meta` side-channel (D-183 part b). `meta` is normalised
     /// to a map Form: `^{m}` keeps the map, `^:kw`→`{:kw true}`,
     /// `^Sym`/`^"s"`→`{:tag <x>}`. Stacked metas (`^:a ^:b x`) merge,
-    /// outer winning on duplicate keys (placed last for last-wins).
+    /// outer winning on an equal key (`mergeMetaMaps`).
     fn readMeta(self: *Reader, tok: Token) ReadError!Form {
         const loc = self.locOf(tok);
         self.depth += 1;
@@ -814,16 +857,16 @@ pub const Reader = struct {
         }
     }
 
-    /// Concatenate two map Forms' flat k/v pairs; `outer` is appended
-    /// last so a duplicate key resolves to the outer meta (last-wins at
-    /// `mapFormToValue`), matching JVM's `^:a ^:b x` precedence.
+    /// Merge stacked metadata: `^:a ^:b x` reads `^:b x` first, then the
+    /// outer `{:a true}` merges over it, the outer winning on an equal key,
+    /// as clj's MetaReader assoc's the outer entries onto the inner meta. A
+    /// key repeated inside one map survives the merge for the duplicate-key
+    /// check (ADR-0200).
     fn mergeMetaMaps(self: *Reader, inner: Form, outer: Form, loc: SourceLocation) ReadError!Form {
-        const ipairs = inner.data.map;
-        const opairs = outer.data.map;
-        const merged = self.allocator.alloc(Form, ipairs.len + opairs.len) catch return error.OutOfMemory;
-        @memcpy(merged[0..ipairs.len], ipairs);
-        @memcpy(merged[ipairs.len..], opairs);
-        return Form{ .data = .{ .map = merged }, .location = loc };
+        var merged: form_mod.MapBuilder = .{};
+        try merged.merge(self.allocator, inner.data.map);
+        try merged.merge(self.allocator, outer.data.map);
+        return merged.toForm(self.allocator, loc);
     }
 
     fn readSymbolic(self: *Reader, tok: Token) ReadError!Form {

@@ -52,6 +52,17 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 
 ### Fixed
 
+- **A duplicate map key or set element is an error, as in clj (ADR-0200).**
+  `{:a 1 :a 2}`, `#{1 1}` and `#:a{:b 1 :a/b 2}` raise IllegalArgumentException
+  ("Duplicate key: :a") in source and in `read-string` /
+  `clojure.edn/read-string`, instead of silently keeping the last entry.
+  Source is checked as it is read, so a duplicate in a destructuring map or a
+  macro argument is caught too. `read-string` checks by value and in source
+  order, so `{1 :a 1N :b}` is caught and an earlier missing tag reader is still
+  the error reported. `#(...)` params are clj-style gensyms (`p1__N#`), so two
+  identical `#()` literals are distinct forms and `#{#(inc %) #(inc %)}` holds
+  two fns. `defn` and `defmacro` let an attr-map's `:doc` or `:arglists` win
+  over the docstring and the synthesized arglists, as clj does.
 - **The reader splits tokens and ends comments where clj's does (ADR-0200).**
   `@`, `^`, backtick and `~` now end a symbol, keyword or character token, so
   `[a@b]` reads as `[a (clojure.core/deref b)]` instead of the symbol `a@b`

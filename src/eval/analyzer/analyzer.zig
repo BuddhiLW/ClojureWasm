@@ -357,7 +357,7 @@ pub fn analyze(
         // `#tag form` in expression position (ADR-0073): apply the data
         // reader at analyze time (data is data) and emit the result as a
         // constant. Reuses the `formToValue` lift path.
-        .tagged => |t| try makeConstant(arena, try liftTagged(rt, env, t, form.location), form),
+        .tagged => |t| try makeConstant(arena, try liftTagged(rt, env, t, form.location, .lenient), form),
         // `` `form `` (ADR-0082): expand the syntax-quote tree to its template
         // form, then analyze that (the analyzer has env.current_ns for the
         // future qualification pass; stage 1 is non-qualifying).
@@ -1403,13 +1403,64 @@ const bindings = @import("bindings.zig");
 const recur = @import("recur.zig");
 const try_form = @import("try_form.zig");
 
+/// Whether a Form→Value lift also runs the reader's value checks (ADR-0200:
+/// duplicate map keys and set elements), and in which order it lifts. A
+/// DATA read (`read-string`) is `.strict`: its forms skipped the reader's
+/// Form-level checks, and it lifts in source order so the first error in
+/// the text is the one raised. Every other lift (quote, macro arguments,
+/// metadata) is `.lenient`: code was already checked as it was read.
+const LiftChecks = enum { lenient, strict };
+
 /// Form atom → Value lift. Handles nil / bool / int / float / char /
 /// string / keyword / symbol and the collection literals, interning
 /// or heap-allocating as needed. **pub** so
 /// `analyzer/special_forms.zig::analyzeQuote` can call back into it
 /// (cyclic-import contract).
 pub fn formToValue(rt: *Runtime, env: *Env, form: Form) AnalyzeError!Value {
-    const base: Value = switch (form.data) {
+    return lift(rt, env, form, .lenient);
+}
+
+/// `formToValue` for a DATA read (`read-string`, `clojure.edn/read-string`):
+/// it also raises on a duplicate map key or set element, in source order.
+pub fn formToValueStrict(rt: *Runtime, env: *Env, form: Form) AnalyzeError!Value {
+    return lift(rt, env, form, .strict);
+}
+
+/// D-186: honour a reader `^meta` map on a literal. The reader (readMeta)
+/// parks normalised meta on `Form.meta`; lift + attach it to an IObj value:
+/// collections (vector/map/set/list) AND symbols (ADR-0110 — a symbol carries
+/// value-metadata, e.g. `^String x` → `{:tag String}`; `^:dyn x` → `{:dyn true}`).
+/// Non-IObj values (numbers, keywords, strings, …) cannot carry metadata in
+/// cljw — matching JVM — so the meta is dropped there rather than erroring.
+/// The meta is lifted BEFORE its target, as clj reads it, so a strict lift
+/// raises the meta's own error first.
+fn lift(rt: *Runtime, env: *Env, form: Form, checks: LiftChecks) AnalyzeError!Value {
+    const meta_form = form.meta orelse return liftBase(rt, env, form, checks);
+    // GC-ROOT: C — the lifted meta lives in a Zig local across the target's
+    // lift, and `base` across `withMeta` (a big literal can trigger a
+    // collect that would sweep either). [ref: .dev/gc_rooting.md §C]
+    var roots = [_]Value{ .nil_val, .nil_val };
+    var sp: u16 = 2;
+    var frame: root_set.EvalFrame = .{ .stack = &roots, .sp = &sp, .locals = &.{}, .parent = root_set.eval_frame_head };
+    root_set.eval_frame_head = &frame;
+    defer root_set.eval_frame_head = frame.parent;
+    const m = try lift(rt, env, meta_form.*, checks);
+    roots[1] = m;
+    const base = try liftBase(rt, env, form, checks);
+    roots[0] = base;
+    return switch (base.tag()) {
+        .vector => try vector_collection.withMeta(rt, base, m),
+        .array_map, .hash_map => try map_collection.withMeta(rt, base, m),
+        .hash_set => try set_collection.withMeta(rt, base, m),
+        .list => try list_collection.withMeta(rt, base, m),
+        .symbol => try symbol_mod.withMeta(rt, base, m),
+        else => base,
+    };
+}
+
+/// The value of `form` itself, ignoring its `^meta`.
+fn liftBase(rt: *Runtime, env: *Env, form: Form, checks: LiftChecks) AnalyzeError!Value {
+    return switch (form.data) {
         .nil => .nil_val,
         .boolean => |b| if (b) .true_val else .false_val,
         .integer => |i| try integerLiteralToValue(rt, i),
@@ -1428,12 +1479,12 @@ pub fn formToValue(rt: *Runtime, env: *Env, form: Form) AnalyzeError!Value {
         else
             try keyword.intern(rt, sym.ns, sym.name),
         .string => |s| try string_collection.alloc(rt, s),
-        .list => |items| try listFormToValue(rt, env, items),
+        .list => |items| try listFormToValue(rt, env, items, checks),
         .symbol => |sym| try symbol_mod.intern(rt, sym.ns, sym.name),
-        .vector => |items| try vectorFormToValue(rt, env, items),
-        .map => |entries| try mapFormToValue(rt, env, entries, form.location),
-        .set => |items| try setFormToValue(rt, env, items),
-        .tagged => |t| return try liftTagged(rt, env, t, form.location),
+        .vector => |items| try vectorFormToValue(rt, env, items, checks),
+        .map => |entries| try mapFormToValue(rt, env, entries, form.location, checks),
+        .set => |items| try setFormToValue(rt, env, items, checks),
+        .tagged => |t| try liftTagged(rt, env, t, form.location, checks),
         // `` `form `` as DATA (read-string / quoted): expand to the template,
         // then lift the template as data (clj `` '`(a ~b) `` → the
         // `(seq (concat …))` form). ADR-0082.
@@ -1441,47 +1492,20 @@ pub fn formToValue(rt: *Runtime, env: *Env, form: Form) AnalyzeError!Value {
             var sq_arena = std.heap.ArenaAllocator.init(rt.gpa);
             defer sq_arena.deinit();
             const template = try syntax_quote.expand(sq_arena.allocator(), rt, env, inner.*, form.location);
-            break :blk try formToValue(rt, env, template);
+            break :blk try lift(rt, env, template, checks);
         },
         // `~x` / `~@x` outside a syntax-quote is DATA to the reader: clj reads
         // it as `(clojure.core/unquote x)` / `(clojure.core/unquote-splicing
         // x)`, so read-string and quote lift that list rather than raising.
-        .unquote => |inner| try wrappedToValue(rt, env, "unquote", inner.*, form.location),
-        .unquote_splicing => |inner| try wrappedToValue(rt, env, "unquote-splicing", inner.*, form.location),
+        .unquote => |inner| try wrappedToValue(rt, env, "unquote", inner.*, form.location, checks),
+        .unquote_splicing => |inner| try wrappedToValue(rt, env, "unquote-splicing", inner.*, form.location, checks),
     };
-    // D-186: honour a reader `^meta` map on a literal. The reader (readMeta)
-    // parks normalised meta on `Form.meta`; lift + attach it to an IObj value:
-    // collections (vector/map/set/list) AND symbols (ADR-0110 — a symbol carries
-    // value-metadata, e.g. `^String x` → `{:tag String}`; `^:dyn x` → `{:dyn true}`).
-    // Non-IObj values (numbers, keywords, strings, …) cannot carry metadata in
-    // cljw — matching JVM — so the meta is dropped there rather than erroring.
-    if (form.meta) |meta_form| {
-        // GC-ROOT: C — `base` lives in a Zig local across the meta lift's
-        // allocs (a big literal's meta map can trigger a collect that would
-        // sweep the freshly-built base). [ref: .dev/gc_rooting.md §C]
-        var roots = [_]Value{ base, .nil_val };
-        var sp: u16 = 2;
-        var frame: root_set.EvalFrame = .{ .stack = &roots, .sp = &sp, .locals = &.{}, .parent = root_set.eval_frame_head };
-        root_set.eval_frame_head = &frame;
-        defer root_set.eval_frame_head = frame.parent;
-        const m = try formToValue(rt, env, meta_form.*);
-        roots[1] = m;
-        return switch (base.tag()) {
-            .vector => try vector_collection.withMeta(rt, base, m),
-            .array_map, .hash_map => try map_collection.withMeta(rt, base, m),
-            .hash_set => try set_collection.withMeta(rt, base, m),
-            .list => try list_collection.withMeta(rt, base, m),
-            .symbol => try symbol_mod.withMeta(rt, base, m),
-            else => base,
-        };
-    }
-    return base;
 }
 
 /// Build a persistent vector Value by recursively lifting each form
 /// element. §9.11 row 9.2: powers `clojure.edn/read-string "[1 2 3]"`
 /// + JVM-parity `(quote [1 2 3])` round-trip.
-fn vectorFormToValue(rt: *Runtime, env: *Env, items: []const Form) AnalyzeError!Value {
+fn vectorFormToValue(rt: *Runtime, env: *Env, items: []const Form, checks: LiftChecks) AnalyzeError!Value {
     var out = vector_collection.empty();
     // GC-ROOT: C — `out` + the current element live in Zig locals across the
     // per-element formToValue/conj allocs (each can auto-collect / alloc-
@@ -1495,7 +1519,7 @@ fn vectorFormToValue(rt: *Runtime, env: *Env, items: []const Form) AnalyzeError!
     root_set.eval_frame_head = &frame;
     defer root_set.eval_frame_head = frame.parent;
     for (items) |item| {
-        const v = try formToValue(rt, env, item);
+        const v = try lift(rt, env, item, checks);
         roots[1] = v;
         out = try vector_collection.conj(rt, out, v);
         roots[0] = out;
@@ -1509,8 +1533,8 @@ fn vectorFormToValue(rt: *Runtime, env: *Env, items: []const Form) AnalyzeError!
 /// A miss consults `*default-data-reader-fn*` (invoked with the tag symbol +
 /// lifted value); still nothing → raise `reader_tag_unknown` (clj parity —
 /// `read-string` with no reader for a tag throws, NOT a placeholder value).
-fn liftTagged(rt: *Runtime, env: *Env, t: TaggedForm, loc: SourceLocation) AnalyzeError!Value {
-    const inner = try formToValue(rt, env, t.form.*);
+fn liftTagged(rt: *Runtime, env: *Env, t: TaggedForm, loc: SourceLocation, checks: LiftChecks) AnalyzeError!Value {
+    const inner = try lift(rt, env, t.form.*, checks);
 
     // clj reads `#ns.Name{…}` as a RECORD constructor (the qualified
     // record print form round-trips through the reader). ADR-0198: the tag
@@ -1569,7 +1593,12 @@ fn invokeReaderFn(rt: *Runtime, env: *Env, f: Value, args: []const Value, loc: S
 }
 
 /// Build a persistent map Value by recursively lifting key/value pairs.
-fn mapFormToValue(rt: *Runtime, env: *Env, entries: []const Form, loc: SourceLocation) AnalyzeError!Value {
+/// ADR-0200: a strict lift raises "Duplicate key" on an equal key twice,
+/// decided by the map's own key equality (an assoc that does not grow the
+/// map). The raise waits until every entry is lifted, because clj reads the
+/// whole map before building it: in `{:a 1 :a 2 :b #foo 1}` the missing tag
+/// reader fails first.
+fn mapFormToValue(rt: *Runtime, env: *Env, entries: []const Form, loc: SourceLocation, checks: LiftChecks) AnalyzeError!Value {
     if (entries.len % 2 != 0) {
         return error_catalog.raise(.map_literal_arity_odd, loc, .{});
     }
@@ -1581,12 +1610,14 @@ fn mapFormToValue(rt: *Runtime, env: *Env, entries: []const Form, loc: SourceLoc
     var frame: root_set.EvalFrame = .{ .stack = &roots, .sp = &sp, .locals = &.{}, .parent = root_set.eval_frame_head };
     root_set.eval_frame_head = &frame;
     defer root_set.eval_frame_head = frame.parent;
+    var duplicate: ?Form = null;
     var i: usize = 0;
     while (i < entries.len) : (i += 2) {
-        const k = try formToValue(rt, env, entries[i]);
+        const k = try lift(rt, env, entries[i], checks);
         roots[1] = k;
-        const val = try formToValue(rt, env, entries[i + 1]);
+        const val = try lift(rt, env, entries[i + 1], checks);
         roots[2] = val;
+        const before = map_collection.count(out);
         out = map_collection.assoc(rt, out, k, val) catch |err| switch (err) {
             // Hash-colliding literal keys land in the D-155 collision bucket
             // inside assoc — no analyzer-level error remains.
@@ -1594,12 +1625,16 @@ fn mapFormToValue(rt: *Runtime, env: *Env, entries: []const Form, loc: SourceLoc
             else => |e| return e,
         };
         roots[0] = out;
+        if (checks == .strict and duplicate == null and map_collection.count(out) == before) duplicate = entries[i];
     }
+    if (duplicate) |d| return raiseDuplicate(d);
     return out;
 }
 
-/// Build a persistent set Value by recursively lifting elements.
-fn setFormToValue(rt: *Runtime, env: *Env, items: []const Form) AnalyzeError!Value {
+/// Build a persistent set Value by recursively lifting elements. A strict
+/// lift raises on an equal element twice, after the whole set is lifted,
+/// as in `mapFormToValue`.
+fn setFormToValue(rt: *Runtime, env: *Env, items: []const Form, checks: LiftChecks) AnalyzeError!Value {
     var out = set_collection.empty();
     // GC-ROOT: C — `out` + the current element across per-element allocs
     // (see vectorFormToValue's note). [ref: .dev/gc_rooting.md §C]
@@ -1608,49 +1643,63 @@ fn setFormToValue(rt: *Runtime, env: *Env, items: []const Form) AnalyzeError!Val
     var frame: root_set.EvalFrame = .{ .stack = &roots, .sp = &sp, .locals = &.{}, .parent = root_set.eval_frame_head };
     root_set.eval_frame_head = &frame;
     defer root_set.eval_frame_head = frame.parent;
+    var duplicate: ?Form = null;
     for (items) |item| {
-        const v = try formToValue(rt, env, item);
+        const v = try lift(rt, env, item, checks);
         roots[1] = v;
+        const before = set_collection.count(out);
         out = set_collection.conj(rt, out, v) catch |err| switch (err) {
             // Hash-colliding elements land in the D-155 collision bucket.
             error.AssocOnNonMap => unreachable, // out always starts at .hash_set
             else => |e| return e,
         };
         roots[0] = out;
+        if (checks == .strict and duplicate == null and set_collection.count(out) == before) duplicate = item;
     }
+    if (duplicate) |d| return raiseDuplicate(d);
     return out;
+}
+
+fn raiseDuplicate(f: Form) AnalyzeError {
+    var buf: [128]u8 = undefined;
+    return error_catalog.raise(.literal_key_duplicate, f.location, .{ .key = f.prStrBounded(&buf) });
 }
 
 /// `(clojure.core/<name> inner)` as data: the value of a reader wrapper
 /// (`~x`, `~@x`) read outside a syntax-quote.
-fn wrappedToValue(rt: *Runtime, env: *Env, name: []const u8, inner: Form, loc: SourceLocation) AnalyzeError!Value {
+fn wrappedToValue(rt: *Runtime, env: *Env, name: []const u8, inner: Form, loc: SourceLocation, checks: LiftChecks) AnalyzeError!Value {
     const items = [_]Form{
         .{ .data = .{ .symbol = .{ .ns = "clojure.core", .name = name } }, .location = loc },
         inner,
     };
-    return listFormToValue(rt, env, &items);
+    return listFormToValue(rt, env, &items, checks);
 }
 
 /// Build a heap List Value by recursively lifting each element to a
 /// Value. Empty list → nil (matches Clojure's `(quote ())` → `()` /
 /// `()` is `nil`-equivalent on `rest`/`first`). Used by `quote`.
-fn listFormToValue(rt: *Runtime, env: *Env, items: []const Form) AnalyzeError!Value {
+fn listFormToValue(rt: *Runtime, env: *Env, items: []const Form, checks: LiftChecks) AnalyzeError!Value {
     // Quoted `'()` lifts to the interned empty list, not nil (D-164).
     if (items.len == 0) return try list_collection.emptyList(rt);
     var i = items.len;
     var acc: Value = .nil_val;
-    // GC-ROOT: C — `acc` + the current head across per-element allocs.
-    // consHeap's own fabrication region only brackets each single cell; the
-    // partial chain between iterations lives in a Zig local (see
-    // vectorFormToValue's note). [ref: .dev/gc_rooting.md §C]
-    var roots = [_]Value{ .nil_val, .nil_val };
-    var sp: u16 = 2;
+    // GC-ROOT: C — `acc` + the current head across per-element allocs, and
+    // a strict lift's element vector. consHeap's own fabrication region only
+    // brackets each single cell; the partial chain between iterations lives
+    // in a Zig local (see vectorFormToValue's note). [ref: .dev/gc_rooting.md §C]
+    var roots = [_]Value{ .nil_val, .nil_val, .nil_val };
+    var sp: u16 = 3;
     var frame: root_set.EvalFrame = .{ .stack = &roots, .sp = &sp, .locals = &.{}, .parent = root_set.eval_frame_head };
     root_set.eval_frame_head = &frame;
     defer root_set.eval_frame_head = frame.parent;
+    // The chain is consed from the end. A strict (data) lift must still
+    // LIFT left to right, so the first error in the text is the one raised,
+    // as clj reads it: it lifts into a vector first.
+    const lifted: ?Value = if (checks == .strict) try vectorFormToValue(rt, env, items, checks) else null;
+    if (lifted) |v| roots[2] = v;
     while (i > 0) {
         i -= 1;
-        const head = try formToValue(rt, env, items[i]);
+        const head = if (lifted) |v| vector_collection.nth(v, @intCast(i)) else try lift(rt, env, items[i], checks);
         roots[1] = head;
         acc = try list_collection.consHeap(rt, head, acc);
         roots[0] = acc;

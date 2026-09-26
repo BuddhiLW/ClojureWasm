@@ -581,23 +581,6 @@ accepted:
       match clj.
     derives_from: "AD-002 (non-reproducible JVM identity hash is not mirrored) + ADR-0054 (the print path realizes a lazy seq to its elements). clj's LazySeq.toString is the un-overridden Object.toString; no cljw analogue exists."
     pin: "test/clj/suites/lazy_map_test.clj — `str_lazyseq_elements` locks (str (map inc [1 2 3])) => \"(2 3 4)\" and `str_interpose_lazy` locks (str (interpose :x (range 3))) => \"(0 :x 1 :x 2)\" (cljw's deterministic element form, vs clj's identity-hash toString)"
-  - id: "AD-039"
-    summary: "The `#(…)` anonymous-fn reader expands with DETERMINISTIC params `%1`/`%2`/`%&`; clj uses non-reproducible gensyms (`p1__N#` / `rest__N#`)."
-    example: '(read-string "#(+ % 1)") => cljw "(fn* [%1] (+ %1 1))" / clj "(fn* [p1__3#] (+ p1__3# 1))" ; (read-string "#(apply + % %&)") => cljw "(fn* [%1 & %&] (apply + %1 %&))" / clj "(fn* [p1__10# & rest__11#] …)". The CALL behaviour matches: (#(+ % 1) 10) => 11 both.'
-    why: |-
-      clj gensyms the `#()` params (`p1__N#`, counter-suffixed) so a literal `%`
-      in the body cannot collide with an outer binding; the `N` is a process-wide
-      counter, so the printed form is non-reproducible (like AD-002's identity
-      hash). cljw canonicalises `%`→`%1`, `%N` positional, `%&` rest — a fixed,
-      deterministic naming with no counter. Functionally identical (arity + body
-      reference the same params); the only observable difference is the printed
-      param NAMES, and only via `(read-string "#(…)")` + printing the expansion
-      (a macro-author edge). cljw's deterministic form is the right choice: a
-      counter would be non-reproducible for no behavioural gain, and `%N` reads
-      naturally as "the Nth arg". Nested `#()` is a read error in BOTH (so `%`
-      can't span levels — the only real capture hazard the gensym guards).
-    derives_from: "AD-002 (non-reproducible JVM-side token — here a gensym counter — is not mirrored; cljw uses a deterministic name). The fixed `%N`/`%&` naming is sound because nested `#()` is rejected (no `%`-across-levels capture to guard)."
-    pin: "test/e2e/phase14_anon_fn_reader.sh — `anon_readform_pct1` locks (read-string \"#(+ % 1)\") => (fn* [%1] (+ %1 1)) and `anon_readform_rest` locks the `%&` rest form (cljw's deterministic params vs clj's gensyms)"
   - id: "AD-040"
     summary: "A cascading macro (`cond`, and similar) macroexpand-1's to the FULL nested form in cljw, where clj expands ONE clause and leaves a recursive `(clojure.core/cond …)` call. Functionally identical; the expanded form (and the nested macro's namespace) differ."
     example: "(macroexpand-1 '(cond a 1 :else 2)) => cljw \"(if a 1 (if :else 2 nil))\" / clj \"(if a 1 (clojure.core/cond :else 2))\". Running the macro is identical: (cond false 1 :else 2) => 2 both. NOTE: `when` DOES byte-match clj (`(if c (do body))`, fixed) — only the recursive-cascade macros (cond/condp/…) differ."

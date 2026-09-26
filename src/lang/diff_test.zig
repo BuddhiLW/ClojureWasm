@@ -389,7 +389,7 @@ test "diff: map/set/list keys by value (D-092) — keyEqValue/valueHash backend-
     try f.check("(get {#{1 2} 7} #{2 1})", 7); // set key (order-indep)
     try f.check("(get {'(1 2) 5} '(1 2))", 5); // list key
     try f.check("(get {[1 2] 9} '(1 2))", 9); // cross vec≡list
-    try f.check("(count #{{:a 1} {:a 1} {:a 2}})", 2); // set-literal dedup of map elems
+    try f.check("(count (conj #{{:a 1} {:a 2}} {:a 1}))", 2); // set literal of map elems, content dedup (a repeated literal elem is an IAE, ADR-0200)
     try f.check("(count (conj #{{:a 1}} {:a 1}))", 1); // set elem content dedup
 }
 

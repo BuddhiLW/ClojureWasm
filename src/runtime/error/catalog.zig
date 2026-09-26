@@ -78,6 +78,7 @@ pub const Code = enum {
     big_decimal_literal_invalid,
     string_unterminated,
     map_literal_arity_odd,
+    literal_key_duplicate,
 
     // --- Analysis (def / if / let / symbol resolution / arity) ---
     def_arity_invalid,
@@ -714,6 +715,14 @@ pub fn entry(comptime code: Code) Entry {
             .kind = .syntax_error,
             .phase = .parse,
             .template = "Map literal must contain an even number of forms",
+        },
+        // ADR-0200: clj's reader builds a map or set literal with
+        // createWithCheck, so an equal key or element twice is an
+        // IllegalArgumentException, not last-wins.
+        .literal_key_duplicate => .{
+            .kind = .value_error,
+            .phase = .parse,
+            .template = "Duplicate key: {[key]s}",
         },
 
         // --- Analysis ---
