@@ -162,7 +162,8 @@ fn takeWhileBound(rt: *Runtime, env: *Env, bound: *const BoundFn, coll: Value) a
     var i = items.items.len;
     while (i > 0) {
         i -= 1;
-        out = try list_mod.consHeap(rt, items.items[i], out);
+        // `.cons`, not `.list`: subseq/rsubseq yield a tree Seq in clj (list? false).
+        out = try list_mod.consSeqHeap(rt, items.items[i], out);
     }
     return out;
 }

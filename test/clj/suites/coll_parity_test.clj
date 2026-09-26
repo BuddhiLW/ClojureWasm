@@ -43,3 +43,23 @@
     (is (= :nf (get (int-array [1 2]) 5 :nf)))
     (is (nil? (get (int-array [1 2]) -1)))
     (is (nil? (get (int-array [1 2]) :a)))))
+
+(deftest sorted-seqs-are-not-lists
+  (is (false? (list? (seq (sorted-map 1 2)))))
+  (is (false? (list? (seq (sorted-set 1 2)))))
+  (is (false? (list? (rseq (sorted-set 1 2)))))
+  (is (false? (list? (rest (sorted-set 1 2 3)))))
+  (is (false? (list? (keys (sorted-map 1 2)))))
+  (is (false? (list? (subseq (sorted-set 1 2 3) > 1))))
+  (is (true? (seq? (seq (sorted-set 1)))))
+  (is (= '(0 1 2) (conj (seq (sorted-set 1 2)) 0)))
+  (is (= '(3 2 1) (rseq (sorted-set 1 2 3)))))
+
+(deftest keys-vals-on-non-map-seqables
+  (is (nil? (keys #{})))
+  (is (nil? (keys "")))
+  (is (nil? (vals "")))
+  (is (nil? (keys (sorted-set))))
+  (is (nil? (vals [])))
+  (is (thrown? ClassCastException (vec (keys #{1}))))
+  (is (thrown? ClassCastException (vec (keys [1])))))

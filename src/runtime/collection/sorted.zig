@@ -545,6 +545,8 @@ pub fn dissoc(rt: *Runtime, env: *Env, m_val: Value, key: Value, loc: SourceLoca
         .meta = m.meta,
     };
     return Value.encodeHeapPtr(.sorted_map, nm);
+// Cells are `.cons` (a non-list ISeq): clj's sorted seqs are
+// PersistentTreeMap$Seq / KeySeq, so `(list? (seq sm))` is false.
 }
 
 // In-order walk variants. `consHeap` prepends, so processing
@@ -553,7 +555,7 @@ fn keysInto(rt: *Runtime, h: Value, acc: Value) !Value {
     if (h.tag() != .rb_node) return acc;
     const hn = h.decodePtr(*const RbNode);
     var result = try keysInto(rt, hn.right, acc);
-    result = try list_mod.consHeap(rt, hn.key, result);
+    result = try list_mod.consSeqHeap(rt, hn.key, result);
     return keysInto(rt, hn.left, result);
 }
 
@@ -561,7 +563,7 @@ fn valsInto(rt: *Runtime, h: Value, acc: Value) !Value {
     if (h.tag() != .rb_node) return acc;
     const hn = h.decodePtr(*const RbNode);
     var result = try valsInto(rt, hn.right, acc);
-    result = try list_mod.consHeap(rt, hn.val, result);
+    result = try list_mod.consSeqHeap(rt, hn.val, result);
     return valsInto(rt, hn.left, result);
 }
 
@@ -576,7 +578,7 @@ fn seqInto(rt: *Runtime, h: Value, acc: Value) !Value {
     // `(map key (seq (java.util.TreeMap. …)))` threw. AD-032 promises a cljw
     // MapEntry for these seq-views; this is what makes that true.
     const pair = try map_entry_mod.make(rt, hn.key, hn.val);
-    result = try list_mod.consHeap(rt, pair, result);
+    result = try list_mod.consSeqHeap(rt, pair, result);
     return seqInto(rt, hn.left, result);
 }
 
@@ -615,7 +617,7 @@ fn rseqSetInto(rt: *Runtime, h: Value, acc: Value) !Value {
     if (h.tag() != .rb_node) return acc;
     const hn = h.decodePtr(*const RbNode);
     var result = try rseqSetInto(rt, hn.left, acc);
-    result = try list_mod.consHeap(rt, hn.key, result);
+    result = try list_mod.consSeqHeap(rt, hn.key, result);
     return rseqSetInto(rt, hn.right, result);
 }
 
@@ -625,7 +627,7 @@ fn rseqMapInto(rt: *Runtime, h: Value, acc: Value) !Value {
     var result = try rseqMapInto(rt, hn.left, acc);
     // Map entries, not 2-vectors — same contract as `seqInto` above.
     const pair = try map_entry_mod.make(rt, hn.key, hn.val);
-    result = try list_mod.consHeap(rt, pair, result);
+    result = try list_mod.consSeqHeap(rt, pair, result);
     return rseqMapInto(rt, hn.right, result);
 }
 
@@ -693,7 +695,7 @@ fn subseqWalk(rt: *Runtime, env: *Env, is_map: bool, comparator: Value, h: Value
         // Map entries, not 2-vectors, same contract as `seqInto`, so
         // `(key (first (subseq …)))` works like every other map seq.
         roots[1] = if (is_map) try map_entry_mod.make(rt, hn.key, hn.val) else hn.key;
-        roots[0] = try list_mod.consHeap(rt, roots[1], roots[0]);
+        roots[0] = try list_mod.consSeqHeap(rt, roots[1], roots[0]);
     }
     return subseqWalk(rt, env, is_map, comparator, second, b, ascending, roots[0], loc);
 }
