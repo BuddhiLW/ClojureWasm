@@ -736,6 +736,7 @@ run_step "e2e_phase15_clojure_instant"      "bash test/e2e/phase15_clojure_insta
 run_step "e2e_phase15_clojure_test_tap"     "bash test/e2e/phase15_clojure_test_tap.sh"
 run_step "e2e_phase16_vm_error_loc_sidecar" "bash test/e2e/phase16_vm_error_loc_sidecar.sh"
 run_step "e2e_phase16_gc_torture"           "bash test/e2e/phase16_gc_torture.sh"
+run_step "e2e_phase16_load_file_source"     "bash test/e2e/phase16_load_file_source.sh"
 run_step "e2e_phase16_bfs_queue_gc"         "bash test/e2e/phase16_bfs_queue_gc.sh"
 run_step "e2e_phase14_cljw_build"            "bash test/e2e/phase14_cljw_build.sh"
 run_step "e2e_phase14_print_family"          "bash test/e2e/phase14_print_family.sh"

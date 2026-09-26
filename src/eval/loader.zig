@@ -123,7 +123,9 @@ pub fn loadSource(rt: *Runtime, env: *Env, label: []const u8, source: []const u8
     const arena = rt.load_arena.allocator();
     const text = try arena.dupe(u8, source);
     const name = try arena.dupe(u8, label);
-    try rt.registerSource(name, text);
+    // Replace, not register: a file loaded again after an edit must render
+    // its errors against the new text.
+    try rt.replaceSource(name, text);
 
     const saved_ns = env.current_ns;
     defer if (saved_ns) |s| env.setCurrentNs(s);

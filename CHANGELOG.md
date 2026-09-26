@@ -74,6 +74,13 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
   LinkedBlockingQueue spin locks poll the safepoint. A timed deref with a huge
   timeout no longer overflows.
 
+- **An error inside a loaded or required file shows that file's source.** A
+  script's uncaught error rendered its snippet from the script itself: an
+  error at `lib.clj:3` printed line 3 of the running script. The script
+  runner now resolves the snippet by the error's file, and a file
+  `load-file`d again after an edit renders against its new text, not the
+  first version's.
+
 - **`cljw.http.client` could return a response with `:status` missing.** The
   response map was built in an unrooted local, and a collection at the body
   allocation swept it half-built. The http server's request map and the wasm
