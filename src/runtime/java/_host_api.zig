@@ -131,6 +131,7 @@ const java_surfaces = [_]type{
     @import("util/concurrent/TimeoutException.zig"),
     @import("util/concurrent/LinkedBlockingQueue.zig"),
     @import("util/concurrent/ThreadPoolExecutor_CallerRunsPolicy.zig"),
+    @import("util/concurrent/ThreadPoolExecutor_AbortPolicy.zig"),
     @import("util/concurrent/ThreadPoolExecutor.zig"),
     @import("util/concurrent/Executors.zig"),
     @import("util/concurrent/atomic/AtomicLong.zig"),

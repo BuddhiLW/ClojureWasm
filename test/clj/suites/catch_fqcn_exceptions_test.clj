@@ -15,4 +15,6 @@
   (is (= ":caught" (pr-str (try (assert false) (catch java.lang.AssertionError e :caught)))) "fqcn-assertion-error")
   (is (= ":caught" (pr-str (try (assert false) (catch AssertionError e :caught)))) "simple-assertion-error")
   (is (= ":caught" (pr-str (try (assert false) (catch java.lang.Error e :caught)))) "fqcn-error-super")
-  (is (= ":other" (pr-str (try (throw (ex-info "x" {})) (catch java.lang.ClassNotFoundException e :cnfe) (catch Throwable e :other)))) "fqcn-cnfe"))
+  (is (= ":other" (pr-str (try (throw (ex-info "x" {})) (catch java.lang.ClassNotFoundException e :cnfe) (catch Throwable e :other)))) "fqcn-cnfe")
+  (is (= :other (try (throw (ex-info "x" {})) (catch java.lang.NoSuchMethodException _ :nsme) (catch Throwable _ :other))) "fqcn-nsme")
+  (is (= :ex (try (throw (Exception. "x")) (catch NoSuchMethodException _ :nsme) (catch Exception _ :ex))) "simple-nsme"))

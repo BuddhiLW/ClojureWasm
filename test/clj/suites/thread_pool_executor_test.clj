@@ -10,6 +10,7 @@
                                  Semaphore
                                  ThreadFactory
                                  ThreadPoolExecutor
+                                 ThreadPoolExecutor$AbortPolicy
                                  ThreadPoolExecutor$CallerRunsPolicy
                                  TimeUnit]
            [java.util.concurrent.atomic AtomicBoolean AtomicLong]))
@@ -187,4 +188,27 @@
              (.submit pool (reify Callable (call [_] :too-late)))
              (catch java.util.concurrent.RejectedExecutionException _
                :rejected))))
+    (is (true? (.awaitTermination pool 1000 TimeUnit/MILLISECONDS)))))
+
+(deftest abort-policy-rejects-saturated-queue
+  (let [handler (ThreadPoolExecutor$AbortPolicy.)
+        pool (ThreadPoolExecutor. 1 1 0 TimeUnit/MILLISECONDS
+                                  (LinkedBlockingQueue. 1) nil handler)
+        gate (Semaphore. 0)
+        running (AtomicBoolean. false)]
+    (try
+      (is (instance? ThreadPoolExecutor$AbortPolicy handler))
+      (let [first-job (.submit pool (reify Callable
+                                      (call [_] (.set running true)
+                                        (.acquire gate) :first)))]
+        (is (true? (await-flag running)))
+        (let [second-job (.submit pool (reify Callable (call [_] :second)))]
+          (is (thrown? java.util.concurrent.RejectedExecutionException
+                       (.submit pool (reify Callable (call [_] :third)))))
+          (.release gate)
+          (is (= :first (.get first-job)))
+          (is (= :second (.get second-job)))))
+      (finally
+        (.release gate)
+        (.shutdown pool)))
     (is (true? (.awaitTermination pool 1000 TimeUnit/MILLISECONDS)))))
