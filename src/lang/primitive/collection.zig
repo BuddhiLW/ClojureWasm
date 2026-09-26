@@ -1024,10 +1024,6 @@ fn entryCastError(fn_name: []const u8, entry: Value, loc: SourceLocation) anyerr
 fn isEntrySeqTag(tag: Value.Tag) bool {
     return switch (tag) {
         .list, .lazy_seq, .cons, .chunked_cons, .array_seq, .vector, .sub_vector => true,
-        // clj's `keys`/`vals` seq ANY seqable and cast each item to an entry:
-        // an empty set / string / queue / array answers nil, a non-empty one
-        // raises the entry cast (ClassCastException).
-        .hash_set, .sorted_set, .string, .string_seq, .range, .persistent_queue, .array => true,
         else => false,
     };
 }
