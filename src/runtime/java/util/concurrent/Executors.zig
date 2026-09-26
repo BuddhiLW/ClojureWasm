@@ -20,7 +20,7 @@ fn fixed(rt: *Runtime, env: *Env, n: i64, factory: Value, loc: SourceLocation) !
     if (n <= 0)
         return error_catalog.raise(.type_arg_invalid, loc, .{ .fn_name = "Executors/newFixedThreadPool", .expected = "a positive thread count", .actual = "a non-positive thread count" });
     const queue = try LinkedBlockingQueue.make(rt, 0);
-    return ThreadPoolExecutor.make(rt, env, @intCast(n), queue, factory, .nil_val, true);
+    return ThreadPoolExecutor.make(rt, env, @intCast(n), queue, factory, .nil_val, true, false);
 }
 
 fn newFixedThreadPool(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
@@ -34,7 +34,14 @@ fn newSingleThreadExecutor(rt: *Runtime, env: *Env, args: []const Value, loc: So
     return fixed(rt, env, 1, if (args.len == 1) args[0] else .nil_val, loc);
 }
 
+fn newSingleThreadScheduledExecutor(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
+    try error_catalog.checkArityRange("Executors/newSingleThreadScheduledExecutor", args, 0, 1, loc);
+    const queue = try LinkedBlockingQueue.make(rt, 0);
+    return ThreadPoolExecutor.make(rt, env, 1, queue, if (args.len == 1) args[0] else .nil_val, .nil_val, true, true);
+}
+
 const METHODS = .{
+    .{ "newSingleThreadScheduledExecutor", &newSingleThreadScheduledExecutor },
     .{ "newFixedThreadPool", &newFixedThreadPool },
     .{ "newSingleThreadExecutor", &newSingleThreadExecutor },
 };

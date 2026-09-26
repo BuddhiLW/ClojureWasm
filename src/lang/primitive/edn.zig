@@ -39,7 +39,8 @@ const Var = env_mod.Var;
 /// Spec: `(read-string s)` reads one EDN form from `s` and returns it as
 ///   a Value. Empty / whitespace-only / comment-only input: `clojure.edn`
 ///   returns nil, `clojure.core` THROWS EOF — measured, they differ (D-581).
-///   An `:eof` opt supplies a sentinel for either. `(read-string opts s)`
+///   The two-argument overload WITHOUT `:eof` throws on empty input;
+///   an explicit `:eof` opt supplies a sentinel. `(read-string opts s)`
 ///   honours an opts map: `:readers` (a `{tag-symbol reader-fn}` map bound
 ///   to `*data-readers*` for the read), `:default` (a `(fn [tag value])`
 ///   bound to `*default-data-reader-fn*`), `:eof` (value returned on empty
@@ -68,6 +69,13 @@ const EofPolicy = enum { raise, nil_on_eof };
 fn readStringImpl(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation, eof_policy: EofPolicy) anyerror!Value {
     try error_catalog.checkArityRange("read-string", args, 1, 2, loc);
     const opts: ?Value = if (args.len == 2) args[0] else null;
+    // clojure.edn/read-string's single-argument overload uses a nil EOF
+    // sentinel. Its two-argument overload delegates directly to the reader:
+    // with no :eof key even {} throws at EOF (including comments/discards).
+    if (opts) |o| switch (o.tag()) {
+        .array_map, .hash_map => {},
+        else => return error_catalog.raise(.edn_string_invalid, loc, .{ .reason = if (o.tag() == .nil) "nil options" else "options must be a map" }),
+    };
     const str_arg = args[args.len - 1];
     if (str_arg.tag() != .string) {
         return error_catalog.raise(.type_arg_not_string, loc, .{
@@ -144,7 +152,7 @@ fn readStringImpl(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocat
     const form = form_opt orelse {
         if (eof_provided) return eof_val;
         // An explicit `:eof` wins for both readers; absent it, the policy decides.
-        if (eof_policy == .nil_on_eof) return Value.nil_val;
+        if (eof_policy == .nil_on_eof and opts == null) return Value.nil_val;
         return error_catalog.raise(.eof_unexpected, loc, .{});
     };
     return try analyzer_mod.formToValueStrict(rt, env, form);

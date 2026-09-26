@@ -254,10 +254,8 @@ const Entry = struct {
 const Meta = @import("../../runtime/env.zig").MetadataMap;
 
 const ENTRIES = [_]Entry{
-    .{ .name = "read-csv", .f = &readCsvFn, .meta = .{
-        .doc = "Reads CSV-data from the string s into a lazy sequence of vectors.\n\n  Valid options are\n    :separator (default \\,)\n    :quote (default \\\")",
-        .arglists = "([s] [s & options])",
-    } },
+    // :doc / :arglists are attached in clojure/data/csv.clj (alter-meta!).
+    .{ .name = "read-csv", .f = &readCsvFn },
     // The public JVM-shape `write-csv` (writer-first, returns nil) wraps this
     // in csv.clj; the impl serialises to a string.
     .{ .name = "-write-csv-str", .f = &writeCsvFn, .meta = .{ .private = true } },

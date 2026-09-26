@@ -24,7 +24,7 @@ const CallerRunsPolicy = @import("ThreadPoolExecutor_CallerRunsPolicy.zig");
 pub const FQCN = "java.util.concurrent.ThreadPoolExecutor";
 var pool_descriptor: ?*const type_descriptor.TypeDescriptor = null;
 
-fn stateOf(v: Value) *thread_pool.PoolState {
+pub fn stateOf(v: Value) *thread_pool.PoolState {
     return @ptrFromInt(@as(usize, @intCast(host_instance.asHostInstance(v).state[0])));
 }
 
@@ -47,6 +47,7 @@ pub fn make(
     thread_factory: Value,
     rejection_handler: Value,
     caller_runs: bool,
+    scheduled: bool,
 ) !Value {
     const td = pool_descriptor orelse return error.NoVTable;
     const st = try rt.gc.infra.create(thread_pool.PoolState);
@@ -57,6 +58,7 @@ pub fn make(
         .thread_factory = thread_factory,
         .rejection_handler = rejection_handler,
         .caller_runs = caller_runs,
+        .scheduled = scheduled,
     };
     const pool_value = host_instance.alloc(rt, td, .{ @intFromPtr(st), 0, 0, 0 }) catch |e| {
         rt.gc.infra.destroy(st);
@@ -130,7 +132,7 @@ fn initPool(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) a
     if (!LinkedBlockingQueue.isQueue(args[4]))
         return error_catalog.raise(.type_arg_invalid, loc, .{ .fn_name = "java.util.concurrent.ThreadPoolExecutor.", .expected = "LinkedBlockingQueue", .actual = @tagName(args[4].tag()) });
     const caller_runs = CallerRunsPolicy.isCallerRunsPolicy(args[6]);
-    return make(rt, env, @intCast(maximum), args[4], args[5], args[6], caller_runs);
+    return make(rt, env, @intCast(maximum), args[4], args[5], args[6], caller_runs, false);
 }
 
 fn submit(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
@@ -141,6 +143,20 @@ fn submit(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) any
     return thread_pool.submit(stateOf(args[0]), args[1], loc);
 }
 
+fn scheduleAtFixedRate(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
+    _ = rt;
+    _ = env;
+    try error_catalog.checkArity(".scheduleAtFixedRate", args, 5, loc);
+    try expectPool(args[0], ".scheduleAtFixedRate", loc);
+    const initial = try error_catalog.expectInteger(args[2], ".scheduleAtFixedRate", loc);
+    const period = try error_catalog.expectInteger(args[3], ".scheduleAtFixedRate", loc);
+    const delay_ns = TimeUnit.nanosOf(args[4], initial) orelse
+        return error_catalog.raise(.type_arg_invalid, loc, .{ .fn_name = ".scheduleAtFixedRate", .expected = "TimeUnit", .actual = @tagName(args[4].tag()) });
+    const period_ns = TimeUnit.nanosOf(args[4], period) orelse
+        return error_catalog.raise(.type_arg_invalid, loc, .{ .fn_name = ".scheduleAtFixedRate", .expected = "TimeUnit", .actual = @tagName(args[4].tag()) });
+    return thread_pool.scheduleAtFixedRate(stateOf(args[0]), args[1], delay_ns, period_ns, loc);
+}
+
 fn shutdown(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
     _ = rt;
     _ = env;
@@ -148,6 +164,14 @@ fn shutdown(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) a
     try expectPool(args[0], ".shutdown", loc);
     thread_pool.shutdown(stateOf(args[0]));
     return .nil_val;
+}
+
+fn shutdownNow(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
+    _ = rt;
+    _ = env;
+    try error_catalog.checkArity(".shutdownNow", args, 1, loc);
+    try expectPool(args[0], ".shutdownNow", loc);
+    return thread_pool.shutdownNow(stateOf(args[0]));
 }
 
 fn awaitTermination(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
@@ -188,7 +212,9 @@ fn getQueue(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) a
 const METHODS = .{
     .{ "<init>", &initPool },
     .{ "submit", &submit },
+    .{ "scheduleAtFixedRate", &scheduleAtFixedRate },
     .{ "shutdown", &shutdown },
+    .{ "shutdownNow", &shutdownNow },
     .{ "awaitTermination", &awaitTermination },
     .{ "isShutdown", &isShutdownFn },
     .{ "isTerminated", &isTerminatedFn },

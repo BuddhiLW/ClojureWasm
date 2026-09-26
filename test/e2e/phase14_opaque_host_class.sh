@@ -49,12 +49,21 @@ assert_eq 'extend_opaque_noop_dispatch' "$(last_line "$("$BIN" -e '(do (defproto
 assert_eq 'extend_inner_seq_noop' "$(last_line "$("$BIN" -e '(do (defprotocol InnerP (inner-m [x])) (extend-type clojure.lang.PersistentVector$ChunkedSeq InnerP (inner-m [_] :inner)) (extend-type Object InnerP (inner-m [_] :object)) (inner-m [1 2]))' 2>&1)")" ':object'
 # ADR-0109: java.lang.Object is the UNIVERSAL supertype (resolves as a value;
 # (isa? <any> Object)→true; (instance? Object x)→true for non-nil; nil→false).
-# Unblocks algo.generic's `(derive Object root-type)`.
+# Explicit `(derive h Object root-type)` remains valid on the JVM.
 assert_eq 'isa_long_object'    "$(last_line "$("$BIN" -e '(isa? Long Object)' 2>&1)")" 'true'
 assert_eq 'isa_string_object'  "$(last_line "$("$BIN" -e '(isa? String Object)' 2>&1)")" 'true'
 assert_eq 'inst_object_nonnil' "$(last_line "$("$BIN" -e '(instance? Object 5)' 2>&1)")" 'true'
 assert_eq 'inst_object_nil'    "$(last_line "$("$BIN" -e '(instance? Object nil)' 2>&1)")" 'false'
-assert_eq 'derive_object'      "$(last_line "$("$BIN" -e '(do (derive (quote ::x) Object) (isa? (quote ::x) Object))' 2>&1)")" 'true'
+# JVM rejects Class as the global derive parent; explicit hierarchies accept
+# a Class child and a Named parent.
+assert_eq 'derive_object_named_parent' "$(last_line "$("$BIN" -e '(isa? (derive (make-hierarchy) Object (quote root-type)) Object (quote root-type))' 2>&1)")" 'true'
+assert_eq 'string_parents' "$(last_line "$("$BIN" -e '(and (contains? (parents String) Object) (= 6 (count (parents String))) (contains? (parents (make-hierarchy) String) Object))' 2>&1)")" 'true'
+assert_eq 'string_ancestors' "$(last_line "$("$BIN" -e '(and (= 6 (count (ancestors String))) (contains? (ancestors (make-hierarchy) String) Object) (contains? (ancestors (derive (make-hierarchy) String (quote custom)) String) (quote custom)))' 2>&1)")" 'true'
+assert_eq 'object_no_ancestors' "$(last_line "$("$BIN" -e '(ancestors Object)' 2>&1)")" 'nil'
+for expr in '(derive (quote probe/x) String)' '(derive (make-hierarchy) (quote probe/x) String)' '(derive (make-hierarchy) (quote probe/x) Object)'; do
+    if out=$($BIN -e "$expr" 2>&1); then fail "derive_class_parent: unexpectedly accepted $expr ($out)"; fi
+    echo 'PASS derive_class_parent -> error'
+done
 
 # D-416: (Object.) constructs a fresh identity-unique value — the Clojure
 # unique-sentinel idiom `(def notfound (Object.))` (data.finger-tree:556). The
