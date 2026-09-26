@@ -1093,8 +1093,8 @@ fn bigdecFromRatio(rt: *Runtime, v: Value, loc: SourceLocation) anyerror!Value {
 /// `BigDecimal(Double.toString(d))` by rendering via `printFloat` (cw's
 /// Double.toString, D-166) then parsing its plain-decimal form; a string parses
 /// its plain-decimal form; a ratio yields its exact decimal (see
-/// `bigdecFromRatio`). A scientific / >Long-unscaled float-string is deferred
-/// (D-191). JVM reference: clojure.core/bigdec. cw v1 tier: A (§A26 sweep).
+/// `bigdecFromRatio`). The shared decimal parser handles scientific notation
+/// and arbitrary-precision significands. JVM reference: clojure.core/bigdec.
 pub fn bigdecCoerce(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
     _ = env;
     try error_catalog.checkArity("bigdec", args, 1, loc);
@@ -1106,13 +1106,13 @@ pub fn bigdecCoerce(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLoc
         .float => {
             var fbuf: [400]u8 = undefined;
             var fw: std.Io.Writer = .fixed(&fbuf);
-            print_mod.printFloat(&fw, v.asFloat()) catch return bigdecDeferred(loc);
-            return (try big_decimal_mod.allocFromDecimalString(rt, fw.buffered())) orelse bigdecDeferred(loc);
+            print_mod.printFloat(&fw, v.asFloat()) catch
+                return error_catalog.raise(.number_format_invalid, loc, .{ .fn_name = "bigdec", .text = "non-finite float" });
+            return (try big_decimal_mod.allocFromDecimalString(rt, fw.buffered())) orelse
+                error_catalog.raise(.number_format_invalid, loc, .{ .fn_name = "bigdec", .text = fw.buffered() });
         },
         .string => {
-            // `(bigdec "1.50")` → `1.50M` (scale from the decimal point). A
-            // scientific / >i64-unscaled / malformed string is a number-format
-            // error (clj NumberFormatException). Ratio stays deferred (D-191).
+            // `(bigdec "1.50")` → `1.50M`; malformed strings raise.
             const s = string_mod.asString(v);
             return (try big_decimal_mod.allocFromDecimalString(rt, s)) orelse
                 error_catalog.raise(.number_format_invalid, loc, .{ .fn_name = "bigdec", .text = s });
@@ -1122,14 +1122,6 @@ pub fn bigdecCoerce(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLoc
     }
 }
 
-fn bigdecDeferred(loc: SourceLocation) anyerror {
-    return error_catalog.raise(.feature_not_supported, loc, .{ .name = "bigdec of a scientific/large float (D-191)" });
-}
-
-/// Parse a plain-decimal string (`[-]ddd[.ddd]`, no exponent) into a
-/// BigDecimal: the digits (sans `.`) are the unscaled significand, the
-/// fractional-digit count is the scale. Returns null for a scientific form or
-/// a >Long unscaled (deferred to D-191).
 /// Parse a plain-or-scientific decimal `[-]ddd[.ddd][eE][+-]ddd` into a
 /// BigDecimal Value (arbitrary-precision unscaled, signed scale). Returns null
 /// on malformed input (caller raises `number_format_invalid`). The unscaled
