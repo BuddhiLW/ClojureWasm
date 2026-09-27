@@ -15,8 +15,11 @@
 //! target (`int` for int/short/byte, `long` for long), NaN giving 0, then
 //! short/byte keep the low bits of that int; a Ratio's int/short/byte go
 //! through its double (clj `Ratio.intValue`) while `.longValue` truncates the
-//! exact quotient. `.floatValue` answers a Double (AD-004, no f32 value) that
-//! has been rounded through f32 precision, as the JVM float would be.
+//! exact quotient. A Ratio's double is `ratio.toF64`, the one DECIMAL64
+//! conversion `double` and float contagion also use. `.floatValue` answers
+//! what `(float x)` does, the double itself: cljw has no f32 value (AD-004),
+//! and narrowing here alone would make `(= (float x) (.floatValue x))` false
+//! where clj has it true.
 //!
 //! Backend: impl-only
 //! Impl deps: none
@@ -77,84 +80,15 @@ fn ratioTruncI64(rt: *Runtime, v: Value) !i64 {
     };
 }
 
-/// clj `Ratio.doubleValue`: the quotient as a BigDecimal rounded to DECIMAL64
-/// (16 significant digits, HALF_EVEN), THEN to the nearest double. The double
-/// rounding is observable: `-2/3` is `-0.6666666666666667`, where a plain f64
-/// divide gives `...666`.
-fn ratioToF64(rt: *Runtime, num: *const Managed, den: *const Managed) !f64 {
-    const infra = rt.gc.infra;
-    var a = try num.clone();
-    defer a.deinit();
-    a.abs();
-    var b = try den.clone();
-    defer b.deinit();
-    b.abs();
-    const as = try a.toString(infra, 10, .lower);
-    defer infra.free(as);
-    const bs = try b.toString(infra, 10, .lower);
-    defer infra.free(bs);
-    // Scale so the integer quotient carries at least 17 digits.
-    const s: i64 = 18 - (@as(i64, @intCast(as.len)) - @as(i64, @intCast(bs.len)));
-    var ten = try Managed.initSet(infra, 10);
-    defer ten.deinit();
-    var p = try Managed.init(infra);
-    defer p.deinit();
-    try p.pow(&ten, @intCast(@abs(s)));
-    var scratch = try Managed.init(infra);
-    defer scratch.deinit();
-    if (s >= 0) try scratch.mul(&a, &p) else try scratch.mul(&b, &p);
-    if (s >= 0) a.swap(&scratch) else b.swap(&scratch);
-    var q = try Managed.init(infra);
-    defer q.deinit();
-    var r = try Managed.init(infra);
-    defer r.deinit();
-    try q.divTrunc(&r, &a, &b);
-    const ds = try q.toString(infra, 10, .lower);
-    defer infra.free(ds);
-    // HALF_EVEN to 16 significant digits over `ds` + the non-zero remainder.
-    var keep: [17]u8 = undefined;
-    @memcpy(keep[1..17], ds[0..16]);
-    keep[0] = '0';
-    const rest = ds[16..];
-    const tail_zero = r.eqlZero() and for (rest[1..]) |c| {
-        if (c != '0') break false;
-    } else true;
-    const up = rest[0] > '5' or (rest[0] == '5' and (!tail_zero or (keep[16] - '0') % 2 == 1));
-    if (up) {
-        var i: usize = 16;
-        while (true) : (i -= 1) {
-            if (keep[i] == '9') {
-                keep[i] = '0';
-            } else {
-                keep[i] += 1;
-                break;
-            }
-        }
-    }
-    const exp: i64 = @as(i64, @intCast(rest.len)) - s;
-    var buf: [64]u8 = undefined;
-    const neg = num.toConst().positive != den.toConst().positive and !num.eqlZero();
-    const txt = try std.fmt.bufPrint(&buf, "{s}{s}e{d}", .{ if (neg) "-" else "", keep[0..], exp });
-    return std.fmt.parseFloat(f64, txt);
-}
-
-/// Nearest f64 of any numeric receiver (the `.doubleValue` answer).
-fn toF64(rt: *Runtime, v: Value) !f64 {
+/// The receiver's `.doubleValue`: the nearest f64 of a Long / BigInt, a
+/// Ratio's DECIMAL64 double, a Double itself.
+fn toF64(v: Value) !f64 {
     return switch (v.tag()) {
         .float => v.asFloat(),
         .integer => @floatFromInt(v.asInteger()),
         .big_int => big_int.asManaged(v).toFloat(f64, .nearest_even)[0],
-        .ratio => switch (ratio_mod.parts(v)) {
-            .small => |sm| blk: {
-                var n = try Managed.initSet(rt.gc.infra, sm.n);
-                defer n.deinit();
-                var d = try Managed.initSet(rt.gc.infra, sm.d);
-                defer d.deinit();
-                break :blk ratioToF64(rt, &n, &d);
-            },
-            .big => |bg| ratioToF64(rt, bg.n.m, bg.d.m),
-        },
-        else => 0.0,
+        .ratio => ratio_mod.toF64(v),
+        else => unreachable, // installed only on the four numeric descriptors
     };
 }
 
@@ -168,11 +102,11 @@ fn saturate(comptime T: type, d: f64) T {
 }
 
 /// The receiver as a Java `int` (the basis short/byte narrow from).
-fn intOf(rt: *Runtime, v: Value) !i32 {
+fn intOf(v: Value) !i32 {
     return switch (v.tag()) {
         .integer => @truncate(@as(i64, v.asInteger())),
         .big_int => @truncate(lowI64(big_int.asManaged(v).toConst())),
-        else => saturate(i32, try toF64(rt, v)), // float, ratio (clj Ratio.intValue)
+        else => saturate(i32, try toF64(v)), // float, ratio (clj Ratio.intValue)
     };
 }
 
@@ -182,11 +116,13 @@ fn longOf(rt: *Runtime, v: Value) !i64 {
         .integer => v.asInteger(),
         .big_int => lowI64(big_int.asManaged(v).toConst()),
         .ratio => ratioTruncI64(rt, v),
-        else => saturate(i64, try toF64(rt, v)),
+        else => saturate(i64, try toF64(v)),
     };
 }
 
-const Width = enum { int, long, short, byte, double, float };
+/// The primitive a Number method narrows to. There is no `float` width:
+/// `.floatValue` shares `.doubleValue` (AD-004).
+const Width = enum { int, long, short, byte, double };
 
 fn ValueOf(comptime w: Width, comptime name: []const u8) type {
     return struct {
@@ -195,12 +131,11 @@ fn ValueOf(comptime w: Width, comptime name: []const u8) type {
             try error_catalog.checkArity(name, args, 1, loc);
             const v = args[0];
             return switch (w) {
-                .int => Value.initInteger(try intOf(rt, v)),
-                .short => Value.initInteger(@as(i16, @truncate(try intOf(rt, v)))),
-                .byte => Value.initInteger(@as(i8, @truncate(try intOf(rt, v)))),
+                .int => Value.initInteger(try intOf(v)),
+                .short => Value.initInteger(@as(i16, @truncate(try intOf(v)))),
+                .byte => Value.initInteger(@as(i8, @truncate(try intOf(v)))),
                 .long => promote.wrapI64(rt, try longOf(rt, v)),
-                .double => Value.initFloat(try toF64(rt, v)),
-                .float => Value.initFloat(@as(f64, @as(f32, @floatCast(try toF64(rt, v))))),
+                .double => Value.initFloat(try toF64(v)),
             };
         }
     };
@@ -263,7 +198,7 @@ fn partHash(p: anytype) i32 {
     };
 }
 
-/// `(.hashCode n)` — the JVM class's own hashCode: Long folds its 64 bits,
+/// `(.hashCode n)`: the JVM class's own hashCode. Long folds its 64 bits,
 /// Double folds its canonical bits, BigInt is a Long's hash when it fits a
 /// long else BigInteger's, Ratio xors its numerator and denominator
 /// BigInteger hashes. Distinct from clj `hash` (Murmur3).
@@ -289,7 +224,7 @@ fn hashCodeFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation)
     return Value.initInteger(h);
 }
 
-/// `(.equals a b)` — JVM equality: same class, then same value. A Double
+/// `(.equals a b)`: JVM equality, same class and then same value. A Double
 /// compares canonical bits, so NaN equals NaN and 0.0 differs from -0.0.
 fn equalsFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
     _ = env;
@@ -302,10 +237,11 @@ fn equalsFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) a
     return Value.initBoolean((try promote.orderNumeric(rt, a, b)) == .eq);
 }
 
-/// `(.compareTo a b)` — -1/0/1 against a value of the SAME class (ClassCast
+/// `(.compareTo a b)`: -1/0/1 against a value of the SAME class (ClassCast
 /// otherwise, as in clj). A Double uses the `Double.compare` total order
-/// (-0.0 < 0.0, NaN greatest). A BigInt accepts any integer (BigInteger's
-/// compareTo; cljw does not split BigInt from BigInteger).
+/// (-0.0 < 0.0, NaN greatest). A BigInt answers as `BigInteger.compareTo`
+/// (clj's BigInt has none; cljw's `biginteger` yields a BigInt, AD-016), which
+/// takes only another BigInteger.
 fn compareToFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
     _ = env;
     try error_catalog.checkArity("compareTo", args, 2, loc);
@@ -313,9 +249,9 @@ fn compareToFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation
     const b = args[1];
     const ca = classOf(a);
     const cb = classOf(b);
-    // Ratio.compareTo takes any Number (clj `Numbers.compare`); BigInt takes
-    // any integer; Long and Double take only their own class.
-    const ok = ca == cb or (ca == .bigint and cb == .long) or (ca == .ratio and cb != .other);
+    // Ratio.compareTo takes any Number (clj `Numbers.compare`); every other
+    // class takes only its own.
+    const ok = ca == cb or (ca == .ratio and cb != .other);
     if (!ok) return error_catalog.raise(.type_arg_invalid, loc, .{
         .fn_name = "compareTo",
         .expected = "an argument of the receiver's class",
@@ -357,7 +293,7 @@ pub const specs = .{
     .{ "shortValue", &ValueOf(.short, "shortValue").call },
     .{ "byteValue", &ValueOf(.byte, "byteValue").call },
     .{ "doubleValue", &ValueOf(.double, "doubleValue").call },
-    .{ "floatValue", &ValueOf(.float, "floatValue").call },
+    .{ "floatValue", &ValueOf(.double, "floatValue").call },
     .{ "compareTo", &compareToFn },
     .{ "equals", &equalsFn },
     .{ "hashCode", &hashCodeFn },

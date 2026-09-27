@@ -36,7 +36,7 @@ fn inI48(x: i64) bool {
     return x >= nb.NB_I48_MIN and x <= nb.NB_I48_MAX;
 }
 
-fn toF64(rt: *Runtime, v: Value) f64 {
+fn toF64(rt: *Runtime, v: Value) !f64 {
     if (v.isFloat()) return v.asFloat();
     if (v.isInt()) return @floatFromInt(@as(i64, v.asInteger()));
     if (v.tag() == .big_int) {
@@ -44,12 +44,8 @@ fn toF64(rt: *Runtime, v: Value) f64 {
         // where the user already opted into float semantics.
         return managedToF64(rt, big_int.asManaged(v));
     }
-    if (v.tag() == .ratio) {
-        return switch (ratio_mod.parts(v)) {
-            .small => |s| @as(f64, @floatFromInt(s.n)) / @as(f64, @floatFromInt(s.d)),
-            .big => |b| managedToF64(rt, b.n.m) / managedToF64(rt, b.d.m),
-        };
-    }
+    // clj's contagion calls `Ratio.doubleValue` (DECIMAL64 first).
+    if (v.tag() == .ratio) return ratio_mod.toF64(v);
     if (v.tag() == .big_decimal) {
         // value = unscaled · 10^(−scale). Lossy (float-contagion semantics).
         const bd = v.decodePtr(*const big_decimal_mod.BigDecimal);
@@ -438,7 +434,7 @@ fn bigdecContagion(rt: *Runtime, a: Value, b: Value, op: BdOp) !Value {
 /// runs `ensureNumeric` first).
 pub fn addPromoting(rt: *Runtime, a: Value, b: Value) !Value {
     if (a.isFloat() or b.isFloat()) {
-        return Value.initFloat(toF64(rt, a) + toF64(rt, b));
+        return Value.initFloat(try toF64(rt, a) + try toF64(rt, b));
     }
     if (a.tag() == .big_decimal or b.tag() == .big_decimal) {
         return try bigdecContagion(rt, a, b, .add);
@@ -477,7 +473,7 @@ pub fn addPromoting(rt: *Runtime, a: Value, b: Value) !Value {
 /// `a - b` with auto-promotion.
 pub fn subPromoting(rt: *Runtime, a: Value, b: Value) !Value {
     if (a.isFloat() or b.isFloat()) {
-        return Value.initFloat(toF64(rt, a) - toF64(rt, b));
+        return Value.initFloat(try toF64(rt, a) - try toF64(rt, b));
     }
     if (a.tag() == .big_decimal or b.tag() == .big_decimal) {
         return try bigdecContagion(rt, a, b, .sub);
@@ -514,7 +510,7 @@ pub fn subPromoting(rt: *Runtime, a: Value, b: Value) !Value {
 /// `a * b` with auto-promotion.
 pub fn mulPromoting(rt: *Runtime, a: Value, b: Value) !Value {
     if (a.isFloat() or b.isFloat()) {
-        return Value.initFloat(toF64(rt, a) * toF64(rt, b));
+        return Value.initFloat(try toF64(rt, a) * try toF64(rt, b));
     }
     if (a.tag() == .big_decimal or b.tag() == .big_decimal) {
         return try bigdecContagion(rt, a, b, .mul);
@@ -578,7 +574,7 @@ pub fn divPromoting(rt: *Runtime, a: Value, b: Value) !Value {
         // IEEE-754 float division: x/0.0 → ±Inf, 0.0/0.0 → NaN (Zig float
         // division does not trap). JVM Clojure throws DivideByZero only on
         // the integer/integer path below — float division never throws.
-        return Value.initFloat(toF64(rt, a) / toF64(rt, b));
+        return Value.initFloat(try toF64(rt, a) / try toF64(rt, b));
     }
 
     if (a.tag() == .big_decimal or b.tag() == .big_decimal) {
@@ -684,9 +680,9 @@ pub fn orderNumeric(rt: *Runtime, a: Value, b: Value) !std.math.Order {
 /// scale `max(0, sa−sb)`); a non-terminating ratio operand → arith error.
 pub fn quotPromoting(rt: *Runtime, a: Value, b: Value) !Value {
     if (a.isFloat() or b.isFloat()) {
-        const bd = toF64(rt, b);
+        const bd = try toF64(rt, b);
         if (bd == 0) return error.DivideByZero;
-        return Value.initFloat(@trunc(toF64(rt, a) / bd));
+        return Value.initFloat(@trunc(try toF64(rt, a) / bd));
     }
     if (a.tag() == .big_decimal or b.tag() == .big_decimal) {
         const ba = try coerceToBigDecimal(rt, a);

@@ -147,7 +147,7 @@ tiers:
         phase: 14
         files:
           surface: runtime/java/lang/Long.zig
-        methods: [bitCount, compare, compareUnsigned, divideUnsigned, highestOneBit, lowestOneBit, max, min, numberOfLeadingZeros, numberOfTrailingZeros, parseLong, parseUnsignedLong, remainderUnsigned, reverse, reverseBytes, rotateLeft, rotateRight, signum, sum, toBinaryString, toHexString, toOctalString, toUnsignedString, valueOf]
+        methods: [bitCount, byteValue, compare, compareTo, compareUnsigned, divideUnsigned, doubleValue, floatValue, highestOneBit, intValue, longValue, lowestOneBit, max, min, numberOfLeadingZeros, numberOfTrailingZeros, parseLong, parseUnsignedLong, remainderUnsigned, reverse, reverseBytes, rotateLeft, rotateRight, shortValue, signum, sum, toBinaryString, toHexString, toOctalString, toUnsignedString, valueOf]
         static_fields: ["BYTES", "MAX_VALUE", "MIN_VALUE", "SIZE"]
         opaque_members: [TYPE, compress, expand, decode, getLong]
         clojure_peer_vars: [parse-long]
@@ -169,7 +169,7 @@ tiers:
         phase: 14
         files:
           surface: runtime/java/lang/Double.zig
-        methods: [compare, doubleToLongBits, doubleToRawLongBits, isFinite, isInfinite, isNaN, longBitsToDouble, max, min, parseDouble, sum, valueOf]
+        methods: [byteValue, compare, compareTo, doubleToLongBits, doubleToRawLongBits, doubleValue, floatValue, intValue, isFinite, isInfinite, isNaN, longBitsToDouble, longValue, max, min, parseDouble, shortValue, sum, valueOf]
         static_fields: ["BYTES", "MAX_EXPONENT", "MAX_VALUE", "MIN_EXPONENT", "MIN_NORMAL", "MIN_VALUE", "NEGATIVE_INFINITY", "NaN", "POSITIVE_INFINITY", "SIZE"]
         opaque_members: [TYPE, PRECISION, toHexString]
         clojure_peer_vars: [parse-double]

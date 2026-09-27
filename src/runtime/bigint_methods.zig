@@ -318,7 +318,7 @@ pub fn installNativeMethods(rt: *Runtime) !void {
         .{ "multiply", &multiplyFn },
         .{ "divide", &divideFn },
     };
-    // The java.lang.Number surface (intValue/longValue/…/equals/hashCode) is
-    // shared with Long / Double / Ratio (number_methods.zig).
+    // The java.lang.Number surface (the xxxValue narrowings, compareTo,
+    // equals, hashCode) is shared with Long / Double / Ratio (number_methods.zig).
     try number_methods.installSpecs(rt, try rt.nativeDescriptor(.big_int), own ++ number_methods.specs);
 }

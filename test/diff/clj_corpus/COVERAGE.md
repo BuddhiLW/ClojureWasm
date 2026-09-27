@@ -37,6 +37,14 @@ confirmed exprs into a `*.txt` corpus here via `--corpus`.
   scientific/large-float), bigdec `+ - * / quot rem mod` contagion incl.
   float→f64, ratio terminating-decimal + ArithmeticException. (D-191/D-194
   discharged.)
+- **java.lang.Number instance methods (2026-09-27)**: `.intValue` /
+  `.longValue` / `.shortValue` / `.byteValue` / `.doubleValue` / `.floatValue`,
+  the class-gated `.compareTo` / `.equals` / `.hashCode`, Double `.isNaN` /
+  `.isInfinite`, on Long, Double, BigInt and Ratio. Corpus
+  `number_value_methods`. `.floatValue` is AD-004 (no f32 narrowing).
+- **Ratio to double is `Ratio.doubleValue` everywhere (2026-09-27)**: DECIMAL64
+  first, so `(double -2/3)` is -0.6666666666666667 through `double`, float
+  contagion, the mixed float comparison and JSON. Corpus `ratio_double_value`.
 - **Integer/Long bit + Math `*Exact`** — bitCount/clz/ctz/highestOneBit/reverse;
   addExact/multiplyExact/… (D-172). Remaining low-value: see Next.
 - **Coercion tower (`quot`/`rem`/`mod` + `int`/`long`/`num`/`double`/`float`/

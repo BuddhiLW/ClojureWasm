@@ -5,9 +5,9 @@
 ;;
 ;; Every expected value is JVM Clojure's, measured with `clojure -M`. Narrowing
 ;; is JLS: int/short/byte keep the low bits of a Long or BigInt; a Double
-;; truncates toward zero and saturates, NaN giving 0. `.floatValue` answers a
-;; Double (AD-004, no f32 value) rounded through f32 precision, so the numbers
-;; below are clj's `(double (.floatValue x))`.
+;; truncates toward zero and saturates, NaN giving 0. The one exception is
+;; `.floatValue`: cljw has no f32 value (AD-004), so it answers what
+;; `(float x)` does, the double itself.
 ;;
 ;; Run by `test/clj/run_suites.clj`.
 (ns suites.number-value-methods-test
@@ -23,8 +23,7 @@
   (is (= 127 (.byteValue -129)))
   (is (= 9007199254740993 (.longValue 9007199254740993)))
   (is (= 5.0 (.doubleValue 5)))
-  (is (= 5.0 (.floatValue 5)))
-  (is (= 1.6777216E7 (.floatValue 16777217))))
+  (is (= 5.0 (.floatValue 5))))
 
 (deftest double-narrowing
   (is (= 3 (.intValue 3.9)))
@@ -41,11 +40,16 @@
     (is (= -1 (.shortValue 1.0E10)))
     (is (= -1 (.byteValue 1.0E10)))))
 
-(deftest float-value-rounds-through-f32
-  (is (= 0.10000000149011612 (.floatValue 0.1)))
-  (is (= 0.3333333432674408 (.floatValue 1/3)))
-  (is (= ##Inf (.floatValue 1.0E300)))
-  (is (= 1.0000000200408773E20 (.floatValue 99999999999999999999N))))
+;; AD-004: no f32 narrowing, the same answer as `float` and `.doubleValue`.
+;; clj prints `(.floatValue 0.1)` as 0.1 too; it differs where the f32 does
+;; (clj `(.floatValue 16777217)` is 1.6777216E7).
+(deftest float-value-is-the-double-as-float-is
+  (is (= 0.1 (.floatValue 0.1)))
+  (is (= (float 0.1) (.floatValue 0.1)))
+  (is (= (float 1/3) (.floatValue 1/3) (.doubleValue 1/3)))
+  (is (= 1.6777217E7 (.floatValue 16777217)))
+  (is (= 1.0E300 (.floatValue 1.0E300)))
+  (is (= (.doubleValue 99999999999999999999N) (.floatValue 99999999999999999999N))))
 
 (deftest bigint-narrowing
   (is (= 5 (.intValue 5N)))
@@ -83,6 +87,11 @@
   (is (= 1 (.compareTo 1/2 1/3)))
   (is (= -1 (.compareTo 1/2 1)))
   (is (= -1 (.compareTo (biginteger 5) (biginteger 6))))
+  (is (= 0 (.compareTo 1/2 0.5)))
+  (is (= -1 (.compareTo 1/2 5N)))
+  (testing "BigInteger.compareTo takes only a BigInteger"
+    (is (thrown? Exception (.compareTo (biginteger 5) 6)))
+    (is (thrown? Exception (.compareTo 1 5N))))
   (testing "Long and Double compare only against their own class"
     (is (thrown? Exception (.compareTo 1 1.0)))
     (is (thrown? Exception (.compareTo 1.0 1)))))
@@ -116,14 +125,20 @@
   (is (= -1882487351 (.hashCode -99999999999999999999N)))
   (is (= 1915528825 (.hashCode 123456789012345678901234567890N)))
   (is (= 3 (.hashCode 1/2)))
+  (is (= -3 (.hashCode -1/2)))
   (is (= 2 (.hashCode 1/3))))
 
 (deftest double-instance-predicates
   (is (true? (.isNaN ##NaN)))
   (is (false? (.isNaN 1.0)))
   (is (true? (.isInfinite ##Inf)))
-  (is (false? (.isInfinite 1.0))))
+  (is (true? (.isInfinite ##-Inf)))
+  (is (false? (.isInfinite 1.0)))
+  (testing "a Long has no Double predicates"
+    (is (thrown? Exception (.isNaN 1)))))
 
 (deftest long-value-of-heap-long
   (is (= 9007199254740993 (Long/valueOf 9007199254740993)))
-  (is (= 5 (Long/valueOf 5))))
+  (is (= 5 (Long/valueOf 5)))
+  (testing "a genuine BigInt matches no Long/valueOf overload"
+    (is (thrown? Exception (Long/valueOf 5N)))))

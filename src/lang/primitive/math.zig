@@ -37,19 +37,17 @@ const string_mod = @import("../../runtime/collection/string.zig");
 // --- numeric helpers ---
 
 /// Convert any numeric Value to f64 (lossy for big_int / ratio /
-/// big_decimal — Clojure float contagion). Caller must have
+/// big_decimal: Clojure float contagion). A ratio is clj's
+/// `Ratio.doubleValue` (`ratio.toF64`, DECIMAL64 first). Caller must have
 /// type-checked; a non-number returns 0.0. Shared by the comparison
 /// f64 path and the `double`/`float` primitive (F-011).
-fn toF64(v: Value) f64 {
+fn toF64(v: Value) !f64 {
     return switch (v.tag()) {
         .float => v.asFloat(),
         .integer => @floatFromInt(v.asInteger()),
         .char => @floatFromInt(v.asChar()),
         .big_int => big_int_mod.asManaged(v).toFloat(f64, .nearest_even)[0],
-        .ratio => switch (ratio_mod.parts(v)) {
-            .small => |s| @as(f64, @floatFromInt(s.n)) / @as(f64, @floatFromInt(s.d)),
-            .big => |b| b.n.m.toFloat(f64, .nearest_even)[0] / b.d.m.toFloat(f64, .nearest_even)[0],
-        },
+        .ratio => ratio_mod.toF64(v),
         .big_decimal => big_decimal_mod.toFloat(v),
         else => 0.0, // caller has already type-checked
     };
@@ -359,7 +357,7 @@ fn pairwise(
         if (exactComparable(a, b)) {
             if (!opred(try compare_mod.valueCompare(rt, a, b, loc))) return Value.false_val;
         } else {
-            if (!fpred(toF64(a), toF64(b))) return Value.false_val;
+            if (!fpred(try toF64(a), try toF64(b))) return Value.false_val;
         }
     }
     return Value.true_val;
@@ -1176,7 +1174,7 @@ fn floatCoerce(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation
         .float, .integer, .big_int, .ratio, .big_decimal => {},
         else => |t| return error_catalog.raise(.type_arg_not_number, loc, .{ .fn_name = "double", .actual = @tagName(t) }),
     }
-    return Value.initFloat(toF64(v)); // shared converter (F-011)
+    return Value.initFloat(try toF64(v)); // shared converter (F-011)
 }
 
 // --- string parsers (clojure.core 1.11) ---
