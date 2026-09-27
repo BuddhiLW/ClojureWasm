@@ -552,10 +552,7 @@ fn setEqual(rt: *Runtime, env: *Env, a: Value, b: Value) anyerror!bool {
 /// (D-460), numerics by category (D-205). Residual identity-compared
 /// keys: lazy / range (cannot realize rt-free) and deftype instances.
 pub fn keyEqValue(a: Value, b: Value) bool {
-    // NaN is never `=` to itself (clj `equiv`), so a NaN key can never be found
-    // even when bit-identical: `(contains? #{##NaN} ##NaN)` → false. Mirrors the
-    // valueEqual identity-fastpath exception. (The `.floating => {}` arm below
-    // then also yields false for the rare `0.0`/`-0.0` non-identical case.)
+    // IEEE NaN is never equal to itself, including as a map/set key.
     if (@intFromEnum(a) == @intFromEnum(b)) {
         if (a.tag() == .float and std.math.isNan(a.asFloat())) return false;
         return true;
@@ -577,9 +574,9 @@ pub fn keyEqValue(a: Value, b: Value) bool {
             //   interchangeable. The cached stripped projection (ADR-0077 /
             //   D-205) makes this a rt-free field compare, like Ratio.
             .decimal => return decimalKeyEq(a, b),
-            // `.floating`: equal floats are bit-identical (caught by the
-            //   identity check above); `0.0`/`-0.0` is a rare residual.
-            .floating => {},
+            // IEEE equality merges signed zeros, while NaN never matches.
+            // valueHash normalizes both zeros to the same bucket.
+            .floating => return a.asFloat() == b.asFloat(),
             .none => unreachable,
         }
     }
@@ -1082,8 +1079,8 @@ pub fn valueEqual(rt: *Runtime, env: *Env, a: Value, b: Value) anyerror!bool {
     //    interned keyword·symbol / pointer-identical heap. EXCEPTION: a NaN is
     //    never `=` to itself (IEEE / clj `equiv`: `(= ##NaN ##NaN)` → false),
     //    even bit-identical — fall through to the IEEE float compare below.
-    //    (Map/set KEY equality keeps NaN-equal via `keyEqValue`, matching clj's
-    //    equals/hash split — `(contains? #{##NaN} ##NaN)` → true.)
+    //    Map/set key equality also keeps NaN unequal: even
+    //    `(contains? #{##NaN} ##NaN)` is false on the JVM.
     if (@intFromEnum(a) == @intFromEnum(b)) {
         if (a.tag() == .float and std.math.isNan(a.asFloat())) return false;
         return true;

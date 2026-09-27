@@ -1591,6 +1591,20 @@ fn invokeReaderFn(rt: *Runtime, env: *Env, f: Value, args: []const Value, loc: S
     return vt.callFn(rt, env, f, args, loc) catch |e| return macro_dispatch.narrowCallFnError(e, loc);
 }
 
+/// JVM ##NaN is one shared boxed reader constant: strict literal duplicate
+/// detection sees its identity, although runtime key equality never matches
+/// NaN. Check Forms, not lifted (unboxed) Values. `stride` is 2 for map
+/// keys and 1 for set elements.
+fn repeatedReaderConstantNan(prior: []const Form, candidate: Form, stride: usize) bool {
+    if (candidate.data != .float or !std.math.isNan(candidate.data.float)) return false;
+    var i: usize = 0;
+    while (i < prior.len) : (i += stride) {
+        const form = prior[i];
+        if (form.data == .float and std.math.isNan(form.data.float)) return true;
+    }
+    return false;
+}
+
 /// Build a persistent map Value by recursively lifting key/value pairs.
 /// ADR-0200: a strict lift raises "Duplicate key" on an equal key twice,
 /// decided by the map's own key equality (an assoc that does not grow the
@@ -1624,7 +1638,13 @@ fn mapFormToValue(rt: *Runtime, env: *Env, entries: []const Form, loc: SourceLoc
             else => |e| return e,
         };
         roots[0] = out;
-        if (checks == .strict and duplicate == null and map_collection.count(out) == before) duplicate = entries[i];
+        if (checks == .strict and duplicate == null) {
+            if (map_collection.count(out) == before) {
+                duplicate = entries[i];
+            } else if (repeatedReaderConstantNan(entries[0..i], entries[i], 2)) {
+                duplicate = entries[i];
+            }
+        }
     }
     if (duplicate) |d| return raiseDuplicate(d);
     return out;
@@ -1643,7 +1663,7 @@ fn setFormToValue(rt: *Runtime, env: *Env, items: []const Form, checks: LiftChec
     root_set.eval_frame_head = &frame;
     defer root_set.eval_frame_head = frame.parent;
     var duplicate: ?Form = null;
-    for (items) |item| {
+    for (items, 0..) |item, idx| {
         const v = try lift(rt, env, item, checks);
         roots[1] = v;
         const before = set_collection.count(out);
@@ -1653,7 +1673,13 @@ fn setFormToValue(rt: *Runtime, env: *Env, items: []const Form, checks: LiftChec
             else => |e| return e,
         };
         roots[0] = out;
-        if (checks == .strict and duplicate == null and set_collection.count(out) == before) duplicate = item;
+        if (checks == .strict and duplicate == null) {
+            if (set_collection.count(out) == before) {
+                duplicate = item;
+            } else if (repeatedReaderConstantNan(items[0..idx], item, 1)) {
+                duplicate = item;
+            }
+        }
     }
     if (duplicate) |d| return raiseDuplicate(d);
     return out;
