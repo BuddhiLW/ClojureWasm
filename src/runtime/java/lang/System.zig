@@ -8,9 +8,10 @@
 //! Thin wrapper over `runtime/clock.zig` per F-009. Static methods
 //! `currentTimeMillis` and `nanoTime` map to `clock.currentMillis` /
 //! `clock.nanoTime`; `getProperty` answers OS-truthful system properties
-//! (separators / os.name / os.arch / file.encoding / user.dir), nil for an
-//! unknown key. Both bare `(System/...)` and FQCN `(java.lang.System/...)`
-//! forms resolve (java.lang auto-import).
+//! (separators / os.name / os.arch / file.encoding / user.dir /
+//! user.home / java.io.tmpdir), nil for an unknown key. Both bare
+//! `(System/...)` and FQCN `(java.lang.System/...)` forms resolve
+//! (java.lang auto-import).
 //!
 //! D-121 + ADR-0050: populates `method_table` for `currentTimeMillis`,
 //! `nanoTime`, `getProperty`, `getenv`, `lineSeparator`, `exit`, `arraycopy`.
@@ -86,6 +87,21 @@ fn staticProperty(name: []const u8) ?[]const u8 {
     return null;
 }
 
+/// Property-to-environment mapping. New environment-backed properties are
+/// registered here; both getProperty and getProperties read this same table.
+const environment_properties = .{
+    .{ "java.io.tmpdir", "TMPDIR", @as(?[]const u8, "/tmp") },
+    .{ "user.home", "HOME", @as(?[]const u8, null) },
+};
+
+fn environmentProperty(name: []const u8) ?[]const u8 {
+    inline for (environment_properties) |entry| {
+        if (std.mem.eql(u8, name, entry[0]))
+            return process_env.get(entry[1]) orelse entry[2];
+    }
+    return null;
+}
+
 /// The runtime's source path rendered as a `path.separator`-joined string —
 /// the value of `java.class.path`. Caller owns the returned Value's string.
 /// Null when no source path is configured (nothing to name).
@@ -100,8 +116,8 @@ fn classPath(rt: *Runtime) anyerror!?Value {
 /// `(getProperty key default)`.
 /// Spec: returns the system property for `key`, else nil (1-arg) or
 /// `default` (2-arg). cw v1 answers OS-truthful properties (separators,
-/// os.name/os.arch, file.encoding, user.dir) plus `java.class.path` — the
-/// resolved source path, which is what that key names on the JVM too. Other
+/// os.name/os.arch, file.encoding, user.dir, user.home, java.io.tmpdir)
+/// plus `java.class.path` — the resolved source path. Other
 /// keys (incl. the rest of `java.*`) miss (no-JVM: cljw has no Java runtime).
 /// JVM reference: java.lang.System#getProperty.
 /// cw v1 tier: A.
@@ -115,6 +131,7 @@ fn getProperty(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation
     // matching the JVM (a set value wins for any key, incl. e.g. user.dir).
     if (rt.system_properties.get(name)) |val| return string_mod.alloc(rt, val);
     if (staticProperty(name)) |val| return string_mod.alloc(rt, val);
+    if (environmentProperty(name)) |val| return string_mod.alloc(rt, val);
     if (std.mem.eql(u8, name, "user.dir")) {
         var buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
         const n = std.process.currentPath(rt.io, &buf) catch return propertyMiss(args);
@@ -184,6 +201,14 @@ fn getProperties(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocati
         const k = try string_mod.alloc(rt, key);
         const v = try string_mod.alloc(rt, staticProperty(key).?);
         out = try map_collection.assoc(rt, out, k, v);
+    }
+    inline for (environment_properties) |entry| {
+        const key = entry[0];
+        if (environmentProperty(key)) |value| {
+            const k = try string_mod.alloc(rt, key);
+            const v = try string_mod.alloc(rt, value);
+            out = try map_collection.assoc(rt, out, k, v);
+        }
     }
     // user.dir resolves at call time (same as getProperty's arm).
     {
