@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: EPL-2.0
 //! java.io.PushbackReader constructor boundary. The wrapper and source share
 //! one cursor; returning the source prevents competing GC owners of that cursor.
+//!
+//! Backend: impl-only
+//! Impl deps: host_stream, text_io
+//! Clojure peer: clojure.edn/read
 const std = @import("std");
 const host_api = @import("../_host_api.zig");
 const type_descriptor = @import("../../type_descriptor.zig");
