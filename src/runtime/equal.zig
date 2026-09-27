@@ -502,22 +502,35 @@ inline fn sContains(rt: *Runtime, env: *Env, v: Value, x: Value) anyerror!bool {
 
 fn mapEqual(rt: *Runtime, env: *Env, a: Value, b: Value) anyerror!bool {
     if (mCount(a) != mCount(b)) return false;
-    var ks = try mKeys(rt, a);
-    while (ks.tag() == .list and list.countOf(ks) > 0) {
-        const k = list.first(ks);
-        if (!try mContains(rt, env, b, k)) return false;
-        if (!try valueEqual(rt, env, try mGet(rt, env, a, k), try mGet(rt, env, b, k))) return false;
-        ks = list.rest(ks);
+    // Key iteration is over ISeq, not a list representation. Keep the cursor,
+    // key and fetched values live across comparator/protocol calls that collect.
+    var roots = [_]Value{ try mKeys(rt, a), .nil_val, .nil_val, .nil_val };
+    var sp: u16 = roots.len;
+    var frame: root_set.EvalFrame = .{ .stack = &roots, .sp = &sp, .locals = &.{}, .parent = root_set.eval_frame_head };
+    root_set.eval_frame_head = &frame;
+    defer root_set.eval_frame_head = frame.parent;
+    while (!roots[0].isNil()) {
+        roots[1] = try seqable.first(rt, env, roots[0], seqable.noloc);
+        if (!try mContains(rt, env, b, roots[1])) return false;
+        roots[2] = try mGet(rt, env, a, roots[1]);
+        roots[3] = try mGet(rt, env, b, roots[1]);
+        if (!try valueEqual(rt, env, roots[2], roots[3])) return false;
+        roots[0] = try seqable.next(rt, env, roots[0], seqable.noloc);
     }
     return true;
 }
 
 fn setEqual(rt: *Runtime, env: *Env, a: Value, b: Value) anyerror!bool {
     if (sCount(a) != sCount(b)) return false;
-    var es = try sSeq(rt, a);
-    while (es.tag() == .list and list.countOf(es) > 0) {
-        if (!try sContains(rt, env, b, list.first(es))) return false;
-        es = list.rest(es);
+    var roots = [_]Value{ try sSeq(rt, a), .nil_val };
+    var sp: u16 = roots.len;
+    var frame: root_set.EvalFrame = .{ .stack = &roots, .sp = &sp, .locals = &.{}, .parent = root_set.eval_frame_head };
+    root_set.eval_frame_head = &frame;
+    defer root_set.eval_frame_head = frame.parent;
+    while (!roots[0].isNil()) {
+        roots[1] = try seqable.first(rt, env, roots[0], seqable.noloc);
+        if (!try sContains(rt, env, b, roots[1])) return false;
+        roots[0] = try seqable.next(rt, env, roots[0], seqable.noloc);
     }
     return true;
 }
