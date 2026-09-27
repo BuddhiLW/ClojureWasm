@@ -67,6 +67,8 @@ pub const Extension = struct {
 const java_surfaces = [_]type{
     @import("io/File.zig"),
     @import("io/StringWriter.zig"),
+    @import("io/StringReader.zig"),
+    @import("io/PushbackReader.zig"),
     @import("lang/Boolean.zig"),
     @import("lang/Character.zig"),
     @import("lang/Double.zig"),

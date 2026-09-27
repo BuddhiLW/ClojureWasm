@@ -34,6 +34,8 @@ const string_collection = @import("../../runtime/collection/string.zig");
 const map_collection = @import("../../runtime/collection/map.zig");
 const keyword = @import("../../runtime/keyword.zig");
 const Var = env_mod.Var;
+const text_io = @import("../../runtime/io/text_io.zig");
+const host_stream = @import("../../runtime/io/host_stream.zig");
 
 /// Implements clojure.edn/read-string.
 /// Spec: `(read-string s)` reads one EDN form from `s` and returns it as
@@ -84,7 +86,32 @@ fn readStringImpl(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocat
         });
     }
     const source = string_collection.asString(str_arg);
+    return readSource(rt, env, opts, source, loc, eof_policy, null);
+}
 
+/// Read one form and advance the reader by exactly the consumed bytes.
+/// Zero arity uses the dynamically bound *in*; explicit reader arities use
+/// the same option binding and strict EDN value conversion as read-string.
+pub fn readEdnFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
+    try error_catalog.checkArityRange("read", args, 0, 2, loc);
+    const opts: ?Value = if (args.len == 2) args[0] else null;
+    const input = if (args.len == 0) blk: {
+        const core_ns = env.findNs("clojure.core") orelse return error_catalog.raise(.edn_string_invalid, loc, .{ .reason = "missing *in*" });
+        const in_var = core_ns.resolve("*in*") orelse return error_catalog.raise(.edn_string_invalid, loc, .{ .reason = "missing *in*" });
+        break :blk in_var.deref();
+    } else args[args.len - 1];
+    if (opts) |o| switch (o.tag()) {
+        .array_map, .hash_map => {},
+        else => return error_catalog.raise(.edn_string_invalid, loc, .{ .reason = "options must be a map" }),
+    };
+    if (try text_io.remainingReader(rt, input)) |source|
+        return readSource(rt, env, opts, source, loc, .raise, input);
+    if (try host_stream.remainingReader(rt, input)) |source|
+        return readSource(rt, env, opts, source, loc, .raise, input);
+    return error_catalog.raise(.type_arg_invalid, loc, .{ .fn_name = "read", .expected = "a PushbackReader", .actual = @tagName(input.tag()) });
+}
+
+fn readSource(rt: *Runtime, env: *Env, opts: ?Value, source: []const u8, loc: SourceLocation, eof_policy: EofPolicy, stream: ?Value) anyerror!Value {
     // EOF (no form in `source`): clj THROWS `RuntimeException: EOF while
     // reading` UNLESS an `:eof` opt is supplied, in which case that value is
     // returned (D-269 — was a silent nil-default that masked "nothing to read").
@@ -149,6 +176,13 @@ fn readStringImpl(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocat
         // and parsing untrusted EDN is exactly when the caller needs the catch.
         return error_catalog.raise(.edn_string_invalid, loc, .{ .reason = @errorName(e) });
     };
+    // Tokenizer may have looked ahead at a delimiter; for a complete form
+    // its cursor is precisely the boundary before the next form. Consume
+    // whitespace on EOF as well so repeated reads remain at EOF.
+    if (stream) |s| {
+        const consumed: usize = if (reader.peeked) |tok| tok.start else reader.tokenizer.pos;
+        if (text_io.isTextReader(s)) text_io.advanceReader(s, consumed) else host_stream.advanceReader(s, consumed);
+    }
     const form = form_opt orelse {
         if (eof_provided) return eof_val;
         // An explicit `:eof` wins for both readers; absent it, the policy decides.
@@ -177,6 +211,7 @@ const Entry = struct {
 };
 
 const ENTRIES = [_]Entry{
+    .{ .name = "read", .f = &readEdnFn },
     .{ .name = "read-string", .f = &readStringEdnFn },
 };
 

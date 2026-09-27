@@ -218,6 +218,26 @@ pub fn isTextReader(v: Value) bool {
         host_instance.asHostInstance(v).descriptor == &reader_descriptor;
 }
 
+/// Borrow the unread bytes without consuming them. EDN's tokenizer reports the
+/// byte boundary after one form, which advanceReader uses to retain later forms.
+/// A pending unread codepoint is restored to the buffer first.
+pub fn remainingReader(rt: *Runtime, v: Value) !?[]const u8 {
+    if (!isTextReader(v)) return null;
+    const st = readerStateOf(v);
+    if (st.stdin) while (fillFromStdin(rt, st)) {};
+    if (st.pushback) |cp| {
+        var buf: [4]u8 = undefined;
+        const n = std.unicode.utf8Encode(cp, &buf) catch 0;
+        if (n > 0) try st.data.insertSlice(rt.gc.infra, st.pos, buf[0..n]);
+        st.pushback = null;
+    }
+    return st.data.items[st.pos..];
+}
+
+pub fn advanceReader(v: Value, bytes: usize) void {
+    readerStateOf(v).pos += bytes;
+}
+
 /// The unread remainder of a text_io Reader as bytes, for `slurp` / `(slurp
 /// *in*)`. Null unless `v` is a text_io Reader. A stdin reader blocks pulling
 /// process stdin to EOF first; a pending 1-slot pushback is re-inserted ahead of
