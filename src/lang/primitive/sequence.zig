@@ -62,6 +62,7 @@ const charset = @import("../../runtime/charset.zig");
 const td_mod = @import("../../runtime/type_descriptor.zig");
 const root_set = @import("../../runtime/gc/root_set.zig");
 const equal_mod = @import("../../runtime/equal.zig");
+const meta_mod = @import("../../runtime/meta.zig");
 
 /// Protocol fqcns the hybrid slow-paths match against `MethodEntry.protocol_name`.
 /// Bootstrap declares each protocol in `lang/clj/clojure/core.clj` so the fqcn
@@ -417,6 +418,28 @@ pub fn emptyFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation
     try error_catalog.checkArity("empty", args, 1, loc);
     const coll = args[0];
     if (coll.isNil()) return .nil_val;
+    // clj's persistent collections carry their metadata onto `empty`
+    // (`EMPTY.withMeta(meta())` for vector/subvec/map/set/sorted/queue/
+    // PersistentList); a generic ISeq (Cons, LazySeq, range, …) empties to a
+    // meta-less `()`.
+    switch (coll.tag()) {
+        .vector, .sub_vector, .array_map, .hash_map, .hash_set, .sorted_map, .sorted_set, .persistent_queue, .list => {
+            const m = try meta_mod.metaOf(rt, env, coll, loc);
+            if (!m.isNil()) {
+                // ADR-0150: the fresh empty is unrooted across the with-meta
+                // copy; `m` stays reachable through the rooted `coll` arg.
+                rt.gc.enterFabrication();
+                defer rt.gc.exitFabrication();
+                const e = try emptyBare(rt, env, coll, args, loc);
+                return (try meta_mod.withMetaOrNull(rt, env, e, m, loc)) orelse e;
+            }
+        },
+        else => {},
+    }
+    return emptyBare(rt, env, coll, args, loc);
+}
+
+fn emptyBare(rt: *Runtime, env: *Env, coll: Value, args: []const Value, loc: SourceLocation) anyerror!Value {
     return switch (coll.tag()) {
         .vector, .sub_vector => vector.empty(),
         .array_map, .hash_map => map.empty(),

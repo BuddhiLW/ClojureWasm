@@ -24,6 +24,7 @@ const vector = @import("collection/vector.zig");
 const sub_vector = @import("collection/sub_vector.zig");
 const map = @import("collection/map.zig");
 const set = @import("collection/set.zig");
+const sorted = @import("collection/sorted.zig");
 const list = @import("collection/list.zig");
 const lazy_seq = @import("lazy_seq.zig");
 const atom = @import("atom.zig");
@@ -48,6 +49,7 @@ pub fn metaOf(rt: *Runtime, env: *Env, v: Value, loc: SourceLocation) anyerror!V
         .sub_vector => sub_vector.metaOf(v),
         .array_map, .hash_map => map.metaOf(v),
         .hash_set => set.metaOf(v),
+        .sorted_map, .sorted_set => sorted.metaOf(v),
         .list, .cons => list.metaOf(v),
         .lazy_seq => lazy_seq.metaOf(v),
         .array_seq => array_seq.metaOf(v),
@@ -84,6 +86,7 @@ pub fn withMetaOrNull(rt: *Runtime, env: *Env, v: Value, m: Value, loc: SourceLo
         .sub_vector => try sub_vector.withMeta(rt, v, m),
         .array_map, .hash_map => try map.withMeta(rt, v, m),
         .hash_set => try set.withMeta(rt, v, m),
+        .sorted_map, .sorted_set => try sorted.withMeta(rt, v, m),
         .list, .cons => try list.withMeta(rt, v, m),
         // A seq is IObj on the JVM (ASeq), so a vector VIEW must round-trip
         // meta as the eager list it replaced did.

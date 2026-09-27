@@ -49,6 +49,7 @@ const sub_vector = @import("../../runtime/collection/sub_vector.zig");
 const array_seq = @import("../../runtime/collection/array_seq.zig");
 const string_seq = @import("../../runtime/collection/string_seq.zig");
 const java_array = @import("../../runtime/collection/java_array.zig");
+const promote = @import("../../runtime/numeric/promote.zig");
 const list = @import("../../runtime/collection/list.zig");
 const map = @import("../../runtime/collection/map.zig");
 const map_entry = @import("../../runtime/collection/map_entry.zig");
@@ -131,7 +132,16 @@ fn conjOne(rt: *Runtime, env: *Env, coll: Value, x: Value, loc: SourceLocation) 
         // through public `cons` would mint a clojure.lang.Cons and break the
         // list-only IPersistentStack contract (`peek`/`pop`). Other ISeqs use
         // public cons so their distinct tail/class semantics stay centralized.
-        .list => try list.consHeap(rt, x, coll),
+        .list => blk: {
+            // PersistentList.cons carries the list's meta (clj `new
+            // PersistentList(meta(), o, this, count+1)`).
+            const m = list.metaOf(coll);
+            if (m.isNil()) break :blk try list.consHeap(rt, x, coll);
+            rt.gc.enterFabrication();
+            defer rt.gc.exitFabrication();
+            const c = try list.consHeap(rt, x, coll);
+            break :blk try list.withMeta(rt, c, m);
+        },
         .cons, .lazy_seq, .chunked_cons, .range, .string_seq, .array_seq => try sequence.consFn(rt, env, &.{ x, coll }, loc),
         .hash_set => try set.conj(rt, coll, x),
         // conj on a queue appends to the rear (FIFO, ADR-0087).
@@ -348,9 +358,11 @@ pub fn containsQFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLoca
         },
         // A String is Indexed: `contains?` tests index validity (D-217;
         // clj `(contains? "abc" 1)` → true, `(contains? "abc" 10)` → false).
+        // clj RT.contains: a Number key is truncated (`intValue`) — so
+        // `(contains? "abc" 1.5)` / `1N` are true — and any other key raises
+        // "contains? not supported on type" (String is not Associative).
         .string => blk: {
-            if (k.tag() != .integer) break :blk .false_val;
-            const idx: i64 = k.asInteger();
+            const idx = try indexedContainsKey(rt, k, "a String is indexed, not associative", loc);
             break :blk if (idx >= 0 and idx < @as(i64, @intCast(string.codepointCount(string.asString(coll))))) .true_val else .false_val;
         },
         // A Java array is Indexed but NOT Associative (ADR-0105): `contains?`
@@ -360,13 +372,7 @@ pub fn containsQFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLoca
         // an IllegalArgumentException for a non-integer key. cljw matches with a
         // catchable type error rather than a silent false.
         .array => blk: {
-            if (k.tag() != .integer)
-                break :blk error_catalog.raise(.type_arg_invalid, loc, .{
-                    .fn_name = "contains?",
-                    .expected = "an integer index (an array is indexed, not associative)",
-                    .actual = @tagName(k.tag()),
-                });
-            const idx: i64 = k.asInteger();
+            const idx = try indexedContainsKey(rt, k, "an array is indexed, not associative", loc);
             break :blk if (idx >= 0 and idx < @as(i64, java_array.alength(coll))) .true_val else .false_val;
         },
         // A live transient mirrors its persistent peer (clj parity, D-199):
@@ -423,6 +429,25 @@ pub fn containsQFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLoca
     };
 }
 
+/// Index key for `contains?` on a String / Java array (clj RT.contains):
+/// any Number is truncated toward zero like `Number.intValue`; a non-number
+/// key is a type error (clj IllegalArgumentException). An integer part that
+/// overflows i64 reads as out of range (-1).
+fn indexedContainsKey(rt: *Runtime, k: Value, why: []const u8, loc: SourceLocation) anyerror!i64 {
+    switch (k.tag()) {
+        .integer => return k.asInteger(),
+        .float, .big_int, .ratio, .big_decimal => return promote.truncToI64(rt, k) catch |e| switch (e) {
+            error.OutOfRange => -1,
+            else => return e,
+        },
+        else => return error_catalog.raise(.arg_value_invalid, loc, .{
+            .fn_name = "contains?",
+            .expected = why,
+            .actual = @tagName(k.tag()),
+        }),
+    }
+}
+
 // --- get ---
 
 /// Implements clojure.core/get.
@@ -469,6 +494,15 @@ pub fn getFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) 
             if (k.tag() != .integer) break :blk default;
             const idx = k.asInteger();
             break :blk if (idx == 0 or idx == 1) map_entry.nth(coll, @intCast(idx)) else default;
+        },
+        // A Java array is index-gettable (clj RT.get: `Array.getLength` /
+        // `Array.get` for an in-range Number key, else the default).
+        .array => blk: {
+            if (k.tag() != .integer) break :blk default;
+            const idx = k.asInteger();
+            const items = java_array.asArray(coll).items();
+            if (idx < 0 or idx >= items.len) break :blk default;
+            break :blk items[@intCast(idx)];
         },
         // A String is index-gettable (clj `(get "abc" 1)` → \b): return the
         // codepoint char, else default (OOR / non-integer key). D-217.
@@ -1404,7 +1438,9 @@ test "contains? array tests index validity; a non-integer key throws (clj RT.con
     // an array is NOT Associative — a non-integer key is unsupported (clj throws),
     // NOT a false like a vector's miss.
     const kw = try keyword_mod.intern(&fix.rt, null, "x");
-    try testing.expectError(error.TypeError, containsQFn(&fix.rt, &fix.env, &.{ arr, kw }, loc));
+    try testing.expectError(error.ValueError, containsQFn(&fix.rt, &fix.env, &.{ arr, kw }, loc));
+    // a non-integer NUMBER key truncates like Number.intValue (clj RT.contains).
+    try testing.expectEqual(Value.true_val, try containsQFn(&fix.rt, &fix.env, &.{ arr, Value.initFloat(1.5) }, loc));
 }
 
 test "get nil → nil; get nil :a default → default" {

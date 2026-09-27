@@ -20,6 +20,7 @@ const dispatch = @import("../../../dispatch.zig");
 const LinkedBlockingQueue = @import("LinkedBlockingQueue.zig");
 const TimeUnit = @import("TimeUnit.zig");
 const CallerRunsPolicy = @import("ThreadPoolExecutor_CallerRunsPolicy.zig");
+const AbortPolicy = @import("ThreadPoolExecutor_AbortPolicy.zig");
 
 pub const FQCN = "java.util.concurrent.ThreadPoolExecutor";
 var pool_descriptor: ?*const type_descriptor.TypeDescriptor = null;
@@ -132,6 +133,8 @@ fn initPool(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) a
     if (!LinkedBlockingQueue.isQueue(args[4]))
         return error_catalog.raise(.type_arg_invalid, loc, .{ .fn_name = "java.util.concurrent.ThreadPoolExecutor.", .expected = "LinkedBlockingQueue", .actual = @tagName(args[4].tag()) });
     const caller_runs = CallerRunsPolicy.isCallerRunsPolicy(args[6]);
+    if (!caller_runs and !AbortPolicy.isAbortPolicy(args[6]))
+        return error_catalog.raise(.type_arg_invalid, loc, .{ .fn_name = "java.util.concurrent.ThreadPoolExecutor.", .expected = "a RejectedExecutionHandler", .actual = @tagName(args[6].tag()) });
     return make(rt, env, @intCast(maximum), args[4], args[5], args[6], caller_runs, false);
 }
 

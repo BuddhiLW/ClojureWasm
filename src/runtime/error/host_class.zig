@@ -93,6 +93,9 @@ pub const ENTRIES = [_]Entry{
     // clojure.math.numeric-tower's `(catch ClassNotFoundException _ …)`.
     .{ .name = "ReflectiveOperationException", .parent = "Exception" },
     .{ .name = "ClassNotFoundException", .parent = "ReflectiveOperationException" },
+    // Caught by libs probing an optional JDK method via `.getMethod`, e.g.
+    // hive-weave.pool's virtual-thread feature check.
+    .{ .name = "NoSuchMethodException", .parent = "ReflectiveOperationException" },
 
     // Checked concurrency family: caught (never thrown — cljw has no interrupts)
     // by portable code guarding a bounded wait.
@@ -154,6 +157,7 @@ const FQCN_MAP = std.StaticStringMap([]const u8).initComptime(.{
     // Reflective family (D-301): caught by FQCN by libs probing optional classes.
     .{ "java.lang.ReflectiveOperationException", "ReflectiveOperationException" },
     .{ "java.lang.ClassNotFoundException", "ClassNotFoundException" },
+    .{ "java.lang.NoSuchMethodException", "NoSuchMethodException" },
     .{ "clojure.lang.ExceptionInfo", "ExceptionInfo" },
 });
 

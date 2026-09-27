@@ -357,7 +357,12 @@ fn dissocArrayMap(rt: *Runtime, am: *const ArrayMap, original: Value, k: Value) 
         }
     }
     if (found_idx == null) return original;
-    if (am.count == 1) return empty(); // collapses to empty singleton
+    if (am.count == 1) {
+        // collapses to the empty singleton; clj keeps the meta
+        // (`PersistentArrayMap.without` → `EMPTY.withMeta(meta())`).
+        if (am.meta.isNil()) return empty();
+        return try withMeta(rt, empty(), am.meta);
+    }
 
     // Copy + shift entries after the removed slot down by one K/V pair.
     const new_am = try rt.gc.alloc(ArrayMap);
