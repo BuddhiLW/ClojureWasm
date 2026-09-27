@@ -79,6 +79,7 @@ pub fn plus(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) a
     while (i < args.len) : (i += 1) {
         acc = promote.addPromoting(rt, acc, args[i]) catch |err| switch (err) {
             error.NonTerminatingDecimal => return error_catalog.raise(.non_terminating_decimal, loc, .{}),
+            error.RoundingNecessary => return error_catalog.raise(.rounding_necessary, loc, .{}),
             else => return err,
         };
     }
@@ -99,6 +100,7 @@ pub fn minus(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) 
         if (args[0].isFloat()) return Value.initFloat(-args[0].asFloat());
         return promote.subPromoting(rt, Value.initInteger(0), args[0]) catch |err| switch (err) {
             error.NonTerminatingDecimal => return error_catalog.raise(.non_terminating_decimal, loc, .{}),
+            error.RoundingNecessary => return error_catalog.raise(.rounding_necessary, loc, .{}),
             else => return err,
         };
     }
@@ -107,6 +109,7 @@ pub fn minus(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) 
     while (i < args.len) : (i += 1) {
         acc = promote.subPromoting(rt, acc, args[i]) catch |err| switch (err) {
             error.NonTerminatingDecimal => return error_catalog.raise(.non_terminating_decimal, loc, .{}),
+            error.RoundingNecessary => return error_catalog.raise(.rounding_necessary, loc, .{}),
             else => return err,
         };
     }
@@ -124,6 +127,7 @@ pub fn star(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) a
     while (i < args.len) : (i += 1) {
         acc = promote.mulPromoting(rt, acc, args[i]) catch |err| switch (err) {
             error.NonTerminatingDecimal => return error_catalog.raise(.non_terminating_decimal, loc, .{}),
+            error.RoundingNecessary => return error_catalog.raise(.rounding_necessary, loc, .{}),
             else => return err,
         };
     }
@@ -144,6 +148,7 @@ pub fn slash(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) 
         return promote.divPromoting(rt, Value.initInteger(1), args[0]) catch |err| switch (err) {
             error.DivideByZero => return error_catalog.raise(.divide_by_zero, error_mod.argLoc(0, loc), .{}),
             error.NonTerminatingDecimal => return error_catalog.raise(.non_terminating_decimal, loc, .{}),
+            error.RoundingNecessary => return error_catalog.raise(.rounding_necessary, loc, .{}),
             else => return err,
         };
     }
@@ -154,6 +159,7 @@ pub fn slash(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) 
             // ADR-0118 cycle 2.5: caret on the zero divisor at index `i`, not the call form.
             error.DivideByZero => return error_catalog.raise(.divide_by_zero, error_mod.argLoc(i, loc), .{}),
             error.NonTerminatingDecimal => return error_catalog.raise(.non_terminating_decimal, loc, .{}),
+            error.RoundingNecessary => return error_catalog.raise(.rounding_necessary, loc, .{}),
             else => return err,
         };
     }
