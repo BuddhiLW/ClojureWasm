@@ -270,10 +270,6 @@
   (is (= -3 (rationalize -3.00M)))
   (is (true? (integer? (rationalize 1.0M))))
   ;; Wider than a double's 53-bit significand: the exact path keeps every digit.
-  ;; Spelled through numerator/denominator because cljw's reader rejects a ratio
-  ;; LITERAL whose numerator exceeds the machine integer, which is a reader gap
-  ;; and not what this test is about.
-  (is (= 24691357802469135781N (numerator (rationalize 12345678901234567890.5M))))
-  (is (= 2 (denominator (rationalize 12345678901234567890.5M))))
+  (is (= 24691357802469135781/2 (rationalize 12345678901234567890.5M)))
   (is (= 12345678901234567890 (rationalize 12345678901234567890.00M)))
   (is (thrown? Throwable (rationalize "x"))))
