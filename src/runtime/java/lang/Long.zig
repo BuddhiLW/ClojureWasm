@@ -73,6 +73,11 @@ fn valueOf(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) an
     return switch (args[0].tag()) {
         .string => parseI64(rt, string_mod.asString(args[0]), 10, "Long/valueOf", loc),
         .integer => args[0],
+        // A heap Long past i48 (D-165) is a Long too; a genuine BigInt is not.
+        .big_int => if (big_int.originOf(args[0]) == .long)
+            args[0]
+        else
+            error_catalog.raise(.type_arg_not_number, loc, .{ .fn_name = "Long/valueOf", .actual = "BigInt" }),
         else => error_catalog.raise(.type_arg_not_number, loc, .{ .fn_name = "Long/valueOf", .actual = @tagName(args[0].tag()) }),
     };
 }

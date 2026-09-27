@@ -1,0 +1,46 @@
+;; java.lang.Number instance methods on Long / Double / BigInt / Ratio
+;; (CLJW-NUMBER-VALUE-METHODS). Expected values from JVM clojure -M.
+(.longValue 5)
+;;=> 5
+(.doubleValue 1/2)
+;;=> 0.5
+(.intValue 5N)
+;;=> 5
+(.intValue 3.9)
+;;=> 3
+(.floatValue 5)
+;;=> 5.0
+(.shortValue 70000)
+;;=> 4464
+(.byteValue 300)
+;;=> 44
+(.compareTo 5 6)
+;;=> -1
+(.isNaN ##NaN)
+;;=> true
+(Long/valueOf 9007199254740993)
+;;=> 9007199254740993
+(.intValue ##NaN)
+;;=> 0
+(.longValue ##-Inf)
+;;=> -9223372036854775808
+(.longValue 99999999999999999999N)
+;;=> 7766279631452241919
+(.longValue 7/2)
+;;=> 3
+(double (.floatValue 0.1))
+;;=> 0.10000000149011612
+(.equals 5 5.0)
+;;=> false
+(.equals ##NaN ##NaN)
+;;=> true
+(.hashCode 4294967296)
+;;=> 1
+(.hashCode 1.5)
+;;=> 1073217536
+(.hashCode 99999999999999999999N)
+;;=> 1882487351
+(.hashCode 1/2)
+;;=> 3
+(.compareTo 0.0 -0.0)
+;;=> 1
