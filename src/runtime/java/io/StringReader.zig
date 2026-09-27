@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: EPL-2.0
 //! java.io.StringReader constructor boundary. Buffer/cursor ownership belongs
 //! to host_stream; EDN sees only the generic unread-reader capability.
+//!
+//! Backend: impl-only
+//! Impl deps: host_stream
+//! Clojure peer: clojure.edn/read
 const std = @import("std");
 const host_api = @import("../_host_api.zig");
 const type_descriptor = @import("../../type_descriptor.zig");
