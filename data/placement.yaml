@@ -24,8 +24,8 @@
 schema_version: "2.0"
 summary:
   namespaces_required: 35
-  total: 1435
-  zig: 410
+  total: 1436
+  zig: 411
   clj: 802
   value: 217
   unbound: 6
@@ -918,6 +918,7 @@ vars:
   "clojure.datafy/datafy": { impl: clj, flags: "-" }
   "clojure.datafy/nav": { impl: clj, flags: "-" }
   "clojure.datafy/sortmap": { impl: clj, flags: "private" }
+  "clojure.edn/read": { impl: zig, flags: "-" }
   "clojure.edn/read-string": { impl: zig, flags: "-" }
   "clojure.instant/parse-inst": { impl: clj, flags: "private" }
   "clojure.instant/read-instant-date": { impl: clj, flags: "-" }
