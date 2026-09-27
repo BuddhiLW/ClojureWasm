@@ -24,7 +24,7 @@ assert_eq 'os-name'   "$("$BIN" -e '(string? (System/getProperty "os.name"))' 2>
 assert_eq 'os-arch'   "$("$BIN" -e '(string? (System/getProperty "os.arch"))' 2>&1 | tail -1)" 'true'
 assert_eq 'user-dir'  "$("$BIN" -e '(string? (System/getProperty "user.dir"))' 2>&1 | tail -1)" 'true'
 assert_eq 'tmpdir-default' "$(env -u TMPDIR "$BIN" -e '(System/getProperty "java.io.tmpdir")' 2>&1 | tail -1)" '"/tmp"'
-assert_eq 'tmpdir-env' "$(TMPDIR=/custom/tmp "$BIN" -e '(System/getProperty "java.io.tmpdir")' 2>&1 | tail -1)" '"/custom/tmp"'
+assert_eq 'tmpdir-ignores-env' "$(TMPDIR=/custom/tmp "$BIN" -e '(System/getProperty "java.io.tmpdir")' 2>&1 | tail -1)" '"/tmp"'
 # unknown key -> nil (JVM-compatible); 2-arg default form
 assert_eq 'unknown'   "$("$BIN" -e '(System/getProperty "no.such.prop.xyz")' 2>&1 | tail -1)" 'nil'
 assert_eq 'default'   "$("$BIN" -e '(System/getProperty "no.such.prop.xyz" "fallback")' 2>&1 | tail -1)" '"fallback"'

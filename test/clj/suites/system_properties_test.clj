@@ -11,8 +11,8 @@
     (is (string? (System/getProperty "os.name")))
     (is (= (System/getenv "HOME") (System/getProperty "user.home")))
     (is (string? (System/getProperty "user.dir")))
-    (is (= (or (System/getenv "TMPDIR") "/tmp")
-           (System/getProperty "java.io.tmpdir"))))
+    (is (= "/tmp" (System/getProperty "java.io.tmpdir"))
+        "JVM parity: java.io.tmpdir ignores $TMPDIR"))
   (testing "getProperties reflects getProperty, including dynamic and overridden values"
     (doseq [key ["java.io.tmpdir" "user.home" "user.dir" "os.name"
                  "line.separator" "file.separator"]]
