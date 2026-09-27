@@ -503,7 +503,7 @@ inline fn sContains(rt: *Runtime, env: *Env, v: Value, x: Value) anyerror!bool {
 fn mapEqual(rt: *Runtime, env: *Env, a: Value, b: Value) anyerror!bool {
     if (mCount(a) != mCount(b)) return false;
     var ks = try mKeys(rt, a);
-    while (ks.tag() == .list and list.countOf(ks) > 0) {
+    while ((ks.tag() == .list or ks.tag() == .cons) and list.countOf(ks) > 0) {
         const k = list.first(ks);
         if (!try mContains(rt, env, b, k)) return false;
         if (!try valueEqual(rt, env, try mGet(rt, env, a, k), try mGet(rt, env, b, k))) return false;
@@ -515,7 +515,7 @@ fn mapEqual(rt: *Runtime, env: *Env, a: Value, b: Value) anyerror!bool {
 fn setEqual(rt: *Runtime, env: *Env, a: Value, b: Value) anyerror!bool {
     if (sCount(a) != sCount(b)) return false;
     var es = try sSeq(rt, a);
-    while (es.tag() == .list and list.countOf(es) > 0) {
+    while ((es.tag() == .list or es.tag() == .cons) and list.countOf(es) > 0) {
         if (!try sContains(rt, env, b, list.first(es))) return false;
         es = list.rest(es);
     }

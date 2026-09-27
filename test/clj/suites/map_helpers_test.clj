@@ -21,24 +21,23 @@
   (is (= "false" (pr-str (not-any? (fn* [x] (= x 2)) [1 2 3]))) "not_any_false")
   (is (= "[1 2]" (pr-str (into [] (butlast [1 2 3])))) "butlast_vec"))
 
-;; keys / vals demand a map, eagerly (AD-071).
-;; clj answers nil for an EMPTY non-map (`(keys #{})`, `(keys "")`) and throws
-;; on realization for a non-empty one, because its KeySeq wraps `seq(coll)` and
-;; only casts each element when walked. cljw checks the argument instead, so
-;; every non-map raises. These assertions pin cljw's side of that row: the empty
-;; cases must keep RAISING rather than drifting to clj's nil, and a seq of
-;; vector pairs must keep WORKING, where clj's per-element IMapEntry cast
-;; rejects it.
+;; JVM keys/vals first seq the argument: empty seqables return nil, while
+;; non-entry elements of nonempty seqables fail when the result is realized.
+;; cljw also accepts vector-pair entries in a sequence (AD-071).
 (deftest keys-vals-demand-a-map
   (is (nil? (keys nil)))
   (is (nil? (vals nil)))
   (is (nil? (keys {})))
   (is (= [:a] (keys {:a 1})))
   (is (= [1] (vals {:a 1})))
-  (is (thrown? Throwable (keys #{})))
-  (is (thrown? Throwable (keys #{1})))
-  (is (thrown? Throwable (keys "")))
-  (is (thrown? Throwable (vals #{})))
+  (is (nil? (keys #{})))
+  (is (nil? (keys "")))
+  (is (nil? (vals #{})))
+  (is (thrown? Throwable (vec (keys #{1}))))
+  (is (thrown? Throwable (vec (vals #{1}))))
+  (is (thrown? Throwable (vec (keys "a"))))
+  (is (nil? (keys (sorted-set))))
+  (is (nil? (vals [])))
   (is (thrown? Throwable (keys 0)))
   (is (= [:a] (keys (list [:a 1]))))
   (is (= [1] (vals (list [:a 1])))))

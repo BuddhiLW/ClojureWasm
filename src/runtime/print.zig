@@ -377,7 +377,7 @@ fn deepRealizeAt(rt: *Runtime, env: *env_mod.Env, v: Value, depth: i64) anyerror
             var out = v;
             const noloc: SourceLocation = .{};
             var ks = try sorted_collection.keys(rt, v);
-            while (ks.tag() == .list and list_collection.countOf(ks) > 0) : (ks = list_collection.rest(ks)) {
+            while ((ks.tag() == .list or ks.tag() == .cons) and list_collection.countOf(ks) > 0) : (ks = list_collection.rest(ks)) {
                 const k = list_collection.first(ks);
                 const val = try sorted_collection.get(rt, env, v, k, noloc);
                 const rv = try deepRealizeAt(rt, env, val, depth + 1);
@@ -404,7 +404,7 @@ fn deepRealizeAt(rt: *Runtime, env: *env_mod.Env, v: Value, depth: i64) anyerror
             var out = v;
             const noloc: SourceLocation = .{};
             var es = try sorted_collection.seq(rt, v);
-            while (es.tag() == .list and list_collection.countOf(es) > 0) : (es = list_collection.rest(es)) {
+            while ((es.tag() == .list or es.tag() == .cons) and list_collection.countOf(es) > 0) : (es = list_collection.rest(es)) {
                 const e = list_collection.first(es);
                 const re = try deepRealizeAt(rt, env, e, depth + 1);
                 if (@intFromEnum(re) != @intFromEnum(e)) {
