@@ -522,6 +522,13 @@ fn setEqual(rt: *Runtime, env: *Env, a: Value, b: Value) anyerror!bool {
     return true;
 }
 
+/// The boxed JVM ##NaN reader constant has one identity. cljw stores
+/// floats unboxed, so constructors use this predicate to recognize that
+/// constant independently of key equality (which never matches NaN).
+pub fn isReaderConstantNan(v: Value) bool {
+    return v.tag() == .float and std.math.isNan(v.asFloat());
+}
+
 /// Value equality for MAP KEYS (D-151). Deliberately takes NO `rt`/`env`:
 /// `map.get`/`contains`/`assoc` have ~68 call sites, many without a
 /// Runtime/Env (VM dispatch, multimethod), so threading `valueEqual`'s
@@ -542,7 +549,7 @@ pub fn keyEqValue(a: Value, b: Value) bool {
     // NaN is never `=` to itself, including as a map/set key. JVM literals
     // deduplicate the shared ##NaN object separately during literal checking.
     if (@intFromEnum(a) == @intFromEnum(b)) {
-        if (a.tag() == .float and std.math.isNan(a.asFloat())) return false;
+        if (isReaderConstantNan(a)) return false;
         return true;
     }
     const ta = a.tag();

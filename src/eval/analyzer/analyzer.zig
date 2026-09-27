@@ -1592,6 +1592,20 @@ fn invokeReaderFn(rt: *Runtime, env: *Env, f: Value, args: []const Value, loc: S
 }
 
 /// Build a persistent map Value by recursively lifting key/value pairs.
+/// JVM ##NaN is one shared boxed reader constant: strict literal duplicate
+/// detection sees its identity, although runtime key equality never matches
+/// NaN. Check Forms, not lifted (unboxed) Values. `stride` is 2 for map
+/// keys and 1 for set elements.
+fn repeatedReaderConstantNan(prior: []const Form, candidate: Form, stride: usize) bool {
+    if (candidate.data != .float or !std.math.isNan(candidate.data.float)) return false;
+    var i: usize = 0;
+    while (i < prior.len) : (i += stride) {
+        const form = prior[i];
+        if (form.data == .float and std.math.isNan(form.data.float)) return true;
+    }
+    return false;
+}
+
 /// ADR-0200: a strict lift raises "Duplicate key" on an equal key twice,
 /// decided by the map's own key equality (an assoc that does not grow the
 /// map). The raise waits until every entry is lifted, because clj reads the
@@ -1627,18 +1641,8 @@ fn mapFormToValue(rt: *Runtime, env: *Env, entries: []const Form, loc: SourceLoc
         if (checks == .strict and duplicate == null) {
             if (map_collection.count(out) == before) {
                 duplicate = entries[i];
-            } else if (entries[i].data == .float and std.math.isNan(entries[i].data.float)) {
-                // JVM's ##NaN reader constant is a shared boxed object: literal
-                // duplicate checks use identity, while runtime map keys use =
-                // (NaN is not = to itself). Our floats are unboxed, so detect
-                // this reader-constant case on the Forms instead.
-                var j: usize = 0;
-                while (j < i) : (j += 2) {
-                    if (entries[j].data == .float and std.math.isNan(entries[j].data.float)) {
-                        duplicate = entries[i];
-                        break;
-                    }
-                }
+            } else if (repeatedReaderConstantNan(entries[0..i], entries[i], 2)) {
+                duplicate = entries[i];
             }
         }
     }
@@ -1672,13 +1676,8 @@ fn setFormToValue(rt: *Runtime, env: *Env, items: []const Form, checks: LiftChec
         if (checks == .strict and duplicate == null) {
             if (set_collection.count(out) == before) {
                 duplicate = item;
-            } else if (item.data == .float and std.math.isNan(item.data.float)) {
-                for (items[0..idx]) |prior| {
-                    if (prior.data == .float and std.math.isNan(prior.data.float)) {
-                        duplicate = item;
-                        break;
-                    }
-                }
+            } else if (repeatedReaderConstantNan(items[0..idx], item, 1)) {
+                duplicate = item;
             }
         }
     }
