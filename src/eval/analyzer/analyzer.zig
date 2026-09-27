@@ -1624,7 +1624,23 @@ fn mapFormToValue(rt: *Runtime, env: *Env, entries: []const Form, loc: SourceLoc
             else => |e| return e,
         };
         roots[0] = out;
-        if (checks == .strict and duplicate == null and map_collection.count(out) == before) duplicate = entries[i];
+        if (checks == .strict and duplicate == null) {
+            if (map_collection.count(out) == before) {
+                duplicate = entries[i];
+            } else if (entries[i].data == .float and std.math.isNan(entries[i].data.float)) {
+                // JVM's ##NaN reader constant is a shared boxed object: literal
+                // duplicate checks use identity, while runtime map keys use =
+                // (NaN is not = to itself). Our floats are unboxed, so detect
+                // this reader-constant case on the Forms instead.
+                var j: usize = 0;
+                while (j < i) : (j += 2) {
+                    if (entries[j].data == .float and std.math.isNan(entries[j].data.float)) {
+                        duplicate = entries[i];
+                        break;
+                    }
+                }
+            }
+        }
     }
     if (duplicate) |d| return raiseDuplicate(d);
     return out;
@@ -1643,7 +1659,7 @@ fn setFormToValue(rt: *Runtime, env: *Env, items: []const Form, checks: LiftChec
     root_set.eval_frame_head = &frame;
     defer root_set.eval_frame_head = frame.parent;
     var duplicate: ?Form = null;
-    for (items) |item| {
+    for (items, 0..) |item, idx| {
         const v = try lift(rt, env, item, checks);
         roots[1] = v;
         const before = set_collection.count(out);
@@ -1653,7 +1669,18 @@ fn setFormToValue(rt: *Runtime, env: *Env, items: []const Form, checks: LiftChec
             else => |e| return e,
         };
         roots[0] = out;
-        if (checks == .strict and duplicate == null and set_collection.count(out) == before) duplicate = item;
+        if (checks == .strict and duplicate == null) {
+            if (set_collection.count(out) == before) {
+                duplicate = item;
+            } else if (item.data == .float and std.math.isNan(item.data.float)) {
+                for (items[0..idx]) |prior| {
+                    if (prior.data == .float and std.math.isNan(prior.data.float)) {
+                        duplicate = item;
+                        break;
+                    }
+                }
+            }
+        }
     }
     if (duplicate) |d| return raiseDuplicate(d);
     return out;

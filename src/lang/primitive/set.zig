@@ -16,6 +16,7 @@
 //! relational ops over sets-of-maps) is not yet implemented; it is
 //! tracked by D-061.
 
+const std = @import("std");
 const Value = @import("../../runtime/value/value.zig").Value;
 const Runtime = @import("../../runtime/runtime.zig").Runtime;
 const env_mod = @import("../../runtime/env.zig");
@@ -34,7 +35,23 @@ pub fn hashSet(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation
     _ = env;
     _ = loc;
     var s = set_collection.empty();
-    for (args) |a| s = try set_collection.conj(rt, s, a);
+    for (args, 0..) |a, i| {
+        // JVM ##NaN is one shared boxed reader constant: two literal args to
+        // hash-set are identical objects even though NaN is not = to itself.
+        // cljw's unboxed floats have no object identity; preserve that literal
+        // case here without changing contains?/assoc's IEEE key equality.
+        if (a.tag() == .float and std.math.isNan(a.asFloat())) {
+            var prior_nan = false;
+            for (args[0..i]) |prior| {
+                if (prior.tag() == .float and std.math.isNan(prior.asFloat())) {
+                    prior_nan = true;
+                    break;
+                }
+            }
+            if (prior_nan) continue;
+        }
+        s = try set_collection.conj(rt, s, a);
+    }
     return s;
 }
 
@@ -49,7 +66,22 @@ pub fn hashMap(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation
     var m = map_collection.empty();
     var i: usize = 0;
     while (i < args.len) : (i += 2) {
-        m = try map_collection.assoc(rt, m, args[i], args[i + 1]);
+        const key = args[i];
+        if (key.tag() == .float and std.math.isNan(key.asFloat())) {
+            // Repeated ##NaN is one JVM reader constant. Skip all but the
+            // last occurrence (runtime dissoc cannot locate a NaN key).
+            var later = i + 2;
+            var repeated = false;
+            while (later < args.len) : (later += 2) {
+                const next = args[later];
+                if (next.tag() == .float and std.math.isNan(next.asFloat())) {
+                    repeated = true;
+                    break;
+                }
+            }
+            if (repeated) continue;
+        }
+        m = try map_collection.assoc(rt, m, key, args[i + 1]);
     }
     return m;
 }
