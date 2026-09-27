@@ -20,6 +20,25 @@
 (deftest reify-object-tostring
   (is (= "hello-obj" (str (reify Object (toString [this] "hello-obj"))))))
 
+(deftest reify-empty-sections
+  (is (some? (reify)))
+  (is (some? (reify Object)))
+  (is (= "x" (str (reify Object (toString [_] "x")))))
+  (is (= {:m true} (meta (with-meta (reify Object) {:m true}))))
+  (is (= {:m true}
+         (binding [*data-readers* {'my/t (fn [_] (reify Object))}]
+           (meta (read-string "^:m #my/t 1"))))))
+
+(defprotocol EmptySectionProtocol (empty-section-method [this]))
+
+(deftest reify-empty-protocol-section
+  (is (some? (reify EmptySectionProtocol)))
+  (is (= "x" (str (reify EmptySectionProtocol Object (toString [_] "x"))))))
+
+(deftype EmptyObjectType [] Object)
+(deftest deftype-empty-object-section
+  (is (some? (EmptyObjectType.))))
+
 (deftest deftype-object-tostring-field-reaches-body
   (is (= "F5" (str (ObjToStr. 5)))))
 

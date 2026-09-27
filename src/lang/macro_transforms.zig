@@ -3574,13 +3574,13 @@ fn expandReify(
     args: []const Form,
     loc: SourceLocation,
 ) macro_dispatch.ExpandError!Form {
-    if (args.len == 0)
-        return error_catalog.raise(.reify_form_incomplete, loc, .{});
+    // `(reify)` is valid on the JVM: an object with no extra interfaces.
+    // The empty interfaces/method vectors below still create the instance.
 
     // Parse interfaces + methods: Symbol opens new section, List
     // forms append method-impls to current section. Mirrors
     // `expandExtendProtocol`.
-    if (args[0].data != .symbol)
+    if (args.len > 0 and args[0].data != .symbol)
         return error_catalog.raise(.reify_section_invalid, args[0].location, .{});
 
     // Reify cross-section same-name-arity merge: same gap + fix as
@@ -3652,8 +3652,8 @@ fn expandReify(
         const impls_start = i;
         while (i < args.len and args[i].data == .list) : (i += 1) {}
         const impls = args[impls_start..i];
-        if (impls.len == 0)
-            return error_catalog.raise(.reify_section_invalid, proto_form.location, .{});
+        // A section may declare an interface without implementing methods
+        // (e.g. `Object`, or a marker protocol).
 
         // A protocol_remap interface (clojure.lang.*) routes its clj method names
         // to cljw (protocol, method) targets — the SAME translation deftype /
