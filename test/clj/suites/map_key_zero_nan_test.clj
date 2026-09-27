@@ -14,9 +14,15 @@
   (is (thrown? IllegalArgumentException (read-string "{0.0 1 -0.0 2}"))))
 
 (deftest nan-keys
-  (is (= 1 (count (hash-set ##NaN ##NaN))))
-  (is (= 1 (count (hash-map ##NaN 1 ##NaN 2))))
-  (is (= 1 (count (array-map ##NaN 1 ##NaN 2))))
+  ;; Values at runtime carry no reader-constant identity: distinct computed
+  ;; NaNs must survive all constructor and collection paths.
+  (let [a (/ 0.0 0.0) b (/ 0.0 0.0)]
+    (is (= 2 (count (hash-set a b))))
+    (is (= 2 (count (set [a b]))))
+    (is (= 2 (count (into #{} [a b]))))
+    (is (= 2 (count (hash-map a 1 b 2))))
+    (is (= 2 (count (array-map a 1 b 2))))
+    (is (= 2 (count (apply hash-map [a 1 b 2])))))
   (is (= 2 (count (assoc {##NaN 1} ##NaN 2))))
   (is (false? (contains? #{##NaN} ##NaN)))
   (is (thrown? IllegalArgumentException (read-string "{##NaN 1 ##NaN 2}")))

@@ -26,19 +26,6 @@ const error_catalog = @import("../../runtime/error/catalog.zig");
 const dispatch = @import("../../runtime/dispatch.zig");
 const set_collection = @import("../../runtime/collection/set.zig");
 const map_collection = @import("../../runtime/collection/map.zig");
-const equal = @import("../../runtime/equal.zig");
-
-/// Constructor arguments made from the shared JVM ##NaN reader constant
-/// collapse by identity, unlike ordinary map/set key equality (NaN never
-/// matches there). `stride` selects every arg for sets, keys only for maps.
-/// This is a pure constructor policy, separate from collection insertion.
-fn hasReaderConstantNan(args: []const Value, stride: usize) bool {
-    var i: usize = 0;
-    while (i < args.len) : (i += stride) {
-        if (equal.isReaderConstantNan(args[i])) return true;
-    }
-    return false;
-}
 
 /// `(hash-set & xs)` — construct a set from variadic args. Empty
 /// arg list returns the empty-set singleton. Each arg is conj-ed
@@ -47,8 +34,7 @@ pub fn hashSet(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation
     _ = env;
     _ = loc;
     var s = set_collection.empty();
-    for (args, 0..) |a, i| {
-        if (equal.isReaderConstantNan(a) and hasReaderConstantNan(args[0..i], 1)) continue;
+    for (args) |a| {
         s = try set_collection.conj(rt, s, a);
     }
     return s;
@@ -66,9 +52,6 @@ pub fn hashMap(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation
     var i: usize = 0;
     while (i < args.len) : (i += 2) {
         const key = args[i];
-        // Keep the last value for the shared reader constant: dissoc cannot
-        // locate an IEEE-unequal NaN key once it has been inserted.
-        if (equal.isReaderConstantNan(key) and hasReaderConstantNan(args[i + 2 ..], 2)) continue;
         m = try map_collection.assoc(rt, m, key, args[i + 1]);
     }
     return m;

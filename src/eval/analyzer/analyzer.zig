@@ -1591,7 +1591,6 @@ fn invokeReaderFn(rt: *Runtime, env: *Env, f: Value, args: []const Value, loc: S
     return vt.callFn(rt, env, f, args, loc) catch |e| return macro_dispatch.narrowCallFnError(e, loc);
 }
 
-/// Build a persistent map Value by recursively lifting key/value pairs.
 /// JVM ##NaN is one shared boxed reader constant: strict literal duplicate
 /// detection sees its identity, although runtime key equality never matches
 /// NaN. Check Forms, not lifted (unboxed) Values. `stride` is 2 for map
@@ -1606,6 +1605,7 @@ fn repeatedReaderConstantNan(prior: []const Form, candidate: Form, stride: usize
     return false;
 }
 
+/// Build a persistent map Value by recursively lifting key/value pairs.
 /// ADR-0200: a strict lift raises "Duplicate key" on an equal key twice,
 /// decided by the map's own key equality (an assoc that does not grow the
 /// map). The raise waits until every entry is lifted, because clj reads the
