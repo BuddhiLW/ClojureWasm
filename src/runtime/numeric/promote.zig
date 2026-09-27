@@ -609,32 +609,37 @@ pub fn divPromoting(rt: *Runtime, a: Value, b: Value) !Value {
         return try wrapI64(rt, @divTrunc(ai, bi));
     }
 
-    // Integer / integer path: build Managed for both, compute gcd,
-    // collapse to BigInt if exact; otherwise Ratio.
     var am = try coerceToManaged(rt, a);
     defer am.deinit();
     var bm = try coerceToManaged(rt, b);
     defer bm.deinit();
+    return divideIntegers(rt, &am, &bm, isTrueBigInt(a) or isTrueBigInt(b));
+}
 
-    if (bm.eqlZero()) return error.DivideByZero;
-
-    const ratio = @import("ratio.zig");
-    if (try ratio.allocFromManagedPair(rt, &am, &bm)) |r| {
-        return r;
-    }
-    // Integer-collapse: the result is exact (denominator collapsed
-    // to 1). Compute am / bm as a BigInt and wrap, choosing
-    // immediate-Long if it fits in i48.
+/// clj's `Numbers.divide` over two exact integers: a reduced Ratio, or the exact
+/// quotient when the denominator divides the numerator. `bigint_operand` says
+/// whether either operand is a BigInt (D-165 origin `.bigint`). Two Longs take
+/// clj's LongOps arm, whose quotient is a Long, unless one of them is
+/// Long/MIN_VALUE, which LongOps hands to BigIntOps; any BigIntOps quotient is a
+/// BigInt however small (`(/ 6N 3)` is 2N). Raises `error.DivideByZero` on a
+/// zero `den`. Shared by `/` and the `n/d` ratio literal, so the two agree.
+pub fn divideIntegers(rt: *Runtime, num: *const Managed, den: *const Managed, bigint_operand: bool) !Value {
+    if (try ratio_mod.allocFromManagedPair(rt, num, den)) |r| return r;
+    // `allocFromManagedPair` answers null without reducing the caller's pair,
+    // so the collapsed value is the quotient, not `num`.
     var q = try Managed.init(rt.gc.infra);
     defer q.deinit();
-    var r = try Managed.init(rt.gc.infra);
-    defer r.deinit();
-    try q.divTrunc(&r, &am, &bm);
-    // Category contagion (D-165, mirrors quotPromoting): a BigInt operand
-    // forces a BigInt result (`(/ 6N 3)`→2N); both-Long collapses via
-    // wrapManaged (fits i48 → inline, fits i64 → heap-Long, else BigInt).
-    if (isTrueBigInt(a) or isTrueBigInt(b) or a.tag() == .ratio or b.tag() == .ratio) return try big_int.allocFromManaged(rt, &q, .bigint);
-    return try wrapManaged(rt, &q);
+    var rem = try Managed.init(rt.gc.infra);
+    defer rem.deinit();
+    try q.divTrunc(&rem, num, den);
+    const long_ops = !bigint_operand and !isMinLong(num) and !isMinLong(den);
+    if (long_ops) return try wrapManaged(rt, &q);
+    return try big_int.allocFromManaged(rt, &q, .bigint);
+}
+
+fn isMinLong(m: *const Managed) bool {
+    const x = m.toInt(i64) catch return false;
+    return x == std.math.minInt(i64);
 }
 
 /// Three-way order of two f64 that maps a NaN operand to `.eq`
@@ -978,6 +983,33 @@ test "divPromoting (1 / 3) returns Ratio 1/3 (not exact)" {
 
     const v = try divPromoting(&fix.rt, Value.initInteger(1), Value.initInteger(3));
     try testing.expect(v.tag() == .ratio);
+}
+
+test "divideIntegers: LongOps quotient is a Long; MIN_VALUE or a BigInt operand makes a BigInt" {
+    var fix = Fixture.init();
+    defer fix.deinit();
+
+    var n = try Managed.initSet(testing.allocator, @as(i64, 1) << 55);
+    defer n.deinit();
+    var d = try Managed.initSet(testing.allocator, 2);
+    defer d.deinit();
+    const long_q = try divideIntegers(&fix.rt, &n, &d, false);
+    try testing.expect(long_q.tag() == .big_int);
+    try testing.expect(big_int.originOf(long_q) == .long);
+    try testing.expectEqual(@as(i64, 1) << 54, try big_int.asManaged(long_q).toInt(i64));
+
+    const big_q = try divideIntegers(&fix.rt, &n, &d, true);
+    try testing.expect(big_int.originOf(big_q) == .bigint);
+
+    try n.set(std.math.minInt(i64));
+    try d.set(1);
+    const min_q = try divideIntegers(&fix.rt, &n, &d, false);
+    try testing.expect(min_q.tag() == .big_int);
+    try testing.expect(big_int.originOf(min_q) == .bigint);
+    try testing.expectEqual(@as(i64, std.math.minInt(i64)), try big_int.asManaged(min_q).toInt(i64));
+
+    try d.set(0);
+    try testing.expectError(error.DivideByZero, divideIntegers(&fix.rt, &n, &d, false));
 }
 
 test "divPromoting (5 / 0) raises DivideByZero" {

@@ -555,15 +555,11 @@ pub fn parseBigDecimalLiteral(rt: *Runtime, digits: []const u8, loc: error_mod.S
     return try big_decimal.allocFromManagedScale(rt, &unscaled, scale);
 }
 
-/// Parse `1/3`-shape Ratio literal into a Value. Both components go through
-/// `big_int.parseBase10`, so a numerator or denominator wider than i64 reads
-/// like clj's (`24691357802469135781/2` is a Ratio). When the reduced
-/// denominator is 1 the literal collapses to an integer, and that integer is
-/// the QUOTIENT: `allocFromManagedPair` answers null without reducing the pair
-/// it was handed, so `6/2` must divide here to emit 3, not 6. The quotient goes
-/// through `promote.wrapManaged`, which keeps a past-i48 value a Long (never
-/// the lossy `initInteger` Double), unless an operand was past i64, which
-/// makes the result a BigInt as in clj.
+/// Parse an `n/d` Ratio literal into a Value, as clj's reader does: each side
+/// is an exact integer of any width, a Long when it fits i64 and a BigInt
+/// otherwise, and the value is `promote.divideIntegers` of the two, which is
+/// what `/` answers on the same operands (`6/2` is 3, `24691357802469135781/2`
+/// a Ratio, `123456789012345678901234567890/7` a BigInt).
 pub fn parseRatioLiteral(rt: *Runtime, digits: []const u8, loc: error_mod.SourceLocation) !Value {
     const slash = std.mem.findScalar(u8, digits, '/') orelse
         return error_catalog.raise(.number_literal_invalid, loc, .{ .text = digits });
@@ -577,30 +573,11 @@ pub fn parseRatioLiteral(rt: *Runtime, digits: []const u8, loc: error_mod.Source
         else => return error_catalog.raise(.number_literal_invalid, loc, .{ .text = digits }),
     };
     defer den.deinit();
-    const r = ratio_mod.allocFromManagedPair(rt, &num, &den) catch |err| switch (err) {
+    const bigint_operand = !num.fits(i64) or !den.fits(i64);
+    return promote.divideIntegers(rt, &num, &den, bigint_operand) catch |err| switch (err) {
         error.DivideByZero => return error_catalog.raise(.divide_by_zero, loc, .{}),
-        error.OutOfMemory => return error.OutOfMemory,
+        else => |e| return e,
     };
-    if (r) |v| return v;
-    // Integer collapse: den divides num exactly, so the truncating quotient is
-    // the value.
-    var q = try std.math.big.int.Managed.init(rt.gc.infra);
-    defer q.deinit();
-    var rem = try std.math.big.int.Managed.init(rt.gc.infra);
-    defer rem.deinit();
-    try q.divTrunc(&rem, &num, &den);
-    // clj's reader divides the two parts with `Numbers.divide`: when both fit a
-    // Long (and neither is Long/MIN_VALUE) LongOps answers a Long, otherwise
-    // BigIntOps answers a BigInt even for a small quotient (`2^65/2^65` is 1N).
-    if (fitsLongOps(&num) and fitsLongOps(&den)) return try promote.wrapManaged(rt, &q);
-    return try big_int.allocFromManaged(rt, &q, .bigint);
-}
-
-/// True when `m` would take clj's LongOps arm of `Numbers.divide`: it fits an
-/// i64 and is not Long/MIN_VALUE (which LongOps hands to BigIntOps).
-fn fitsLongOps(m: *const std.math.big.int.Managed) bool {
-    const x = m.toInt(i64) catch return false;
-    return x != std.math.minInt(i64);
 }
 
 /// Compile a `#"..."` reader-literal body into a regex Value via
