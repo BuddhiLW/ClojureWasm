@@ -140,5 +140,8 @@
 (deftest long-value-of-heap-long
   (is (= 9007199254740993 (Long/valueOf 9007199254740993)))
   (is (= 5 (Long/valueOf 5)))
-  (testing "a genuine BigInt matches no Long/valueOf overload"
-    (is (thrown? Exception (Long/valueOf 5N)))))
+  (testing "a genuine BigInt or a Double matches no Long/valueOf overload"
+    (is (thrown? IllegalArgumentException (Long/valueOf 5N)))
+    (is (thrown? IllegalArgumentException (Long/valueOf 5.0))))
+  (testing "nil takes the String overload and fails to parse"
+    (is (thrown? NumberFormatException (Long/valueOf nil)))))
