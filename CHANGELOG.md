@@ -7,6 +7,44 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 
 ## [Unreleased]
 
+### Added
+
+- **`clojure.edn/read` over a reader.** `(clojure.edn/read (java.io.PushbackReader.
+  (java.io.StringReader. "{:a 1}")))` answers `{:a 1}`, reading one form per call
+  from a persistent cursor, so successive reads walk the stream as on the JVM.
+  The `:eof` option and the end-of-input error behave as in clj.
+  `clojure.edn/read` now carries its JVM arglists and docstring.
+
+- **`user.home` and friends from the environment.** `(System/getProperty
+  "user.home")` reads `$HOME`. `java.io.tmpdir` is `/tmp` whatever `$TMPDIR` says,
+  which is the JVM's Unix default. `getProperty` and `getProperties` read one
+  static table, so the two can no longer disagree.
+
+### Fixed
+
+- **`with-precision` rounds BigDecimal arithmetic and reports inexact results.**
+  `(with-precision 3 (/ 1M 3))` is `0.333M`. Every `:rounding` mode (HALF_UP,
+  HALF_EVEN, CEILING and FLOOR among them) matches `java.math.RoundingMode`, precision 0
+  means unlimited, and an inexact result under `:rounding UNNECESSARY`, or a
+  non-terminating `(/ 1M 3)` outside `with-precision`, raises
+  ArithmeticException as in clj.
+
+- **Signed-zero map and set keys match the JVM.** `0.0` and `-0.0` are one key
+  for `get`, `assoc`, `contains?`, `dissoc`, `disj`, `=`, `hash`, transients and
+  HAMT collections, so `(get {0.0 :z} -0.0)` is `:z`. A literal that repeats a
+  key, such as `{0.0 1 -0.0 2}`, `#{0.0 -0.0}`, `{##NaN 1 ##NaN 2}` or
+  `#{##NaN ##NaN}`, raises IllegalArgumentException "Duplicate key" in source,
+  `read-string` and `clojure.edn/read-string`. NaNs computed at run time stay
+  distinct keys, as in clj.
+
+- **Sorted seqs are not lists.** `(list? (seq (sorted-map 1 2)))` is false and
+  `(= (seq (sorted-map 1 2)) [[1 2]])` is true, with printing unchanged.
+  `keys` and `vals` still raise for non-map seqables (AD-071).
+
+- **Empty `reify` sections construct an instance.** `(reify)`, `(reify
+  Object)` and a protocol section with no method impls return an instance, as
+  on the JVM. A non-symbol in section position still raises.
+
 ## [1.14.8] - 2026-09-25
 
 ### Added
