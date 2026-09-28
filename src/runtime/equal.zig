@@ -603,9 +603,10 @@ pub fn keyEqValue(a: Value, b: Value) bool {
         if (ta == .hash_set and tb == .hash_set) return set.contentEq(a, b);
         return anySetKeyEq(a, b);
     }
-    // defrecord keys by value (partner of typedInstanceEqual): same
-    // descriptor + each field keyEqValue. deftype stays identity (a
-    // non-bit-identical pair already fell through the identity check).
+    // defrecord and Date / java.time keys by value (partner of
+    // typedInstanceEqual): same descriptor + each field keyEqValue, or the
+    // temporal_kinds row's `eq`. deftype stays identity (a non-bit-identical
+    // pair already fell through the identity check).
     if (ta == .typed_instance and tb == .typed_instance)
         return typedInstanceKeyEq(a, b);
     // UUID / TaggedLiteral keys by value (partner of the valueEqual +
@@ -749,8 +750,12 @@ const temporal_kinds = [_]TemporalKind{
     .{ .is = local_time_value_mod.isLocalTime, .eq = temporalEq.localTime, .hash = temporalHash.localTime },
 };
 
+/// The `temporal_kinds` row for `v`, or null. Only a `.native` (host)
+/// descriptor qualifies: a user deftype never borrows a host type's value
+/// semantics through a shared fqcn, and deftype `=` / hash skip the fqcn scan.
 fn temporalKindOf(v: Value) ?*const TemporalKind {
     if (v.tag() != .typed_instance) return null;
+    if (v.decodePtr(*const td_mod.TypedInstance).descriptor.kind != .native) return null;
     for (&temporal_kinds) |*k| {
         if (k.is(v)) return k;
     }
@@ -859,7 +864,8 @@ fn typedInstanceKeyEq(a: Value, b: Value) bool {
 /// By-value branches mirror keyEqValue's by-value arms: strings hash by
 /// BYTES; sequentials (vector / list) by ordered content (one shared
 /// formula → vec≡list collide); maps / sets by order-independent content;
-/// defrecords by descriptor + fields. int/float use the numeric hash so
+/// defrecords by descriptor + fields; Date / java.time values by their JDK
+/// hashCode (the `temporal_kinds` row). int/float use the numeric hash so
 /// `{1 :a}` and `1.0` stay distinct. Everything else (immediates, interned
 /// keyword·symbol, lazy / range, deftype) is identity-compared in
 /// keyEqValue, so hashing the raw NaN-box bits is contract-consistent.
