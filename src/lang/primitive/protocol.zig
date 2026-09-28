@@ -170,10 +170,23 @@ pub fn makeProtocolFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceL
 /// native impl, etc.). Bumps `rt.protocol_generation` via
 /// `extendTypeWithImpls` so live CallSite caches invalidate on
 /// next dispatch. Returns the target Value (args[0]) unchanged so
-/// macros can chain.
+/// macros can chain. The type now declares `proto` (`protocol_impls`).
+///
+/// `(rt/__extend-type! td-ref proto impls-vec :routed)` installs the same
+/// rows WITHOUT declaring `proto`: the section is a protocol_remap routing
+/// target (a Counted `count` installed as IPersistentCollection/-count), and
+/// the type implements only the interfaces it named.
 pub fn extendType(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
     _ = env;
-    try error_catalog.checkArity("__extend-type!", args, 3, loc);
+    try error_catalog.checkArityRange("__extend-type!", args, 3, 4, loc);
+    const routed = args.len == 4;
+    if (routed and !(args[3].tag() == .keyword and std.mem.eql(u8, keyword_mod.asKeyword(args[3]).name, "routed"))) {
+        return error_catalog.raise(.type_arg_invalid, loc, .{
+            .fn_name = "__extend-type!",
+            .expected = ":routed",
+            .actual = @tagName(args[3].tag()),
+        });
+    }
     // `(extend-type nil P ...)` extends a protocol to the nil type (clj
     // nil-punning — a common idiom, e.g. data.finger-tree's empty-meter
     // defaults). nil resolves below to the per-Tag nil descriptor, the same
@@ -293,8 +306,8 @@ pub fn extendType(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocat
     // Record the protocol in the declared-interface list so a zero-method
     // MARKER protocol (`Sequential`, no method_table entry) is still
     // detectable, and `protocol_impls` stays an honest "implements P" set
-    // (D-190 / ADR-0068).
-    try protocol_mod.addProtocolImpl(rt, td.?, proto_name);
+    // (D-190 / ADR-0068). A routed section declares nothing.
+    if (!routed) try protocol_mod.addProtocolImpl(rt, td.?, proto_name);
     return args[0];
 }
 

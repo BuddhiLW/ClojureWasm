@@ -50,7 +50,6 @@ const class_name_mod = @import("class_name.zig");
 const ratio = @import("numeric/ratio.zig");
 const big_decimal = @import("numeric/big_decimal.zig");
 const td_mod = @import("type_descriptor.zig");
-const interface_membership = @import("interface_membership.zig");
 const date_mod = @import("time/date.zig");
 const timestamp_mod = @import("time/timestamp.zig");
 const instant_value_mod = @import("time/instant_value.zig");
@@ -76,21 +75,14 @@ fn numCat(v: Value) NumCat {
 }
 
 fn isSequential(v: Value) bool {
-    const t = v.tag();
-    // The native Sequential set is authored ONCE, in interface_membership —
-    // the same constant `sequential?` answers from. A restatement here had
-    // silently dropped `.cons`, `.chunked_cons` and `.string_seq`, so a value
-    // `sequential?` called true was `=` to nothing.
-    // (A MapEntry is a 2-vector, D-209; a queue is Sequential, ADR-0087.)
-    if (interface_membership.isSequentialTag(t)) return true;
-    // A deftype/reify declaring clojure.lang.Sequential (e.g. data.finger-tree's
-    // double-list) compares element-wise like clj's `=` (Util.pcequiv over the
-    // sequential operand), NOT by its own (often stub) `equiv` (D-427). seqEqual
-    // realizes such an instance to a list before walking. Gated on `Sequential`
-    // specifically — a map/set deftype is NOT Sequential and stays identity/equiv.
-    if (t == .typed_instance or t == .reified_instance)
-        return td_mod.descriptorOfInstance(v).declaresProtocol("Sequential");
-    return false;
+    // `sequential?` answers from this same call, so a value `sequential?` calls
+    // true is compared element-wise and no other is. It covers a deftype/reify
+    // declaring Sequential or an interface extending it (e.g. data.finger-tree's
+    // double-list): clj's `=` walks it through Util.pcequiv over the sequential
+    // operand, NOT its own (often stub) `equiv` (D-427); seqEqual realizes such
+    // an instance to a list before walking. A map/set deftype is NOT Sequential
+    // and stays identity/equiv.
+    return class_name_mod.implementsInterface(v, "Sequential");
 }
 
 /// O(1)-countable sequentials (length short-circuit eligible). A

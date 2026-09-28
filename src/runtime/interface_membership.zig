@@ -10,6 +10,11 @@
 //! (ISeq / Named / IPersistentMap — D-317 partial). One table → the consumers
 //! cannot drift apart (the D-317 hazard).
 //!
+//! It also holds the superinterface graph (`SUPERS`): a deftype / reify is an
+//! instance of every interface its declared interfaces extend, and the native
+//! tag sets are checked against the same graph, so a native value and a user
+//! type answer one question the same way.
+//!
 //! ## Representation choice (ADR-0116 Decision A)
 //!
 //! A forward `{ name, tags }` table, NOT an inverse exhaustive `switch
@@ -51,15 +56,21 @@ const COLL_AND_SEQ = [_]Tag{ .list, .cons, .lazy_seq, .chunked_cons, .vector, .s
 const MAP_TAGS = [_]Tag{ .array_map, .hash_map, .sorted_map };
 /// IPersistentSet / java.util.Set.
 const SET_TAGS = [_]Tag{ .hash_set, .sorted_set };
-/// Associative / ILookup — key→value lookup colls (maps + indexed vector +
-/// map_entry; sets are NOT Associative).
+/// Associative — key→value lookup colls (maps + indexed vector + map_entry; sets
+/// are NOT Associative).
 const ASSOC_TAGS = [_]Tag{ .vector, .sub_vector, .map_entry, .array_map, .hash_map, .sorted_map };
-/// Indexed / IPersistentVector — vector + map_entry (a MapEntry is a [k v]
+/// ILookup — Associative plus the transient vector/map (clj's
+/// ITransientAssociative extends ILookup; a transient set does not).
+const ILOOKUP_TAGS = ASSOC_TAGS ++ [_]Tag{ .transient_vector, .transient_map };
+/// IPersistentVector — vector + map_entry (a MapEntry is a [k v]
 /// IPersistentVector). Both the instance? membership AND the extend-protocol-TARGET
-/// set (host_interface.nativeExtendTags via INDEXED_NAMES) now derive from this one
-/// list (D-317): clj distributes an IPV-extended protocol to
-/// MapEntry, so the two sets are unified here. ADR-0116 Decision C.
-const INDEXED_TAGS = [_]Tag{ .vector, .sub_vector, .map_entry };
+/// set (host_interface.nativeExtendTags via IPV_NAMES) derive from this one list
+/// (D-317): clj distributes an IPV-extended protocol to MapEntry.
+/// ADR-0116 Decision C.
+const IPV_TAGS = [_]Tag{ .vector, .sub_vector, .map_entry };
+/// Indexed — IPersistentVector plus the transient vector (clj's ITransientVector
+/// extends Indexed, not IPersistentVector).
+const INDEXED_TAGS = IPV_TAGS ++ [_]Tag{.transient_vector};
 /// ISeq — the seq views + list (a PersistentList is a seq); NOT vector/maps/sets.
 const ISEQ_TAGS = [_]Tag{ .list, .cons, .lazy_seq, .chunked_cons, .range, .string_seq, .array_seq };
 /// Sequential — ordered colls + seqs (NOT maps/sets); kept in sync with
@@ -88,12 +99,13 @@ const JLIST_TAGS = [_]Tag{ .list, .cons, .lazy_seq, .chunked_cons, .vector, .sub
 /// java.util.Collection — maps excluded (JVM: Map does not extend Collection).
 const JCOLLECTION_TAGS = [_]Tag{ .list, .cons, .lazy_seq, .chunked_cons, .vector, .sub_vector, .hash_set, .sorted_set, .persistent_queue, .range, .string_seq, .array_seq, .map_entry };
 
-/// Counted — `(instance? Counted x)` MUST equal `counted?` (the core fn). Kept in
-/// exact sync with `core.countedQ`'s tag set (core.zig): the persistent colls +
-/// range + map_entry + queue + the seq views (cons/chunked_cons/string_seq/
-/// array_seq — cljw's cons IS counted, a pre-existing `counted?` divergence from
-/// clj where a Cons is not Counted). lazy_seq is NOT counted.
-const COUNTED_TAGS = [_]Tag{ .list, .cons, .chunked_cons, .vector, .sub_vector, .array_map, .hash_map, .sorted_map, .hash_set, .sorted_set, .persistent_queue, .range, .string_seq, .array_seq, .map_entry };
+/// Counted — `counted?` IS `(instance? Counted x)`: core.countedQ reads this set.
+/// The persistent colls + range + map_entry + queue + the O(1)-count seq views
+/// (chunked_cons/string_seq/array_seq) + the transients (clj's ITransientMap /
+/// ITransientSet / ITransientVector all extend Counted). NOT lazy_seq, and NOT
+/// cons: clj's Cons is an ASeq whose count walks (D-482); `(cons x nil)` is a
+/// PersistentList, tag `.list`, which is.
+const COUNTED_TAGS = [_]Tag{ .list, .chunked_cons, .vector, .sub_vector, .array_map, .hash_map, .sorted_map, .hash_set, .sorted_set, .persistent_queue, .range, .string_seq, .array_seq, .map_entry, .transient_vector, .transient_map, .transient_set };
 /// MapEquivalence — the map marker used by `=`-on-maps (clj: only the maps).
 const MAPEQUIV_TAGS = [_]Tag{ .array_map, .hash_map, .sorted_map };
 /// IKVReduce — `reduce-kv`-able: maps + vector.
@@ -200,9 +212,9 @@ pub const TABLE = [_]Entry{
     .{ .name = "Sequential", .tags = &SEQUENTIAL_TAGS },
     .{ .name = "ISeq", .tags = &ISEQ_TAGS },
     .{ .name = "Associative", .tags = &ASSOC_TAGS },
-    .{ .name = "ILookup", .tags = &ASSOC_TAGS },
+    .{ .name = "ILookup", .tags = &ILOOKUP_TAGS },
     .{ .name = "Indexed", .tags = &INDEXED_TAGS },
-    .{ .name = "IPersistentVector", .tags = &INDEXED_TAGS },
+    .{ .name = "IPersistentVector", .tags = &IPV_TAGS },
     .{ .name = "IPersistentList", .tags = &IPLIST_TAGS },
     .{ .name = "IPersistentStack", .tags = &ISTACK_TAGS },
     .{ .name = "Named", .tags = &NAMED_TAGS },
@@ -255,6 +267,73 @@ pub const TABLE = [_]Entry{
     .{ .name = "Serializable", .tags = &SERIALIZABLE_TAGS },
 };
 
+/// One interface → its DIRECT superinterfaces, restricted to TABLE names.
+pub const Super = struct { name: []const u8, supers: []const []const u8 };
+
+/// The superinterface graph over the recognised set. clojure.lang rows are
+/// `(.getInterfaces clojure.lang.X)` read from JVM Clojure 1.12 (2026-09-27);
+/// java.util rows are the JDK's. An interface absent here has no recognised
+/// superinterface. A user type implements an interface when it declares that
+/// interface or one extending it (`extendsInterface`), so a deftype declaring
+/// `Indexed` is Counted and one declaring `ISeq` is an IPersistentCollection,
+/// as in clj. The native tag sets above must respect every edge (the
+/// "native tag sets respect the superinterface graph" test).
+pub const SUPERS = [_]Super{
+    .{ .name = "IPersistentMap", .supers = &.{ "Iterable", "Associative", "Counted" } },
+    .{ .name = "IPersistentSet", .supers = &.{ "IPersistentCollection", "Counted" } },
+    .{ .name = "IPersistentCollection", .supers = &.{"Seqable"} },
+    .{ .name = "ISeq", .supers = &.{"IPersistentCollection"} },
+    .{ .name = "Associative", .supers = &.{ "IPersistentCollection", "ILookup" } },
+    .{ .name = "Indexed", .supers = &.{"Counted"} },
+    .{ .name = "IPersistentVector", .supers = &.{ "Associative", "Sequential", "IPersistentStack", "Reversible", "Indexed" } },
+    .{ .name = "IPersistentList", .supers = &.{ "Sequential", "IPersistentStack" } },
+    .{ .name = "IPersistentStack", .supers = &.{"IPersistentCollection"} },
+    .{ .name = "IObj", .supers = &.{"IMeta"} },
+    .{ .name = "IRef", .supers = &.{"IDeref"} },
+    .{ .name = "IReference", .supers = &.{"IMeta"} },
+    .{ .name = "ITransientAssociative", .supers = &.{ "ITransientCollection", "ILookup" } },
+    .{ .name = "ITransientVector", .supers = &.{ "ITransientAssociative", "Indexed" } },
+    .{ .name = "ITransientMap", .supers = &.{ "ITransientAssociative", "Counted" } },
+    .{ .name = "ITransientSet", .supers = &.{ "ITransientCollection", "Counted" } },
+    .{ .name = "Collection", .supers = &.{"Iterable"} },
+    .{ .name = "List", .supers = &.{"Collection"} },
+    .{ .name = "Set", .supers = &.{"Collection"} },
+    .{ .name = "SortedMap", .supers = &.{"Map"} },
+    .{ .name = "NavigableMap", .supers = &.{"SortedMap"} },
+    .{ .name = "SortedSet", .supers = &.{"Set"} },
+    .{ .name = "NavigableSet", .supers = &.{"SortedSet"} },
+};
+
+/// True iff interface `sub` IS `super` or extends it, transitively over
+/// `SUPERS`. Both names simple or FQCN (`clojure.lang.Indexed` and `Indexed`
+/// are one interface). A name outside the graph extends only itself, so a
+/// user protocol name or a host class name compares by identity.
+pub fn extendsInterface(sub: []const u8, super: []const u8) bool {
+    const s = simpleOf(sub);
+    const target = simpleOf(super);
+    if (std.mem.eql(u8, s, target)) return true;
+    for (SUPERS) |e| {
+        if (!std.mem.eql(u8, e.name, s)) continue;
+        for (e.supers) |p| if (extendsInterface(p, target)) return true;
+        return false;
+    }
+    return false;
+}
+
+/// `isMember` for a comptime-known interface: the tag set resolves at compile
+/// time, so the core predicates (`seq?`, `counted?`, ...) pay a tag compare,
+/// never a TABLE string scan. An unrecognised name is a compile error.
+pub fn isNativeMember(t: Tag, comptime name: []const u8) bool {
+    const tags = comptime blk: {
+        @setEvalBranchQuota(20_000);
+        break :blk tagsFor(name) orelse @compileError("not a recognised interface: " ++ name);
+    };
+    inline for (tags) |x| {
+        if (x == t) return true;
+    }
+    return false;
+}
+
 /// Strip a recognised host package prefix so both `ISeq` and `clojure.lang.ISeq`
 /// resolve. class_name passes an already-simple name (no-op here); host_interface
 /// passes the raw symbol. Unknown prefixes pass through unchanged.
@@ -273,16 +352,6 @@ pub fn tagsFor(name: []const u8) ?[]const Tag {
         if (std.mem.eql(u8, e.name, simple)) return e.tags;
     }
     return null;
-}
-
-/// True iff `t` is natively Sequential. `=` (equal.zig) and `sequential?`
-/// (core.zig) both read THIS, so the two answers cannot disagree; `isMember`
-/// would string-scan TABLE, which the `=` hot path cannot afford.
-pub fn isSequentialTag(t: Tag) bool {
-    inline for (SEQUENTIAL_TAGS) |x| {
-        if (x == t) return true;
-    }
-    return false;
 }
 
 /// True iff value-tag `t` is a native implementor of interface `name`.
@@ -313,14 +382,14 @@ fn tagNames(comptime tags: []const Tag) []const []const u8 {
 /// (D-317: ISeq / Named / IPersistentMap / IPersistentVector all derive from the
 /// same SSOT class_name.matchInterface uses, so the extend-target lists live in
 /// ONE place and cannot drift from instance? membership). IPersistentVector's
-/// extend-target now = its instance? membership {vector, map_entry} (INDEXED_TAGS):
+/// extend-target = its instance? membership {vector, map_entry} (IPV_TAGS):
 /// clj distributes an IPersistentVector-extended protocol to MapEntry too (a
 /// MapEntry IS-A IPersistentVector — clj-verified), so the prior {vector}-only set
 /// was a parity gap (ADR-0116 Decision C; D-317 residual).
 pub const ISEQ_NAMES = tagNames(&ISEQ_TAGS);
 pub const NAMED_NAMES = tagNames(&NAMED_TAGS);
 pub const MAP_NAMES = tagNames(&MAP_TAGS);
-pub const INDEXED_NAMES = tagNames(&INDEXED_TAGS);
+pub const IPV_NAMES = tagNames(&IPV_TAGS);
 // D-478: extend-protocol TO a concrete host type — `clojure.datafy` extends
 // Datafiable over IRef / Namespace / Throwable / Class. Each has a native cljw
 // value tag, so the impl distributes over it via rt/__native-type (like ISeq etc.).
@@ -334,7 +403,7 @@ pub const CLASS_NAMES = tagNames(&CLASS_TAGS);
 // D-534: extend-protocol TO the abstract collection bases — a user protocol
 // extended onto `clojure.lang.APersistentSet` / `clojure.lang.IPersistentList`
 // (as algo.monads' writer-monad does) distributes over the native set / list
-// tags, the same way IPersistentVector → INDEXED_NAMES does.
+// tags, the same way IPersistentVector → IPV_NAMES does.
 pub const SET_NAMES = tagNames(&SET_TAGS);
 pub const IPLIST_NAMES = tagNames(&IPLIST_TAGS);
 
@@ -416,4 +485,51 @@ test "extend-target tag-name derivation matches the ISeq tag set" {
     try testing.expectEqualStrings("list", ISEQ_NAMES[0]);
     try testing.expectEqualStrings("keyword", NAMED_NAMES[0]);
     try testing.expectEqualStrings("symbol", NAMED_NAMES[1]);
+}
+
+test "native tag sets respect the superinterface graph" {
+    // An instance of X is an instance of every superinterface of X, so each
+    // native tag in X's set must appear in every super's set. Every graph node
+    // must also be a recognised interface.
+    for (SUPERS) |e| {
+        const sub_tags = tagsFor(e.name) orelse return error.UnrecognisedGraphNode;
+        for (e.supers) |sup| {
+            const sup_tags = tagsFor(sup) orelse return error.UnrecognisedGraphNode;
+            for (sub_tags) |t| {
+                if (std.mem.indexOfScalar(Tag, sup_tags, t) == null) {
+                    std.debug.print("{s} extends {s} but .{s} is only in the first\n", .{ e.name, sup, @tagName(t) });
+                    return error.GraphViolation;
+                }
+            }
+        }
+    }
+}
+
+test "extendsInterface: reflexive, transitive, FQCN-insensitive" {
+    try testing.expect(extendsInterface("Counted", "Counted"));
+    try testing.expect(extendsInterface("Indexed", "Counted"));
+    try testing.expect(extendsInterface("ISeq", "clojure.lang.IPersistentCollection"));
+    // IPersistentVector → Associative → IPersistentCollection → Seqable.
+    try testing.expect(extendsInterface("clojure.lang.IPersistentVector", "Seqable"));
+    try testing.expect(extendsInterface("java.util.List", "Iterable"));
+    try testing.expect(!extendsInterface("ISeq", "Sequential"));
+    try testing.expect(!extendsInterface("ISeq", "Counted"));
+    try testing.expect(!extendsInterface("Counted", "IPersistentCollection"));
+    try testing.expect(!extendsInterface("IMeta", "IObj"));
+    try testing.expect(extendsInterface("user/Proto", "user/Proto"));
+    try testing.expect(!extendsInterface("user/Proto", "Counted"));
+}
+
+test "Counted excludes cons (D-482) and includes the transients; Indexed is not IPersistentVector" {
+    try testing.expect(!isNativeMember(.cons, "Counted"));
+    try testing.expect(isNativeMember(.list, "Counted"));
+    try testing.expect(!isNativeMember(.lazy_seq, "Counted"));
+    inline for (.{ .transient_vector, .transient_map, .transient_set }) |t| {
+        try testing.expect(isNativeMember(t, "Counted"));
+    }
+    try testing.expect(isNativeMember(.transient_vector, "Indexed"));
+    try testing.expect(!isNativeMember(.transient_vector, "IPersistentVector"));
+    try testing.expect(isNativeMember(.transient_map, "ILookup"));
+    try testing.expect(!isNativeMember(.transient_set, "ILookup"));
+    try testing.expect(!isNativeMember(.transient_map, "Associative"));
 }

@@ -25,8 +25,8 @@ schema_version: "2.0"
 summary:
   namespaces_required: 35
   total: 1437
-  zig: 412
-  clj: 802
+  zig: 415
+  clj: 799
   value: 217
   unbound: 6
 vars:
@@ -567,7 +567,7 @@ vars:
   "clojure.core/in-ns": { impl: zig, flags: "-" }
   "clojure.core/inc": { impl: zig, flags: "-" }
   "clojure.core/inc'": { impl: zig, flags: "-" }
-  "clojure.core/indexed?": { impl: clj, flags: "-" }
+  "clojure.core/indexed?": { impl: zig, flags: "-" }
   "clojure.core/infinite?": { impl: zig, flags: "-" }
   "clojure.core/inst-ms": { impl: zig, flags: "-" }
   "clojure.core/inst?": { impl: zig, flags: "-" }
@@ -761,7 +761,7 @@ vars:
   "clojure.core/rest": { impl: zig, flags: "-" }
   "clojure.core/restart-agent": { impl: zig, flags: "-" }
   "clojure.core/reverse": { impl: clj, flags: "-" }
-  "clojure.core/reversible?": { impl: clj, flags: "-" }
+  "clojure.core/reversible?": { impl: zig, flags: "-" }
   "clojure.core/rseq": { impl: zig, flags: "-" }
   "clojure.core/rsubseq": { impl: zig, flags: "-" }
   "clojure.core/run!": { impl: clj, flags: "-" }
@@ -774,7 +774,7 @@ vars:
   "clojure.core/seq": { impl: zig, flags: "-" }
   "clojure.core/seq-to-map-for-destructuring": { impl: clj, flags: "-" }
   "clojure.core/seq?": { impl: zig, flags: "-" }
-  "clojure.core/seqable?": { impl: clj, flags: "-" }
+  "clojure.core/seqable?": { impl: zig, flags: "-" }
   "clojure.core/sequence": { impl: clj, flags: "-" }
   "clojure.core/sequential?": { impl: zig, flags: "-" }
   "clojure.core/set": { impl: clj, flags: "-" }

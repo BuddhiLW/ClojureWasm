@@ -451,30 +451,64 @@ fn matchUserType(v: Value, simple: []const u8) bool {
             if (std.mem.eql(u8, fqcn, simple)) return true;
             if (std.mem.eql(u8, normalizeClassName(fqcn), simple)) return true;
         }
-        // ADR-0116 Decision B (∪ arm): a user deftype/reify that EXTENDS a
-        // clojure.lang interface (e.g. IDeref) registers its method under the
-        // bare cljw protocol name; match that against the normalised interface
-        // name so `(instance? clojure.lang.IDeref user-inst)` is true. Mirrors
-        // protocol.satisfies' name comparison; native membership stays primary,
-        // this is the additive arm.
-        for (t.method_table) |entry| {
-            if (std.mem.eql(u8, entry.protocol_name, simple)) return true;
-        }
+        // The declared interfaces (ADR-0116 Decision B). `protocol_impls` holds
+        // what the type DECLARED; the method table is not consulted, because a
+        // protocol_remap method is installed under the cljw protocol that
+        // dispatches it (a Counted `count` under IPersistentCollection), which
+        // is not an interface the type implements.
         for (t.protocol_impls) |pn| {
-            if (std.mem.eql(u8, pn, simple)) return true;
-            // A protocol_remap declaration records the CANONICAL qualified name
-            // (`clojure.lang.IPersistentMap`); match its simple form too.
-            if (std.mem.eql(u8, normalizeClassName(pn), simple)) return true;
+            if (declaredNameIs(pn, simple)) return true;
+        }
+        if (t.kind == .defrecord) {
+            for (RECORD_INTERFACES) |n| {
+                if (declaredNameIs(n, simple)) return true;
+            }
         }
         // Host supertype markers (D-466): `(instance? java.util.Map hm)` for a
         // java.util.HashMap host_instance. Comptime-const list, instance?-only.
         for (t.host_supertypes) |sup| {
-            if (std.mem.eql(u8, sup, simple)) return true;
-            if (std.mem.eql(u8, normalizeClassName(sup), simple)) return true;
+            if (declaredNameIs(sup, simple)) return true;
         }
         cursor = t.parent;
     }
     return false;
+}
+
+/// The recognised interfaces every defrecord implements without naming them
+/// (clj's defrecord emits IRecord, IHashEq, IObj, ILookup, IKeywordLookup,
+/// IPersistentMap, java.util.Map and Serializable; IRecord / IKeywordLookup are
+/// not recognised names). IPersistentMap brings Counted, Associative and the
+/// rest of its closure, so `(counted? rec)` and `(coll? rec)` are true.
+const RECORD_INTERFACES = [_][]const u8{ "IPersistentMap", "IObj", "ILookup", "IHashEq", "Map", "Serializable" };
+
+/// True iff a declared name (a `protocol_impls` or `host_supertypes` entry)
+/// makes its type an instance of the class `simple`: it names that class, or an
+/// interface that extends it (clj's superinterface closure,
+/// `interface_membership.SUPERS`), so a type declaring `Indexed` is Counted.
+/// A protocol_remap declaration may record a qualified name
+/// (`clojure.lang.IPersistentMap`), so the simple form is matched too.
+fn declaredNameIs(declared: []const u8, simple: []const u8) bool {
+    if (std.mem.eql(u8, declared, simple)) return true;
+    const norm = normalizeClassName(declared);
+    if (std.mem.eql(u8, norm, simple)) return true;
+    return interface_membership.extendsInterface(norm, simple);
+}
+
+/// `(instance? <iface> v)` for a comptime-known interface: the form of the core
+/// predicates clj defines as instance checks (`seq?` = ISeq, `counted?` =
+/// Counted, `vector?` = IPersistentVector, ...). A native value answers from
+/// its tag (interface_membership, resolved at comptime, so the hot path is a
+/// tag compare); a deftype / reify / host object answers from its declared
+/// interfaces through the same `matchUserType` walk `instance?` uses, so for
+/// every recognised interface this IS `isInstance`, and the predicate and
+/// `instance?` cannot disagree.
+pub fn implementsInterface(v: Value, comptime iface: []const u8) bool {
+    const t = v.tag();
+    if (interface_membership.isNativeMember(t, iface)) return true;
+    return switch (t) {
+        .typed_instance, .reified_instance, .host_instance => matchUserType(v, iface),
+        else => false,
+    };
 }
 
 // --- tests ---
