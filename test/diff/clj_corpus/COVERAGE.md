@@ -45,6 +45,12 @@ confirmed exprs into a `*.txt` corpus here via `--corpus`.
 - **Ratio to double is `Ratio.doubleValue` everywhere (2026-09-27)**: DECIMAL64
   first, so `(double -2/3)` is -0.6666666666666667 through `double`, float
   contagion, the mixed float comparison and JSON. Corpus `ratio_double_value`.
+- **BigDecimal is a full Number, and its double is the nearest one
+  (2026-09-27)**: `.shortValue` / `.byteValue` / `.floatValue` join
+  `.intValue` / `.longValue` / `.doubleValue` from the shared Number surface,
+  and `(double 0.3M)` is 0.3 (not 0.30000000000000004) through `double`,
+  float contagion, the mixed comparison and `.doubleValue`. Corpus
+  `bigdec_number_methods`.
 - **Integer/Long bit + Math `*Exact`** — bitCount/clz/ctz/highestOneBit/reverse;
   addExact/multiplyExact/… (D-172). Remaining low-value: see Next.
 - **Coercion tower (`quot`/`rem`/`mod` + `int`/`long`/`num`/`double`/`float`/

@@ -619,7 +619,7 @@ tiers:
         files:
           surface: runtime/java/math/BigDecimal.zig
           impl: runtime/numeric/big_decimal.zig
-        methods: [abs, add, compareTo, divide, divideAndRemainder, divideToIntegralValue, doubleValue, intValue, longValue, max, min, movePointLeft, movePointRight, multiply, negate, pow, precision, remainder, round, scale, scaleByPowerOfTen, setScale, signum, stripTrailingZeros, subtract, toBigInteger, toPlainString, ulp, unscaledValue, valueOf]
+        methods: [abs, add, byteValue, compareTo, divide, divideAndRemainder, divideToIntegralValue, doubleValue, floatValue, intValue, longValue, max, min, movePointLeft, movePointRight, multiply, negate, pow, precision, remainder, round, scale, scaleByPowerOfTen, setScale, shortValue, signum, stripTrailingZeros, subtract, toBigInteger, toPlainString, ulp, unscaledValue, valueOf]
         static_fields: ["ONE", "ROUND_CEILING", "ROUND_DOWN", "ROUND_FLOOR", "ROUND_HALF_DOWN", "ROUND_HALF_EVEN", "ROUND_HALF_UP", "ROUND_UNNECESSARY", "ROUND_UP", "TEN", "TWO", "ZERO"]
         clojure_peer_vars: [clojure.core/bigdec]
       # java.math.RoundingMode — the 8 enum constants (UP..UNNECESSARY) as

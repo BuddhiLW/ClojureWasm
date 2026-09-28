@@ -36,21 +36,14 @@ const string_mod = @import("../../runtime/collection/string.zig");
 
 // --- numeric helpers ---
 
-/// Convert any numeric Value to f64 (lossy for big_int / ratio /
-/// big_decimal: Clojure float contagion). A ratio is clj's
-/// `Ratio.doubleValue` (`ratio.toF64`, DECIMAL64 first). Caller must have
-/// type-checked; a non-number returns 0.0. Shared by the comparison
-/// f64 path and the `double`/`float` primitive (F-011).
+/// Convert any numeric Value to f64: clj's `Number.doubleValue`
+/// (`promote.toF64`, the one conversion float contagion also uses), plus a
+/// char's code point. Caller must have type-checked; a non-number returns
+/// 0.0. Shared by the comparison f64 path and the `double`/`float`
+/// primitive (F-011).
 fn toF64(v: Value) !f64 {
-    return switch (v.tag()) {
-        .float => v.asFloat(),
-        .integer => @floatFromInt(v.asInteger()),
-        .char => @floatFromInt(v.asChar()),
-        .big_int => big_int_mod.asManaged(v).toFloat(f64, .nearest_even)[0],
-        .ratio => ratio_mod.toF64(v),
-        .big_decimal => big_decimal_mod.toFloat(v),
-        else => 0.0, // caller has already type-checked
-    };
+    if (v.tag() == .char) return @floatFromInt(v.asChar());
+    return promote.toF64(v);
 }
 
 fn ensureNumeric(args: []const Value, name: []const u8, loc: SourceLocation) !void {

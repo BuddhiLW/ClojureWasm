@@ -994,7 +994,7 @@ fn formatIntArg(val: Value, loc: SourceLocation) error_mod.ClojureWasmError!i64 
 fn formatFloatArg(val: Value, loc: SourceLocation) error_mod.ClojureWasmError!f64 {
     return switch (val.tag()) {
         .float => val.asFloat(),
-        .big_decimal => big_decimal_mod.toFloat(val),
+        .big_decimal => try big_decimal_mod.toFloat(val),
         else => error_catalog.raise(.arg_value_invalid, loc, .{ .fn_name = "format", .expected = "a float (Double or BigDecimal) for %f/%e/%g", .actual = @tagName(val.tag()) }),
     };
 }

@@ -5,21 +5,24 @@
 //! `.equals` / `.hashCode` with their JVM (not clj `=`/`hash`) semantics, and
 //! `.isNaN` / `.isInfinite` on a Double. One implementation serves the
 //! `.integer` (Long), `.float` (Double), `.big_int` (BigInt, and a heap-boxed
-//! Long past i48, D-165) and `.ratio` (Ratio) native descriptors: this module
-//! installs the Long and Double tables, and `bigint_methods.zig` /
-//! `ratio_methods.zig` splice `specs` into theirs, so the four classes cannot
-//! drift apart.
+//! Long past i48, D-165), `.ratio` (Ratio) and `.big_decimal` (BigDecimal)
+//! native descriptors: this module installs the Long and Double tables,
+//! `bigint_methods.zig` / `ratio_methods.zig` splice `specs` into theirs, and
+//! `java/math/BigDecimal.zig` splices `value_specs` (it keeps its own
+//! scale-aware `.compareTo` / `.equals`), so the five classes cannot drift
+//! apart.
 //!
 //! Narrowing follows the JLS and the clj classes: a Long / BigInt narrows by
-//! keeping the low bits; a Double truncates toward zero and saturates to the
-//! target (`int` for int/short/byte, `long` for long), NaN giving 0, then
-//! short/byte keep the low bits of that int; a Ratio's int/short/byte go
-//! through its double (clj `Ratio.intValue`) while `.longValue` truncates the
-//! exact quotient. A Ratio's double is `ratio.toF64`, the one DECIMAL64
-//! conversion `double` and float contagion also use. `.floatValue` answers
-//! what `(float x)` does, the double itself: cljw has no f32 value (AD-004),
-//! and narrowing here alone would make `(= (float x) (.floatValue x))` false
-//! where clj has it true.
+//! keeping the low bits; a BigDecimal truncates toward zero exactly and then
+//! keeps the low bits (`toBigInteger().longValue()`); a Double truncates
+//! toward zero and saturates to the target (`int` for int/short/byte, `long`
+//! for long), NaN giving 0, then short/byte keep the low bits of that int; a
+//! Ratio's int/short/byte go through its double (clj `Ratio.intValue`) while
+//! `.longValue` truncates the exact quotient. Every `.doubleValue` is
+//! `promote.toF64`, the one conversion `double` and float contagion also use.
+//! `.floatValue` answers what `(float x)` does, the double itself: cljw has no
+//! f32 value (AD-004), and narrowing here alone would make
+//! `(= (float x) (.floatValue x))` false where clj has it true.
 //!
 //! Backend: impl-only
 //! Impl deps: none
@@ -35,6 +38,7 @@ const error_catalog = @import("error/catalog.zig");
 const type_descriptor = @import("type_descriptor.zig");
 const big_int = @import("numeric/big_int.zig");
 const ratio_mod = @import("numeric/ratio.zig");
+const big_decimal = @import("numeric/big_decimal.zig");
 const promote = @import("numeric/promote.zig");
 const Managed = std.math.big.int.Managed;
 const Const = std.math.big.int.Const;
@@ -42,7 +46,7 @@ const Limb = std.math.big.Limb;
 
 /// The JVM class a numeric receiver belongs to. A heap Long (`.big_int` with
 /// `.long` origin) is a Long; `.equals` / `.compareTo` are class-gated on it.
-const Class = enum { long, double, bigint, ratio, other };
+const Class = enum { long, double, bigint, ratio, bigdecimal, other };
 
 fn classOf(v: Value) Class {
     return switch (v.tag()) {
@@ -50,6 +54,7 @@ fn classOf(v: Value) Class {
         .float => .double,
         .big_int => if (big_int.originOf(v) == .long) .long else .bigint,
         .ratio => .ratio,
+        .big_decimal => .bigdecimal,
         else => .other,
     };
 }
@@ -80,16 +85,11 @@ fn ratioTruncI64(rt: *Runtime, v: Value) !i64 {
     };
 }
 
-/// The receiver's `.doubleValue`: the nearest f64 of a Long / BigInt, a
-/// Ratio's DECIMAL64 double, a Double itself.
-fn toF64(v: Value) !f64 {
-    return switch (v.tag()) {
-        .float => v.asFloat(),
-        .integer => @floatFromInt(v.asInteger()),
-        .big_int => big_int.asManaged(v).toFloat(f64, .nearest_even)[0],
-        .ratio => ratio_mod.toF64(v),
-        else => unreachable, // installed only on the four numeric descriptors
-    };
+/// A BigDecimal truncated toward zero, low 64 bits (JVM `BigDecimal.longValue`
+/// is `toBigInteger().longValue()`; `.intValue` keeps the low 32 of it).
+fn bigDecimalTruncI64(rt: *Runtime, v: Value) !i64 {
+    const truncated = try big_decimal.truncate(rt, v);
+    return lowI64(big_decimal.asUnscaled(truncated).m.toConst());
 }
 
 /// JLS d2i / d2l: truncate toward zero, saturate at the target's bounds, NaN
@@ -102,11 +102,12 @@ fn saturate(comptime T: type, d: f64) T {
 }
 
 /// The receiver as a Java `int` (the basis short/byte narrow from).
-fn intOf(v: Value) !i32 {
+fn intOf(rt: *Runtime, v: Value) !i32 {
     return switch (v.tag()) {
         .integer => @truncate(@as(i64, v.asInteger())),
         .big_int => @truncate(lowI64(big_int.asManaged(v).toConst())),
-        else => saturate(i32, try toF64(v)), // float, ratio (clj Ratio.intValue)
+        .big_decimal => @truncate(try bigDecimalTruncI64(rt, v)),
+        else => saturate(i32, try promote.toF64(v)), // float, ratio (clj Ratio.intValue)
     };
 }
 
@@ -116,7 +117,8 @@ fn longOf(rt: *Runtime, v: Value) !i64 {
         .integer => v.asInteger(),
         .big_int => lowI64(big_int.asManaged(v).toConst()),
         .ratio => ratioTruncI64(rt, v),
-        else => saturate(i64, try toF64(v)),
+        .big_decimal => bigDecimalTruncI64(rt, v),
+        else => saturate(i64, try promote.toF64(v)),
     };
 }
 
@@ -131,11 +133,11 @@ fn ValueOf(comptime w: Width, comptime name: []const u8) type {
             try error_catalog.checkArity(name, args, 1, loc);
             const v = args[0];
             return switch (w) {
-                .int => Value.initInteger(try intOf(v)),
-                .short => Value.initInteger(@as(i16, @truncate(try intOf(v)))),
-                .byte => Value.initInteger(@as(i8, @truncate(try intOf(v)))),
+                .int => Value.initInteger(try intOf(rt, v)),
+                .short => Value.initInteger(@as(i16, @truncate(try intOf(rt, v)))),
+                .byte => Value.initInteger(@as(i8, @truncate(try intOf(rt, v)))),
                 .long => promote.wrapI64(rt, try longOf(rt, v)),
-                .double => Value.initFloat(try toF64(v)),
+                .double => Value.initFloat(try promote.toF64(v)),
             };
         }
     };
@@ -285,15 +287,21 @@ fn DoublePred(comptime name: []const u8, comptime inf: bool) type {
     };
 }
 
-/// The Number surface every numeric class carries. `bigint_methods.zig` and
-/// `ratio_methods.zig` concatenate it onto their own specs.
-pub const specs = .{
+/// The `java.lang.Number` surface every numeric class carries, BigDecimal
+/// included (`java/math/BigDecimal.zig` concatenates it onto its own specs).
+pub const value_specs = .{
     .{ "intValue", &ValueOf(.int, "intValue").call },
     .{ "longValue", &ValueOf(.long, "longValue").call },
     .{ "shortValue", &ValueOf(.short, "shortValue").call },
     .{ "byteValue", &ValueOf(.byte, "byteValue").call },
     .{ "doubleValue", &ValueOf(.double, "doubleValue").call },
     .{ "floatValue", &ValueOf(.double, "floatValue").call },
+};
+
+/// The Number surface plus the class-gated `.compareTo` / `.equals` /
+/// `.hashCode` of Long, Double, BigInt and Ratio. `bigint_methods.zig` and
+/// `ratio_methods.zig` concatenate it onto their own specs.
+pub const specs = value_specs ++ .{
     .{ "compareTo", &compareToFn },
     .{ "equals", &equalsFn },
     .{ "hashCode", &hashCodeFn },

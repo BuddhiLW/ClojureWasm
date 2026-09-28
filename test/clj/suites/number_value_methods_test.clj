@@ -1,4 +1,5 @@
-;; The java.lang.Number instance methods on Long, Double, BigInt and Ratio:
+;; The java.lang.Number instance methods on Long, Double, BigInt, Ratio and
+;; BigDecimal:
 ;; .intValue / .longValue / .shortValue / .byteValue / .doubleValue /
 ;; .floatValue, plus the per-class .compareTo / .equals / .hashCode and the
 ;; Double .isNaN / .isInfinite instance predicates (CLJW-NUMBER-VALUE-METHODS).
@@ -90,11 +91,11 @@
   (is (= 0 (.compareTo 1/2 0.5)))
   (is (= -1 (.compareTo 1/2 5N)))
   (testing "BigInteger.compareTo takes only a BigInteger"
-    (is (thrown? Exception (.compareTo (biginteger 5) 6)))
-    (is (thrown? Exception (.compareTo 1 5N))))
+    (is (thrown? ClassCastException (.compareTo (biginteger 5) 6)))
+    (is (thrown? ClassCastException (.compareTo 1 5N))))
   (testing "Long and Double compare only against their own class"
-    (is (thrown? Exception (.compareTo 1 1.0)))
-    (is (thrown? Exception (.compareTo 1.0 1)))))
+    (is (thrown? ClassCastException (.compareTo 1 1.0)))
+    (is (thrown? ClassCastException (.compareTo 1.0 1)))))
 
 (deftest equals-is-class-gated
   (is (true? (.equals 5 5)))
@@ -134,8 +135,51 @@
   (is (true? (.isInfinite ##Inf)))
   (is (true? (.isInfinite ##-Inf)))
   (is (false? (.isInfinite 1.0)))
-  (testing "a Long has no Double predicates"
-    (is (thrown? Exception (.isNaN 1)))))
+  (testing "a Long, Ratio or BigDecimal has no Double predicates"
+    (is (thrown? IllegalArgumentException (.isNaN 1)))
+    (is (thrown? IllegalArgumentException (.isInfinite 1/2)))
+    (is (thrown? IllegalArgumentException (.isNaN 1.5M)))))
+
+;; BigDecimal carries the same java.lang.Number surface: int/long truncate
+;; toward zero and keep the low bits, short/byte narrow the int.
+(deftest bigdec-narrowing
+  (is (= 4464 (.shortValue 70000.5M)))
+  (is (= -1 (.shortValue -1.9M)))
+  (is (= 44 (.byteValue 300M)))
+  (is (= 0 (.byteValue 1E20M)))
+  (is (= 127 (.byteValue -129.99M)))
+  (is (= 1215752191 (.intValue 99999999999.9M)))
+  (is (= 0 (.intValue -0.5M)))
+  (is (= -2147483648 (.intValue 2147483648.5M)))
+  (is (= 5076944270305263616 (.longValue 1E30M)))
+  (is (= -5076944270305263616 (.longValue -1E30M)))
+  (is (= 1 (.longValue 18446744073709551617.5M)))
+  (is (= -9223372036854775808 (.longValue 9223372036854775808.9M)))
+  (is (= 0 (.shortValue 1E30M)))
+  (is (= 0 (.intValue 1E-30M)))
+  (is (= 1.5 (.floatValue 1.5M)))
+  (is (= 0.1 (.floatValue 0.1M)))
+  (is (= [44 44 44 44 44] (mapv (fn [n] (.byteValue n)) [300 300.5 601/2 300N 300.5M])))
+  (is (= 15 (reduce + (map (fn [n] (.longValue n)) [1 2.5 7/2 4N 5.5M])))))
+
+;; BigDecimal.doubleValue is the double nearest the exact decimal, and every
+;; path that turns a BigDecimal into a double (`double`, float contagion, the
+;; mixed comparison) answers it. An f64 multiply by a power of ten does not:
+;; it made (double 0.3M) 0.30000000000000004.
+(deftest bigdec-double-value-is-the-nearest-double
+  (is (= 0.3 (.doubleValue 0.3M)))
+  (is (= 0.3 (double 0.3M)))
+  (is (= 0.7 (double 0.7M)))
+  (is (= 9.95 (double 9.95M)))
+  (is (= 0.3 (+ 0.0 0.3M)))
+  (is (== 0.3 0.3M))
+  (is (= ##Inf (.doubleValue 1E400M)))
+  (is (= 0.0 (double 1E-400M)))
+  (is (= 1.0 (double (bigdec (str "1." (apply str (repeat 400 "0"))))))))
+
+(deftest ratio-compare-to-takes-any-number
+  (is (= -1 (.compareTo 1/2 1.5M)))
+  (is (= 0 (.compareTo 1/2 0.5M))))
 
 (deftest long-value-of-heap-long
   (is (= 9007199254740993 (Long/valueOf 9007199254740993)))
