@@ -45,7 +45,108 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
   Object)` and a protocol section with no method impls return an instance, as
   on the JVM. A non-symbol in section position still raises.
 
-## [1.14.8] - 2026-09-25
+## [1.14.11] - 2026-09-27
+
+### Added
+
+- **`ThreadPoolExecutor$AbortPolicy` is available as a rejection handler.**
+  `(ThreadPoolExecutor. 1 1 0 TimeUnit/MILLISECONDS (LinkedBlockingQueue. 1)
+  nil (ThreadPoolExecutor$AbortPolicy.))` throws
+  `RejectedExecutionException` on a `.submit` once the pool and queue are
+  full. A handler the constructor cannot honour now raises an error instead
+  of silently behaving as abort.
+
+### Fixed
+
+- **`NoSuchMethodException` can be caught, as in clj.** `(catch
+  NoSuchMethodException _ nil)` and `(catch java.lang.NoSuchMethodException
+  _ nil)` now compile; the class sits under `ReflectiveOperationException`.
+  Namespaces that probe optional JDK methods this way no longer fail to load.
+
+- **`contains?` on a String or array truncates Number keys, and `get` indexes
+  Java arrays.** `(contains? "abc" 1.5)` and `(contains? "abc" 1N)` are
+  `true`, `(contains? "abc" 5.0)` is `false`, and a non-number key such as
+  `:a` or `nil` throws `IllegalArgumentException`. `(get (int-array [1 2]) 1)`
+  is `2`; an out-of-range or non-integer index returns `nil` or the
+  not-found value.
+
+- **BigDecimal arithmetic honours the `with-precision` MathContext.**
+  `(with-precision 3 (+ 1.2345M 2.3456M))` is `3.58M` and `(with-precision 3
+  (* 1.2345M 2.3456M))` is `2.90M`. `:rounding` applies too: `(with-precision
+  3 :rounding HALF_EVEN (+ 1.245M 0M))` is `1.24M`, and `(with-precision 3
+  :rounding DOWN (/ 1M 6M))` is `0.166M`.
+
+- **Collection metadata survives `empty`, list `conj` and a dissoc to
+  empty.** `(meta (empty (with-meta [1] {:m 1})))` is `{:m 1}` for vectors,
+  subvecs, maps, sets, lists, sorted maps and sorted sets; a generic seq still
+  empties to a meta-less `()`. `(conj (with-meta '(1) {:m 1}) 2)` and
+  `(dissoc (with-meta {:a 1} {:m 1}) :a)` keep `{:m 1}`.
+
+- **Sorted maps and sorted sets accept metadata.** `(with-meta (sorted-map 1
+  2) {:m 1})` carries `{:m 1}`, and it survives `assoc` and `conj`.
+
+- **`bigdec` handles scientific and large doubles without narrowing to a
+  64-bit integer.** `(bigdec 1.0e20)` is `1.0E+20M`, `(bigdec 1.0e-20)` is
+  `1.0E-20M`, and `(bigdec "123456789012345678901234567890.5")` is
+  `123456789012345678901234567890.5M`.
+
+## [1.14.10] - 2026-09-26
+
+### Added
+
+- **`Executors/newSingleThreadScheduledExecutor` and `.scheduleAtFixedRate`
+  are available.** `(.scheduleAtFixedRate pool runnable 0 1
+  TimeUnit/MILLISECONDS)` runs the task repeatedly and returns a future that
+  `.cancel` stops (`.isCancelled` is then `true`). The executor takes an
+  optional `ThreadFactory`.
+
+- **`ThreadPoolExecutor` supports `.shutdownNow`.** It shuts the pool down,
+  cancels queued tasks and returns them as a collection; a task already
+  running completes and its `.get` still returns its value.
+
+### Fixed
+
+- **Metadata on a value that cannot carry it is an error, as in clj
+  (ADR-0200).** `^:m "s"`, `^:m 1`, `^:m :k`, `^:m nil`, `^:m #"re"` and a
+  tagged literal read to such a value (`^:m #inst "..."`) raise
+  IllegalArgumentException ("Metadata can only be applied to IMetas") in
+  source, `read-string`, `clojure.edn/read-string` and inside a quoted form;
+  the meta used to be dropped silently. The reader attaches meta as clj's
+  does: merged onto the value's existing meta, and reset in place on an atom,
+  agent, ref, var or namespace returned by a tag reader. `^meta` on a tagged
+  literal that reads to a collection, record or queue now attaches in source
+  too. `^[String] x` reads as `{:param-tags [String]}` (clj 1.12), and an
+  invalid meta form (`^1 x`) is IllegalArgumentException with clj's message,
+  reported before the target is read. `with-meta` and `meta` now work on a
+  PersistentQueue.
+
+- **`derive` rejects a Class parent, as in clj.** `(derive 'p/x String)`
+  throws `ClassCastException`, and `(derive (make-hierarchy) 'p/x Object)`
+  throws. A Class child with a named parent stays valid: `(derive
+  (make-hierarchy) Object 'root-type)`.
+
+- **`parents` and `ancestors` expose a Class's supertypes, as in clj.**
+  `(parents String)` and `(ancestors String)` return String's six supertypes,
+  including `Object`, merged with any explicit hierarchy entries.
+  `(ancestors Object)` is `nil`.
+
+- **`clojure.edn/read-string` with an options map throws at EOF unless
+  `:eof` is given, as in clj.** `(clojure.edn/read-string {} "")` throws, also
+  for a source holding only a comment or a `#_` form; the one-argument
+  overload still returns `nil`. `(clojure.edn/read-string {} "#_1 2")` is
+  `2`. A `nil` or non-map options argument now throws.
+
+- **`parse-uuid` and `UUID/fromString` accept the JVM's legacy group forms.**
+  `(parse-uuid "1-2-3-4-5")` is `#uuid "00000001-0002-0003-0004-000000000005"`,
+  a leading `+` on a group is accepted, and an overlong group is truncated to
+  its field width. An empty group, as in `"1--1-1-1-1"`, still returns `nil`.
+
+- **`clojure.repl/doc` shows docstrings for `clojure.data.csv/read-csv`,
+  `monitor-enter` and `monitor-exit`.** Their `:doc` and `:arglists` now live
+  in the var meta, so `(meta #'monitor-enter)` carries `:arglists ([x])` and
+  `find-doc` and nREPL info/eldoc see them.
+
+## [1.14.9] - 2026-09-26
 
 ### Added
 
@@ -71,40 +172,8 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
   "false") …)` takes the false branch (AD-073), and `(Short. 7)` / `(Byte. 7)`
   answer 7 because cljw cannot tell them from `(Short. (short 7))` (AD-074).
 
-- **`docs/examples/polyglot/`: every guest language through the FFI, gated.**
-  A C kernel (`zig cc`, 2.3 KB) and a Zig kernel (267 B) over `wasm/load` +
-  `wasm/call` with guest-owned buffers, a `no_std` Rust module (401 B), a
-  wit-bindgen Rust component required as a namespace (records, lists and
-  `result` as Clojure data), and a Go program run as a WASI command through
-  `wasm/run` with argv, env and stdin. `hosts.cljc` is one program that prints
-  the same value on `cljw`, `cljrs` and JVM Clojure. `phase16_wasm_polyglot`
-  runs the committed guests, rebuilds each one whose toolchain is on PATH from
-  the recipe in its source header, and diffs the hosts, so the README's
-  polyglot claims fail in CI before they fail for a reader.
-
-### Changed
-
-- README: the typed-component example now names a committed fixture, and its
-  result reads `[:ok {...}]`, which is what a WIT `result<T, E>` returns.
-  Documented from the demo: a void export that takes an `f64` has no JIT call
-  shape and needs `{:engine :interp}` or a result value, and the linker's
-  default 1 MB shadow stack makes a C module ask for 17 pages.
-
 ### Fixed
 
-- **Metadata on a value that cannot carry it is an error, as in clj
-  (ADR-0200).** `^:m "s"`, `^:m 1`, `^:m :k`, `^:m nil`, `^:m #"re"` and a
-  tagged literal read to such a value (`^:m #inst "..."`) raise
-  IllegalArgumentException ("Metadata can only be applied to IMetas") in
-  source, `read-string`, `clojure.edn/read-string` and inside a quoted form;
-  the meta used to be dropped silently. The reader attaches meta as clj's
-  does: merged onto the value's existing meta, and reset in place on an atom,
-  agent, ref, var or namespace returned by a tag reader. `^meta` on a tagged
-  literal that reads to a collection, record or queue now attaches in source
-  too. `^[String] x` reads as `{:param-tags [String]}` (clj 1.12), and an
-  invalid meta form (`^1 x`) is IllegalArgumentException with clj's message,
-  reported before the target is read. `with-meta` and `meta` now work on a
-  PersistentQueue.
 - **A duplicate map key or set element is an error, as in clj (ADR-0200).**
   `{:a 1 :a 2}`, `#{1 1}` and `#:a{:b 1 :a/b 2}` raise IllegalArgumentException
   ("Duplicate key: :a") in source and in `read-string` /
@@ -168,6 +237,29 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
   its computed metadata unevaluated (`^{:k (+ 1 2)}` stayed a list), which left
   every `deftest` loaded this way with an uncallable `:test`; computed metadata
   is now always evaluated.
+
+## [1.14.8] - 2026-09-25
+
+### Added
+
+- **`docs/examples/polyglot/`: every guest language through the FFI, gated.**
+  A C kernel (`zig cc`, 2.3 KB) and a Zig kernel (267 B) over `wasm/load` +
+  `wasm/call` with guest-owned buffers, a `no_std` Rust module (401 B), a
+  wit-bindgen Rust component required as a namespace (records, lists and
+  `result` as Clojure data), and a Go program run as a WASI command through
+  `wasm/run` with argv, env and stdin. `hosts.cljc` is one program that prints
+  the same value on `cljw`, `cljrs` and JVM Clojure. `phase16_wasm_polyglot`
+  runs the committed guests, rebuilds each one whose toolchain is on PATH from
+  the recipe in its source header, and diffs the hosts, so the README's
+  polyglot claims fail in CI before they fail for a reader.
+
+### Changed
+
+- README: the typed-component example now names a committed fixture, and its
+  result reads `[:ok {...}]`, which is what a WIT `result<T, E>` returns.
+  Documented from the demo: a void export that takes an `f64` has no JIT call
+  shape and needs `{:engine :interp}` or a result value, and the linker's
+  default 1 MB shadow stack makes a C module ask for 17 pages.
 
 ## [1.14.7] - 2026-09-15
 
