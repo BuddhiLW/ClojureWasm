@@ -71,7 +71,7 @@ else
     [ "$(printf '%s\n%s\n' "$v" "$HEADING_FLOOR" | sort -V | sed -n 1p)" = "$v" ] \
       && [ "$v" != "$HEADING_FLOOR" ] && continue
     case " $HISTORIC_HEADINGLESS " in *" $v "*) continue ;; esac
-    printf '%s\n' "$dated_headings" | grep -qxF "$v" || missing="$missing $tag"
+    grep -qxF "$v" <<<"$dated_headings" || missing="$missing $tag"
   done <<< "$release_tags"
 
   if [ -n "$missing" ]; then

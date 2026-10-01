@@ -270,7 +270,7 @@ tiers:
           surface: runtime/java/io/File.zig
           impl: runtime/file_io.zig
           clojure_peer: lang/primitive/file_io.zig
-        methods: [canRead, createTempFile, delete, exists, getAbsoluteFile, getAbsolutePath, getCanonicalFile, getCanonicalPath, getName, getParent, getParentFile, getPath, isAbsolute, isDirectory, isFile, length, list, listFiles, listRoots, mkdir, mkdirs]
+        methods: [canRead, createTempFile, delete, exists, getAbsoluteFile, getAbsolutePath, getCanonicalFile, getCanonicalPath, getName, getParent, getParentFile, getPath, isAbsolute, isDirectory, isFile, length, list, listFiles, listRoots, mkdir, mkdirs, compareTo]
         static_fields: ["pathSeparator", "pathSeparatorChar", "separator", "separatorChar"]
         clojure_peer_vars: [clojure.core/slurp, clojure.core/spit]
       - {fqn: "java.io.InputStream", native_ns: "cljw.host.java.io.InputStream", phase: 6}
@@ -720,6 +720,7 @@ tiers:
       - {fqn: "java.io.BufferedWriter", cljw_ns: "cljw.java.io.BufferedWriter", tier: A, phase: 14, status: "no surface; reservation"}
       # java.util concurrency seed (paired with the EXISTS AtomicLong).
       - {fqn: "java.util.concurrent.atomic.AtomicInteger", cljw_ns: "cljw.java.util.concurrent.atomic.AtomicInteger", tier: A, phase: 15, status: "no surface; paired with AtomicLong reservation"}
+    classes: []
   B:
     description: "Recommended compatibility, target Phase 8-14. Test gate: coverage report (no fail required)."
     namespaces:
