@@ -512,6 +512,11 @@ pub const Code = enum {
     /// tables, so without this check the call silently operates on whatever the
     /// callee happens to have at that index (ADR-0159 amendment 1).
     wasm_resource_foreign,
+    /// args: `.{}` — `wasm/resource-drop` on a resource whose component is a
+    /// single-module component (zwasm's `.single` variant), which carries no
+    /// resource table, so the host cannot run the drop. A structural property
+    /// of the component, not a guest trap (D-568, ADR-0159 amendment 1).
+    wasm_resource_no_table,
     /// args: `.{}` — `wasm/call`'s export-name argument was not a string.
     wasm_export_name_invalid,
     /// args: `.{ .name = "..." }` — `wasm/call` found no export of that name.
@@ -1802,6 +1807,11 @@ pub fn entry(comptime code: Code) Entry {
             .kind = .value_error,
             .phase = .eval,
             .template = "wasm component: this resource handle belongs to a different component",
+        },
+        .wasm_resource_no_table => .{
+            .kind = .value_error,
+            .phase = .eval,
+            .template = "wasm/resource-drop: this component is a single core module with no resource table, so the host cannot drop its resources",
         },
         .wasm_export_name_invalid => .{
             .kind = .type_error,
