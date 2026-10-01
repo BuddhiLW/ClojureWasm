@@ -502,22 +502,35 @@ inline fn sContains(rt: *Runtime, env: *Env, v: Value, x: Value) anyerror!bool {
 
 fn mapEqual(rt: *Runtime, env: *Env, a: Value, b: Value) anyerror!bool {
     if (mCount(a) != mCount(b)) return false;
-    var ks = try mKeys(rt, a);
-    while (ks.tag() == .list and list.countOf(ks) > 0) {
-        const k = list.first(ks);
-        if (!try mContains(rt, env, b, k)) return false;
-        if (!try valueEqual(rt, env, try mGet(rt, env, a, k), try mGet(rt, env, b, k))) return false;
-        ks = list.rest(ks);
+    // Key iteration is over ISeq, not a list representation. Keep the cursor,
+    // key and fetched values live across comparator/protocol calls that collect.
+    var roots = [_]Value{ try mKeys(rt, a), .nil_val, .nil_val, .nil_val };
+    var sp: u16 = roots.len;
+    var frame: root_set.EvalFrame = .{ .stack = &roots, .sp = &sp, .locals = &.{}, .parent = root_set.eval_frame_head };
+    root_set.eval_frame_head = &frame;
+    defer root_set.eval_frame_head = frame.parent;
+    while (!roots[0].isNil()) {
+        roots[1] = try seqable.first(rt, env, roots[0], seqable.noloc);
+        if (!try mContains(rt, env, b, roots[1])) return false;
+        roots[2] = try mGet(rt, env, a, roots[1]);
+        roots[3] = try mGet(rt, env, b, roots[1]);
+        if (!try valueEqual(rt, env, roots[2], roots[3])) return false;
+        roots[0] = try seqable.next(rt, env, roots[0], seqable.noloc);
     }
     return true;
 }
 
 fn setEqual(rt: *Runtime, env: *Env, a: Value, b: Value) anyerror!bool {
     if (sCount(a) != sCount(b)) return false;
-    var es = try sSeq(rt, a);
-    while (es.tag() == .list and list.countOf(es) > 0) {
-        if (!try sContains(rt, env, b, list.first(es))) return false;
-        es = list.rest(es);
+    var roots = [_]Value{ try sSeq(rt, a), .nil_val };
+    var sp: u16 = roots.len;
+    var frame: root_set.EvalFrame = .{ .stack = &roots, .sp = &sp, .locals = &.{}, .parent = root_set.eval_frame_head };
+    root_set.eval_frame_head = &frame;
+    defer root_set.eval_frame_head = frame.parent;
+    while (!roots[0].isNil()) {
+        roots[1] = try seqable.first(rt, env, roots[0], seqable.noloc);
+        if (!try sContains(rt, env, b, roots[1])) return false;
+        roots[0] = try seqable.next(rt, env, roots[0], seqable.noloc);
     }
     return true;
 }
@@ -539,10 +552,7 @@ fn setEqual(rt: *Runtime, env: *Env, a: Value, b: Value) anyerror!bool {
 /// (D-460), numerics by category (D-205). Residual identity-compared
 /// keys: lazy / range (cannot realize rt-free) and deftype instances.
 pub fn keyEqValue(a: Value, b: Value) bool {
-    // NaN is never `=` to itself (clj `equiv`), so a NaN key can never be found
-    // even when bit-identical: `(contains? #{##NaN} ##NaN)` → false. Mirrors the
-    // valueEqual identity-fastpath exception. (The `.floating => {}` arm below
-    // then also yields false for the rare `0.0`/`-0.0` non-identical case.)
+    // IEEE NaN is never equal to itself, including as a map/set key.
     if (@intFromEnum(a) == @intFromEnum(b)) {
         if (a.tag() == .float and std.math.isNan(a.asFloat())) return false;
         return true;
@@ -564,9 +574,9 @@ pub fn keyEqValue(a: Value, b: Value) bool {
             //   interchangeable. The cached stripped projection (ADR-0077 /
             //   D-205) makes this a rt-free field compare, like Ratio.
             .decimal => return decimalKeyEq(a, b),
-            // `.floating`: equal floats are bit-identical (caught by the
-            //   identity check above); `0.0`/`-0.0` is a rare residual.
-            .floating => {},
+            // IEEE equality merges signed zeros, while NaN never matches.
+            // valueHash normalizes both zeros to the same bucket.
+            .floating => return a.asFloat() == b.asFloat(),
             .none => unreachable,
         }
     }
@@ -1069,8 +1079,8 @@ pub fn valueEqual(rt: *Runtime, env: *Env, a: Value, b: Value) anyerror!bool {
     //    interned keyword·symbol / pointer-identical heap. EXCEPTION: a NaN is
     //    never `=` to itself (IEEE / clj `equiv`: `(= ##NaN ##NaN)` → false),
     //    even bit-identical — fall through to the IEEE float compare below.
-    //    (Map/set KEY equality keeps NaN-equal via `keyEqValue`, matching clj's
-    //    equals/hash split — `(contains? #{##NaN} ##NaN)` → true.)
+    //    Map/set key equality also keeps NaN unequal: even
+    //    `(contains? #{##NaN} ##NaN)` is false on the JVM.
     if (@intFromEnum(a) == @intFromEnum(b)) {
         if (a.tag() == .float and std.math.isNan(a.asFloat())) return false;
         return true;

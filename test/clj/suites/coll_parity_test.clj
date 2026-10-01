@@ -30,6 +30,16 @@
   (is (= {:m 1} (meta (conj (with-meta [1] {:m 1}) 2))))
   (is (= {:m 1} (meta (conj (with-meta #{} {:m 1}) 1)))))
 
+(deftest sorted-seq-equality-and-printing-regressions
+  (is (false? (= (sorted-set 1 2) #{1 3})))
+  (is (false? (= (sorted-map :a 1) {:a 2})))
+  (is (= "{:a (2)}" (pr-str (sorted-map :a (map inc [1])))))
+  (is (false? (list? (seq (sorted-map :a 1)))))
+  (is (false? (list? (seq (sorted-set 1 2)))))
+  (is (false? (list? (rseq (sorted-set 1 2)))))
+  (is (false? (list? (keys (sorted-map :a 1)))))
+  (is (true? (seq? (seq (sorted-set 1))))))
+
 (deftest indexed-contains-and-get
   (testing "contains? on a String truncates a Number key; a non-number throws"
     (is (true? (contains? "abc" 1.5)))

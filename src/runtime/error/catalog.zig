@@ -243,7 +243,6 @@ pub const Code = enum {
     defrecord_fields_not_vector,
     defrecord_field_invalid,
     defrecord_mutable_field,
-    reify_form_incomplete,
     reify_section_invalid,
     letfn_form_incomplete,
     locking_form_incomplete,
@@ -1486,11 +1485,6 @@ pub fn entry(comptime code: Code) Entry {
             .kind = .syntax_error,
             .phase = .macroexpand,
             .template = "letfn fn-spec must be a list `(name [params...] body)`",
-        },
-        .reify_form_incomplete => .{
-            .kind = .syntax_error,
-            .phase = .macroexpand,
-            .template = "reify requires at least one protocol symbol and one method implementation",
         },
         .reify_section_invalid => .{
             .kind = .syntax_error,

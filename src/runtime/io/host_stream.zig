@@ -314,6 +314,14 @@ fn openOutputStreamFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceL
     return openFileSink(rt, .output, string_mod.asString(args[0]), "output-stream", loc);
 }
 
+/// Construct a buffer-backed Reader from a StringReader constructor.
+pub fn mintReader(rt: *Runtime, bytes: []const u8) !Value {
+    var data: std.ArrayList(u8) = .empty;
+    errdefer data.deinit(rt.gc.infra);
+    try data.appendSlice(rt.gc.infra, bytes);
+    return allocStream(rt, .reader, data, null);
+}
+
 /// `(rt/__string-reader s)` — a reader over the bytes of String `s`.
 fn stringReaderFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
     _ = env;
@@ -355,6 +363,19 @@ fn streamCopyFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocatio
 fn isStream(v: Value) bool {
     if (v.tag() != .host_instance) return false;
     return isStreamFqcn(host_instance.asHostInstance(v).descriptor.fqcn);
+}
+
+/// Borrow the unread buffer for one EDN form without draining later forms.
+pub fn remainingReader(rt: *Runtime, v: Value) !?[]const u8 {
+    if (!isStream(v)) return null;
+    const st = stateOf(v);
+    if (st.kind != .reader) return null;
+    while (st.stdin and !st.stdin_eof) try stdinFill(rt, st);
+    return st.data.items[st.pos..];
+}
+
+pub fn advanceReader(v: Value, bytes: usize) void {
+    stateOf(v).pos += bytes;
 }
 
 /// D-471 IOFactory arms for `slurp`: when `v` is an open reader/input-stream
