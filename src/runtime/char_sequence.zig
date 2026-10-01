@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: EPL-2.0
 //! The `java.lang.CharSequence` boundary: clj's `RT.seqFrom` / `RT.countFrom`
-//! / `RT.nthFrom` arms, and the `^CharSequence` string fns, read every
-//! CharSequence alike, whatever carries it.
+//! / `RT.nthFrom` arms, and the `^CharSequence` clojure.string and regex fns,
+//! read every CharSequence alike, whatever carries it.
 //!
 //! A String is the native CharSequence and each consumer keeps its own fast
 //! `.string` arm. The open set is a host surface (`java.lang.StringBuilder`)
@@ -21,12 +21,13 @@
 //! asks, where clj's StringSeq reads the live object through `charAt`: only a
 //! builder mutated after `seq` can tell the two apart.
 //!
-//! These are the miss paths of their callers (the value was not a native
-//! collection and not Seqable / Counted / Indexed), so none of this sits on a
-//! hot path.
+//! The seq / count / nth arms are the miss paths of their callers (the value
+//! was not a native collection and not Seqable / Counted / Indexed), and
+//! `textArg` answers a String with one tag check and no copy, so none of this
+//! sits on a hot path.
 //!
 //! Backend: impl-only
-//! Impl deps: dispatch, class_name, print
+//! Impl deps: dispatch, class_name, print, error_catalog
 //! Clojure peer: none (clojure.lang.RT's CharSequence arms)
 
 const std = @import("std");
@@ -46,7 +47,7 @@ const string_collection = @import("collection/string.zig");
 pub const PROTOCOL: []const u8 = "CharSequence";
 
 /// True iff `v` is a `java.lang.CharSequence`: a String, or an open-set value
-/// implementing the protocol.
+/// whose type declares it.
 pub fn isCharSequence(v: Value) bool {
     return class_name.isInstance(v, PROTOCOL);
 }
@@ -62,6 +63,15 @@ pub fn textOrNull(rt: *Runtime, env: *Env, v: Value, aw: *std.Io.Writer.Allocati
     if (!isCharSequence(v)) return null;
     try print.writeStrValue(rt, env, &aw.writer, v);
     return aw.writer.buffered();
+}
+
+/// A `^CharSequence` parameter of `fn_name` (a clojure.string fn that calls
+/// CharSequence methods on it, or a regex fn handing it to a Matcher): its
+/// characters as `textOrNull` answers them, else the type_arg_not_string raise
+/// (clj's ClassCastException). Same slice ownership as `textOrNull`.
+pub fn textArg(rt: *Runtime, env: *Env, v: Value, fn_name: []const u8, loc: SourceLocation, aw: *std.Io.Writer.Allocating) anyerror![]const u8 {
+    return (try textOrNull(rt, env, v, aw)) orelse
+        return error_catalog.raise(.type_arg_not_string, loc, .{ .fn_name = fn_name, .actual = @tagName(v.tag()) });
 }
 
 /// clj `RT.countFrom`'s CharSequence arm: `(.length v)` through the protocol,
