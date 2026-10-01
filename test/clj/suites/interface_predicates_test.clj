@@ -120,3 +120,18 @@
   (is (true? (indexed? (transient []))))
   (is (false? (vector? (transient []))))
   (is (= 2 (bounded-count 1 (transient [1 2])))))
+
+;; A map entry and the transients are invocable, so they are IFn; a list, a
+;; seq and a queue are not. The class-level answer follows the same set.
+(deftest ifn-follows-the-invocable-set
+  (is (= [true true true true true]
+         (mapv ifn? [(first {:a 1}) (subvec [1 2] 1) (transient []) (transient {})
+                     (transient #{})])))
+  (is (= [false false false]
+         (mapv ifn? ['(1) (seq [1]) clojure.lang.PersistentQueue/EMPTY])))
+  (is (= 1 ((first {:a 1}) 1)))
+  (is (= 10 ((transient [10 20]) 0)))
+  (is (true? (isa? (class (first {:a 1})) clojure.lang.IFn)))
+  (is (true? (isa? (class (transient [])) clojure.lang.IFn)))
+  (is (true? (isa? (class (subvec [1 2] 1)) clojure.lang.IFn)))
+  (is (false? (isa? (class '(1)) clojure.lang.IFn))))

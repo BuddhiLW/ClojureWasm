@@ -1080,6 +1080,51 @@ test "__extend-type! rejects a non-type_descriptor target" {
     );
 }
 
+test "__extend-type! :routed installs the rows without declaring the protocol" {
+    var fix: TestFixture = undefined;
+    try fix.init(testing.allocator);
+    defer fix.deinit();
+
+    const proto_name = try symbol_mod.intern(&fix.rt, null, "P");
+    var methods_vec = vector_mod.empty();
+    methods_vec = try vector_mod.conj(&fix.rt, methods_vec, try symbol_mod.intern(&fix.rt, null, "m"));
+    const proto_val = try makeProtocol(&fix.rt, &fix.env, &[_]Value{ proto_name, methods_vec }, .{});
+
+    const td = try fix.rt.gc.infra.create(td_mod.TypeDescriptor);
+    defer fix.rt.gc.infra.destroy(td);
+    td.* = .{
+        .fqcn = "user/Foo",
+        .kind = .deftype,
+        .field_layout = null,
+        .protocol_impls = &.{},
+        .method_table = &.{},
+        .parent = null,
+        .meta = Value.nil_val,
+    };
+    const td_ref = try td_mod.makeTypeDescriptorRef(&fix.rt, td);
+
+    var impls = vector_mod.empty();
+    impls = try vector_mod.conj(&fix.rt, impls, try buildImplPair(&fix.rt, "m", Value.initBuiltinFn(&extendTypeMockBuiltin)));
+    const routed = try keyword_mod.intern(&fix.rt, null, "routed");
+    _ = try extendType(&fix.rt, &fix.env, &[_]Value{ td_ref, proto_val, impls, routed }, .{});
+    defer {
+        for (td.method_table) |entry| fix.rt.gc.infra.free(entry.method_name);
+        fix.rt.gc.infra.free(td.method_table);
+    }
+
+    // The method dispatches under P, but the type does not declare P.
+    try testing.expectEqual(@as(usize, 1), td.method_table.len);
+    try testing.expectEqualStrings("P", td.method_table[0].protocol_name);
+    try testing.expectEqual(@as(usize, 0), td.protocol_impls.len);
+
+    // Any other fourth argument is a type error.
+    const other = try keyword_mod.intern(&fix.rt, null, "declared");
+    try testing.expectError(
+        error.TypeError,
+        extendType(&fix.rt, &fix.env, &[_]Value{ td_ref, proto_val, impls, other }, .{}),
+    );
+}
+
 // --- row 7.4 cycle 2 — __defrecord! primitive ---
 
 test "__defrecord! registers a TypeDescriptor with .kind = .defrecord" {

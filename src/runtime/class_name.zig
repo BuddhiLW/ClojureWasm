@@ -361,26 +361,15 @@ fn matchNativeExact(v: Value, simple: []const u8) bool {
     return false;
 }
 
-/// True iff `name` is a callable class — a member of `clojure.lang.IFn` for
-/// class-level `(isa? <class> IFn)` (ADR-0109). The cljw class names whose
-/// instances are `ifn?`: `Fn` / `MultiFn` (the `displayClassName` names for the
-/// callable tags), Keyword/Symbol/Var, and the persistent collections (all
-/// invocable as lookups). Mirrors `core.ifnQ`.
+/// True iff `name` is a callable class, a member of `clojure.lang.IFn` for
+/// class-level `(isa? <class> IFn)` (ADR-0109): `Fn`, the one display name the
+/// fn / builtin / protocol-fn tags share (D-337), or a native class whose tag
+/// is in IFn's `interface_membership` set, so `(isa? (class x) IFn)` and
+/// `(ifn? x)` cannot drift.
 pub fn isCallableClassName(name: []const u8) bool {
-    const CALLABLE = [_][]const u8{
-        // `Fn` / `MultiFn` are the `(class x)` names for the callable tags
-        // (fn_val / builtin_fn / protocol_fn / multi_fn) per `displayClassName`
-        // (D-337); `(isa? (class +) IFn)` resolves through these names, not the
-        // retired raw heap-tag names.
-        "Fn",                "MultiFn",           "Keyword",            "Symbol",
-        "Var",               "PersistentVector",  "PersistentArrayMap", "PersistentHashMap",
-        "PersistentHashSet", "PersistentTreeMap", "PersistentTreeSet",
-    };
     const simple = normalizeClassName(name);
-    inline for (CALLABLE) |c| {
-        if (std.mem.eql(u8, c, simple)) return true;
-    }
-    return false;
+    if (std.mem.eql(u8, simple, "Fn")) return true;
+    return isClassInterfaceMember(simple, "IFn");
 }
 
 /// Class-level interface membership (D-293): true iff instances of the NATIVE
@@ -392,21 +381,23 @@ pub fn isCallableClassName(name: []const u8) bool {
 /// or a non-interface `interface` name (so callers can probe unconditionally and
 /// fall through). Both args may be simple or FQCN.
 pub fn isClassInterfaceMember(child: []const u8, interface: []const u8) bool {
-    const tag = nativeTagFor(child) orelse seqDisplayTag(child) orelse return false;
+    const tag = nativeTagFor(child) orelse displayClassTag(child) orelse return false;
     return interface_membership.isMember(tag, normalizeClassName(interface));
 }
 
-/// Inverse of `displayClassName` for the SEQ-view class names — the names
-/// `(class x)` reports for lazy/range/cons/string-seq/array-seq/chunked values
-/// that are NOT `NATIVE_ENTRIES` exact-tag classes. Lets `isClassInterfaceMember`
-/// resolve e.g. `(isa? (class (range 3)) Seqable)` (a range IS seqable). Refs
-/// (Atom/Ref/…) are omitted — they implement no collection interface — and the
-/// ambiguous `Fn` is omitted (IFn membership is `isCallableClassName`).
-fn seqDisplayTag(name: []const u8) ?Tag {
+/// Inverse of `displayClassName` for the seq-view and transient class names,
+/// the names `(class x)` reports for values that are NOT `NATIVE_ENTRIES`
+/// exact-tag classes. Lets `isClassInterfaceMember` resolve e.g.
+/// `(isa? (class (range 3)) Seqable)` or `(isa? (class (transient [])) Counted)`.
+/// Refs (Atom/Ref/…) are omitted, as they implement no collection interface,
+/// and so is the ambiguous `Fn` (see `isCallableClassName`).
+fn displayClassTag(name: []const u8) ?Tag {
     const M = std.StaticStringMap(Tag).initComptime(.{
-        .{ "LazySeq", .lazy_seq },        .{ "LongRange", .range },
-        .{ "ChunkedSeq", .chunked_cons }, .{ "Cons", .cons },
-        .{ "StringSeq", .string_seq },    .{ "ArraySeq", .array_seq },
+        .{ "LazySeq", .lazy_seq },                 .{ "LongRange", .range },
+        .{ "ChunkedSeq", .chunked_cons },          .{ "Cons", .cons },
+        .{ "StringSeq", .string_seq },             .{ "ArraySeq", .array_seq },
+        .{ "TransientVector", .transient_vector }, .{ "TransientArrayMap", .transient_map },
+        .{ "TransientHashSet", .transient_set },
     });
     return M.get(name);
 }
@@ -664,4 +655,18 @@ test "LazySeq and Cons are exact-tag native classes (ADR-0194)" {
     try testing.expectEqualStrings("Cons", fqcnForTag(.cons).?);
     try testing.expect(isKnown("clojure.lang.LazySeq"));
     try testing.expect(isKnown("clojure.lang.Cons"));
+}
+
+test "isCallableClassName derives from the IFn tag set" {
+    try testing.expect(isCallableClassName("Fn"));
+    try testing.expect(isCallableClassName("clojure.lang.PersistentVector"));
+    try testing.expect(isCallableClassName("SubVector"));
+    try testing.expect(isCallableClassName("MapEntry"));
+    try testing.expect(isCallableClassName("TransientVector"));
+    try testing.expect(isCallableClassName("TransientHashSet"));
+    try testing.expect(!isCallableClassName("PersistentList"));
+    try testing.expect(!isCallableClassName("PersistentQueue"));
+    try testing.expect(!isCallableClassName("LazySeq"));
+    try testing.expect(isClassInterfaceMember("TransientArrayMap", "Counted"));
+    try testing.expect(!isClassInterfaceMember("Cons", "Counted"));
 }

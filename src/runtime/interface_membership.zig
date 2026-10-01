@@ -76,9 +76,10 @@ const ISEQ_TAGS = [_]Tag{ .list, .cons, .lazy_seq, .chunked_cons, .range, .strin
 /// Sequential — ordered colls + seqs (NOT maps/sets); kept in sync with
 /// `sequential?` (lang/primitive/core.zig).
 const SEQUENTIAL_TAGS = [_]Tag{ .vector, .sub_vector, .map_entry, .list, .cons, .lazy_seq, .chunked_cons, .range, .string_seq, .array_seq, .persistent_queue };
-/// IFn — every callable (mirrors core.ifnQ): fns + keyword/symbol/var + the
-/// persistent colls (all invocable as lookups).
-const IFN_TAGS = [_]Tag{ .fn_val, .builtin_fn, .multi_fn, .protocol_fn, .keyword, .symbol, .var_ref, .vector, .sub_vector, .array_map, .hash_map, .hash_set, .sorted_map, .sorted_set };
+/// IFn — every callable (`ifn?` reads this set): fns + keyword/symbol/var + the
+/// persistent maps / sets / vectors, the map entry and the transients (all
+/// invocable as lookups). NOT list / seq / queue.
+const IFN_TAGS = [_]Tag{ .fn_val, .builtin_fn, .multi_fn, .protocol_fn, .keyword, .symbol, .var_ref, .vector, .sub_vector, .map_entry, .array_map, .hash_map, .hash_set, .sorted_map, .sorted_set, .transient_vector, .transient_map, .transient_set };
 /// Number — the full numeric tower (mirrors `number?` / `(instance? Number x)`):
 /// inline Long/Double + heap BigInt/Ratio/BigDecimal. (Was `{integer, float}`;
 /// widened with ADR-0128 so `isInstance("Number")` IS `number?` and the macro's
