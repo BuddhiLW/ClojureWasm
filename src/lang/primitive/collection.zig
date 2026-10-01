@@ -31,6 +31,7 @@ const error_mod = @import("../../runtime/error/info.zig");
 const error_catalog = @import("../../runtime/error/catalog.zig");
 const SourceLocation = error_mod.SourceLocation;
 const dispatch = @import("../../runtime/dispatch.zig");
+const char_sequence = @import("../../runtime/char_sequence.zig");
 const lookup = @import("../../runtime/collection/lookup.zig");
 const tagged_literal_mod = @import("../../runtime/tagged_literal.zig");
 
@@ -773,6 +774,10 @@ pub fn nthFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) 
             }
             var cs: dispatch.CallSite = .{};
             const slow_args = [_]Value{ coll, i_val };
+            if (try dispatch.dispatchOrNull(rt, env, &cs, coll, INDEXED_FQCN, "-nth", &slow_args, loc)) |r| break :blk r;
+            // clj RT.nthFrom: a CharSequence that is not Indexed answers its
+            // charAt (java.lang.StringBuilder, instaparse's Segment).
+            if (try char_sequence.nthOrNull(rt, env, coll, i_val, if (has_default) default else null, loc)) |r| break :blk r;
             break :blk try dispatch.dispatch(rt, env, &cs, coll, INDEXED_FQCN, "-nth", &slow_args, loc);
         },
     };

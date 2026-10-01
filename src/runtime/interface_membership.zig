@@ -98,7 +98,10 @@ const COUNTED_TAGS = [_]Tag{ .list, .cons, .chunked_cons, .vector, .sub_vector, 
 const MAPEQUIV_TAGS = [_]Tag{ .array_map, .hash_map, .sorted_map };
 /// IKVReduce — `reduce-kv`-able: maps + vector.
 const IKVREDUCE_TAGS = [_]Tag{ .array_map, .hash_map, .sorted_map, .vector, .sub_vector };
-/// CharSequence — strings only (cljw has no StringBuilder/CharBuffer native tag).
+/// CharSequence — the one native tag is String. The open set
+/// (java.lang.StringBuilder, a deftype declaring CharSequence) has no tag of its
+/// own: it declares the interface on its descriptor, which class_name's
+/// matchUserType answers (runtime/char_sequence.zig).
 const CHARSEQ_TAGS = [_]Tag{.string};
 /// Comparable: ordered scalars + vector/map_entry. NOTE
 /// clj's `BigInt` is NOT Comparable (only Integer/Ratio/BigDecimal/Double are) —

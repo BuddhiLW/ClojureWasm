@@ -160,6 +160,10 @@ const FQCN_MAP = std.StaticStringMap([]const u8).initComptime(.{
     .{ "clojure.lang.IPersistentCollection", "IPersistentCollection" },
     .{ "clojure.lang.IEditableCollection", "IEditableCollection" },
     .{ "java.lang.Iterable", "Iterable" },
+    // java.lang.CharSequence: a String natively, else any value declaring it (a
+    // StringBuilder's host_supertypes, a deftype such as instaparse's Segment),
+    // which matchUserType finds under this simple name.
+    .{ "java.lang.CharSequence", "CharSequence" },
     .{ "clojure.lang.Seqable", "Seqable" },
     .{ "clojure.lang.Sequential", "Sequential" },
     .{ "clojure.lang.ISeq", "ISeq" },

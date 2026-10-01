@@ -58,6 +58,7 @@ const transient_array_map = @import("../../runtime/collection/transient/transien
 const transient_hash_set = @import("../../runtime/collection/transient/transient_hash_set.zig");
 const lazy_seq = @import("../../runtime/lazy_seq.zig");
 const seqable = @import("../../runtime/seqable.zig");
+const char_sequence = @import("../../runtime/char_sequence.zig");
 const charset = @import("../../runtime/charset.zig");
 const td_mod = @import("../../runtime/type_descriptor.zig");
 const root_set = @import("../../runtime/gc/root_set.zig");
@@ -161,14 +162,10 @@ pub fn countFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation
             }
             if (desc.isPersistentCollection()) break :blk try countBySeqWalk(rt, env, coll, loc);
             // clj RT.countFrom: a non-collection CharSequence counts by
-            // .length() — instaparse's Segment deftype (D-430). The
-            // CharSequence remap registers `length` as -cs-length
-            // (host_interface.zig CHAR_SEQUENCE), so a null here means the
-            // type is not a CharSequence (or declared it method-less).
-            {
-                var cs: dispatch.CallSite = .{};
-                if (try dispatch.dispatchOrNull(rt, env, &cs, coll, "CharSequence", "-cs-length", args, loc)) |v| break :blk v;
-            }
+            // .length() — instaparse's Segment deftype (D-430). A null here
+            // means the type is not a CharSequence (or declared it
+            // method-less).
+            if (try char_sequence.lengthOrNull(rt, env, coll, loc)) |v| break :blk v;
             return error_catalog.raise(.protocol_no_satisfies, loc, .{
                 .protocol = IPC_FQCN,
                 .method = "-count",
@@ -225,10 +222,14 @@ pub fn countFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation
             // `clojure.core/IPersistentCollection -count`. Reaches
             // `(extend-type LongTag IPersistentCollection -count …)` style
             // native-Tag overrides via the row 7.3 per-Tag descriptor
-            // registry; raises protocol_no_satisfies when no MethodEntry
-            // is registered (cleaner JVM-parity diagnostic than the
-            // pre-7.7 type_arg_invalid).
+            // registry. A host CharSequence with no -count
+            // (java.lang.StringBuilder) counts by .length(), clj
+            // RT.countFrom; anything else raises protocol_no_satisfies
+            // (cleaner JVM-parity diagnostic than the pre-7.7
+            // type_arg_invalid).
             var cs: dispatch.CallSite = .{};
+            if (try dispatch.dispatchOrNull(rt, env, &cs, coll, IPC_FQCN, "-count", args, loc)) |v| break :blk v;
+            if (try char_sequence.lengthOrNull(rt, env, coll, loc)) |v| break :blk v;
             break :blk try dispatch.dispatch(rt, env, &cs, coll, IPC_FQCN, "-count", args, loc);
         },
     };

@@ -6,7 +6,9 @@
 //! `next` read a value through that seq. The native tag set is closed, so it
 //! is a switch; the open set (deftype / reify / host instance / `extend-type`
 //! on a native tag) reaches user code through protocol dispatch
-//! (`Seqable/-seq`, `ISeq/-first|-rest|-next`).
+//! (`Seqable/-seq`, `ISeq/-first|-rest|-next`). An open value with no `-seq`
+//! that is a CharSequence (java.lang.StringBuilder, instaparse's Segment)
+//! seqs as its chars, RT.seqFrom's CharSequence arm (char_sequence.zig).
 //!
 //! Projections: `clojure.core/seq|first|rest|next` (`lang/primitive/
 //! sequence.zig`) are arity checks over these; `lazy_seq.zig` realizes a lazy
@@ -52,6 +54,7 @@ const map_entry = @import("collection/map_entry.zig");
 const set = @import("collection/set.zig");
 const sorted = @import("collection/sorted.zig");
 const persistent_queue = @import("collection/persistent_queue.zig");
+const char_sequence = @import("char_sequence.zig");
 
 /// Protocol names the boundary dispatches on. Bootstrap declares each protocol
 /// in `lang/clj/clojure/core.clj`, so the fqcn stored at extend-type time is
@@ -86,11 +89,15 @@ pub fn seq(rt: *Runtime, env: *Env, v: Value, loc: SourceLocation) anyerror!Valu
         .lazy_seq => try lazy_seq.seq(rt, env, v, loc),
         .typed_instance => try typedInstanceSeq(rt, env, v, loc),
         // Reified instances, host instances and `(extend-type NativeTag Seqable
-        // …)` overrides resolve through the descriptor chain; `dispatch` also
-        // consults the protocol-target and Object defaults, then raises
-        // `protocol_no_satisfies` (D-459: `(seq 5)` is a value error).
+        // …)` overrides resolve through the descriptor chain. A value with no
+        // `-seq` of its own that is a CharSequence (java.lang.StringBuilder)
+        // seqs as its chars; otherwise `dispatch` consults the protocol-target
+        // and Object defaults, then raises `protocol_no_satisfies` (D-459:
+        // `(seq 5)` is a value error).
         else => blk: {
             var cs: dispatch.CallSite = .{};
+            if (try dispatch.dispatchOrNull(rt, env, &cs, v, SEQABLE, "-seq", &.{v}, loc)) |s| break :blk try checkedSeq(s, loc);
+            if (try charSequenceSeq(rt, env, v)) |s| break :blk s;
             break :blk try checkedSeq(try dispatch.dispatch(rt, env, &cs, v, SEQABLE, "-seq", &.{v}, loc), loc);
         },
     };
@@ -188,8 +195,9 @@ inline fn isInstance(v: Value) bool {
 }
 
 /// A deftype / record receiver: a `Seqable/-seq` override wins; otherwise a
-/// defrecord is Seqable as its `[k v]` entry seq (JVM parity) and a deftype
-/// with no `-seq` raises.
+/// defrecord is Seqable as its `[k v]` entry seq (JVM parity), a deftype
+/// declaring CharSequence seqs as its chars (instaparse's Segment), and any
+/// other deftype with no `-seq` raises.
 fn typedInstanceSeq(rt: *Runtime, env: *Env, v: Value, loc: SourceLocation) anyerror!Value {
     var cs: dispatch.CallSite = .{};
     if (try dispatch.dispatchOrNull(rt, env, &cs, v, SEQABLE, "-seq", &.{v}, loc)) |s| return checkedSeq(s, loc);
@@ -198,11 +206,30 @@ fn typedInstanceSeq(rt: *Runtime, env: *Env, v: Value, loc: SourceLocation) anye
         const m = try recordToMap(rt, inst);
         return if (map.count(m) > 0) try map.seq(rt, m) else .nil_val;
     }
+    if (try charSequenceSeq(rt, env, v)) |s| return s;
     return error_catalog.raise(.protocol_no_satisfies, loc, .{
         .protocol = SEQABLE,
         .method = "-seq",
         .type_name = inst.descriptor.fqcn orelse "<anonymous>",
     });
+}
+
+/// clj `RT.seqFrom`'s CharSequence arm: a StringSeq over the chars of a
+/// non-string CharSequence, nil when it is empty; null when `v` is not one.
+/// The view backs onto a fresh String holding the content as `seq` found it
+/// (char_sequence.zig on the snapshot).
+fn charSequenceSeq(rt: *Runtime, env: *Env, v: Value) anyerror!?Value {
+    var aw: std.Io.Writer.Allocating = .init(rt.gpa);
+    defer aw.deinit();
+    const text = (try char_sequence.textOrNull(rt, env, v, &aw)) orelse return null;
+    var roots = [_]Value{try string_collection.alloc(rt, text)};
+    var sp: u16 = 1;
+    // GC-ROOT: A9 — the snapshot String is reachable only from here until the
+    // view's single allocation stores it as `backing` [ref: .dev/gc_rooting.md §A].
+    var frame: root_set.EvalFrame = .{ .stack = &roots, .sp = &sp, .locals = &.{}, .parent = root_set.eval_frame_head };
+    root_set.eval_frame_head = &frame;
+    defer root_set.eval_frame_head = frame.parent;
+    return try string_seq.make(rt, roots[0], 0);
 }
 
 /// A user Seqable method has the JVM return type ISeq. Validate that contract
