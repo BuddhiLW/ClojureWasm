@@ -766,42 +766,65 @@ pub fn truncToI64(rt: *Runtime, v: Value) !i64 {
         },
         .big_int => return big_int.asManaged(v).toInt(i64) catch error.OutOfRange,
         .ratio => switch (ratio_mod.parts(v)) {
-            // small: |n/d| <= |n| < 2^63 → exact i64, no overflow.
+            // small: |n/d| <= |n| < 2^63, so the quotient is an exact i64.
             .small => |s| return @divTrunc(s.n, s.d),
-            .big => |b| {
-                var q = try Managed.init(rt.gc.infra);
-                defer q.deinit();
-                var r = try Managed.init(rt.gc.infra);
-                defer r.deinit();
-                try q.divTrunc(&r, b.n.m, b.d.m);
-                return q.toInt(i64) catch error.OutOfRange;
-            },
+            .big => return ownedToI64(try truncToManaged(rt, v)),
+        },
+        .big_decimal => return ownedToI64(try truncToManaged(rt, v)),
+        else => return error.NotANumber,
+    }
+}
+
+/// The integer part of an exact numeric Value, truncated toward zero, at any
+/// width: clj's `Ratio.bigIntegerValue` and `BigDecimal.toBigInteger`, which
+/// `bigint` and `biginteger` answer (`(bigint 24691357802469135781/2)` is
+/// 12345678901234567890N). `error.NotANumber` for a float, which has no exact
+/// integer part here (`bigint` takes a double through a BigDecimal first, as
+/// clj does), or for a non-numeric tag. The caller owns the result.
+pub fn truncToManaged(rt: *Runtime, v: Value) !Managed {
+    const infra = rt.gc.infra;
+    switch (v.tag()) {
+        .integer => return Managed.initSet(infra, @as(i64, v.asInteger())),
+        .char => return Managed.initSet(infra, @as(i64, v.asChar())),
+        .big_int => return big_int.asManaged(v).cloneWithDifferentAllocator(infra),
+        .ratio => switch (ratio_mod.parts(v)) {
+            .small => |s| return Managed.initSet(infra, @divTrunc(s.n, s.d)),
+            .big => |b| return truncQuotient(rt, b.n.m, b.d.m),
         },
         .big_decimal => {
+            // value = unscaled * 10^(-scale): divTrunc by 10^scale for a
+            // positive scale, an exact multiply for a negative one.
             const bd = v.decodePtr(*const big_decimal_mod.BigDecimal);
-            // value = unscaled * 10^(-scale); trunc toward zero is
-            // divTrunc(unscaled, 10^scale) for scale>0, an exact multiply
-            // for scale<=0.
-            var u = try bd.unscaled.m.cloneWithDifferentAllocator(rt.gc.infra);
+            var u = try bd.unscaled.m.cloneWithDifferentAllocator(infra);
+            if (bd.scale == 0) return u;
             defer u.deinit();
-            if (bd.scale == 0) return u.toInt(i64) catch error.OutOfRange;
             var pow = try tenPow(rt, if (bd.scale < 0) -bd.scale else bd.scale);
             defer pow.deinit();
-            if (bd.scale > 0) {
-                var q = try Managed.init(rt.gc.infra);
-                defer q.deinit();
-                var r = try Managed.init(rt.gc.infra);
-                defer r.deinit();
-                try q.divTrunc(&r, &u, &pow);
-                return q.toInt(i64) catch error.OutOfRange;
-            }
-            var p = try Managed.init(rt.gc.infra);
-            defer p.deinit();
+            if (bd.scale > 0) return truncQuotient(rt, &u, &pow);
+            var p = try Managed.init(infra);
+            errdefer p.deinit();
             try p.mul(&u, &pow);
-            return p.toInt(i64) catch error.OutOfRange;
+            return p;
         },
         else => return error.NotANumber,
     }
+}
+
+/// `n / d` truncated toward zero, as an owned Managed.
+fn truncQuotient(rt: *Runtime, n: *const Managed, d: *const Managed) !Managed {
+    var q = try Managed.init(rt.gc.infra);
+    errdefer q.deinit();
+    var r = try Managed.init(rt.gc.infra);
+    defer r.deinit();
+    try q.divTrunc(&r, n, d);
+    return q;
+}
+
+/// `m` as an i64, or `error.OutOfRange`; takes ownership of `m`.
+fn ownedToI64(m: Managed) error{OutOfRange}!i64 {
+    var owned = m;
+    defer owned.deinit();
+    return owned.toInt(i64) catch error.OutOfRange;
 }
 
 /// Read an EXACT integer Value as an i64 — no truncation, no widening.
