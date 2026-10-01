@@ -487,7 +487,7 @@ fn buildCompilerSpecials(rt: *Runtime) AnalyzeError!Value {
 /// Used by both the atom-analyzer path and the quote-lift path.
 pub fn parseBigIntLiteral(rt: *Runtime, digits: []const u8, loc: error_mod.SourceLocation) !Value {
     var m = big_int.parseBase10(rt, digits) catch
-        return error_catalog.raise(.integer_literal_invalid, loc, .{ .text = digits });
+        return error_catalog.raise(.number_literal_invalid, loc, .{ .text = digits });
     defer m.deinit();
     // `5N` and a past-i64 no-`N` literal both reach here — both are genuine
     // BigInts (clj: `5N`→BigInt, `99999999999999999999`→BigInt `…N`). D-165.
@@ -507,9 +507,9 @@ pub fn parseBigDecimalLiteral(rt: *Runtime, digits: []const u8, loc: error_mod.S
     if (std.mem.findAny(u8, digits, "eE")) |e_pos| {
         mantissa = digits[0..e_pos];
         const exp_txt = digits[e_pos + 1 ..];
-        if (exp_txt.len == 0) return error_catalog.raise(.big_decimal_literal_invalid, loc, .{ .text = digits });
+        if (exp_txt.len == 0) return error_catalog.raise(.number_literal_invalid, loc, .{ .text = digits });
         exponent = std.fmt.parseInt(i32, exp_txt, 10) catch
-            return error_catalog.raise(.big_decimal_literal_invalid, loc, .{ .text = digits });
+            return error_catalog.raise(.number_literal_invalid, loc, .{ .text = digits });
     }
 
     // Locate the decimal point if any.
@@ -530,7 +530,7 @@ pub fn parseBigDecimalLiteral(rt: *Runtime, digits: []const u8, loc: error_mod.S
         const pre = mantissa[0..p];
         const post = mantissa[p + 1 ..];
         if (pre.len + post.len > buf.len) {
-            return error_catalog.raise(.big_decimal_literal_invalid, loc, .{ .text = digits });
+            return error_catalog.raise(.number_literal_invalid, loc, .{ .text = digits });
         }
         std.mem.copyForwards(u8, buf[0..pre.len], pre);
         std.mem.copyForwards(u8, buf[pre.len .. pre.len + post.len], post);
@@ -538,7 +538,7 @@ pub fn parseBigDecimalLiteral(rt: *Runtime, digits: []const u8, loc: error_mod.S
         scale = @intCast(post.len);
     } else {
         if (mantissa.len > buf.len) {
-            return error_catalog.raise(.big_decimal_literal_invalid, loc, .{ .text = digits });
+            return error_catalog.raise(.number_literal_invalid, loc, .{ .text = digits });
         }
         std.mem.copyForwards(u8, buf[0..mantissa.len], mantissa);
         buf_len = mantissa.len;
@@ -546,10 +546,10 @@ pub fn parseBigDecimalLiteral(rt: *Runtime, digits: []const u8, loc: error_mod.S
     // `× 10^exponent` on a (unscaled, scale) pair is a scale shift, so a
     // literal exponent never touches the digits.
     scale = std.math.sub(i32, scale, exponent) catch
-        return error_catalog.raise(.big_decimal_literal_invalid, loc, .{ .text = digits });
+        return error_catalog.raise(.number_literal_invalid, loc, .{ .text = digits });
 
     var unscaled = big_int.parseBase10(rt, buf[0..buf_len]) catch
-        return error_catalog.raise(.big_decimal_literal_invalid, loc, .{ .text = digits });
+        return error_catalog.raise(.number_literal_invalid, loc, .{ .text = digits });
     defer unscaled.deinit();
 
     return try big_decimal.allocFromManagedScale(rt, &unscaled, scale);
@@ -562,11 +562,11 @@ pub fn parseBigDecimalLiteral(rt: *Runtime, digits: []const u8, loc: error_mod.S
 /// covers e.g. `6/2` → 3).
 pub fn parseRatioLiteral(rt: *Runtime, digits: []const u8, loc: error_mod.SourceLocation) !Value {
     const slash = std.mem.findScalar(u8, digits, '/') orelse
-        return error_catalog.raise(.float_literal_invalid, loc, .{ .text = digits });
+        return error_catalog.raise(.number_literal_invalid, loc, .{ .text = digits });
     const num = std.fmt.parseInt(i64, digits[0..slash], 10) catch
-        return error_catalog.raise(.float_literal_invalid, loc, .{ .text = digits });
+        return error_catalog.raise(.number_literal_invalid, loc, .{ .text = digits });
     const den = std.fmt.parseInt(i64, digits[slash + 1 ..], 10) catch
-        return error_catalog.raise(.float_literal_invalid, loc, .{ .text = digits });
+        return error_catalog.raise(.number_literal_invalid, loc, .{ .text = digits });
     const r = ratio_mod.allocFromI64Pair(rt, num, den) catch |err| switch (err) {
         error.DivideByZero => return error_catalog.raise(.divide_by_zero, loc, .{}),
         error.OutOfMemory => return error.OutOfMemory,

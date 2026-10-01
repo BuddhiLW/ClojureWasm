@@ -73,9 +73,11 @@ pub const Code = enum {
     /// rejection. Distinct from `feature_not_supported` (uncatchable), which is
     /// for well-FORMED code using something cljw does not implement.
     form_malformed,
-    integer_literal_invalid,
-    float_literal_invalid,
-    big_decimal_literal_invalid,
+    /// A digit-led token that matches no number shape (`12x`, `1/2/3`), or a
+    /// numeric literal whose digits do not parse (`09`, `2r3`). One code for
+    /// every literal kind, as clj LispReader: NumberFormatException
+    /// "Invalid number: <text>".
+    number_literal_invalid,
     string_unterminated,
     map_literal_arity_odd,
     literal_key_duplicate,
@@ -691,20 +693,10 @@ pub fn entry(comptime code: Code) Entry {
             // and echoing a megabyte of it into a message helps nobody.
             .template = "JSON error ({[reason]s})",
         },
-        .integer_literal_invalid => .{
+        .number_literal_invalid => .{
             .kind = .number_error,
             .phase = .parse,
-            .template = "Invalid integer literal '{[text]s}'",
-        },
-        .float_literal_invalid => .{
-            .kind = .number_error,
-            .phase = .parse,
-            .template = "Invalid float literal '{[text]s}'",
-        },
-        .big_decimal_literal_invalid => .{
-            .kind = .number_error,
-            .phase = .parse,
-            .template = "Invalid bigdec literal '{[text]s}M'",
+            .template = "Invalid number: {[text]s}",
         },
         .string_unterminated => .{
             .kind = .string_error,
