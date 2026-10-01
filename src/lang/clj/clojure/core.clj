@@ -721,9 +721,11 @@
 ;; map ENTRY, as in clj: `(map-entry? (find {:a 1} :a))` is true and `key`/`val`
 ;; work on it. It built a plain 2-vector until entries became a distinct type,
 ;; which made `(key (find m k))` throw — and `find` also backs `.entryAt`, so
-;; every Associative host-method path inherited the bug.
+;; every Associative host-method path inherited the bug. The entry's key is
+;; the one STORED in m (clj Associative.entryAt), not the probe:
+;; `(find {1N :a} 1)` is [1N :a], `(find {0.0 :z} -0.0)` is [0.0 :z].
 (def find
-  (fn* [m k] (if (contains? m k) (MapEntry. k (get m k)) nil)))
+  (fn* [m k] (cljw.internal/__entry-at m k)))
 
 ;; `(subvec v start [end])` — the elements of v in [start, end) (end
 ;; defaults to (count v)) as a vector. For a vector this is JVM's O(1)
@@ -789,10 +791,9 @@
 ;; ----------------------------------------------------------------
 
 ;; `(select-keys m ks)` — return a map containing only the keys in
-;; `ks` that are present in `m`. JVM uses `find` to distinguish
-;; "absent" from "nil-valued"; cw v1 uses `contains?` (same
-;; semantic when nil-values are absent — Phase 7+ value-meta layer
-;; adds `find`). `m` must be associative or nil: JVM `RT/find` casts a
+;; `ks` that are present in `m`. As in clj it conjoins the `find` ENTRY,
+;; so a present nil value survives and the result carries m's STORED key
+;; (`(select-keys {1N :a} [1])` is {1N :a}). `m` must be associative or nil: JVM `RT/find` casts a
 ;; non-Associative, non-nil arg to `Map` → ClassCastException, so a
 ;; string / list / number throws rather than silently returning `{}`.
 (def select-keys
@@ -801,8 +802,8 @@
     (if-let [ks (seq ks)]
       (if (or (nil? m) (associative? m))
         (reduce (fn* [acc k]
-                  (if (contains? m k)
-                    (assoc acc k (get m k))
+                  (if-let [e (find m k)]
+                    (assoc acc (nth e 0) (nth e 1))
                     acc))
                 {}
                 ks)

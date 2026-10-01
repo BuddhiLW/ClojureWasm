@@ -490,7 +490,9 @@ pub fn assoc(rt: *Runtime, env: *Env, m_val: Value, key: Value, val: Value, loc:
     return Value.encodeHeapPtr(.sorted_map, nm);
 }
 
-pub fn get(rt: *Runtime, env: *Env, m_val: Value, key: Value, loc: SourceLocation) !Value {
+/// `entryAt`: the STORED entry for `key` (the tree's own key object, not
+/// the probe), or null when absent. `get` / `contains` project it.
+pub fn entryAt(rt: *Runtime, env: *Env, m_val: Value, key: Value, loc: SourceLocation) !?map_mod.Entry {
     const m = m_val.decodePtr(*const SortedMap);
     var h = m.root;
     while (h.tag() == .rb_node) {
@@ -498,24 +500,18 @@ pub fn get(rt: *Runtime, env: *Env, m_val: Value, key: Value, loc: SourceLocatio
         switch (try compareKeys(rt, env, m.comparator, key, hn.key, loc)) {
             .lt => h = hn.left,
             .gt => h = hn.right,
-            .eq => return hn.val,
+            .eq => return .{ .key = hn.key, .val = hn.val },
         }
     }
-    return Value.nil_val;
+    return null;
+}
+
+pub fn get(rt: *Runtime, env: *Env, m_val: Value, key: Value, loc: SourceLocation) !Value {
+    return if (try entryAt(rt, env, m_val, key, loc)) |e| e.val else Value.nil_val;
 }
 
 pub fn contains(rt: *Runtime, env: *Env, m_val: Value, key: Value, loc: SourceLocation) !bool {
-    const m = m_val.decodePtr(*const SortedMap);
-    var h = m.root;
-    while (h.tag() == .rb_node) {
-        const hn = h.decodePtr(*const RbNode);
-        switch (try compareKeys(rt, env, m.comparator, key, hn.key, loc)) {
-            .lt => h = hn.left,
-            .gt => h = hn.right,
-            .eq => return true,
-        }
-    }
-    return false;
+    return (try entryAt(rt, env, m_val, key, loc)) != null;
 }
 
 pub fn dissoc(rt: *Runtime, env: *Env, m_val: Value, key: Value, loc: SourceLocation) !Value {
@@ -779,6 +775,11 @@ pub fn conjSet(rt: *Runtime, env: *Env, set_val: Value, elem: Value, loc: Source
 
 pub fn setContains(rt: *Runtime, env: *Env, set_val: Value, elem: Value, loc: SourceLocation) !bool {
     return contains(rt, env, mapOf(set_val), elem, loc);
+}
+
+/// The STORED element `=` to `elem` under the set's comparator, or null.
+pub fn setGet(rt: *Runtime, env: *Env, set_val: Value, elem: Value, loc: SourceLocation) !?Value {
+    return if (try entryAt(rt, env, mapOf(set_val), elem, loc)) |e| e.key else null;
 }
 
 pub fn disjSet(rt: *Runtime, env: *Env, set_val: Value, elem: Value, loc: SourceLocation) !Value {

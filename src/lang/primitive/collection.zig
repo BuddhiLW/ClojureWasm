@@ -480,7 +480,10 @@ pub fn getFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) 
             }
             break :blk default;
         },
-        .hash_set => if (try set.contains(coll, k)) k else default,
+        // A set answers its STORED element (clj PersistentHashSet.get), not
+        // the probe: `(get #{1N} 1)` is 1N, `(get #{0.0} -0.0)` is 0.0.
+        .hash_set => (try set.get(coll, k)) orelse default,
+        .sorted_set => (try sorted.setGet(rt, env, coll, k, loc)) orelse default,
         .vector, .sub_vector => blk: {
             if (k.tag() != .integer) break :blk default;
             const idx = k.asInteger();
@@ -535,7 +538,7 @@ pub fn getFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) 
         },
         .transient_set => blk: {
             try transient_hash_set.ensureLive(coll, "get", loc);
-            break :blk if (try transient_hash_set.contains(coll, k)) k else default;
+            break :blk (try transient_hash_set.get(coll, k)) orelse default;
         },
         // Declared field → ILookup -lookup slow-path → default. Shared
         // with the keyword-as-fn `(:k rec)` path so the two agree (D-089).
@@ -554,6 +557,33 @@ pub fn getFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) 
         // (D-089 row 8.6 historic semantic preserved).
         else => try lookup.lookupDispatch(rt, env, coll, k, args.len == 3, default, loc),
     };
+}
+
+// --- find (entryAt) ---
+
+/// `(cljw.internal/__entry-at m k)`: the backing of clojure.core/find and
+/// `.entryAt`: the map entry for k as STORED in m (clj Associative.entryAt),
+/// or nil when absent. The entry carries the map's own key object, so
+/// `(find {1N :a} 1)` is [1N :a] and `(find {0.0 :z} -0.0)` is [0.0 :z].
+/// Every other receiver (vector, record, deftype, transient map) keeps the
+/// contains?/get composition, whose entry carries the PROBE: that is clj's
+/// own answer there, `ATransientMap.entryAt` builds its entry from the probe,
+/// so `(find (transient {1N :a}) 1)` is [1 :a] on the JVM.
+pub fn entryAtFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
+    try error_catalog.checkArity("find", args, 2, loc);
+    const coll = args[0];
+    const k = args[1];
+    const found: ?map.Entry = switch (coll.tag()) {
+        .nil => return .nil_val,
+        .array_map, .hash_map => try map.entryAt(coll, k),
+        .sorted_map => try sorted.entryAt(rt, env, coll, k, loc),
+        else => blk: {
+            if ((try containsQFn(rt, env, args, loc)) != .true_val) break :blk null;
+            break :blk .{ .key = k, .val = try getFn(rt, env, args, loc) };
+        },
+    };
+    const e = found orelse return .nil_val;
+    return map_entry.make(rt, e.key, e.val);
 }
 
 // --- nth ---
@@ -1333,6 +1363,7 @@ const ENTRIES = [_]Entry{
     .{ .name = "disj", .f = &disjFn },
     .{ .name = "contains?", .f = &containsQFn },
     .{ .name = "get", .f = &getFn },
+    .{ .name = "__entry-at", .f = &entryAtFn },
     .{ .name = "nth", .f = &nthFn },
     .{ .name = "assoc", .f = &assocFn },
     .{ .name = "dissoc", .f = &dissocFn },
