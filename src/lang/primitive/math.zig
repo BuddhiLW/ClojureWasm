@@ -451,13 +451,12 @@ pub fn compare(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation
     // path), so this cannot live in the shared valueCompare. `(compare ##NaN 1)`
     // → 0, `(compare ##NaN ##NaN)` → 0.
     if (isNanFloat(args[0]) or isNanFloat(args[1])) return Value.initInteger(0);
-    // A deftype/reify declaring java.lang.Comparable (instaparse's
-    // AutoFlattenSeq) supplies its own ordering: consult Comparable/
-    // -compare-to (clj: RT compare casts to Comparable and calls compareTo).
-    if (args[0].tag() == .typed_instance or args[0].tag() == .reified_instance) {
-        var cs: dispatch.CallSite = .{};
-        if (try dispatch.dispatchOrNull(rt, env, &cs, args[0], "Comparable", "-compare-to", args[0..2], loc)) |r| return r;
-    }
+    // A Comparable deftype/reify (instaparse's AutoFlattenSeq) or a host
+    // instance with compareTo (java.io.File) supplies its own ordering, and
+    // clj returns that compareTo int unchanged (RT compare casts to
+    // Comparable and calls compareTo), so `(compare (File. "a") (File. "c"))`
+    // is -2.
+    if (try compare_mod.comparableCompareTo(rt, env, args[0], args[1], loc)) |c| return Value.initInteger(c);
     // clj returns the Java compareTo MAGNITUDE for string/char/keyword/
     // symbol pairs (`(compare "a" "c")` → -2); everything else is a sign.
     if (compare_mod.javaCompareTo(args[0], args[1])) |diff| {

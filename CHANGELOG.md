@@ -22,8 +22,10 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
   `UUID.compareTo` does (signed most-significant long, then least), a
   `java.io.File` by its path, and a `deftype` or `reify` implementing
   `java.lang.Comparable` through its `compareTo`, in `compare`, `sort`,
-  `sort-by`, `sorted-set` and `sorted-map` alike. Incomparable pairs, such as
-  a Date and a UUID, still raise ClassCastException.
+  `sort-by`, `sorted-set` and `sorted-map` alike. `compare` returns the
+  receiver's compareTo int unchanged, so `(compare (java.io.File. "a")
+  (java.io.File. "c"))` is -2, as in clj. Incomparable pairs, such as a Date
+  and a UUID, still raise ClassCastException.
 
 - **`find`, `select-keys` and a set's `get` answer the STORED key.** `(find
   {1N :a} 1)` is `[1N :a]`, `(find {0.0 :z} -0.0)` is `[0.0 :z]`,

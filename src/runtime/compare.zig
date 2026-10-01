@@ -42,6 +42,7 @@ const host_instance = @import("host_instance.zig");
 const date_mod = @import("time/date.zig");
 const uuid_mod = @import("uuid.zig");
 const dispatch = @import("dispatch.zig");
+const Env = @import("env.zig").Env;
 
 const NumCat = enum { integer, floating, ratio, decimal, none };
 
@@ -305,16 +306,15 @@ fn uuidOrder(a: Value, b: Value) Order {
     return std.math.order(std.mem.readInt(i64, x[8..16], .big), std.mem.readInt(i64, y[8..16], .big));
 }
 
-/// The receiver's own ordering, when it declares one: a deftype/reify
-/// implementing java.lang.Comparable (`Comparable/-compare-to`), or a host
-/// instance whose descriptor carries a `compareTo` method (java.io.File).
-/// clj's `Util.compare` casts the first operand to Comparable and calls
-/// compareTo. Only consulted while the evaluator is ARMED
-/// (`dispatch.current_env`): invoking a user fn needs an env, and the
-/// rt-free / bootstrap paths must never reach user code. Returns null when
-/// there is no such method (the caller then falls to the native arms).
-fn comparableOrder(rt: *Runtime, a: Value, b: Value, loc: SourceLocation) anyerror!?Order {
-    const env = dispatch.current_env orelse return null;
+/// The receiver's own compareTo result, when it declares one: a
+/// deftype/reify implementing java.lang.Comparable
+/// (`Comparable/-compare-to`), or a host instance whose descriptor carries
+/// a `compareTo` method (java.io.File). clj's `Util.compare` casts the
+/// first operand to Comparable and returns its compareTo int as is, so
+/// `(compare f1 f2)` on Files is the path difference, not its sign.
+/// Returns null when there is no such method (the caller then falls to the
+/// native arms); a non-integer result raises.
+pub fn comparableCompareTo(rt: *Runtime, env: *Env, a: Value, b: Value, loc: SourceLocation) anyerror!?i64 {
     var cs: dispatch.CallSite = .{};
     const r = switch (a.tag()) {
         .typed_instance, .reified_instance => try dispatch.dispatchOrNull(rt, env, &cs, a, "Comparable", "-compare-to", &.{ a, b }, loc),
@@ -326,7 +326,17 @@ fn comparableOrder(rt: *Runtime, a: Value, b: Value, loc: SourceLocation) anyerr
         else => null,
     } orelse return null;
     if (r.tag() != .integer) return raiseUncomparable(loc, r);
-    return std.math.order(r.asInteger(), 0);
+    return r.asInteger();
+}
+
+/// The sign of `comparableCompareTo`, for `valueCompare` (sort, sorted
+/// colls). Only consulted while the evaluator is ARMED
+/// (`dispatch.current_env`): invoking a user fn needs an env, and the
+/// rt-free / bootstrap paths must never reach user code.
+fn comparableOrder(rt: *Runtime, a: Value, b: Value, loc: SourceLocation) anyerror!?Order {
+    const env = dispatch.current_env orelse return null;
+    const c = (try comparableCompareTo(rt, env, a, b, loc)) orelse return null;
+    return std.math.order(c, 0);
 }
 
 /// `(compare a b)` semantics. See module docstring + ADR-0053.
