@@ -7,6 +7,8 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 
 ## [Unreleased]
 
+## [1.14.12] - 2026-10-01
+
 ### Added
 
 - **`clojure.edn/read` over a reader.** `(clojure.edn/read (java.io.PushbackReader.
