@@ -905,10 +905,6 @@ fn hamtEntry(node: *const HamtMapNode, key: Value, hash_val: u32, shift: u32) !?
     return null;
 }
 
-fn hamtGet(node: *const HamtMapNode, key: Value, hash_val: u32, shift: u32) !Value {
-    return if (try hamtEntry(node, key, hash_val, shift)) |e| e.val else Value.nil_val;
-}
-
 const HamtAssocResult = struct { node: *HamtMapNode, added: bool };
 
 fn hamtAssoc(
@@ -1683,13 +1679,13 @@ test "HAMT collision bucket: overflow chains past 31 same-hash pairs (fabricated
     }
     i = 0;
     while (i < N) : (i += 1) {
-        try testing.expectEqual(@as(i48, i + 1000), (try hamtGet(root, Value.initInteger(i), H, 0)).asInteger());
+        try testing.expectEqual(@as(i48, i + 1000), (try hamtEntry(root, Value.initInteger(i), H, 0)).?.val.asInteger());
     }
     // replace deep in the chain — not added
     const rep = try hamtAssoc(&fix.rt, root, Value.initInteger(35), Value.initInteger(-1), H, 0);
     try testing.expect(!rep.added);
     root = rep.node;
-    try testing.expectEqual(@as(i48, -1), (try hamtGet(root, Value.initInteger(35), H, 0)).asInteger());
+    try testing.expectEqual(@as(i48, -1), (try hamtEntry(root, Value.initInteger(35), H, 0)).?.val.asInteger());
     // dissoc every even key — odd survivors intact across the chain
     i = 0;
     while (i < N) : (i += 2) {
@@ -1700,9 +1696,9 @@ test "HAMT collision bucket: overflow chains past 31 same-hash pairs (fabricated
     i = 1;
     while (i < N) : (i += 2) {
         if (i == 35) continue;
-        try testing.expectEqual(@as(i48, i + 1000), (try hamtGet(root, Value.initInteger(i), H, 0)).asInteger());
+        try testing.expectEqual(@as(i48, i + 1000), (try hamtEntry(root, Value.initInteger(i), H, 0)).?.val.asInteger());
     }
-    try testing.expect((try hamtGet(root, Value.initInteger(2), H, 0)).tag() == .nil);
+    try testing.expect((try hamtEntry(root, Value.initInteger(2), H, 0)) == null);
     // dissoc an absent same-hash key: not found
     const miss = try hamtDissoc(&fix.rt, root, Value.initInteger(999), H, 0);
     try testing.expect(!miss.found);
