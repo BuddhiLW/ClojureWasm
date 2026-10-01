@@ -37,3 +37,19 @@
   (is (= 1 (count (set [(java.time.Duration/ofSeconds 5) (java.time.Duration/ofMillis 5000)]))))
   (is (= 1 (count (hash-set #inst "2020-03-01T00:00:00.000-00:00"
                             #inst "2020-03-01T00:00:00.000-00:00")))))
+
+;; JVM oracle (clj 1.12): `compare` 0 goes with `=` and an equal hash, so a
+;; sorted collection and a hashed one agree on which temporal values are one.
+(deftest compare-agrees-with-eq-and-hash
+  (doseq [[a b _] (pairs)]
+    (is (zero? (compare a b)) (pr-str a))
+    (is (= 1 (count (sorted-set a b))) (pr-str a)))
+  (require 'clojure.instant)
+  (let [r (resolve 'clojure.instant/read-instant-timestamp)
+        t (r "1970-01-01T00:00:00.005Z")
+        u (r "1970-01-01T00:00:00.005Z")
+        v (r "1970-01-01T00:00:00.005000001Z")]
+    (is (= [0 -1 1] [(compare t u) (compare t v) (compare v t)]))
+    (is (= [true false] [(= t u) (= t v)]))
+    (is (= 5 (hash t) (hash u) (hash v)))
+    (is (= 2 (count (sorted-set t u v)) (count (hash-set t u v))))))

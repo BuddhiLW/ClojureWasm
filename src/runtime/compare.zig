@@ -40,6 +40,7 @@ const local_time_value = @import("time/local_time_value.zig");
 const local_date_time_value = @import("time/local_date_time_value.zig");
 const host_instance = @import("host_instance.zig");
 const date_mod = @import("time/date.zig");
+const timestamp_mod = @import("time/timestamp.zig");
 const uuid_mod = @import("uuid.zig");
 const dispatch = @import("dispatch.zig");
 const Env = @import("env.zig").Env;
@@ -272,6 +273,12 @@ fn temporalOrder(rt: *Runtime, a: Value, b: Value, loc: SourceLocation) anyerror
     // java.util.Date is Comparable by epoch-ms (Date.compareTo).
     if (date_mod.isDate(a) and date_mod.isDate(b)) {
         return std.math.order(date_mod.epochMsOf(a), date_mod.epochMsOf(b));
+    }
+    // java.sql.Timestamp.compareTo(Timestamp): epoch-ms, then nanos. A
+    // Timestamp against a Date still raises (AD-075 keeps the two apart).
+    if (timestamp_mod.isTimestamp(a) and timestamp_mod.isTimestamp(b)) {
+        const o = std.math.order(timestamp_mod.epochMsOf(a), timestamp_mod.epochMsOf(b));
+        return if (o != .eq) o else std.math.order(timestamp_mod.nanosOf(a), timestamp_mod.nanosOf(b));
     }
     if (instant_value.isInstant(a) and instant_value.isInstant(b)) {
         const o = std.math.order(instant_value.epochMsOf(a), instant_value.epochMsOf(b));
