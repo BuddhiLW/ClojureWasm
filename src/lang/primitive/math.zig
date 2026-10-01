@@ -36,25 +36,6 @@ const string_mod = @import("../../runtime/collection/string.zig");
 
 // --- numeric helpers ---
 
-/// Convert any numeric Value to f64 (lossy for big_int / ratio /
-/// big_decimal — Clojure float contagion). Caller must have
-/// type-checked; a non-number returns 0.0. Shared by the comparison
-/// f64 path and the `double`/`float` primitive (F-011).
-fn toF64(v: Value) f64 {
-    return switch (v.tag()) {
-        .float => v.asFloat(),
-        .integer => @floatFromInt(v.asInteger()),
-        .char => @floatFromInt(v.asChar()),
-        .big_int => big_int_mod.asManaged(v).toFloat(f64, .nearest_even)[0],
-        .ratio => switch (ratio_mod.parts(v)) {
-            .small => |s| @as(f64, @floatFromInt(s.n)) / @as(f64, @floatFromInt(s.d)),
-            .big => |b| b.n.m.toFloat(f64, .nearest_even)[0] / b.d.m.toFloat(f64, .nearest_even)[0],
-        },
-        .big_decimal => big_decimal_mod.toFloat(v),
-        else => 0.0, // caller has already type-checked
-    };
-}
-
 fn ensureNumeric(args: []const Value, name: []const u8, loc: SourceLocation) !void {
     for (args, 0..) |v, i| {
         switch (v.tag()) {
@@ -312,7 +293,7 @@ fn bigDecRationalize(rt: *Runtime, v: Value, loc: SourceLocation) anyerror!Value
 
 /// Pairwise numeric comparison for `< > <= >= ==`, short-circuiting on the
 /// first false pair, as clj's `Numbers` combine ladder decides it. A float
-/// operand makes the pair a double comparison (`fpred` over `toF64`): float
+/// operand makes the pair a double comparison (`fpred` over `promote.toF64`): float
 /// contagion, and IEEE NaN, where every NaN comparison is false and a total
 /// Order would map NaN to `.gt`. Any other pair (Long, BigInt, Ratio,
 /// BigDecimal, in any mix) compares exactly (`opred` over
@@ -339,7 +320,7 @@ fn pairwise(
         const a = args[i - 1];
         const b = args[i];
         if (a.isFloat() or b.isFloat()) {
-            if (!fpred(toF64(a), toF64(b))) return Value.false_val;
+            if (!fpred(try promote.toF64(rt, a), try promote.toF64(rt, b))) return Value.false_val;
         } else if (!opred(try compare_mod.valueCompare(rt, a, b, loc))) return Value.false_val;
     }
     return Value.true_val;
@@ -1119,7 +1100,6 @@ fn numCoerce(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) 
 /// big_decimal (lossy, round-to-nearest — float-contagion is a Clojure
 /// feature). Character is not a Number on the JVM, so it is a type error.
 fn floatCoerce(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
-    _ = rt;
     _ = env;
     try error_catalog.checkArity("double", args, 1, loc);
     const v = args[0];
@@ -1127,7 +1107,7 @@ fn floatCoerce(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation
         .float, .integer, .big_int, .ratio, .big_decimal => {},
         else => |t| return error_catalog.raise(.type_arg_not_number, loc, .{ .fn_name = "double", .actual = @tagName(t) }),
     }
-    return Value.initFloat(toF64(v)); // shared converter (F-011)
+    return Value.initFloat(try promote.toF64(rt, v)); // shared converter (F-011)
 }
 
 // --- string parsers (clojure.core 1.11) ---

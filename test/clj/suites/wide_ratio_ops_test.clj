@@ -63,3 +63,19 @@
     (is (thrown? IllegalArgumentException (int wide-half)))
     (is (same-number? 3 (long 7/2)))
     (is (same-number? -3 (long -7/2)))))
+
+(deftest double-of-ratio-and-bigdecimal-is-clj-doubleValue
+  (testing "a Ratio rounds through a DECIMAL64 quotient, as Ratio.doubleValue"
+    (is (= 0.6666666666666667 (double 2/3)))
+    (is (= -0.6666666666666667 (double -2/3)))
+    (is (= 0.1428571428571429 (double 1/7)))
+    (is (= 1.234567890123457E19 (double wide-half)))
+    (is (= 0.6666666666666667 (+ 2/3 0.0)))
+    (is (== 2/3 0.6666666666666667))
+    (is (zero? (compare 2/3 0.6666666666666667))))
+  (testing "a BigDecimal rounds once to the nearest double"
+    (is (= 0.3 (double 0.3M)))
+    (is (= 0.3 (+ 0.3M 0.0)))
+    (is (= 0.3 (.doubleValue 0.3M)))
+    (is (= ##Inf (double 1e400M)))
+    (is (= 0.0 (double 1E-400M)))))

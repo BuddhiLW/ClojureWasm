@@ -435,10 +435,9 @@ fn longValueFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation
 /// `(.doubleValue bd)` — nearest f64 (JVM `BigDecimal.doubleValue`).
 fn doubleValueFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
     _ = env;
-    _ = rt;
     try error_catalog.checkArity("doubleValue", args, 1, loc);
     try requireBd(args[0], "doubleValue", loc);
-    return Value.initFloat(big_decimal.toFloat(args[0]));
+    return Value.initFloat(try big_decimal.toFloat(rt.gc.infra, args[0]));
 }
 
 /// `(.movePointLeft bd n)` — `bd ÷ 10ⁿ` (scale +n; JVM `BigDecimal.movePointLeft`).

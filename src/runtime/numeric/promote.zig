@@ -36,35 +36,46 @@ fn inI48(x: i64) bool {
     return x >= nb.NB_I48_MIN and x <= nb.NB_I48_MAX;
 }
 
-fn toF64(rt: *Runtime, v: Value) f64 {
-    if (v.isFloat()) return v.asFloat();
-    if (v.isInt()) return @floatFromInt(@as(i64, v.asInteger()));
-    if (v.tag() == .big_int) {
-        // Lossy: BigInt → f64. Acceptable for float-contagious paths
-        // where the user already opted into float semantics.
-        return managedToF64(rt, big_int.asManaged(v));
-    }
-    if (v.tag() == .ratio) {
-        return switch (ratio_mod.parts(v)) {
-            .small => |s| @as(f64, @floatFromInt(s.n)) / @as(f64, @floatFromInt(s.d)),
-            .big => |b| managedToF64(rt, b.n.m) / managedToF64(rt, b.d.m),
-        };
-    }
-    if (v.tag() == .big_decimal) {
-        // value = unscaled · 10^(−scale). Lossy (float-contagion semantics).
-        const bd = v.decodePtr(*const big_decimal_mod.BigDecimal);
-        return managedToF64(rt, bd.unscaled.m) * std.math.pow(f64, 10.0, @floatFromInt(-bd.scale));
-    }
-    return 0.0; // unreachable for caller that ran ensureNumeric
+/// Any numeric Value as the f64 clj's `Number.doubleValue` gives it: the one
+/// converter for float contagion, the float arm of `< > <= >= ==` and `double`
+/// (F-011). A BigInt and a BigDecimal round to the nearest double. A Ratio
+/// divides to 16 significant digits first (`MathContext.DECIMAL64`, HALF_EVEN)
+/// and takes that BigDecimal's double, as `Ratio.doubleValue` does, so
+/// `(double 2/3)` is 0.6666666666666667, one ulp above the nearest double.
+/// Caller has type-checked; a non-number answers 0.0.
+pub fn toF64(rt: *Runtime, v: Value) !f64 {
+    return switch (v.tag()) {
+        .float => v.asFloat(),
+        .integer => @floatFromInt(@as(i64, v.asInteger())),
+        .char => @floatFromInt(v.asChar()),
+        .big_int => big_int.asManaged(v).toFloat(f64, .nearest_even)[0],
+        .ratio => ratioToF64(rt, v),
+        .big_decimal => big_decimal_mod.toFloat(rt.gc.infra, v),
+        else => 0.0,
+    };
 }
 
-fn managedToF64(rt: *Runtime, m: *const Managed) f64 {
-    // Correct (round-trips through base-10) but slow: toString +
-    // parseFloat. The lossiness is a Clojure feature (float-contagion
-    // semantics). A direct limb→f64 conversion is a future perf option.
-    const s = m.toString(rt.gc.infra, 10, .lower) catch return 0.0;
-    defer rt.gc.infra.free(s);
-    return std.fmt.parseFloat(f64, s) catch 0.0;
+/// `Ratio.doubleValue`: n/d as a DECIMAL64 BigDecimal, then its nearest double.
+fn ratioToF64(rt: *Runtime, v: Value) !f64 {
+    var n = try Managed.init(rt.gc.infra);
+    defer n.deinit();
+    var d = try Managed.init(rt.gc.infra);
+    defer d.deinit();
+    switch (ratio_mod.parts(v)) {
+        .small => |s| {
+            try n.set(s.n);
+            try d.set(s.d);
+        },
+        .big => |b| {
+            try n.copy(b.n.m.toConst());
+            try d.copy(b.d.m.toConst());
+        },
+    }
+    const bn = try big_decimal_mod.allocFromManagedScale(rt, &n, 0);
+    const bd = try big_decimal_mod.allocFromManagedScale(rt, &d, 0);
+    // DECIMAL64 = 16 digits, HALF_EVEN (ROUND_* ordinal 6).
+    const q = try big_decimal_mod.allocDivPrecision(rt, bn, bd, 16, 6);
+    return big_decimal_mod.toFloat(rt.gc.infra, q);
 }
 
 /// Allocate a Managed on `rt.gc.infra` initialised from `v`. Caller
@@ -438,7 +449,7 @@ fn bigdecContagion(rt: *Runtime, a: Value, b: Value, op: BdOp) !Value {
 /// runs `ensureNumeric` first).
 pub fn addPromoting(rt: *Runtime, a: Value, b: Value) !Value {
     if (a.isFloat() or b.isFloat()) {
-        return Value.initFloat(toF64(rt, a) + toF64(rt, b));
+        return Value.initFloat(try toF64(rt, a) + try toF64(rt, b));
     }
     if (a.tag() == .big_decimal or b.tag() == .big_decimal) {
         return try bigdecContagion(rt, a, b, .add);
@@ -477,7 +488,7 @@ pub fn addPromoting(rt: *Runtime, a: Value, b: Value) !Value {
 /// `a - b` with auto-promotion.
 pub fn subPromoting(rt: *Runtime, a: Value, b: Value) !Value {
     if (a.isFloat() or b.isFloat()) {
-        return Value.initFloat(toF64(rt, a) - toF64(rt, b));
+        return Value.initFloat(try toF64(rt, a) - try toF64(rt, b));
     }
     if (a.tag() == .big_decimal or b.tag() == .big_decimal) {
         return try bigdecContagion(rt, a, b, .sub);
@@ -514,7 +525,7 @@ pub fn subPromoting(rt: *Runtime, a: Value, b: Value) !Value {
 /// `a * b` with auto-promotion.
 pub fn mulPromoting(rt: *Runtime, a: Value, b: Value) !Value {
     if (a.isFloat() or b.isFloat()) {
-        return Value.initFloat(toF64(rt, a) * toF64(rt, b));
+        return Value.initFloat(try toF64(rt, a) * try toF64(rt, b));
     }
     if (a.tag() == .big_decimal or b.tag() == .big_decimal) {
         return try bigdecContagion(rt, a, b, .mul);
@@ -578,7 +589,7 @@ pub fn divPromoting(rt: *Runtime, a: Value, b: Value) !Value {
         // IEEE-754 float division: x/0.0 → ±Inf, 0.0/0.0 → NaN (Zig float
         // division does not trap). JVM Clojure throws DivideByZero only on
         // the integer/integer path below — float division never throws.
-        return Value.initFloat(toF64(rt, a) / toF64(rt, b));
+        return Value.initFloat(try toF64(rt, a) / try toF64(rt, b));
     }
 
     if (a.tag() == .big_decimal or b.tag() == .big_decimal) {
@@ -689,9 +700,9 @@ pub fn orderNumeric(rt: *Runtime, a: Value, b: Value) !std.math.Order {
 /// scale `max(0, sa−sb)`); a non-terminating ratio operand → arith error.
 pub fn quotPromoting(rt: *Runtime, a: Value, b: Value) !Value {
     if (a.isFloat() or b.isFloat()) {
-        const bd = toF64(rt, b);
+        const bd = try toF64(rt, b);
         if (bd == 0) return error.DivideByZero;
-        return Value.initFloat(@trunc(toF64(rt, a) / bd));
+        return Value.initFloat(@trunc(try toF64(rt, a) / bd));
     }
     if (a.tag() == .big_decimal or b.tag() == .big_decimal) {
         const ba = try coerceToBigDecimal(rt, a);

@@ -991,10 +991,10 @@ fn formatIntArg(val: Value, loc: SourceLocation) error_mod.ClojureWasmError!i64 
 /// (Long / BigInt / Ratio throw `IllegalFormatConversionException`), so this is
 /// stricter than `expectNumber` (which coerces a Long → f64, the `(format "%f"
 /// 3)` over-acceptance). Rejects with `IllegalArgumentException`. D-459.
-fn formatFloatArg(val: Value, loc: SourceLocation) error_mod.ClojureWasmError!f64 {
+fn formatFloatArg(rt: *Runtime, val: Value, loc: SourceLocation) anyerror!f64 {
     return switch (val.tag()) {
         .float => val.asFloat(),
-        .big_decimal => big_decimal_mod.toFloat(val),
+        .big_decimal => big_decimal_mod.toFloat(rt.gc.infra, val),
         else => error_catalog.raise(.arg_value_invalid, loc, .{ .fn_name = "format", .expected = "a float (Double or BigDecimal) for %f/%e/%g", .actual = @tagName(val.tag()) }),
     };
 }
@@ -1244,19 +1244,19 @@ pub fn formatFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocatio
             'f' => {
                 var ftmp: std.Io.Writer.Allocating = .init(rt.gpa);
                 defer ftmp.deinit();
-                try writeFloatPrec(&ftmp.writer, try formatFloatArg(args[src], loc), prec orelse 6);
+                try writeFloatPrec(&ftmp.writer, try formatFloatArg(rt, args[src], loc), prec orelse 6);
                 try writeFloatFlagged(tw, ftmp.writer.buffered(), plus, space, paren, group);
             },
             'e', 'E' => {
                 var ftmp: std.Io.Writer.Allocating = .init(rt.gpa);
                 defer ftmp.deinit();
-                try writeScientific(&ftmp.writer, try formatFloatArg(args[src], loc), prec orelse 6, conv == 'E');
+                try writeScientific(&ftmp.writer, try formatFloatArg(rt, args[src], loc), prec orelse 6, conv == 'E');
                 try writeFloatFlagged(tw, ftmp.writer.buffered(), plus, space, paren, group);
             },
             'g', 'G' => {
                 var ftmp: std.Io.Writer.Allocating = .init(rt.gpa);
                 defer ftmp.deinit();
-                try writeGeneral(&ftmp.writer, try formatFloatArg(args[src], loc), prec orelse 6, conv == 'G');
+                try writeGeneral(&ftmp.writer, try formatFloatArg(rt, args[src], loc), prec orelse 6, conv == 'G');
                 try writeFloatFlagged(tw, ftmp.writer.buffered(), plus, space, paren, group);
             },
             // `%h`/`%H`: hex of the value's hashCode, nil → "null". cljw's hash

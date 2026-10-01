@@ -520,13 +520,17 @@ pub fn asScale(v: Value) i32 {
     return v.decodePtr(*const BigDecimal).scale;
 }
 
-/// Convert to the nearest f64 (`unscaled * 10^-scale`). Shared by the numeric
-/// `double`/`float` coercion (math.zig) and `format`'s %f/%e/%g conversions
-/// (F-011 DRY). Lossy beyond f64 range/precision, matching JVM
-/// `BigDecimal.doubleValue`.
-pub fn toFloat(v: Value) f64 {
-    const unscaled = asUnscaled(v).m.toFloat(f64, .nearest_even)[0];
-    return unscaled * std.math.pow(f64, 10.0, -@as(f64, @floatFromInt(asScale(v))));
+/// The nearest f64, correctly rounded, as JVM `BigDecimal.doubleValue`: the
+/// exact decimal `unscaled` e `-scale` goes through `std.fmt.parseFloat`, which
+/// rounds once (a float multiply by `10^-scale` rounds twice and makes `0.3M`
+/// 0.30000000000000004). Shared by `double`, float contagion and `format`'s
+/// %f/%e/%g conversions (F-011).
+pub fn toFloat(infra: std.mem.Allocator, v: Value) !f64 {
+    const digits = try asUnscaled(v).m.toConst().toStringAlloc(infra, 10, .lower);
+    defer infra.free(digits);
+    const text = try std.fmt.allocPrint(infra, "{s}e{d}", .{ digits, -@as(i64, asScale(v)) });
+    defer infra.free(text);
+    return std.fmt.parseFloat(f64, text) catch unreachable;
 }
 
 /// The stripped-trailing-zeros unscaled significand (ADR-0077): the
