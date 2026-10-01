@@ -738,6 +738,7 @@ run_step "e2e_phase16_vm_error_loc_sidecar" "bash test/e2e/phase16_vm_error_loc_
 run_step "e2e_phase16_gc_torture"           "bash test/e2e/phase16_gc_torture.sh"
 run_step "e2e_phase16_load_file_source"     "bash test/e2e/phase16_load_file_source.sh"
 run_step "e2e_phase16_bfs_queue_gc"         "bash test/e2e/phase16_bfs_queue_gc.sh"
+run_step "e2e_phase16_compare_comparable"   "bash test/e2e/phase16_compare_comparable.sh"
 run_step "e2e_phase14_cljw_build"            "bash test/e2e/phase14_cljw_build.sh"
 run_step "e2e_phase14_print_family"          "bash test/e2e/phase14_print_family.sh"
 run_step "e2e_phase14_var_special"           "bash test/e2e/phase14_var_special.sh"

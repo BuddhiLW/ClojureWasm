@@ -39,6 +39,9 @@ const local_date_value = @import("time/local_date_value.zig");
 const local_time_value = @import("time/local_time_value.zig");
 const local_date_time_value = @import("time/local_date_time_value.zig");
 const host_instance = @import("host_instance.zig");
+const date_mod = @import("time/date.zig");
+const uuid_mod = @import("uuid.zig");
+const dispatch = @import("dispatch.zig");
 
 const NumCat = enum { integer, floating, ratio, decimal, none };
 
@@ -265,6 +268,10 @@ fn vecOrder(rt: *Runtime, a: Value, b: Value, loc: SourceLocation) anyerror!Orde
 /// Mirrors the equal.zig per-type arms.
 fn temporalOrder(rt: *Runtime, a: Value, b: Value, loc: SourceLocation) anyerror!Order {
     _ = rt;
+    // java.util.Date is Comparable by epoch-ms (Date.compareTo).
+    if (date_mod.isDate(a) and date_mod.isDate(b)) {
+        return std.math.order(date_mod.epochMsOf(a), date_mod.epochMsOf(b));
+    }
     if (instant_value.isInstant(a) and instant_value.isInstant(b)) {
         const o = std.math.order(instant_value.epochMsOf(a), instant_value.epochMsOf(b));
         return if (o != .eq) o else std.math.order(instant_value.nanosOf(a), instant_value.nanosOf(b));
@@ -284,6 +291,42 @@ fn temporalOrder(rt: *Runtime, a: Value, b: Value, loc: SourceLocation) anyerror
         return if (o != .eq) o else std.math.order(local_date_time_value.nanoOfDayOf(a), local_date_time_value.nanoOfDayOf(b));
     }
     return raiseUncomparable(loc, a);
+}
+
+/// java.util.UUID.compareTo: the most-significant 64 bits as a SIGNED long,
+/// then the least-significant 64 bits as a signed long (so a UUID whose top
+/// bit is set sorts before one whose top bit is clear). Same ordering as the
+/// `(.compareTo u v)` host method.
+fn uuidOrder(a: Value, b: Value) Order {
+    const x = uuid_mod.asUuid(a).bytes;
+    const y = uuid_mod.asUuid(b).bytes;
+    const o = std.math.order(std.mem.readInt(i64, x[0..8], .big), std.mem.readInt(i64, y[0..8], .big));
+    if (o != .eq) return o;
+    return std.math.order(std.mem.readInt(i64, x[8..16], .big), std.mem.readInt(i64, y[8..16], .big));
+}
+
+/// The receiver's own ordering, when it declares one: a deftype/reify
+/// implementing java.lang.Comparable (`Comparable/-compare-to`), or a host
+/// instance whose descriptor carries a `compareTo` method (java.io.File).
+/// clj's `Util.compare` casts the first operand to Comparable and calls
+/// compareTo. Only consulted while the evaluator is ARMED
+/// (`dispatch.current_env`): invoking a user fn needs an env, and the
+/// rt-free / bootstrap paths must never reach user code. Returns null when
+/// there is no such method (the caller then falls to the native arms).
+fn comparableOrder(rt: *Runtime, a: Value, b: Value, loc: SourceLocation) anyerror!?Order {
+    const env = dispatch.current_env orelse return null;
+    var cs: dispatch.CallSite = .{};
+    const r = switch (a.tag()) {
+        .typed_instance, .reified_instance => try dispatch.dispatchOrNull(rt, env, &cs, a, "Comparable", "-compare-to", &.{ a, b }, loc),
+        .host_instance => if (b.tag() == .host_instance and
+            host_instance.asHostInstance(a).descriptor == host_instance.asHostInstance(b).descriptor)
+            try dispatch.dispatchBareOrNull(rt, env, &cs, a, "compareTo", &.{ a, b }, loc)
+        else
+            null,
+        else => null,
+    } orelse return null;
+    if (r.tag() != .integer) return raiseUncomparable(loc, r);
+    return std.math.order(r.asInteger(), 0);
 }
 
 /// `(compare a b)` semantics. See module docstring + ADR-0053.
@@ -307,6 +350,13 @@ pub fn valueCompare(rt: *Runtime, a: Value, b: Value, loc: SourceLocation) anyer
         return vecOrder(rt, a, b, loc);
     }
 
+    // A Comparable deftype/reify (or a host instance with compareTo) orders
+    // itself, before the same-tag gate, as clj hands the other operand to
+    // the receiver's compareTo whatever its type.
+    if (ta == .typed_instance or ta == .reified_instance or ta == .host_instance) {
+        if (try comparableOrder(rt, a, b, loc)) |o| return o;
+    }
+
     // Beyond here a same-tag pairing is required; cross-type raises.
     if (ta != tb) return raiseUncomparable(loc, b);
 
@@ -324,6 +374,7 @@ pub fn valueCompare(rt: *Runtime, a: Value, b: Value, loc: SourceLocation) anyer
             const sb = symbol.asSymbol(b);
             break :blk nsNameOrder(sa.ns, sa.name, sb.ns, sb.name);
         },
+        .uuid => uuidOrder(a, b),
         // `.vector` (+ `.map_entry`) handled by the vector-like branch above.
         // java.time temporal values (D-462) compare by their fields.
         .typed_instance => try temporalOrder(rt, a, b, loc),
