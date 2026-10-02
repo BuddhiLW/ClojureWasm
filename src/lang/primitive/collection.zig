@@ -31,6 +31,7 @@ const error_mod = @import("../../runtime/error/info.zig");
 const error_catalog = @import("../../runtime/error/catalog.zig");
 const SourceLocation = error_mod.SourceLocation;
 const dispatch = @import("../../runtime/dispatch.zig");
+const class_name = @import("../../runtime/class_name.zig");
 const lookup = @import("../../runtime/collection/lookup.zig");
 const tagged_literal_mod = @import("../../runtime/tagged_literal.zig");
 
@@ -1132,7 +1133,7 @@ pub fn keysFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation)
             // D-285: a non-record map deftype/reify (priority-map etc.). clj keys/vals
             // require an IPersistentMap (else ClassCastException) — gate on it, then try
             // the optional -keys impl, else derive from seq: keys = (map key (seq m)).
-            if (desc.isPersistentMap()) {
+            if (class_name.implementsInterface(coll, "IPersistentMap")) {
                 var cs: dispatch.CallSite = .{};
                 if (try dispatch.dispatchOrNull(rt, env, &cs, coll, IPM_FQCN, "-keys", args, loc)) |v| break :blk v;
                 break :blk try seqDeriveEntryColumn(rt, env, coll, 0, "keys", loc);
@@ -1196,7 +1197,7 @@ pub fn valsFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation)
             // D-285: non-record map deftype/reify — gate on IPersistentMap (clj vals
             // requires it), then -vals impl, else derive from seq (vals = (map val
             // (seq m))). col 1 = val of each 2-vector entry.
-            if (desc.isPersistentMap()) {
+            if (class_name.implementsInterface(coll, "IPersistentMap")) {
                 var cs: dispatch.CallSite = .{};
                 if (try dispatch.dispatchOrNull(rt, env, &cs, coll, IPM_FQCN, "-vals", args, loc)) |v| break :blk v;
                 break :blk try seqDeriveEntryColumn(rt, env, coll, 1, "vals", loc);

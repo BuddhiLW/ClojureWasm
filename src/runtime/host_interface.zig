@@ -614,7 +614,7 @@ const MARKERS = std.StaticStringMap(HostInterface).initComptime(.{
 /// IPersistentMap / IPersistentVector) DERIVE from the `interface_membership`
 /// SSOT (the same source class_name.matchInterface uses), so the extend-target
 /// lists live in ONE place and cannot drift from instance? membership (ADR-0116
-/// Decision C; D-317). IPersistentVector's set = INDEXED_TAGS
+/// Decision C; D-317). IPersistentVector's set = IPV_TAGS
 /// {vector, map_entry}: clj distributes an IPV-extended protocol to MapEntry (a
 /// MapEntry IS-A IPersistentVector — clj-verified), so the prior {vector}-only
 /// set mis-dispatched a MapEntry. Distinct from MARKERS (deftype-supertype /
@@ -625,7 +625,7 @@ const MARKERS = std.StaticStringMap(HostInterface).initComptime(.{
 /// `name` is not an extend-target interface.
 pub fn nativeExtendTags(name: []const u8) ?[]const []const u8 {
     const simple = interface_membership.simpleOf(name);
-    if (std.mem.eql(u8, simple, "IPersistentVector")) return interface_membership.INDEXED_NAMES;
+    if (std.mem.eql(u8, simple, "IPersistentVector")) return interface_membership.IPV_NAMES;
     if (std.mem.eql(u8, simple, "ISeq")) return interface_membership.ISEQ_NAMES;
     // D-534: the abstract collection bases as extend-protocol targets (algo.monads
     // writer-monad extends a user protocol onto them) → native set / list tags.

@@ -118,17 +118,14 @@ pub fn classParentsPrim(rt: *Runtime, env: *Env, args: []const Value, loc: Sourc
     return result;
 }
 
-/// `(ifn? x)` — true iff `x` is callable (implements IFn): a fn / builtin /
-/// multimethod / protocol-fn, OR a keyword / symbol / var / vector / map / set
-/// (all invocable as lookups, clj parity). Spec: clojure.core/ifn?.
+/// `(ifn? x)` — `(instance? clojure.lang.IFn x)`: a fn / builtin / multimethod
+/// / protocol-fn, a keyword / symbol / var / vector / map / set (all invocable
+/// as lookups), or a deftype / reify declaring IFn. Spec: clojure.core/ifn?.
 pub fn ifnQ(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
     _ = rt;
     _ = env;
     try error_catalog.checkArity("ifn?", args, 1, loc);
-    return switch (args[0].tag()) {
-        .fn_val, .builtin_fn, .multi_fn, .protocol_fn, .keyword, .symbol, .var_ref, .vector, .sub_vector, .array_map, .hash_map, .hash_set, .sorted_map, .sorted_set => .true_val,
-        else => .false_val,
-    };
+    return Value.initBoolean(class_name.implementsInterface(args[0], "IFn"));
 }
 
 /// `(thread-bound? & vars)` — true iff EVERY arg Var has an active thread
@@ -279,15 +276,14 @@ pub fn keywordQ(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocatio
     return if (args[0].tag() == .keyword) .true_val else .false_val;
 }
 
-/// `(vector? x)` — true iff `x` is a persistent Vector.
+/// `(vector? x)` — `(instance? clojure.lang.IPersistentVector x)`: a vector,
+/// a subvec, a MapEntry (clj `MapEntry extends APersistentVector`, D-209 /
+/// ADR-0078), or a deftype / reify declaring IPersistentVector.
 pub fn vectorQ(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
     _ = rt;
     _ = env;
     try error_catalog.checkArity("vector?", args, 1, loc);
-    // A MapEntry IS-A vector (clj `MapEntry extends APersistentVector`,
-    // D-209 / ADR-0078).
-    const t = args[0].tag();
-    return if (t == .vector or t == .sub_vector or t == .map_entry) .true_val else .false_val;
+    return Value.initBoolean(class_name.implementsInterface(args[0], "IPersistentVector"));
 }
 
 /// Implements clojure.core/map-entry? — true only for a distinct MapEntry
@@ -309,38 +305,23 @@ pub fn listQ(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) 
     return if (args[0].tag() == .list) .true_val else .false_val;
 }
 
-/// `(map? x)` — true iff `x` is an array-map / hash-map / sorted-map.
+/// `(map? x)` — `(instance? clojure.lang.IPersistentMap x)`: an array-map /
+/// hash-map / sorted-map, a defrecord, or a deftype / reify declaring
+/// IPersistentMap (e.g. data.priority-map's PersistentPriorityMap).
 pub fn mapQ(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
     _ = rt;
     _ = env;
     try error_catalog.checkArity("map?", args, 1, loc);
-    const v = args[0];
-    const t = v.tag();
-    if (t == .array_map or t == .hash_map or t == .sorted_map) return .true_val;
-    // A defrecord IS an IPersistentMap in clj (`(map? rec)` → true).
-    if (t == .typed_instance and v.decodePtr(*const td_mod.TypedInstance).descriptor.kind == .defrecord) return .true_val;
-    // A deftype/reify implementing clojure.lang.IPersistentMap is also a map:
-    // clj defines `(map? x)` as `(instance? clojure.lang.IPersistentMap x)`, so
-    // a custom map type (e.g. data.priority-map's PersistentPriorityMap) answers
-    // true. Consults the same membership oracle instance? uses.
-    if ((t == .typed_instance or t == .reified_instance) and
-        class_name.isInstance(v, "clojure.lang.IPersistentMap")) return .true_val;
-    return .false_val;
+    return Value.initBoolean(class_name.implementsInterface(args[0], "IPersistentMap"));
 }
 
-/// `(set? x)` — true iff `x` is a hash-set or sorted-set.
+/// `(set? x)` — `(instance? clojure.lang.IPersistentSet x)`: a hash-set /
+/// sorted-set, or a deftype / reify declaring IPersistentSet (an ordered set).
 pub fn setQ(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
     _ = rt;
     _ = env;
     try error_catalog.checkArity("set?", args, 1, loc);
-    const t = args[0].tag();
-    if (t == .hash_set or t == .sorted_set) return .true_val;
-    // A deftype/reify implementing clojure.lang.IPersistentSet is a set in clj
-    // ((set? x) == (instance? clojure.lang.IPersistentSet x)) — e.g. an ordered
-    // set. Mirrors the map?/sorted? deftype-membership fixes.
-    if ((t == .typed_instance or t == .reified_instance) and
-        class_name.isInstance(args[0], "clojure.lang.IPersistentSet")) return .true_val;
-    return .false_val;
+    return Value.initBoolean(class_name.implementsInterface(args[0], "IPersistentSet"));
 }
 
 /// Implements clojure.core/record?.
@@ -475,81 +456,93 @@ pub fn notFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) 
     return if (args[0].isNil() or args[0] == Value.false_val) .true_val else .false_val;
 }
 
-/// `(coll? x)` — true iff `x` is any IPersistentCollection: list,
-/// cons, lazy-seq, chunked-cons, vector, array-map, hash-map,
-/// sorted-map, hash-set, sorted-set, persistent-queue, range,
-/// string-seq, array-seq, map-entry. Matches clojure.core/coll?.
+/// `(coll? x)` — `(instance? clojure.lang.IPersistentCollection x)`: every
+/// persistent collection and seq, a defrecord, or a deftype / reify declaring
+/// IPersistentCollection or an interface extending it (ISeq, IPersistentMap,
+/// ...). Matches clojure.core/coll?.
 pub fn collQ(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
     _ = rt;
     _ = env;
     try error_catalog.checkArity("coll?", args, 1, loc);
-    const t = args[0].tag();
-    return switch (t) {
-        .list, .cons, .lazy_seq, .chunked_cons, .vector, .sub_vector, .array_map, .hash_map, .sorted_map, .hash_set, .sorted_set, .persistent_queue, .range, .string_seq, .array_seq, .map_entry => .true_val,
-        else => .false_val,
-    };
+    return Value.initBoolean(class_name.implementsInterface(args[0], "IPersistentCollection"));
 }
 
-/// `(counted? x)` — true iff `x` reports its size in O(1) (`Counted`). The
-/// `coll?` set MINUS `.lazy_seq` (a lazy seq has no cheap length) — clj-verified
-/// (range/cons/chunked/string-seq/array-seq/map-entry/queue ARE counted; lazy
-/// seqs and strings are NOT). Drives `bounded-count`'s fast path.
+/// `(counted? x)` — `(instance? clojure.lang.Counted x)`: `x` reports its size
+/// in O(1). Not a lazy seq, not a Cons (D-482), not a string. A deftype / reify
+/// declaring Counted or an interface extending it (Indexed, IPersistentMap,
+/// ...) is counted. Drives `bounded-count`'s fast path.
 pub fn countedQ(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
     _ = rt;
     _ = env;
     try error_catalog.checkArity("counted?", args, 1, loc);
-    return switch (args[0].tag()) {
-        .list, .cons, .chunked_cons, .vector, .sub_vector, .array_map, .hash_map, .sorted_map, .hash_set, .sorted_set, .persistent_queue, .range, .string_seq, .array_seq, .map_entry => .true_val,
-        else => .false_val,
-    };
+    return Value.initBoolean(class_name.implementsInterface(args[0], "Counted"));
 }
 
-/// `(seq? x)` — true iff `x` implements ISeq: list, cons,
-/// lazy-seq, chunked-cons, range, string-seq, array-seq.
-/// vectors / maps / sets are NOT seqs in JVM Clojure
-/// (they become a seq via `(seq coll)`).
+/// `(seq? x)` — `(instance? clojure.lang.ISeq x)`: list, cons, lazy-seq,
+/// chunked-cons, range, string-seq, array-seq, or a deftype / reify declaring
+/// ISeq. Vectors / maps / sets are NOT seqs (they become one via `(seq coll)`).
 pub fn seqQ(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
     _ = rt;
     _ = env;
     try error_catalog.checkArity("seq?", args, 1, loc);
-    const t = args[0].tag();
-    return switch (t) {
-        .list, .cons, .lazy_seq, .chunked_cons, .range, .string_seq, .array_seq => .true_val,
-        else => .false_val,
-    };
+    return Value.initBoolean(class_name.implementsInterface(args[0], "ISeq"));
 }
 
-/// `(sequential? x)` — true iff `x` implements Sequential
-/// (order-preserving collection): list / vector / cons / lazy-seq /
-/// chunked-cons / range / string-seq / array-seq /
-/// persistent-queue. maps / sets are NOT sequential.
+/// `(sequential? x)` — `(instance? clojure.lang.Sequential x)`: the ordered
+/// collections and seqs (maps / sets are NOT), or a deftype / reify declaring
+/// Sequential or an interface extending it (IPersistentVector,
+/// IPersistentList). A bare ISeq is not Sequential. `=` answers from the same
+/// function (equal.isSequential), so the two cannot disagree.
 pub fn sequentialQ(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
     _ = rt;
     _ = env;
     try error_catalog.checkArity("sequential?", args, 1, loc);
-    const t = args[0].tag();
-    // A `deftype` carrying the `Sequential` marker (e.g. `Eduction`) is
-    // sequential? true — same SSOT marker the printer consults (D-190/ADR-0068).
-    if (t == .typed_instance) {
-        const inst = args[0].decodePtr(*const td_mod.TypedInstance);
-        return if (inst.descriptor.declaresProtocol("Sequential")) .true_val else .false_val;
-    }
-    // Same constant `=` reads (interface_membership.SEQUENTIAL_TAGS) — the two
-    // must never be able to answer differently for one value.
-    return if (interface_membership.isSequentialTag(t)) .true_val else .false_val;
+    return Value.initBoolean(class_name.implementsInterface(args[0], "Sequential"));
 }
 
-/// `(associative? x)` — true iff `x` implements Associative
-/// (vector + maps). Matches clojure.core/associative?.
+/// `(associative? x)` — `(instance? clojure.lang.Associative x)`: vector,
+/// maps, map-entry, a defrecord, or a deftype / reify declaring Associative or
+/// an interface extending it. Matches clojure.core/associative?.
 pub fn associativeQ(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
     _ = rt;
     _ = env;
     try error_catalog.checkArity("associative?", args, 1, loc);
-    const t = args[0].tag();
-    return switch (t) {
-        .vector, .sub_vector, .array_map, .hash_map, .sorted_map, .map_entry => .true_val,
-        else => .false_val,
-    };
+    return Value.initBoolean(class_name.implementsInterface(args[0], "Associative"));
+}
+
+/// `(indexed? x)` — `(instance? clojure.lang.Indexed x)`: vector, subvec,
+/// map-entry, transient vector, or a deftype / reify declaring Indexed or an
+/// interface extending it. Matches clojure.core/indexed?.
+pub fn indexedQ(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
+    _ = rt;
+    _ = env;
+    try error_catalog.checkArity("indexed?", args, 1, loc);
+    return Value.initBoolean(class_name.implementsInterface(args[0], "Indexed"));
+}
+
+/// `(reversible? x)` — `(instance? clojure.lang.Reversible x)`: vector, subvec,
+/// map-entry, sorted map / set, or a deftype / reify declaring Reversible or an
+/// interface extending it. Matches clojure.core/reversible?.
+pub fn reversibleQ(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
+    _ = rt;
+    _ = env;
+    try error_catalog.checkArity("reversible?", args, 1, loc);
+    return Value.initBoolean(class_name.implementsInterface(args[0], "Reversible"));
+}
+
+/// `(seqable? x)` — clj `RT.canSeq`: nil, an array, or an instance of Seqable
+/// (every ISeq is one), Iterable, CharSequence or java.util.Map. A deftype /
+/// reify / host object answers from its declared interfaces.
+pub fn seqableQ(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
+    _ = rt;
+    _ = env;
+    try error_catalog.checkArity("seqable?", args, 1, loc);
+    const v = args[0];
+    return Value.initBoolean(v.isNil() or v.tag() == .array or
+        class_name.implementsInterface(v, "Seqable") or
+        class_name.implementsInterface(v, "Iterable") or
+        class_name.implementsInterface(v, "CharSequence") or
+        class_name.implementsInterface(v, "Map"));
 }
 
 /// `(identity x)` — returns `x` unchanged. Useful as a place-holder
@@ -2096,6 +2089,9 @@ const ENTRIES = [_]Entry{
     .{ .name = "seq?", .f = &seqQ },
     .{ .name = "sequential?", .f = &sequentialQ },
     .{ .name = "associative?", .f = &associativeQ },
+    .{ .name = "indexed?", .f = &indexedQ },
+    .{ .name = "reversible?", .f = &reversibleQ },
+    .{ .name = "seqable?", .f = &seqableQ },
     .{ .name = "identity", .f = &identity },
     .{ .name = "boolean", .f = &booleanFn },
     .{ .name = "pos-int?", .f = &posIntQ },
