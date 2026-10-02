@@ -326,25 +326,6 @@ active:
       collect trigger or when a long-lived-process profile shows the stack-scan
       / waypoint-growth cost.
     last_reviewed: "2026-08-05"
-  - id: "D-566"
-    status: |-
-      open (2026-07-29, ADR-0175 deferred-hardening row). Alloc-side
-      unregistered-mutator assert: `gc_heap.alloc` (and `pushAnalysisRoot`)
-      should assert `root_set.is_registered_worker or <is the heap's owning
-      main thread>` so the next pre-register (or cap-fallthrough) mutator is a
-      caught bug instead of a ~1.5% GP-fault flake. Survey done 2026-07-29:
-      PRODUCTION is assert-clean (only main + the three registered worker
-      families allocate; nrepl/http serve serially on the calling thread), but
-      in-tree unit tests alloc from unregistered test threads (lazy_seq force-
-      race workers at lazy_seq.zig:461, plus the gc_heap/root_set churn tests
-      — each site needs registration or an exemption), and "owning main
-      thread" needs a per-GcHeap `main_thread_id` stamped at init.
-    category: "concurrency"
-    barrier: |-
-      Discharges by: the test-audit sweep (register or exempt every
-      unregistered-alloc test thread) + the per-heap main-thread-id stamp +
-      the assert itself, landed together. Cross-ref ADR-0175 § Consequences.
-    last_reviewed: "2026-07-29"
   - id: "D-564"
     status: |-
       open (2026-07-17, ADR-0174 D6 residual). Thread interrupt family
@@ -7570,6 +7551,34 @@ discharged:
     refs: |-
       .dev/decisions/0159_wasm_resource_lifecycle.md § Amendment 1 (the verification item that raised it); src/runtime/cljw/wasm/component.zig `resourceDropFn` (the NoResourceTable arm); src/runtime/error/catalog.zig `wasm_resource_no_table`; zwasm src/api/component.zig `dropResource`.
     discharged_at: "2026-10-01"
+  - id: "D-566"
+    status: |-
+      DISCHARGED 2026-10-02. The three parts landed together.
+      (1) Stamp: `GcHeap.owner_thread_id`, set in `GcHeap.init` from
+      `root_set.currentThreadId()` (0 on single-threaded targets).
+      (2) Assert: `GcHeap.allocSized` asserts `mutatorAllowed()` (registered
+      worker, or the heap owner); `root_set.pushAnalysisRoot` asserts
+      `analysisMutatorAllowed()`. `pushAnalysisRoot` has no heap in hand, so it
+      checks a process-wide stamp of the most recent heap owner
+      (`noteHeapOwner`, which a registered worker never overwrites).
+      (3) Test audit of every `std.Thread.spawn` under src/: the gc_heap
+      concurrent-alloc workers and the lazy_seq force-race workers now register
+      through `root_set.workerContext`; vm.zig and the safepoint.zig workers
+      already registered; the root_set churn, eval_budget and latch threads
+      never touch the heap. No exemption was needed.
+      MEASURED: with the gc_heap test registration removed, `zig build test`
+      aborts that test (`reached unreachable code`), 1 crash of 1366. The
+      lazy_seq mock thunk allocates nothing, so the assert does not fire there
+      either way; its registration is for shape, not for the assert.
+      Was: open (2026-07-29, ADR-0175 deferred-hardening row), an unregistered
+      mutator was a ~1.5% GP-fault flake instead of a caught bug.
+    category: "concurrency"
+    barrier: |-
+      none, discharged. Pinned by the gc_heap.zig test "mutatorAllowed: the
+      stamping thread and registered workers may alloc, a foreign unregistered
+      thread may not (D-566)" and by the assert itself under every ReleaseSafe
+      unit and e2e run. Cross-ref ADR-0175 § Consequences.
+    last_reviewed: "2026-10-02"
 conventions: |-
   - Structure: two top-level lists — `active:` and `discharged:`. Active entries carry id / status / category / barrier (+ optional quality_floor / last_reviewed); discharged entries carry id / discharged_at / resolution. Edit as YAML (no Markdown table to align).
   - New debt: grep `.dev/debt.yaml` for class-overlap before adding (per `.claude/rules/debt_dedup.md`).
