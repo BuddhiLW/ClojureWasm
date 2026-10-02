@@ -705,6 +705,7 @@ run_step "e2e_phase16_clojure_core_reducers" "bash test/e2e/phase16_clojure_core
 run_step "e2e_phase16_clojure_java_io_copy" "bash test/e2e/phase16_clojure_java_io_copy.sh"
 run_step "e2e_phase16_cljw_json_fs"         "bash test/e2e/phase16_cljw_json_fs.sh"
 run_step "e2e_phase16_tokenizer_long_input" "bash test/e2e/phase16_tokenizer_long_input.sh"
+run_step "e2e_bulk_literal"                 "bash test/e2e/bulk_literal.sh"
 # Wasm-FFI execution e2e — now part of the DEFAULT full gate (F-001 amended
 # 2026-06-12: zwasm v2 is complete, so the gate builds `-Dwasm` throughout and
 # exercises the headline FFI path). They reuse the shared -Dwasm binary
