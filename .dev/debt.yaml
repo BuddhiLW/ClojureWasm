@@ -1095,23 +1095,6 @@ active:
       read-string half is already closed (ADR-0122). Cross-ref SE-8, ADR-0122,
       core.zig eval surface.
     last_reviewed: "2026-08-04"
-  - id: "D-346"
-    status: "open — security (VM operand-stack on large literal). Evaluating a large collection LITERAL (e.g. `(count [1 1 … ×40000])`) overflows the VM operand stack → `internal_error: vm: operand stack overflow` (uncatchable, exit 70). NOT a crash/panic (the tokenizer overflow-panic was the separate, fixed finding) — a clean process-end. Lower severity: it is reached by EVALUATING a large literal (untrusted CODE), not by READING data (read-string builds the collection in the reader, not via operand pushes), and untrusted-code-eval is already a higher-trust scenario. Surfaced 2026-06-09 while testing the tokenizer fix."
-    reviewed_2026_08_04: |-
-      REPRODUCED, unchanged, still low. `(count [1 1 … x40000])` from a file exits
-      70 with "vm: operand stack overflow" — a clean uncatchable process end, not
-      a crash or a memory-safety fault. Reachable only by EVALUATING untrusted
-      code (read-string builds the collection in the reader, not via operand
-      pushes), which is already the higher-trust scenario, so the severity
-      ordering behind the deferral holds.
-    category: "security"
-    barrier: |-
-      blocked-by: untrusted large-literal eval becoming a tracked threat. Options:
-      a growable/​checked operand stack with a catchable error (not internal_error),
-      or compiling a large vector/map literal to a bulk-build (not N operand pushes).
-      Low priority (eval-of-untrusted-code path; clean exit-70, not a crash).
-      Cross-ref the tokenizer long-input fix, vm.zig operand stack.
-    last_reviewed: "2026-08-04"
   - id: "D-384"
     status: |-
       open (2026-06-10) — the wasm cross-runtime comparison (`bench/wasm_bench.sh`,
@@ -7579,6 +7562,24 @@ discharged:
       thread may not (D-566)" and by the assert itself under every ReleaseSafe
       unit and e2e run. Cross-ref ADR-0175 § Consequences.
     last_reviewed: "2026-10-02"
+  - id: "D-346"
+    status: |-
+      DISCHARGED 2026-10-02 by "fix(vm): build large collection literals without exhausting the operand stack (D-346)". Both options the barrier named landed. A vector, map or set literal whose elements are all constants folds into one constant in the analyzer (clj ConstantExpr), so no operand stack is involved at any size. A literal with an evaluated element compiles to one build op for the first 512 elements and one op_vector_extend / op_map_extend / op_set_extend per further step, so the operand stack holds at most one step. A full operand arena now raises the catchable `stack_overflow` and a compiler limit raises the catchable `form_too_large`, neither an internal error. JVM clj rejects these 40k literals with "Method code too large!"; cljw builds them.
+      Was: open, security (VM operand stack on a large literal). `(count [1 1 (40000 elements)])` ended the process with the uncatchable `internal_error: vm: operand stack overflow` (exit 70). Surfaced 2026-06-09 while testing the tokenizer fix; reproduced unchanged 2026-08-04.
+    reviewed_2026_08_04: |-
+      REPRODUCED, unchanged, still low. `(count [1 1 … x40000])` from a file exits
+      70 with "vm: operand stack overflow" — a clean uncatchable process end, not
+      a crash or a memory-safety fault. Reachable only by EVALUATING untrusted
+      code (read-string builds the collection in the reader, not via operand
+      pushes), which is already the higher-trust scenario, so the severity
+      ordering behind the deferral holds.
+    category: "security"
+    barrier: |-
+      none, discharged. Pinned by `test/e2e/bulk_literal.sh` (both backends through --compare, the eval path, the catchable limits, the cljw build round trip), `test/clj/suites/bulk_literal_test.clj`, the bulk_literal diff corpus and the diff_test.zig D-346 case.
+    last_reviewed: "2026-10-02"
+    refs: |-
+      src/runtime/collection/literal.zig (the one literal construction); src/eval/analyzer/analyzer.zig (the constant fold); src/eval/backend/vm/compiler.zig and vm.zig (the extend opcodes); docs/spec/formats/chunk-v12.edn (bytecode format v12).
+    discharged_at: "2026-10-02"
 conventions: |-
   - Structure: two top-level lists — `active:` and `discharged:`. Active entries carry id / status / category / barrier (+ optional quality_floor / last_reviewed); discharged entries carry id / discharged_at / resolution. Edit as YAML (no Markdown table to align).
   - New debt: grep `.dev/debt.yaml` for class-overlap before adding (per `.claude/rules/debt_dedup.md`).
