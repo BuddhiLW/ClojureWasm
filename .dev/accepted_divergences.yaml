@@ -59,14 +59,18 @@ accepted:
     derives_from: "ADR-0059 (no-JVM rule); ADR-0174 (identity rule); no_jvm_specific_assumption.md"
     pin: "test/diff/clj_corpus/print_repr.txt + test/diff/clj_corpus/str_char.txt (native simple names) + test/e2e/phase14_host_class_identity.sh (surface FQCNs)"
   - id: "AD-004"
-    summary: "`(float x)` yields an f64; cljw has no f32 representation"
-    example: "(float 1/3) => cljw 0.3333333333333333 / clj 0.33333334 (f32)"
+    summary: "`(float x)` and `(.floatValue x)` yield an f64; cljw has no f32 representation"
+    example: "(float 1/3) => cljw 0.3333333333333333 / clj 0.33333334 (f32); (.floatValue 16777217) => cljw 1.6777217E7 / clj 1.6777216E7"
     why: |-
       F-005 fixes the numeric tower as a Zig-native single-double internal
       model. A distinct f32 would be a representation the tower does not
-      carry; `float` widens to the f64 the value already is.
+      carry; `float` widens to the f64 the value already is. The Number
+      method `.floatValue` answers the same f64 as `float`, not a value
+      rounded to f32 precision: clj has `(= (float x) (.floatValue x))`,
+      and narrowing in one of the two alone would break it (and print
+      `(.floatValue 0.1)` as 0.10000000149011612 where clj prints 0.1).
     derives_from: "F-005 (numeric tower: single internal double)"
-    pin: "none — value-dependent (the f64 is correct; only the f32-narrowing is absent)"
+    pin: "test/clj/suites/number_value_methods_test.clj (float-value-is-the-double-as-float-is); otherwise value-dependent (the f64 is correct; only the f32-narrowing is absent)"
   - id: "AD-005"
     summary: "Subnormal double shortest-rendering differs by the last digit"
     example: "smallest positive double => cljw 5.0E-324 / clj 4.9E-324 (the SAME f64 bit pattern)"
@@ -220,6 +224,12 @@ accepted:
       round-trip, D-204) — so the honest finished form is the collapse + this
       recorded divergence. The class-NAME simple form (BigInt, not the FQCN) is
       additionally the AD-003 no-JVM-class surface.
+      The collapse also means a cljw BigInt answers the java.math.BigInteger
+      instance methods (bigint_methods.zig: `.gcd`, `.pow`, `.compareTo`, and
+      the rest), which clj's clojure.lang.BigInt does not have: `(.compareTo 5N
+      6N)` is -1 in cljw and IllegalArgumentException ("No matching method
+      compareTo") in clj, while `(.compareTo (biginteger 5) (biginteger 6))` is
+      -1 in both.
     derives_from: "F-005 (numeric tower collapses BigInt/BigInteger into one `.big_int`) + AD-003 (simple class name, no JVM Class)"
     pin: "test/clj/suites/biginteger_test.clj — the `biginteger-is-bigint-the-ad-016-divergence` deftest (cases biginteger_prints_N + biginteger_class_bigint) locks cljw's `5N` print and BigInt class (the divergent values, not clj's 5 / java.math.BigInteger)"
   - id: "AD-017"
