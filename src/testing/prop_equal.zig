@@ -27,6 +27,13 @@ const keyword_mod = @import("../runtime/keyword.zig");
 const string_mod = @import("../runtime/collection/string.zig");
 const vector = @import("../runtime/collection/vector.zig");
 const list = @import("../runtime/collection/list.zig");
+const date = @import("../runtime/time/date.zig");
+const timestamp = @import("../runtime/time/timestamp.zig");
+const instant_value = @import("../runtime/time/instant_value.zig");
+const duration_value = @import("../runtime/time/duration_value.zig");
+const local_date_value = @import("../runtime/time/local_date_value.zig");
+const local_date_time_value = @import("../runtime/time/local_date_time_value.zig");
+const local_time_value = @import("../runtime/time/local_time_value.zig");
 
 const testing = std.testing;
 
@@ -35,10 +42,12 @@ fn config() prop.Config {
     return .{ .seed = build_options.prop_seed, .iters = build_options.prop_iters };
 }
 
-/// 10 kinds × 4 payloads = 40 distinct specs, drawn small so the pool collides
-/// often (same value from one spec, and — across kinds 0/1 and 8/9 — the same
-/// value from two representations).
-const kinds = 10;
+/// 17 kinds × 4 payloads = 68 distinct specs, drawn small so the pool collides
+/// often (same value from one spec, and, across kinds 0/1 and 8/9, the same
+/// value from two representations). Kinds 10..16 are the Date / java.time
+/// typed_instance values: every spec allocates a FRESH instance, so a repeated
+/// spec is an equal-but-distinct pair that an identity hash would split.
+const kinds = 17;
 const payloads = 4;
 const kw_names = [payloads][]const u8{ "ka", "kb", "kc", "kd" };
 const str_vals = [payloads][]const u8{ "sa", "sb", "sc", "sd" };
@@ -65,6 +74,13 @@ fn valueFromSpec(rt: *Runtime, spec: i64) !Value {
         9 => lst: {
             break :lst try list.consHeap(rt, Value.initInteger(p), try list.emptyList(rt));
         },
+        10 => try date.make(rt, p),
+        11 => try timestamp.make(rt, p, @intCast(p * 1_000_000)),
+        12 => try instant_value.make(rt, p * 1000, @intCast(p)),
+        13 => try duration_value.make(rt, p, @intCast(p)),
+        14 => try local_date_value.make(rt, p),
+        15 => try local_date_time_value.make(rt, p, p),
+        16 => try local_time_value.make(rt, p),
         else => unreachable,
     };
 }

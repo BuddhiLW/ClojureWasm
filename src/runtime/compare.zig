@@ -12,9 +12,9 @@
 //! under `=`'s never-raise contract).
 //!
 //! Numeric scope (ADR-0053 D2): same-category exact via the existing
-//! Order fns; the int/float reach via f64; exact cross-category
-//! (ratio/decimal mixed, or big magnitudes beyond i64) is deferred to
-//! the numeric combine ladder (D-014a family) and raises for now.
+//! Order fns; a float operand orders as f64; any other cross-category pair
+//! (ratio/decimal mixed, or big magnitudes beyond i64) orders exactly, by the
+//! sign of its tower-promoting difference (`promote.orderNumeric`).
 
 const std = @import("std");
 const Order = std.math.Order;
@@ -40,6 +40,7 @@ const local_time_value = @import("time/local_time_value.zig");
 const local_date_time_value = @import("time/local_date_time_value.zig");
 const host_instance = @import("host_instance.zig");
 const date_mod = @import("time/date.zig");
+const timestamp_mod = @import("time/timestamp.zig");
 const uuid_mod = @import("uuid.zig");
 const dispatch = @import("dispatch.zig");
 const Env = @import("env.zig").Env;
@@ -95,12 +96,16 @@ fn numericOrder(rt: *Runtime, a: Value, b: Value, loc: SourceLocation) anyerror!
         };
     }
     // Cross-category: the exact sign of the tower-promoting difference (the
-    // D-014a combine ladder, now done exactly). Float contagion → f64 sign
+    // D-014a combine ladder, done exactly). Float contagion gives the f64 sign
     // (clj: `(compare 1N 1.0)`→0); a no-float mix (ratio/int/BigDecimal/BigInt)
-    // compares EXACTLY. Replaces the old lossy f64 collapse that raised on any
-    // ratio / BigDecimal / big-magnitude operand.
-    _ = loc;
-    return promote.orderNumeric(rt, a, b);
+    // compares EXACTLY. A Ratio meeting a BigDecimal becomes an exact
+    // BigDecimal, as clj's `Numbers.toBigDecimal` makes it, so a non-terminating
+    // one (`(compare 1/3 0.5M)`) is clj's ArithmeticException.
+    return promote.orderNumeric(rt, a, b) catch |err| switch (err) {
+        error.NonTerminatingDecimal => return error_catalog.raise(.non_terminating_decimal, loc, .{}),
+        error.RoundingNecessary => return error_catalog.raise(.rounding_necessary, loc, .{}),
+        else => return err,
+    };
 }
 
 /// Java `String.compareTo` over UTF-16 code units: the raw difference at
@@ -272,6 +277,12 @@ fn temporalOrder(rt: *Runtime, a: Value, b: Value, loc: SourceLocation) anyerror
     // java.util.Date is Comparable by epoch-ms (Date.compareTo).
     if (date_mod.isDate(a) and date_mod.isDate(b)) {
         return std.math.order(date_mod.epochMsOf(a), date_mod.epochMsOf(b));
+    }
+    // java.sql.Timestamp.compareTo(Timestamp): epoch-ms, then nanos. A
+    // Timestamp against a Date still raises (AD-075 keeps the two apart).
+    if (timestamp_mod.isTimestamp(a) and timestamp_mod.isTimestamp(b)) {
+        const o = std.math.order(timestamp_mod.epochMsOf(a), timestamp_mod.epochMsOf(b));
+        return if (o != .eq) o else std.math.order(timestamp_mod.nanosOf(a), timestamp_mod.nanosOf(b));
     }
     if (instant_value.isInstant(a) and instant_value.isInstant(b)) {
         const o = std.math.order(instant_value.epochMsOf(a), instant_value.epochMsOf(b));

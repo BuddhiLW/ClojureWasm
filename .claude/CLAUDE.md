@@ -48,8 +48,9 @@ does not override the smell sensor. Mechanism: the smell corpus in memory, layer
   What is unfinished: `.dev/debt.yaml` + the kanban board.
 - **Read-only references**: cw v0 through git only (`git show v0.5.0:<path>`,
   or `git worktree add ../cw-v0 v0.5.0`). zwasm clone at
-  `~/PP/referential-projects/zwasm`. The `~/Documents/OSS/{clojure,babashka,zig}`
-  and `~/Documents/MyProducts/ClojureWasm` paths in older text are the
+  `~/PP/zwasm` (origin `BuddhiLW/zwasm`, the fork `build.zig.zon` pins).
+  The `~/Documents/OSS/{clojure,babashka,zig}` and
+  `~/Documents/MyProducts/ClojureWasm` paths in older text are the
   **upstream author's machine layout**, inherited by the fork and never valid
   here. A survey that needs JVM Clojure, Babashka or the Zig stdlib must be
   pointed at a tree that exists, or clone one first.

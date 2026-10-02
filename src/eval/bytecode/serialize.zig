@@ -41,8 +41,8 @@
 //! v0.1.0 tag set is the realistic compiler-produced constant
 //! universe: immediates (nil / true / false / integer / float /
 //! char) + interned literals (string / symbol / keyword / var_ref
-//! / regex) + quoted collections (list / vector / array_map /
-//! hash_set) + compiled `fn_val` (ADR-0034 am2) + class-value
+//! / regex) + quoted and folded literal collections (list / vector /
+//! array_map / hash_map / hash_set) + compiled `fn_val` (ADR-0034 am2) + class-value
 //! `type_descriptor` (ADR-0034 am5, re-resolved by name). Out of scope (raise
 //! explicit `UnsupportedValueTag`): atom / multi_fn / big_int /
 //! wasm_* / transient_* / any runtime-only Value (per
@@ -73,10 +73,14 @@ const vector_mod = @import("../../runtime/collection/vector.zig");
 const sub_vector_mod = @import("../../runtime/collection/sub_vector.zig");
 const map_mod = @import("../../runtime/collection/map.zig");
 const set_mod = @import("../../runtime/collection/set.zig");
+const literal = @import("../../runtime/collection/literal.zig");
 const tree_walk = @import("../backend/tree_walk.zig");
 const Function = tree_walk.Function;
 
 pub const MAGIC: [4]u8 = .{ 'C', 'L', 'J', 'W' };
+// v12 (D-346): the op_*_extend opcodes build a large literal in bounded steps,
+// and a folded constant literal may be a hash_map (new wire tag) or a set past
+// the array-map threshold. A v11 decoder cannot read either, so v11 is rejected.
 // v11: a `.type_descriptor` constant carries the `rt.types` KEY, which for a
 // user type is now `<defining_ns>.<Name>` rather than the simple name
 // (ADR-0198). A v10 artifact would resolve that constant against the new
@@ -85,13 +89,12 @@ pub const MAGIC: [4]u8 = .{ 'C', 'L', 'J', 'W' };
 // v10: def operands capture Var constants instead of caller-relative names.
 // v9 added op_var_meta; v8 unified host-class FQCNs; v7 compacted WireInstr
 // and interned the name pool; v6 merged rt into clojure.core.
-pub const VERSION: u16 = 11;
+pub const VERSION: u16 = 12;
 
 pub const SerializeError = error{
     OutOfMemory,
     WriteFailed,
     UnsupportedValueTag,
-    HashMapNotSerializable,
     /// A `fn_val` constant carries `closure_bindings != null` — a runtime
     /// closure, which is never a compile-time constant (ADR-0034 am2 A2-D2).
     /// Raised as an invariant guard, not a feature gate.
@@ -168,6 +171,11 @@ pub const ValueTag = enum(u8) {
     /// interned-name tags (string / symbol / keyword / var_ref / regex /
     /// type_descriptor), deduplicated per blob/payload.
     pool_ref = 0x11,
+    /// v12 (D-346): a map past the array-map threshold, which a folded
+    /// constant literal can be. Body as `array_map` (count, then key/value
+    /// pairs); the decoder assoc-folds it the same way, and its entry order
+    /// carries no meaning.
+    hash_map = 0x12,
 };
 
 /// Parsed constant pool: each entry is a standalone constant encoding
@@ -401,31 +409,17 @@ fn writeValueRaw(ctx: *WriteCtx, w: *std.Io.Writer, v: Value) SerializeError!voi
             var i: u32 = 0;
             while (i < n) : (i += 1) try writeValue(ctx, w, sub_vector_mod.nth(v, i));
         },
-        .array_map => {
-            try writeU8(w, @intFromEnum(ValueTag.array_map));
-            const am = v.decodePtr(*const map_mod.ArrayMap); // repr-decode-ok: serialized format is representation-dependent by design; a hash_map raises HashMapNotSerializable
-            try writeU32(w, am.count);
-            var i: u32 = 0;
-            while (i < am.count) : (i += 1) {
-                try writeValue(ctx, w, am.entries[2 * i]);
-                try writeValue(ctx, w, am.entries[2 * i + 1]);
-            }
-        },
-        .hash_map => {
-            // The bytecode serializer does not yet walk a HAMT body
-            // (only the array_map path is wired); raise an explicit
-            // error so the user sees a concrete diagnostic rather than
-            // a partial archive.
-            return SerializeError.HashMapNotSerializable;
+        // The array_map tag keeps its entries in insertion order; a hash_map's
+        // walk order carries no meaning. Both decode by an assoc fold.
+        .array_map, .hash_map => {
+            try writeU8(w, @intFromEnum(if (v.tag() == .array_map) ValueTag.array_map else ValueTag.hash_map));
+            try writeU32(w, map_mod.count(v));
+            try writeEntries(ctx, w, v, .map);
         },
         .hash_set => {
             try writeU8(w, @intFromEnum(ValueTag.hash_set));
-            const s = v.decodePtr(*const set_mod.PersistentHashSet); // repr-decode-ok: set backing read for the serializable (array_map) check below
-            if (s.map.tag() != .array_map) return SerializeError.HashMapNotSerializable;
-            const am = s.map.decodePtr(*const map_mod.ArrayMap); // repr-decode-ok: serialized format is representation-dependent by design; guarded by the check above
-            try writeU32(w, am.count);
-            var i: u32 = 0;
-            while (i < am.count) : (i += 1) try writeValue(ctx, w, am.entries[2 * i]);
+            try writeU32(w, set_mod.count(v));
+            try writeEntries(ctx, w, v, .set);
         },
         .var_ref => {
             try writeU8(w, @intFromEnum(ValueTag.var_ref));
@@ -494,6 +488,37 @@ fn writeValueRaw(ctx: *WriteCtx, w: *std.Io.Writer, v: Value) SerializeError!voi
         },
         else => return SerializeError.UnsupportedValueTag,
     }
+}
+
+/// Write each entry of a map (key, then value) or each element of a set, in
+/// the collection's own walk order. The walk's callback error set is
+/// `anyerror`, so the first write error is carried out through `err`.
+fn writeEntries(ctx: *WriteCtx, w: *std.Io.Writer, coll: Value, comptime kind: enum { map, set }) SerializeError!void {
+    const Sink = struct {
+        ctx: *WriteCtx,
+        w: *std.Io.Writer,
+        err: ?SerializeError = null,
+
+        fn put(s: *@This(), x: Value) anyerror!void {
+            writeValue(s.ctx, s.w, x) catch |e| {
+                s.err = e;
+                return e;
+            };
+        }
+
+        fn entry(s: *@This(), k: Value, x: Value) anyerror!void {
+            try s.put(k);
+            try s.put(x);
+        }
+    };
+    var sink: Sink = .{ .ctx = ctx, .w = w };
+    const walked = if (kind == .map)
+        map_mod.forEachEntry(coll, &sink, Sink.entry)
+    else
+        set_mod.forEachElem(coll, &sink, Sink.put);
+    // The caller dispatched on the collection's tag, so the walk itself
+    // cannot fail; only a write can.
+    walked catch return sink.err.?;
 }
 
 /// Serialize one function method: `arity` + `has_rest` + a length-prefixed
@@ -601,48 +626,9 @@ fn readValue(ctx: *ReadCtx, r: *ByteReader) DeserializeError!Value {
             }
             return lst;
         },
-        .vector => {
-            const n = try r.readU32();
-            // Fabrication region: see the .list arm — `out` is unrooted
-            // across the per-element readValue/conj allocs.
-            rt.gc.enterFabrication();
-            defer rt.gc.exitFabrication();
-            var out = vector_mod.empty();
-            var i: u32 = 0;
-            while (i < n) : (i += 1) {
-                const elt = try readValue(ctx, r);
-                out = vector_mod.conj(rt, out, elt) catch return DeserializeError.OutOfMemory;
-            }
-            return out;
-        },
-        .array_map => {
-            const n = try r.readU32();
-            // Fabrication region: see the .list arm — `out` + the in-flight
-            // k are unrooted across the per-entry readValue/assoc allocs.
-            rt.gc.enterFabrication();
-            defer rt.gc.exitFabrication();
-            var out = map_mod.empty();
-            var i: u32 = 0;
-            while (i < n) : (i += 1) {
-                const k = try readValue(ctx, r);
-                const val = try readValue(ctx, r);
-                out = map_mod.assoc(rt, out, k, val) catch return DeserializeError.OutOfMemory;
-            }
-            return out;
-        },
-        .hash_set => {
-            const n = try r.readU32();
-            // Fabrication region: see the .list arm.
-            rt.gc.enterFabrication();
-            defer rt.gc.exitFabrication();
-            var out = set_mod.empty();
-            var i: u32 = 0;
-            while (i < n) : (i += 1) {
-                const elt = try readValue(ctx, r);
-                out = set_mod.conj(rt, out, elt) catch return DeserializeError.OutOfMemory;
-            }
-            return out;
-        },
+        .vector => return readCollection(ctx, r, .vector),
+        .array_map, .hash_map => return readCollection(ctx, r, .map),
+        .hash_set => return readCollection(ctx, r, .set),
         .var_ref => {
             const ns_bytes = try r.readLenPrefixed();
             const name_bytes = try r.readLenPrefixed();
@@ -708,6 +694,28 @@ fn readValue(ctx: *ReadCtx, r: *ByteReader) DeserializeError!Value {
             return tree_walk.allocFunctionFromSerialized(rt, slot_base, methods, variadic) catch return DeserializeError.OutOfMemory;
         },
     }
+}
+
+/// Decode a vector, map or set constant: its elements (a map's as flat
+/// key/value pairs), then the collection, built by the construction the
+/// analyzer folded it with (`literal.build`), so the decoded value equals the
+/// source-built one. The count header is untrusted, so the buffer reserves
+/// only what the remaining bytes can hold, one byte per element at least.
+fn readCollection(ctx: *ReadCtx, r: *ByteReader, comptime kind: literal.Kind) DeserializeError!Value {
+    const count = try r.readU32();
+    const len = if (kind == .map) @as(usize, count) * 2 else count;
+    if (len > r.bytes.len - r.pos) return DeserializeError.BytecodeTruncated;
+    const items = ctx.allocator.alloc(Value, len) catch return DeserializeError.OutOfMemory;
+    defer ctx.allocator.free(items);
+    @memset(items, .nil_val);
+    // GC-ROOT: the decoded elements, across the nested decodes' allocations
+    // and the build (a collect may run there; nothing is held unrooted).
+    const sp: u16 = 0;
+    var frame: root_set.EvalFrame = .{ .stack = items.ptr, .sp = &sp, .locals = items, .parent = root_set.eval_frame_head };
+    root_set.eval_frame_head = &frame;
+    defer root_set.eval_frame_head = frame.parent;
+    for (items) |*slot| slot.* = try readValue(ctx, r);
+    return literal.build(ctx.rt, kind, items) catch return DeserializeError.OutOfMemory;
 }
 
 /// Read one function method (arity + has_rest + optional length-prefixed
@@ -1867,6 +1875,14 @@ test "every wire ValueTag has BOTH a write and a read arm (symmetry gate)" {
             .list => try list_mod.consHeap(&rt, one, try list_mod.emptyList(&rt)),
             .vector => try vector_mod.conj(&rt, vector_mod.empty(), one),
             .array_map => try map_mod.assoc(&rt, map_mod.empty(), one, one),
+            .hash_map => blk: {
+                var m = map_mod.empty();
+                for (0..map_mod.ARRAY_MAP_THRESHOLD + 1) |i| {
+                    const k = Value.initInteger(@intCast(i));
+                    m = try map_mod.assoc(&rt, m, k, k);
+                }
+                break :blk m;
+            },
             .hash_set => try set_mod.conj(&rt, set_mod.empty(), one),
             .var_ref => Value.encodeHeapPtr(.var_ref, try env.intern(user_ns, "v", .nil_val, null)),
             .regex => try regex_value.alloc(&rt, "ab.", regex_compile.Flags{}),
@@ -1893,6 +1909,52 @@ test "every wire ValueTag has BOTH a write and a read arm (symmetry gate)" {
             return error.ReadArmMissing;
         };
     }
+}
+
+test "D-346: folded literal constants past the array-map threshold round-trip" {
+    // A constant literal folds into ONE constant however large (D-346), so the
+    // wire must carry a hash-map, a set backed by one, and a trie vector.
+    var th = std.Io.Threaded.init(testing.allocator, .{});
+    defer th.deinit();
+    var rt = Runtime.init(th.io(), testing.allocator);
+    defer rt.deinit();
+    var env = try @import("../../runtime/env.zig").Env.init(&rt);
+    defer env.deinit();
+    const equal = @import("../../runtime/equal.zig");
+
+    var items: [200]Value = undefined;
+    for (&items, 0..) |*v, i| v.* = Value.initInteger(@intCast(i));
+    const originals = [_]Value{
+        try literal.build(&rt, .map, &items),
+        try literal.build(&rt, .set, &items),
+        try literal.build(&rt, .vector, &items),
+    };
+    try testing.expect(originals[0].tag() == .hash_map);
+    for (originals) |original| {
+        var aw: std.Io.Writer.Allocating = .init(testing.allocator);
+        defer aw.deinit();
+        var wctx: WriteCtx = .{ .allocator = testing.allocator, .base = 0, .pool = null };
+        try writeValue(&wctx, &aw.writer, original);
+        var rr: ByteReader = .{ .bytes = aw.writer.buffered(), .pos = 0 };
+        var rctx: ReadCtx = .{ .allocator = testing.allocator, .rt = &rt, .env = &env, .pool = null, .source_file = "test" };
+        const decoded = try readValue(&rctx, &rr);
+        try testing.expectEqual(original.tag(), decoded.tag());
+        try testing.expect(try equal.eqConsult(original, decoded));
+        try testing.expectEqual(rr.bytes.len, rr.pos);
+    }
+}
+
+test "D-346: a collection count past the remaining bytes is truncation, not an allocation" {
+    var th = std.Io.Threaded.init(testing.allocator, .{});
+    defer th.deinit();
+    var rt = Runtime.init(th.io(), testing.allocator);
+    defer rt.deinit();
+    var env = try @import("../../runtime/env.zig").Env.init(&rt);
+    defer env.deinit();
+    const bytes = [_]u8{ @intFromEnum(ValueTag.hash_map), 0xFF, 0xFF, 0xFF, 0xFF };
+    var rr: ByteReader = .{ .bytes = &bytes, .pos = 0 };
+    var rctx: ReadCtx = .{ .allocator = testing.allocator, .rt = &rt, .env = &env, .pool = null, .source_file = "test" };
+    try testing.expectError(DeserializeError.BytecodeTruncated, readValue(&rctx, &rr));
 }
 
 test "type_descriptor constant round-trips by name (ADR-0034 am5; D-452)" {

@@ -62,6 +62,7 @@ const vector_collection = @import("../../runtime/collection/vector.zig");
 const sub_vector_collection = @import("../../runtime/collection/sub_vector.zig");
 const map_collection = @import("../../runtime/collection/map.zig");
 const set_collection = @import("../../runtime/collection/set.zig");
+const literal = @import("../../runtime/collection/literal.zig");
 const big_int = @import("../../runtime/numeric/big_int.zig");
 const promote = @import("../../runtime/numeric/promote.zig");
 const big_decimal = @import("../../runtime/numeric/big_decimal.zig");
@@ -336,24 +337,22 @@ pub fn analyze(
             const v = try string_collection.alloc(rt, s);
             return try makeConstant(arena, v, form);
         },
-        // Vector literal in expression position — analyze each child
-        // form, emit VectorLiteralNode (Phase 6.9 cycle 4). A reader
-        // `^meta` (D-186) lowers to `(with-meta <literal> <meta>)`.
+        // Collection literals in expression position: a constant when every
+        // element is one, else a literal Node (analyzeCollLiteral). A reader
+        // `^meta` (D-186) lowers to `(with-meta <literal> <meta>)`, which is
+        // rebuilt per evaluation, as in clj.
         .vector => |items| if (form.meta) |mf|
             try analyzeMetaColl(arena, rt, env, scope, form, mf, macro_table)
         else
-            try analyzeVectorLiteral(arena, rt, env, scope, items, form, macro_table),
-        // `{...}` and `#{...}` literals (Phase 6.16.b-2 closes D-059
-        // + D-061). Each emits its own LiteralNode shape; eval walks
-        // the children and folds into an empty ArrayMap / HashSet.
+            try analyzeCollLiteral(arena, rt, env, scope, items, form, macro_table, .vector),
         .map => |items| if (form.meta) |mf|
             try analyzeMetaColl(arena, rt, env, scope, form, mf, macro_table)
         else
-            try analyzeMapLiteral(arena, rt, env, scope, items, form, macro_table),
+            try analyzeCollLiteral(arena, rt, env, scope, items, form, macro_table, .map),
         .set => |items| if (form.meta) |mf|
             try analyzeMetaColl(arena, rt, env, scope, form, mf, macro_table)
         else
-            try analyzeSetLiteral(arena, rt, env, scope, items, form, macro_table),
+            try analyzeCollLiteral(arena, rt, env, scope, items, form, macro_table, .set),
         // `#tag form` in expression position (ADR-0073): apply the data
         // reader at analyze time (data is data) and emit the result as a
         // constant. The whole literal is data, so it takes the strict lift:
@@ -555,24 +554,29 @@ pub fn parseBigDecimalLiteral(rt: *Runtime, digits: []const u8, loc: error_mod.S
     return try big_decimal.allocFromManagedScale(rt, &unscaled, scale);
 }
 
-/// Parse `1/3`-shape Ratio literal into a Value. Reads numerator and
-/// denominator as i64 (Phase 14 row 14.4 gap (b) — wider numerators
-/// fall to the same overflow path as gap (a) D-014a tracks). Collapse
-/// to integer when the reduced denominator is 1 (the orelse branch
-/// covers e.g. `6/2` → 3).
+/// Parse an `n/d` Ratio literal into a Value, as clj's reader does: each side
+/// is an exact integer of any width, a Long when it fits i64 and a BigInt
+/// otherwise, and the value is `promote.divideIntegers` of the two, which is
+/// what `/` answers on the same operands (`6/2` is 3, `24691357802469135781/2`
+/// a Ratio, `123456789012345678901234567890/7` a BigInt).
 pub fn parseRatioLiteral(rt: *Runtime, digits: []const u8, loc: error_mod.SourceLocation) !Value {
     const slash = std.mem.findScalar(u8, digits, '/') orelse
         return error_catalog.raise(.number_literal_invalid, loc, .{ .text = digits });
-    const num = std.fmt.parseInt(i64, digits[0..slash], 10) catch
-        return error_catalog.raise(.number_literal_invalid, loc, .{ .text = digits });
-    const den = std.fmt.parseInt(i64, digits[slash + 1 ..], 10) catch
-        return error_catalog.raise(.number_literal_invalid, loc, .{ .text = digits });
-    const r = ratio_mod.allocFromI64Pair(rt, num, den) catch |err| switch (err) {
-        error.DivideByZero => return error_catalog.raise(.divide_by_zero, loc, .{}),
+    var num = big_int.parseBase10(rt, digits[0..slash]) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
+        else => return error_catalog.raise(.number_literal_invalid, loc, .{ .text = digits }),
     };
-    // Reduced denom == 1: the ratio collapses to a plain integer.
-    return r orelse Value.initInteger(@divTrunc(num, den));
+    defer num.deinit();
+    var den = big_int.parseBase10(rt, digits[slash + 1 ..]) catch |err| switch (err) {
+        error.OutOfMemory => return error.OutOfMemory,
+        else => return error_catalog.raise(.number_literal_invalid, loc, .{ .text = digits }),
+    };
+    defer den.deinit();
+    const bigint_operand = !num.fits(i64) or !den.fits(i64);
+    return promote.divideIntegers(rt, &num, &den, bigint_operand) catch |err| switch (err) {
+        error.DivideByZero => return error_catalog.raise(.divide_by_zero, loc, .{}),
+        else => |e| return e,
+    };
 }
 
 /// Compile a `#"..."` reader-literal body into a regex Value via
@@ -1228,7 +1232,6 @@ fn analyzeCall(
     return n;
 }
 
-/// `[expr1 expr2 ...]` lift — analyze each element with the full
 /// D-186: a collection literal carrying reader `^meta` lowers to
 /// `(with-meta <bare-literal> <meta-map>)` and re-analyzes — reusing the
 /// `with-meta` primitive on the shared call path, so BOTH backends attach
@@ -1255,8 +1258,17 @@ fn analyzeMetaColl(
     return analyze(arena, rt, env, scope, call_form, macro_table);
 }
 
-/// special-form / call-form pipeline, package into VectorLiteralNode.
-fn analyzeVectorLiteral(
+/// `[e ...]`, `{k v ...}` and `#{e ...}` in expression position: analyze each
+/// element with the full special-form / call-form pipeline.
+///
+/// When every element analyzed to a constant, the literal IS a constant, built
+/// here once (clj `ConstantExpr`, D-346): both backends yield the identical
+/// collection on every evaluation, and no operand stack is involved at any
+/// size. Otherwise the elements package into the literal Node (a map's flat
+/// k0 v0 k1 v1 ..., even by the reader's guarantee), which each backend
+/// builds per evaluation, a map keeping a repeated key's last value and a set
+/// collapsing duplicates.
+fn analyzeCollLiteral(
     arena: std.mem.Allocator,
     rt: *Runtime,
     env: *Env,
@@ -1264,59 +1276,42 @@ fn analyzeVectorLiteral(
     items: []const Form,
     form: Form,
     macro_table: *const macro_dispatch.Table,
+    comptime kind: literal.Kind,
 ) AnalyzeError!*const Node {
     const elt_nodes = try arena.alloc(Node, items.len);
-    for (items, 0..) |elt_form, i| {
-        const elt = try analyze(arena, rt, env, scope, elt_form, macro_table);
-        elt_nodes[i] = elt.*;
+    var all_constant = true;
+    for (items, elt_nodes) |elt_form, *slot| {
+        slot.* = (try analyze(arena, rt, env, scope, elt_form, macro_table)).*;
+        if (constantValue(slot.*) == null) all_constant = false;
     }
+    if (all_constant) return makeConstant(arena, try foldConstantLiteral(arena, rt, elt_nodes, kind), form);
     const n = try arena.create(Node);
-    n.* = .{ .vector_literal_node = .{ .elements = elt_nodes, .loc = form.location } };
+    n.* = switch (kind) {
+        .vector => .{ .vector_literal_node = .{ .elements = elt_nodes, .loc = form.location } },
+        .map => .{ .map_literal_node = .{ .elements = elt_nodes, .loc = form.location } },
+        .set => .{ .set_literal_node = .{ .elements = elt_nodes, .loc = form.location } },
+    };
     return n;
 }
 
-/// `{k1 v1 k2 v2 ...}` lift — analyze each k/v form, package into
-/// MapLiteralNode (k0, v0, k1, v1, ...). Reader guarantees the
-/// flat pair count is even.
-fn analyzeMapLiteral(
-    arena: std.mem.Allocator,
-    rt: *Runtime,
-    env: *Env,
-    scope: ?*const Scope,
-    items: []const Form,
-    form: Form,
-    macro_table: *const macro_dispatch.Table,
-) AnalyzeError!*const Node {
-    const elt_nodes = try arena.alloc(Node, items.len);
-    for (items, 0..) |elt_form, i| {
-        const elt = try analyze(arena, rt, env, scope, elt_form, macro_table);
-        elt_nodes[i] = elt.*;
-    }
-    const n = try arena.create(Node);
-    n.* = .{ .map_literal_node = .{ .elements = elt_nodes, .loc = form.location } };
-    return n;
+/// The value an element contributes to a constant literal, or null when it
+/// must be evaluated. A quoted form is a constant, as in clj.
+fn constantValue(n: Node) ?Value {
+    return switch (n) {
+        .constant => |c| c.value,
+        .quote_node => |q| q.quoted,
+        else => null,
+    };
 }
 
-/// `#{e1 e2 ...}` lift — analyze each element, package into
-/// SetLiteralNode. Eval conj-folds duplicates into a single entry
-/// (set semantics).
-fn analyzeSetLiteral(
-    arena: std.mem.Allocator,
-    rt: *Runtime,
-    env: *Env,
-    scope: ?*const Scope,
-    items: []const Form,
-    form: Form,
-    macro_table: *const macro_dispatch.Table,
-) AnalyzeError!*const Node {
-    const elt_nodes = try arena.alloc(Node, items.len);
-    for (items, 0..) |elt_form, i| {
-        const elt = try analyze(arena, rt, env, scope, elt_form, macro_table);
-        elt_nodes[i] = elt.*;
-    }
-    const n = try arena.create(Node);
-    n.* = .{ .set_literal_node = .{ .elements = elt_nodes, .loc = form.location } };
-    return n;
+/// Build an all-constant literal's collection with the construction the VM
+/// uses per evaluation (`literal.build`), so the folded value equals the one a
+/// backend would build. The element values stay analysis-rooted by the
+/// constant Nodes that hold them.
+fn foldConstantLiteral(arena: std.mem.Allocator, rt: *Runtime, elt_nodes: []const Node, comptime kind: literal.Kind) AnalyzeError!Value {
+    const values = try arena.alloc(Value, elt_nodes.len);
+    for (elt_nodes, values) |n, *v| v.* = constantValue(n).?;
+    return literal.build(rt, kind, values);
 }
 
 // --- Special forms ---
@@ -2102,14 +2097,38 @@ test "string-literal-as-expression lifts to a .string Value (Phase 3.5)" {
     try testing.expectEqualStrings("hello", string_collection.asString(n.constant.value));
 }
 
-test "vector-literal-as-expression analyzes into VectorLiteralNode (Phase 6.9 cycle 4)" {
+test "vector literal with an evaluated element analyzes into VectorLiteralNode" {
     var fix: TestFixture = undefined;
     try fix.init(testing.allocator);
     defer fix.deinit();
 
-    const n = try fix.analyzeStr("[1 2 3]");
-    try testing.expect(n.* == .vector_literal_node);
-    try testing.expectEqual(@as(usize, 3), n.vector_literal_node.elements.len);
+    const n = try fix.analyzeStr("(let* [x 1] [x 2 3])");
+    const body = n.let_node.body;
+    try testing.expect(body.* == .vector_literal_node);
+    try testing.expectEqual(@as(usize, 3), body.vector_literal_node.elements.len);
+}
+
+test "D-346: an all-constant collection literal folds into one constant" {
+    var fix: TestFixture = undefined;
+    try fix.init(testing.allocator);
+    defer fix.deinit();
+
+    const v = try fix.analyzeStr("[1 [2 3] (quote a)]");
+    try testing.expect(v.* == .constant);
+    try testing.expectEqual(@as(u32, 3), vector_collection.count(v.constant.value));
+    const inner = vector_collection.nth(v.constant.value, 1);
+    try testing.expectEqual(@as(u32, 2), vector_collection.count(inner));
+
+    // Ten simple keys exceed the array-map threshold: the fold assocs into a
+    // hash map, as the backends do.
+    const m = try fix.analyzeStr("{0 0 1 1 2 2 3 3 4 4 5 5 6 6 7 7 8 8 9 9}");
+    try testing.expect(m.* == .constant);
+    try testing.expect(m.constant.value.tag() == .hash_map);
+    try testing.expectEqual(@as(u32, 10), map_collection.count(m.constant.value));
+
+    const s = try fix.analyzeStr("#{:a :b}");
+    try testing.expect(s.* == .constant);
+    try testing.expectEqual(@as(u32, 2), set_collection.count(s.constant.value));
 }
 
 test "resolved symbol → var_ref pointing at the right Var.root" {

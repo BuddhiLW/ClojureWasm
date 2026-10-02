@@ -1790,21 +1790,13 @@
 (def split-at
   (fn* [n coll] [(take n coll) (drop n coll)]))
 
-;; `counted?` is the `counted?` primitive (the `coll?` set minus lazy_seq —
-;; range / cons / chunked / string-seq / map-entry / queue ARE O(1) counted,
-;; clj-verified; the prior `(or vector? map? set? list?)` def wrongly excluded
-;; range et al). `(reversible? x)` — true iff x supports rseq: vector + sorted
-;; map/set (LLRB, ADR-0057).
-(def reversible? (fn* [x] (or (vector? x) (sorted? x))))
-;; Numeric / collection / ident predicates (clj-source-faithful). `rational?`
-;; = exact non-float; `seqable?` = nil / coll / string / seq; `indexed?` =
-;; O(1) nth (vector in cw v1); the ident family keys on keyword/symbol +
-;; `namespace` for the qualified/simple split.
+;; `counted?`, `reversible?`, `seqable?` and `indexed?` are primitives: each is
+;; `(instance? <interface> x)` over the interface_membership SSOT, so a deftype
+;; or reify declaring the interface answers too.
+;; Numeric / ident predicates (clj-source-faithful). `rational?` = exact
+;; non-float; the ident family keys on keyword/symbol + `namespace` for the
+;; qualified/simple split.
 (def rational? (fn* [x] (or (integer? x) (ratio? x) (decimal? x))))
-;; clj is seqable on nil, ISeq, Seqable, Iterable, CharSequence, Map, and any
-;; array (`(-> x class .isArray)`). `array?` is the arm cljw was missing.
-(def seqable? (fn* [x] (or (nil? x) (seq? x) (coll? x) (string? x) (array? x))))
-(def indexed? (fn* [x] (vector? x)))
 (def ident? (fn* [x] (or (keyword? x) (symbol? x))))
 (def simple-ident? (fn* [x] (and (ident? x) (not (namespace x)))))
 (def qualified-ident? (fn* [x] (boolean (and (ident? x) (namespace x) true))))

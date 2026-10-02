@@ -36,25 +36,6 @@ const string_mod = @import("../../runtime/collection/string.zig");
 
 // --- numeric helpers ---
 
-/// Convert any numeric Value to f64 (lossy for big_int / ratio /
-/// big_decimal — Clojure float contagion). Caller must have
-/// type-checked; a non-number returns 0.0. Shared by the comparison
-/// f64 path and the `double`/`float` primitive (F-011).
-fn toF64(v: Value) f64 {
-    return switch (v.tag()) {
-        .float => v.asFloat(),
-        .integer => @floatFromInt(v.asInteger()),
-        .char => @floatFromInt(v.asChar()),
-        .big_int => big_int_mod.asManaged(v).toFloat(f64, .nearest_even)[0],
-        .ratio => switch (ratio_mod.parts(v)) {
-            .small => |s| @as(f64, @floatFromInt(s.n)) / @as(f64, @floatFromInt(s.d)),
-            .big => |b| b.n.m.toFloat(f64, .nearest_even)[0] / b.d.m.toFloat(f64, .nearest_even)[0],
-        },
-        .big_decimal => big_decimal_mod.toFloat(v),
-        else => 0.0, // caller has already type-checked
-    };
-}
-
 fn ensureNumeric(args: []const Value, name: []const u8, loc: SourceLocation) !void {
     for (args, 0..) |v, i| {
         switch (v.tag()) {
@@ -310,33 +291,15 @@ fn bigDecRationalize(rt: *Runtime, v: Value, loc: SourceLocation) anyerror!Value
 
 // --- comparison ---
 
-/// Run `pred` pairwise across `args`, short-circuiting on `false`.
-/// Used by `<` / `>` / `<=` / `>=`.
-/// True when `a` and `b` are in the SAME numeric category (int/big_int,
-/// or ratio/ratio, or big_decimal/big_decimal) and neither is a float —
-/// the pairs `compare.valueCompare` orders EXACTLY without hitting its
-/// cross-category f64 fallback (which raises on big numbers). Mirrors
-/// `compare.zig::numericOrder`'s same-category arms.
-fn exactComparable(a: Value, b: Value) bool {
-    const ta = a.tag();
-    const tb = b.tag();
-    const int_a = ta == .integer or ta == .big_int;
-    const int_b = tb == .integer or tb == .big_int;
-    if (int_a and int_b) return true;
-    if (ta == .ratio and tb == .ratio) return true;
-    if (ta == .big_decimal and tb == .big_decimal) return true;
-    return false;
-}
-
-/// Pairwise numeric comparison for `< > <= >= ==`. Same-category big
-/// numbers (BigInt / Ratio / BigDecimal — and plain int) compare EXACTLY
-/// through the numeric tower (`opred` over `compare.valueCompare`); f64
-/// would lose precision/sign (D-167). A float operand or a cross-category
-/// pair takes the f64 path (`fpred` over `toF64`): float contagion +
-/// correct IEEE NaN (every NaN comparison false, where a total Order maps
-/// NaN to `.gt`). The exact cross-category combine ladder at huge
-/// magnitude (e.g. Ratio vs Int) is the still-deferred D-014a tail — f64
-/// there is a lossy approximation, not the old zeroing bug.
+/// Pairwise numeric comparison for `< > <= >= ==`, short-circuiting on the
+/// first false pair, as clj's `Numbers` combine ladder decides it. A float
+/// operand makes the pair a double comparison (`fpred` over `promote.toF64`): float
+/// contagion, and IEEE NaN, where every NaN comparison is false and a total
+/// Order would map NaN to `.gt`. Any other pair (Long, BigInt, Ratio,
+/// BigDecimal, in any mix) compares exactly (`opred` over
+/// `compare.valueCompare`), because doubles lose precision and sign past 2^53
+/// (D-167): 24691357802469135781/2 and 12345678901234567891 are one double but
+/// not one number. `min` and `max` fold over these, so they pick by exact value.
 fn pairwise(
     rt: *Runtime,
     name: []const u8,
@@ -356,11 +319,9 @@ fn pairwise(
     while (i < args.len) : (i += 1) {
         const a = args[i - 1];
         const b = args[i];
-        if (exactComparable(a, b)) {
-            if (!opred(try compare_mod.valueCompare(rt, a, b, loc))) return Value.false_val;
-        } else {
-            if (!fpred(toF64(a), toF64(b))) return Value.false_val;
-        }
+        if (a.isFloat() or b.isFloat()) {
+            if (!fpred(try promote.toF64(a), try promote.toF64(b))) return Value.false_val;
+        } else if (!opred(try compare_mod.valueCompare(rt, a, b, loc))) return Value.false_val;
     }
     return Value.true_val;
 }
@@ -1012,12 +973,14 @@ pub fn bigintCoerce(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLoc
     // from its round-trip decimal, e.g. `(bigint (Math/pow 2 60))`: exact
     // 1152921504606846976 vs clj's bigdec-based 1152921504606847000 (D-431 sweep).
     if (v.tag() == .float) return bigintFromFloat(rt, v.asFloat(), loc);
-    const i = promote.truncToI64(rt, v) catch |err| switch (err) {
-        error.OutOfRange => return error_catalog.raise(.type_arg_invalid, loc, .{ .fn_name = "bigint", .expected = "a finite number", .actual = "out-of-range number" }),
+    // Any other number truncates toward zero at full width, as clj's
+    // `Ratio.bigIntegerValue` and `BigDecimal.toBigInteger` do.
+    var m = promote.truncToManaged(rt, v) catch |err| switch (err) {
         error.NotANumber => return error_catalog.raise(.type_arg_not_number, loc, .{ .fn_name = "bigint", .actual = @tagName(v.tag()) }),
         else => return err,
     };
-    return big_int_mod.allocFromI64(rt, i, .bigint);
+    defer m.deinit();
+    return big_int_mod.allocFromManaged(rt, &m, .bigint);
 }
 
 /// A float beyond Long range coerced to a BigInt: render via `printFloat` (cw's
@@ -1032,41 +995,10 @@ fn bigintFromFloat(rt: *Runtime, f: f64, loc: SourceLocation) anyerror!Value {
         return error_catalog.raise(.type_arg_invalid, loc, .{ .fn_name = "bigint", .expected = "a representable float", .actual = "unrenderable float" });
     const bd = (try big_decimal_mod.allocFromDecimalString(rt, fw.buffered())) orelse
         return error_catalog.raise(.type_arg_invalid, loc, .{ .fn_name = "bigint", .expected = "a representable float", .actual = "unparseable float" });
-    return bigdecTruncToBigInt(rt, bd);
-}
-
-/// Truncate a BigDecimal toward zero into a BigInt. `value = unscaled·10^(−scale)`:
-/// scale ≤ 0 multiplies by `10^(−scale)`, scale > 0 divides by `10^scale`
-/// (`divTrunc` = round toward zero). Uses exact big-int `pow`/`mul`/`divTrunc`,
-/// so it never touches the ≥2^64 `setString` D-047 path.
-fn bigdecTruncToBigInt(rt: *Runtime, bd: Value) anyerror!Value {
-    const infra = rt.gc.infra;
-    const scale = big_decimal_mod.asScale(bd);
-    var result = try big_decimal_mod.asUnscaled(bd).m.clone();
-    defer result.deinit();
-    if (scale != 0) {
-        const exp: u32 = @intCast(@abs(scale));
-        var ten = try std.math.big.int.Managed.initSet(infra, 10);
-        defer ten.deinit();
-        var pow10 = try std.math.big.int.Managed.init(infra);
-        defer pow10.deinit();
-        try pow10.pow(&ten, exp);
-        if (scale < 0) {
-            var prod = try std.math.big.int.Managed.init(infra);
-            defer prod.deinit();
-            try prod.mul(&result, &pow10);
-            result.swap(&prod);
-        } else {
-            var q = try std.math.big.int.Managed.init(infra);
-            defer q.deinit();
-            var rmd = try std.math.big.int.Managed.init(infra);
-            defer rmd.deinit();
-            try q.divTrunc(&rmd, &result, &pow10);
-            result.swap(&q);
-        }
-    }
-    // `(bigint <large float>)` → a genuine BigInt (D-165).
-    return big_int_mod.allocFromManaged(rt, &result, .bigint);
+    // `(bigint <large float>)` is a genuine BigInt (D-165).
+    var m = try promote.truncToManaged(rt, bd);
+    defer m.deinit();
+    return big_int_mod.allocFromManaged(rt, &m, .bigint);
 }
 
 /// `(bigdec n/d)` — exact decimal of a Ratio, or ArithmeticException when the
@@ -1176,7 +1108,7 @@ fn floatCoerce(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation
         .float, .integer, .big_int, .ratio, .big_decimal => {},
         else => |t| return error_catalog.raise(.type_arg_not_number, loc, .{ .fn_name = "double", .actual = @tagName(t) }),
     }
-    return Value.initFloat(toF64(v)); // shared converter (F-011)
+    return Value.initFloat(try promote.toF64(v)); // shared converter (F-011)
 }
 
 // --- string parsers (clojure.core 1.11) ---
