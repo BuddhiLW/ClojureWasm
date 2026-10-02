@@ -678,6 +678,7 @@ run_step "e2e_phase15_java_time_arith3"     "bash test/e2e/phase15_java_time_ari
 run_step "e2e_phase15_java_time_duration_between"  "bash test/e2e/phase15_java_time_duration_between.sh"
 run_step "e2e_phase15_java_time_dow_month"  "bash test/e2e/phase15_java_time_dow_month.sh"
 run_step "e2e_phase15_java_time_ldt_calendar"  "bash test/e2e/phase15_java_time_ldt_calendar.sh"
+run_step "e2e_temporal_hash_eq"          "bash test/e2e/temporal_hash_eq.sh"
 run_step "e2e_phase15_require_fs"           "bash test/e2e/phase15_require_fs.sh"
 run_step "e2e_phase15_use_refer_all"        "bash test/e2e/phase15_use_refer_all.sh"
 run_step "e2e_phase15_use_libspec_filter"   "bash test/e2e/phase15_use_libspec_filter.sh"

@@ -57,6 +57,7 @@ const duration_value_mod = @import("time/duration_value.zig");
 const local_date_time_value_mod = @import("time/local_date_time_value.zig");
 const local_date_value_mod = @import("time/local_date_value.zig");
 const local_time_value_mod = @import("time/local_time_value.zig");
+const instant_mod = @import("time/instant.zig");
 const dispatch_mod = @import("dispatch.zig");
 const root_set = @import("gc/root_set.zig");
 const ClojureWasmError = @import("error/info.zig").ClojureWasmError;
@@ -594,9 +595,10 @@ pub fn keyEqValue(a: Value, b: Value) bool {
         if (ta == .hash_set and tb == .hash_set) return set.contentEq(a, b);
         return anySetKeyEq(a, b);
     }
-    // defrecord keys by value (partner of typedInstanceEqual): same
-    // descriptor + each field keyEqValue. deftype stays identity (a
-    // non-bit-identical pair already fell through the identity check).
+    // defrecord and Date / java.time keys by value (partner of
+    // typedInstanceEqual): same descriptor + each field keyEqValue, or the
+    // temporal_kinds row's `eq`. deftype stays identity (a non-bit-identical
+    // pair already fell through the identity check).
     if (ta == .typed_instance and tb == .typed_instance)
         return typedInstanceKeyEq(a, b);
     // UUID / TaggedLiteral keys by value (partner of the valueEqual +
@@ -718,10 +720,123 @@ inline fn isAnyMapTag(t: Value.Tag) bool {
     return t == .array_map or t == .hash_map or t == .sorted_map;
 }
 
+/// One value-semantics row per native temporal type: its recognizer, its
+/// by-value `=` and its JDK `hashCode` (AD-009: hash is clj-portable for value
+/// types). `eq(a,b)` implies `hash(a) == hash(b)`; typedInstanceEqual,
+/// typedInstanceKeyEq and valueHash all read this table, so the three cannot
+/// drift. Each type has a distinct descriptor, so a Date is never `=` (nor a
+/// key-equal of) a Timestamp even when both hash alike.
+const TemporalKind = struct {
+    is: *const fn (Value) bool,
+    eq: *const fn (Value, Value) bool,
+    hash: *const fn (Value) u32,
+};
+
+const temporal_kinds = [_]TemporalKind{
+    .{ .is = date_mod.isDate, .eq = temporalEq.date, .hash = temporalHash.date },
+    .{ .is = timestamp_mod.isTimestamp, .eq = temporalEq.timestamp, .hash = temporalHash.timestamp },
+    .{ .is = instant_value_mod.isInstant, .eq = temporalEq.instant, .hash = temporalHash.instant },
+    .{ .is = duration_value_mod.isDuration, .eq = temporalEq.duration, .hash = temporalHash.duration },
+    .{ .is = local_date_time_value_mod.isLocalDateTime, .eq = temporalEq.localDateTime, .hash = temporalHash.localDateTime },
+    .{ .is = local_date_value_mod.isLocalDate, .eq = temporalEq.localDate, .hash = temporalHash.localDate },
+    .{ .is = local_time_value_mod.isLocalTime, .eq = temporalEq.localTime, .hash = temporalHash.localTime },
+};
+
+/// The `temporal_kinds` row for `v`, or null. Only a `.native` (host)
+/// descriptor qualifies: a user deftype never borrows a host type's value
+/// semantics through a shared fqcn, and deftype `=` / hash skip the fqcn scan.
+fn temporalKindOf(v: Value) ?*const TemporalKind {
+    if (v.tag() != .typed_instance) return null;
+    if (v.decodePtr(*const td_mod.TypedInstance).descriptor.kind != .native) return null;
+    for (&temporal_kinds) |*k| {
+        if (k.is(v)) return k;
+    }
+    return null;
+}
+
+const temporalEq = struct {
+    fn date(a: Value, b: Value) bool {
+        return date_mod.epochMsOf(a) == date_mod.epochMsOf(b);
+    }
+    // Epoch-ms + the full fractional-second nanos.
+    fn timestamp(a: Value, b: Value) bool {
+        return timestamp_mod.epochMsOf(a) == timestamp_mod.epochMsOf(b) and
+            timestamp_mod.nanosOf(a) == timestamp_mod.nanosOf(b);
+    }
+    // Second-aligned epoch-ms + nanos.
+    fn instant(a: Value, b: Value) bool {
+        return instant_value_mod.epochMsOf(a) == instant_value_mod.epochMsOf(b) and
+            instant_value_mod.nanosOf(a) == instant_value_mod.nanosOf(b);
+    }
+    // Normalized seconds + nanos.
+    fn duration(a: Value, b: Value) bool {
+        return duration_value_mod.secondsOf(a) == duration_value_mod.secondsOf(b) and
+            duration_value_mod.nanosOf(a) == duration_value_mod.nanosOf(b);
+    }
+    fn localDateTime(a: Value, b: Value) bool {
+        return local_date_time_value_mod.epochDayOf(a) == local_date_time_value_mod.epochDayOf(b) and
+            local_date_time_value_mod.nanoOfDayOf(a) == local_date_time_value_mod.nanoOfDayOf(b);
+    }
+    fn localDate(a: Value, b: Value) bool {
+        return local_date_value_mod.epochDayOf(a) == local_date_value_mod.epochDayOf(b);
+    }
+    fn localTime(a: Value, b: Value) bool {
+        return local_time_value_mod.nanoOfDayOf(a) == local_time_value_mod.nanoOfDayOf(b);
+    }
+};
+
+/// The JDK hashCode formulas, one per type (java.util.Date, java.sql.Timestamp,
+/// java.time.Instant / Duration / LocalDate / LocalTime / LocalDateTime).
+const temporalHash = struct {
+    /// Java `Long.hashCode`: (int)(v ^ (v >>> 32)).
+    fn long(v: i64) u32 {
+        const u: u64 = @bitCast(v);
+        return @truncate(u ^ (u >> 32));
+    }
+    /// Instant and Duration: `Long.hashCode(seconds) + 51 * nanos`.
+    fn secondsNanos(seconds: i64, nanos: i32) u32 {
+        return long(seconds) +% 51 *% @as(u32, @bitCast(nanos));
+    }
+    /// LocalDate: `(y & 0xFFFFF800) ^ ((y << 11) + (m << 6) + d)` on ints.
+    fn civilDay(epoch_day: i64) u32 {
+        const c = instant_mod.civilFromDays(epoch_day);
+        const y: u32 = @bitCast(@as(i32, @truncate(c.y)));
+        const m: u32 = @intCast(c.m);
+        const d: u32 = @intCast(c.d);
+        return (y & 0xFFFFF800) ^ ((y << 11) +% (m << 6) +% d);
+    }
+    fn date(v: Value) u32 {
+        return long(date_mod.epochMsOf(v));
+    }
+    // Timestamp inherits Date.hashCode over getTime() (whole millis).
+    fn timestamp(v: Value) u32 {
+        return long(timestamp_mod.epochMsOf(v));
+    }
+    fn instant(v: Value) u32 {
+        return secondsNanos(@divFloor(instant_value_mod.epochMsOf(v), 1000), instant_value_mod.nanosOf(v));
+    }
+    fn duration(v: Value) u32 {
+        return secondsNanos(duration_value_mod.secondsOf(v), duration_value_mod.nanosOf(v));
+    }
+    fn localDate(v: Value) u32 {
+        return civilDay(local_date_value_mod.epochDayOf(v));
+    }
+    // LocalTime: `Long.hashCode(toNanoOfDay())`.
+    fn localTime(v: Value) u32 {
+        return long(local_time_value_mod.nanoOfDayOf(v));
+    }
+    // LocalDateTime: `date.hashCode() ^ time.hashCode()`.
+    fn localDateTime(v: Value) u32 {
+        return civilDay(local_date_time_value_mod.epochDayOf(v)) ^
+            long(local_date_time_value_mod.nanoOfDayOf(v));
+    }
+};
+
 fn typedInstanceKeyEq(a: Value, b: Value) bool {
     const ia = a.decodePtr(*const td_mod.TypedInstance);
     const ib = b.decodePtr(*const td_mod.TypedInstance);
     if (ia.descriptor != ib.descriptor) return false;
+    if (temporalKindOf(a)) |k| return k.eq(a, b);
     if (ia.descriptor.kind != .defrecord) return false;
     const fa = ia.fields();
     const fb = ib.fields();
@@ -741,7 +856,8 @@ fn typedInstanceKeyEq(a: Value, b: Value) bool {
 /// By-value branches mirror keyEqValue's by-value arms: strings hash by
 /// BYTES; sequentials (vector / list) by ordered content (one shared
 /// formula → vec≡list collide); maps / sets by order-independent content;
-/// defrecords by descriptor + fields. int/float use the numeric hash so
+/// defrecords by descriptor + fields; Date / java.time values by their JDK
+/// hashCode (the `temporal_kinds` row). int/float use the numeric hash so
 /// `{1 :a}` and `1.0` stay distinct. Everything else (immediates, interned
 /// keyword·symbol, lazy / range, deftype) is identity-compared in
 /// keyEqValue, so hashing the raw NaN-box bits is contract-consistent.
@@ -811,11 +927,13 @@ pub fn valueHash(v: Value) u32 {
             const t = tagged_literal_mod.asTaggedLiteral(v);
             break :blk 31 *% valueHash(t.tag) +% valueHash(t.form);
         },
-        // defrecord keys hash by descriptor + fields (partner of
-        // typedInstanceKeyEq); deftype keeps the identity bit-hash.
+        // defrecord keys hash by descriptor + fields and Date / java.time
+        // values by their JDK hashCode (both partners of typedInstanceKeyEq);
+        // deftype keeps the identity bit-hash.
         .typed_instance => blk: {
             const inst = v.decodePtr(*const td_mod.TypedInstance);
             if (inst.descriptor.kind == .defrecord) break :blk typedInstanceHash(inst);
+            if (temporalKindOf(v)) |k| break :blk k.hash(v);
             break :blk hash.hashLong(@bitCast(@intFromEnum(v)));
         },
         // Numeric heap types hash BY VALUE (D-205) — without these they fell
@@ -1348,50 +1466,11 @@ fn keyInstanceEq(rt: *Runtime, env: *Env, x: Value, other: Value) anyerror!?bool
 /// record is never `=` to a plain map: the caller's same-tag gate already
 /// excludes the map tags before this arm.
 fn typedInstanceEqual(rt: *Runtime, env: *Env, a: Value, b: Value) anyerror!bool {
-    // Date values (D-200 / ADR-0079) compare by epoch-ms — a native
-    // typed_instance otherwise defaults to identity `=` (the arm below),
-    // which would make two equal `#inst` allocations unequal.
-    if (date_mod.isDate(a) and date_mod.isDate(b)) {
-        return date_mod.epochMsOf(a) == date_mod.epochMsOf(b);
-    }
-    // Timestamp values (D-382) compare by epoch-ms + nanos (the full
-    // fractional second), else two equal-instant Timestamps would default to
-    // identity `=`. A Timestamp is never `=` a Date here (distinct descriptor).
-    if (timestamp_mod.isTimestamp(a) and timestamp_mod.isTimestamp(b)) {
-        return timestamp_mod.epochMsOf(a) == timestamp_mod.epochMsOf(b) and
-            timestamp_mod.nanosOf(a) == timestamp_mod.nanosOf(b);
-    }
-    // Instant values (D-462) compare by second-aligned epoch-ms + nanos, else
-    // two equal-instant allocations would default to identity `=`. A distinct
-    // descriptor keeps an Instant from being `=` a Date/Timestamp here.
-    if (instant_value_mod.isInstant(a) and instant_value_mod.isInstant(b)) {
-        return instant_value_mod.epochMsOf(a) == instant_value_mod.epochMsOf(b) and
-            instant_value_mod.nanosOf(a) == instant_value_mod.nanosOf(b);
-    }
-    // Duration values (D-462) compare by NORMALIZED seconds + nanos, else two
-    // equal-span allocations would default to identity `=`. A distinct
-    // descriptor keeps a Duration from being `=` an Instant/Date/Timestamp.
-    if (duration_value_mod.isDuration(a) and duration_value_mod.isDuration(b)) {
-        return duration_value_mod.secondsOf(a) == duration_value_mod.secondsOf(b) and
-            duration_value_mod.nanosOf(a) == duration_value_mod.nanosOf(b);
-    }
-    // LocalDateTime values (D-462) compare by epoch_day + nano_of_day, else two
-    // equal-datetime allocations would default to identity `=`. A distinct
-    // descriptor keeps a LocalDateTime from being `=` an Instant/Duration/Date.
-    if (local_date_time_value_mod.isLocalDateTime(a) and local_date_time_value_mod.isLocalDateTime(b)) {
-        return local_date_time_value_mod.epochDayOf(a) == local_date_time_value_mod.epochDayOf(b) and
-            local_date_time_value_mod.nanoOfDayOf(a) == local_date_time_value_mod.nanoOfDayOf(b);
-    }
-    // LocalDate values (D-462) compare by epoch_day, else two equal-date
-    // allocations would default to identity `=`. A distinct descriptor keeps a
-    // LocalDate from being `=` a LocalDateTime/Instant/Duration/Date.
-    if (local_date_value_mod.isLocalDate(a) and local_date_value_mod.isLocalDate(b)) {
-        return local_date_value_mod.epochDayOf(a) == local_date_value_mod.epochDayOf(b);
-    }
-    // LocalTime values (D-462) compare by nano_of_day. A distinct descriptor
-    // keeps a LocalTime from being `=` any other temporal type.
-    if (local_time_value_mod.isLocalTime(a) and local_time_value_mod.isLocalTime(b)) {
-        return local_time_value_mod.nanoOfDayOf(a) == local_time_value_mod.nanoOfDayOf(b);
+    // Date / Timestamp / java.time values compare by value (D-200, D-382,
+    // D-462) via the one `temporal_kinds` table, which also supplies their
+    // hash (valueHash) and key equality (typedInstanceKeyEq).
+    if (temporalKindOf(a)) |k| {
+        if (temporalKindOf(b) == k) return k.eq(a, b);
     }
     // DayOfWeek / Month enum values are now interned host-enum singletons
     // (ADR-0161): the same constant is one canonical pointer, so the identity
