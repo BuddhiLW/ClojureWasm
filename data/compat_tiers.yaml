@@ -258,7 +258,7 @@ tiers:
         phase: 14
         files:
           surface: runtime/java/lang/StringBuilder.zig
-        methods: [append, charAt, deleteCharAt, insert, isEmpty, length, reverse, setLength]
+        methods: [append, charAt, deleteCharAt, insert, isEmpty, length, reverse, setLength, subSequence, substring]
         clojure_peer_vars: []
       # java.io
       - fqn: java.io.File
