@@ -558,8 +558,12 @@ pub fn resourceDropFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceL
         host_instance.asHostInstance(comp_handle).descriptor != &component_descriptor)
         return error_catalog.raise(.wasm_opts_invalid, loc, .{ .detail = "resource handle's owning component is not a loaded component" });
     const box: *ComponentLoaded = @ptrFromInt(host_instance.asHostInstance(comp_handle).state[0]);
-    box.opened.dropResource(@intCast(inst.state[1])) catch
-        return error_catalog.raise(.wasm_component_trap, loc, .{});
+    box.opened.dropResource(@intCast(inst.state[1])) catch |e| switch (e) {
+        // zwasm's `.single` variant has no resource table: a structural
+        // property of the component, not a trap (D-568).
+        error.NoResourceTable => return error_catalog.raise(.wasm_resource_no_table, loc, .{}),
+        else => return error_catalog.raise(.wasm_component_trap, loc, .{}),
+    };
     host_instance.setState(args[0], 2, 1);
     return Value.nil_val;
 }

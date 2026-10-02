@@ -220,6 +220,25 @@ run_step() {
     fi
 }
 
+# A step this host cannot run because a dependency cannot be obtained. The name
+# is still REGISTERED, so a selector naming it (SMOKE_CORE names zlinter) matches
+# and the unmatched-selector guard below stays fatal only for names no branch of
+# this script registers. The skip is printed, never silent.
+skip_unavailable_step() {
+    local name="$1"
+    local reason="$2"
+
+    ALL_STEP_NAMES+=("$name")
+
+    if (( LIST_ONLY )); then
+        echo "$name (unavailable: $reason)"
+        return 0
+    fi
+
+    echo "run_all: SKIP $name: $reason"
+    STEPS_SKIPPED+=("$name")
+}
+
 # Run the deferred functional e2e steps concurrently (sliding pool of
 # E2E_JOBS workers via `wait -n`). Each job writes pass/fail + captured
 # output to its own temp file; results are aggregated in queue order so
@@ -384,10 +403,13 @@ run_step "zig_fmt_check"        "zig fmt --check src/"
 # The dep resolves offline once it is in the global Zig cache. Probe the
 # delegated lint build itself: main-build `--help` intentionally never resolves
 # zlinter now, while forwarded linter `--help` stops after proving availability.
+# A host that cannot obtain zlinter skips it in the smoke as well as the full
+# gate: the selector in SMOKE_CORE matches the unavailable step instead of
+# failing as an unknown name, and CI, which has the network, still lints.
 if zig build lint -- --help >/dev/null 2>&1; then
     run_step "zlinter"          "zig build lint -- --max-warnings 0"
 else
-    echo "run_all: SKIP zlinter — the zlinter dependency could not be resolved (no cache, no network)"
+    skip_unavailable_step "zlinter" "the zlinter dependency could not be resolved (no global Zig cache entry, no network)"
 fi
 
 # Build the default (vm — production, ADR-0070 flip) cljw binary ONCE here,
@@ -656,6 +678,7 @@ run_step "e2e_phase15_java_time_arith3"     "bash test/e2e/phase15_java_time_ari
 run_step "e2e_phase15_java_time_duration_between"  "bash test/e2e/phase15_java_time_duration_between.sh"
 run_step "e2e_phase15_java_time_dow_month"  "bash test/e2e/phase15_java_time_dow_month.sh"
 run_step "e2e_phase15_java_time_ldt_calendar"  "bash test/e2e/phase15_java_time_ldt_calendar.sh"
+run_step "e2e_temporal_hash_eq"          "bash test/e2e/temporal_hash_eq.sh"
 run_step "e2e_phase15_require_fs"           "bash test/e2e/phase15_require_fs.sh"
 run_step "e2e_phase15_use_refer_all"        "bash test/e2e/phase15_use_refer_all.sh"
 run_step "e2e_phase15_use_libspec_filter"   "bash test/e2e/phase15_use_libspec_filter.sh"
@@ -683,6 +706,7 @@ run_step "e2e_phase16_clojure_core_reducers" "bash test/e2e/phase16_clojure_core
 run_step "e2e_phase16_clojure_java_io_copy" "bash test/e2e/phase16_clojure_java_io_copy.sh"
 run_step "e2e_phase16_cljw_json_fs"         "bash test/e2e/phase16_cljw_json_fs.sh"
 run_step "e2e_phase16_tokenizer_long_input" "bash test/e2e/phase16_tokenizer_long_input.sh"
+run_step "e2e_bulk_literal"                 "bash test/e2e/bulk_literal.sh"
 # Wasm-FFI execution e2e — now part of the DEFAULT full gate (F-001 amended
 # 2026-06-12: zwasm v2 is complete, so the gate builds `-Dwasm` throughout and
 # exercises the headline FFI path). They reuse the shared -Dwasm binary
@@ -844,13 +868,19 @@ fi
 # Backstop for the silent perf cliff (D-385): re-assert the shared binary is
 # STILL optimised right before the expensive parallel pool. assert_e2e_releasesafe
 # ran right after build_cljw, but a later serial step that does a bare `zig build`
-# (Debug) — the test_clj_tier_a class of bug — could have reverted it since. Catch
+# (Debug), the test_clj_tier_a class of bug, could have reverted it since. Catch
 # it here so the ~3200-spawn pool never runs ~100x slow on Debug.
-_pool_mode=$(zig-out/bin/cljw --version 2>/dev/null | sed -nE 's/.*\((.*)\)/\1/p')
-if [ -z "$_pool_mode" ] || [ "$_pool_mode" = "Debug" ]; then
-    echo "==> FATAL: e2e binary build mode=${_pool_mode:-unknown} before the parallel pool" >&2
-    echo "    — a step ran a bare 'zig build' (Debug). Aborting; the pool would run ~100x slow (D-385)." >&2
-    exit 1
+# Only when the pool has work: a selection that queues no e2e (`--only
+# zig_fmt_check`) does not need the binary. `|| true` keeps a MISSING binary
+# from killing the script silently under `set -euo pipefail` (exit 127 with no
+# message); it reaches the FATAL below as mode=unknown instead.
+if (( ${#E2E_QUEUE[@]} > 0 )); then
+    _pool_mode=$(zig-out/bin/cljw --version 2>/dev/null | sed -nE 's/.*\((.*)\)/\1/p' || true)
+    if [ -z "$_pool_mode" ] || [ "$_pool_mode" = "Debug" ]; then
+        echo "==> FATAL: e2e binary build mode=${_pool_mode:-unknown} before the parallel pool" >&2
+        echo "    A step ran a bare 'zig build' (Debug), or zig-out/bin/cljw is missing. Aborting: the pool would run ~100x slow (D-385)." >&2
+        exit 1
+    fi
 fi
 
 # Drain the deferred functional-e2e pool (no-op under --serial-e2e, where

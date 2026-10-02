@@ -2390,6 +2390,7 @@ fn expandDefinterface(
 /// the deftype/defrecord/extend-type paths.
 fn rewriteProtocolRemap(
     arena: std.mem.Allocator,
+    rt: *Runtime,
     hi: host_interface.HostInterface,
     declared_name: []const u8,
     target_form: Form,
@@ -2440,13 +2441,13 @@ fn rewriteProtocolRemap(
         if (!seen) try protos.append(arena, r.protocol);
     }
 
-    // One bare-protocol section per target protocol, plus a trailing
-    // zero-method marker registration of the DECLARED canonical name — the
+    // One ROUTED section per target protocol (methods install, nothing is
+    // declared), plus a trailing zero-method marker registration of the
+    // DECLARED canonical name, which is the only interface the type gains: the
     // remapped methods register under OTHER protocol names (IPersistentMap's
-    // count → IPersistentCollection/-count), so without this the descriptor
-    // never records "implements IPersistentMap" and `(instance?
-    // clojure.lang.IPersistentMap inst)` is false (data.priority-map's
-    // class facet; clj-faithful: the deftype implements the interface).
+    // count → IPersistentCollection/-count, Counted's count → the same), and
+    // the type implements what it named plus that name's superinterfaces
+    // (class_name.matchUserType), never a routing target it did not name.
     var sections = try arena.alloc(Form, protos.items.len + 1);
     {
         var decl_items = try arena.alloc(Form, 3);
@@ -2458,9 +2459,6 @@ fn rewriteProtocolRemap(
     for (protos.items, 0..) |proto, si| {
         var sec: std.ArrayList(Form) = .empty;
         defer sec.deinit(arena);
-        try sec.append(arena, coreSym("extend-type", loc));
-        try sec.append(arena, target_form);
-        try sec.append(arena, sym(proto, loc));
         for (impls) |impl| {
             // A dropped java.util method (loop above) has no remap → skip it here too.
             const r = hi.remapMethod(impl.data.list[0].data.symbol.name) orelse continue;
@@ -2481,7 +2479,7 @@ fn rewriteProtocolRemap(
                 try sec.append(arena, impl);
             }
         }
-        sections[si] = try list(arena, sec.items, loc);
+        sections[si] = try lowerExtendSection(arena, rt, target_form, sym(proto, loc), sec.items, .routed, loc);
     }
 
     if (sections.len == 1) return sections[0];
@@ -2713,22 +2711,48 @@ fn expandExtendType(
         // (the segfault-by-stack-overflow this guard fixes). Falling through lets the
         // already-cljw method register under the bare protocol Var directly.
         if (sectionNeedsRemap(hi, args[2..])) {
-            return try rewriteProtocolRemap(arena, hi, args[1].data.symbol.name, target_form, args[2..], loc);
+            return try rewriteProtocolRemap(arena, rt, hi, args[1].data.symbol.name, target_form, args[2..], loc);
         }
     }
 
+    return lowerExtendSection(arena, rt, target_form, args[1], args[2..], .declared, loc);
+}
+
+/// How a lowered extend section records its protocol on the target type.
+const SectionRole = enum {
+    /// The type declares the protocol or interface (`protocol_impls`).
+    declared,
+    /// A protocol_remap routing target emitted by `rewriteProtocolRemap`: the
+    /// methods install under this cljw protocol, but the type does not thereby
+    /// implement it (a Counted `count` routed to IPersistentCollection/-count
+    /// does not make the type a coll).
+    routed,
+};
+
+/// Lower ONE single-protocol extend section (`proto impls...` on
+/// `target_form`) to `(cljw.internal/__extend-type! target proto [["m" (fn*
+/// ...)] ...])`, each method's arities grouped into one multi-arity `fn*`.
+fn lowerExtendSection(
+    arena: std.mem.Allocator,
+    rt: *Runtime,
+    target_form: Form,
+    proto: Form,
+    impls: []const Form,
+    role: SectionRole,
+    loc: SourceLocation,
+) macro_dispatch.ExpandError!Form {
     // A host-supertype marker (`Object`) is quote-wrapped so the analyzer
     // never Var-resolves it (the `instance?` / `reify` precedent). This
     // arm also covers the `deftype`/`defrecord` paths, whose protocol sections
     // re-expand through `expandExtendType`. A cljw protocol name stays bare.
-    const protocol_form = if (args[1].data == .symbol and host_interface.isMarker(args[1].data.symbol.name))
-        try quoteWrap(arena, args[1])
+    const protocol_form = if (proto.data == .symbol and host_interface.isMarker(proto.data.symbol.name))
+        try quoteWrap(arena, proto)
     else
-        args[1];
+        proto;
     // Normalise the grouped multi-arity spelling `(g ([x] b1) ([x y] b2))`
     // into repeated single-arity impls before validation, so the multi-arity-fn*
     // grouping below folds both spellings identically.
-    const method_impls = try expandGroupedArities(arena, args[2..]);
+    const method_impls = try expandGroupedArities(arena, impls);
 
     // Validate every impl + collect distinct method names in first-seen order.
     // A clj interface section may declare ONE method at multiple arities
@@ -2807,12 +2831,14 @@ fn expandExtendType(
     }
     const impls_vec = try vec(arena, impl_pairs, loc);
 
-    // (cljw.internal/__extend-type! target protocol impls_vec)
-    var call_items = try arena.alloc(Form, 4);
+    // (cljw.internal/__extend-type! target protocol impls_vec [:routed])
+    const routed = role == .routed;
+    var call_items = try arena.alloc(Form, if (routed) 5 else 4);
     call_items[0] = .{ .data = .{ .symbol = .{ .ns = "cljw.internal", .name = "__extend-type!" } }, .location = loc };
     call_items[1] = target_form;
     call_items[2] = protocol_form;
     call_items[3] = impls_vec;
+    if (routed) call_items[4] = .{ .data = .{ .keyword = .{ .name = "routed" } }, .location = loc };
     return list(arena, call_items, loc);
 }
 

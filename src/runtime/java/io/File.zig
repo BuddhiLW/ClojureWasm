@@ -38,6 +38,7 @@ const string_mod = @import("../../collection/string.zig");
 const vector_mod = @import("../../collection/vector.zig");
 const java_array = @import("../../collection/java_array.zig");
 const clock = @import("../../clock.zig");
+const compare_mod = @import("../../compare.zig");
 const process_env = @import("../../process_env.zig");
 const mark_sweep = @import("../../gc/mark_sweep.zig");
 const gc_heap_mod = @import("../../gc/gc_heap.zig");
@@ -135,6 +136,18 @@ fn getPath(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) an
     _ = env;
     try error_catalog.checkArity("getPath", args, 1, loc);
     return pathValOf(args[0]);
+}
+
+/// `(.compareTo f g)`: JVM `UnixFileSystem.compare`: the `String.compareTo`
+/// of the two paths. Makes File Comparable, so `compare` / `sort` / sorted
+/// collections order Files by path.
+fn compareTo(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
+    _ = rt;
+    _ = env;
+    try error_catalog.checkArity("compareTo", args, 2, loc);
+    if (!isFileInstance(args[1]))
+        return error_catalog.raise(.type_arg_invalid, loc, .{ .fn_name = ".compareTo", .expected = "File", .actual = @tagName(args[1].tag()) });
+    return Value.initInteger(compare_mod.javaCompareTo(pathValOf(args[0]), pathValOf(args[1])).?);
 }
 
 fn getParent(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
@@ -400,6 +413,7 @@ const METHODS = [_]MethodSpec{
     // `toString` reuses getPath (JVM File.toString == getPath); print.zig's
     // host_instance `str` form looks up "toString" on the descriptor.
     .{ .name = "toString", .f = &getPath },
+    .{ .name = "compareTo", .f = &compareTo },
     .{ .name = "getName", .f = &getName },
     .{ .name = "getPath", .f = &getPath },
     .{ .name = "getParent", .f = &getParent },

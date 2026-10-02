@@ -7,6 +7,32 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 
 ## [Unreleased]
 
+### Fixed
+
+- **A number token runs to the next delimiter and is rejected whole, as in
+  clj.** `(read-string "12x")`, `"1.5x"`, `"1/2x"`, `"1/2/3"` and `"4/-2"`
+  raise NumberFormatException "Invalid number: 12x" (and so on) in source,
+  `read-string` and `clojure.edn/read-string`, where cljw used to read the
+  leading number and start a new token with the rest. `[1/2x]` in code is now
+  a reader error, not an unresolved symbol `x`. `#`, `'` and `%` end a number
+  token. `0xFFN` and `017N` read as BigInts, and `1.5N` is refused.
+
+- **`compare`, `sort` and sorted collections order Date, UUID, File and
+  Comparable deftypes.** `java.util.Date` orders by time, `java.util.UUID` as
+  `UUID.compareTo` does (signed most-significant long, then least), a
+  `java.io.File` by its path, and a `deftype` or `reify` implementing
+  `java.lang.Comparable` through its `compareTo`, in `compare`, `sort`,
+  `sort-by`, `sorted-set` and `sorted-map` alike. `compare` returns the
+  receiver's compareTo int unchanged, so `(compare (java.io.File. "a")
+  (java.io.File. "c"))` is -2, as in clj. Incomparable pairs, such as a Date
+  and a UUID, still raise ClassCastException.
+
+- **`find`, `select-keys` and a set's `get` answer the STORED key.** `(find
+  {1N :a} 1)` is `[1N :a]`, `(find {0.0 :z} -0.0)` is `[0.0 :z]`,
+  `(select-keys {1N :a} [1])` is `{1N :a}` and `(get #{1N} 1)` is `1N`, for
+  array, hash and sorted maps and sets and transient sets, as in clj. A
+  transient map's `find` keeps the probe key, as `ATransientMap.entryAt` does.
+
 ## [1.14.12] - 2026-10-01
 
 ### Added

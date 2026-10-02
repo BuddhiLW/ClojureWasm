@@ -143,6 +143,7 @@ pub const Reader = struct {
             .big_int_literal => self.readBigIntLiteral(tok),
             .big_decimal_literal => self.readBigDecimalLiteral(tok),
             .ratio_literal => self.readRatioLiteral(tok),
+            .number_invalid => error_catalog.raise(.number_literal_invalid, self.locOf(tok), .{ .text = tok.text(self.source) }),
             .string => self.readString(tok),
             .char_lit => self.readCharLiteral(tok),
             .regex_literal => self.readRegexLiteral(tok),
@@ -211,7 +212,7 @@ pub const Reader = struct {
                 if (hexDigits(txt)) |hx|
                     return self.radixBigIntForm(self.locOf(tok), hx.digits, 16, hx.neg);
             }
-            return error_catalog.raise(.integer_literal_invalid, self.locOf(tok), .{ .text = txt });
+            return error_catalog.raise(.number_literal_invalid, self.locOf(tok), .{ .text = txt });
         };
         return Form{ .data = .{ .integer = val }, .location = self.locOf(tok) };
     }
@@ -247,16 +248,16 @@ pub const Reader = struct {
     }
 
     /// Parse a leading-`0` octal literal into an `.integer` (or `.big_int_literal`
-    /// past i64). A digit ≥ 8 is a clj NumberFormatException (`integer_literal_invalid`).
+    /// past i64). A digit ≥ 8 is a clj NumberFormatException (`number_literal_invalid`).
     fn readOctalInteger(self: *Reader, tok: Token, neg: bool, digits: []const u8) ReadError!Form {
         const loc = self.locOf(tok);
         for (digits) |c| {
             if (c < '0' or c > '7')
-                return error_catalog.raise(.integer_literal_invalid, loc, .{ .text = tok.text(self.source) });
+                return error_catalog.raise(.number_literal_invalid, loc, .{ .text = tok.text(self.source) });
         }
         const val = std.fmt.parseInt(i64, digits, 8) catch |e| {
             if (e == error.Overflow) return self.radixBigIntForm(loc, digits, 8, neg);
-            return error_catalog.raise(.integer_literal_invalid, loc, .{ .text = tok.text(self.source) });
+            return error_catalog.raise(.number_literal_invalid, loc, .{ .text = tok.text(self.source) });
         };
         return Form{ .data = .{ .integer = if (neg) -val else val }, .location = loc };
     }
@@ -287,15 +288,15 @@ pub const Reader = struct {
         var ri: usize = 0;
         while (ri < body.len and body[ri] >= '0' and body[ri] <= '9') ri += 1;
         const base = std.fmt.parseInt(u8, body[0..ri], 10) catch
-            return error_catalog.raise(.integer_literal_invalid, loc, .{ .text = txt });
+            return error_catalog.raise(.number_literal_invalid, loc, .{ .text = txt });
         const mantissa = body[ri + 1 ..];
         if (base < 2 or base > 36 or mantissa.len == 0)
-            return error_catalog.raise(.integer_literal_invalid, loc, .{ .text = txt });
+            return error_catalog.raise(.number_literal_invalid, loc, .{ .text = txt });
 
         const val = std.fmt.parseInt(i64, mantissa, base) catch |e| {
             if (e == error.Overflow)
                 return self.radixBigIntForm(loc, mantissa, base, neg);
-            return error_catalog.raise(.integer_literal_invalid, loc, .{ .text = txt });
+            return error_catalog.raise(.number_literal_invalid, loc, .{ .text = txt });
         };
         return Form{ .data = .{ .integer = if (neg) -val else val }, .location = loc };
     }
@@ -312,7 +313,7 @@ pub const Reader = struct {
         defer scratch.deinit();
         for (mantissa) |c| {
             const d = std.fmt.charToDigit(c, base) catch
-                return error_catalog.raise(.integer_literal_invalid, loc, .{ .text = mantissa });
+                return error_catalog.raise(.number_literal_invalid, loc, .{ .text = mantissa });
             scratch.mul(&acc, &b) catch return error.OutOfMemory;
             acc.addScalar(&scratch, d) catch return error.OutOfMemory;
         }
@@ -337,7 +338,7 @@ pub const Reader = struct {
     fn readFloat(self: *Reader, tok: Token) ReadError!Form {
         const txt = tok.text(self.source);
         const val = std.fmt.parseFloat(f64, txt) catch
-            return error_catalog.raise(.float_literal_invalid, self.locOf(tok), .{ .text = txt });
+            return error_catalog.raise(.number_literal_invalid, self.locOf(tok), .{ .text = txt });
         return Form{ .data = .{ .float = val }, .location = self.locOf(tok) };
     }
 
@@ -347,7 +348,16 @@ pub const Reader = struct {
         const txt = tok.text(self.source);
         // Strip the trailing `N` (tokenizer guarantees it's there).
         const digits = txt[0 .. txt.len - 1];
-        return Form{ .data = .{ .big_int_literal = digits }, .location = self.locOf(tok) };
+        const loc = self.locOf(tok);
+        // clj's int pattern takes `N` on the hex and octal forms too:
+        // `0xFFN` is 255N and `017N` is 15N, not a base-10 reading.
+        if (hexDigits(digits)) |hx| return self.radixBigIntForm(loc, hx.digits, 16, hx.neg);
+        if (octalDigits(digits)) |oct| {
+            for (oct.digits) |c| if (c < '0' or c > '7')
+                return error_catalog.raise(.number_literal_invalid, loc, .{ .text = txt });
+            return self.radixBigIntForm(loc, oct.digits, 8, oct.neg);
+        }
+        return Form{ .data = .{ .big_int_literal = digits }, .location = loc };
     }
 
     /// `1.5M` — keep the decimal string without the trailing `M`.

@@ -326,129 +326,6 @@ active:
       collect trigger or when a long-lived-process profile shows the stack-scan
       / waypoint-growth cost.
     last_reviewed: "2026-08-05"
-  - id: "D-568"
-    status: |-
-      open (2026-08-04, ADR-0159 amendment 1 § implementer-verification item (a)).
-      `Opened.dropResource` returns `NoResourceTable` for zwasm's `.single`
-      (non-WASI-P2) component variant, and cljw maps every zwasm invoke/drop
-      failure to the catch-all `wasm_trap` — "WebAssembly module trapped (e.g.
-      divide-by-zero, out-of-bounds, or an unreachable instruction)". So a
-      resource-bearing single-module component reports a MISLEADING cause: the
-      component does not have a resource table at all, which is a structural
-      property, not a trap. Needs its own Code with a template naming the real
-      condition. Not fixed in the amendment-1 cycle because no fixture in the
-      tree reaches it (`resource_counter` is a WASI-P2 graph), so a fix would
-      have shipped untested — the exact false-positive-discharge shape
-      `clj_diff_sweep.md` Discipline 1 forbids. Fix together with a `.single`
-      resource fixture, or when zwasm grows a resource table for that variant.
-    category: "wasm"
-    barrier: |-
-      quality-loop floor: error-message fidelity. No blocker — needs a `.single`
-      component fixture carrying a resource so the new Code is exercised rather
-      than asserted.
-    first_raised: "2026-08-04"
-    last_reviewed: "2026-08-04"
-    refs: |-
-      .dev/decisions/0159_wasm_resource_lifecycle.md § Amendment 1 (the
-      verification item that raised it); src/runtime/cljw/wasm/component.zig
-      (`invokeWithSig`, `resourceDropFn` — both map to `wasm_trap`);
-      zwasm src/api/component.zig `dropResource`.
-  - id: "D-566"
-    status: |-
-      open (2026-07-29, ADR-0175 deferred-hardening row). Alloc-side
-      unregistered-mutator assert: `gc_heap.alloc` (and `pushAnalysisRoot`)
-      should assert `root_set.is_registered_worker or <is the heap's owning
-      main thread>` so the next pre-register (or cap-fallthrough) mutator is a
-      caught bug instead of a ~1.5% GP-fault flake. Survey done 2026-07-29:
-      PRODUCTION is assert-clean (only main + the three registered worker
-      families allocate; nrepl/http serve serially on the calling thread), but
-      in-tree unit tests alloc from unregistered test threads (lazy_seq force-
-      race workers at lazy_seq.zig:461, plus the gc_heap/root_set churn tests
-      — each site needs registration or an exemption), and "owning main
-      thread" needs a per-GcHeap `main_thread_id` stamped at init.
-    category: "concurrency"
-    barrier: |-
-      Discharges by: the test-audit sweep (register or exempt every
-      unregistered-alloc test thread) + the per-heap main-thread-id stamp +
-      the assert itself, landed together. Cross-ref ADR-0175 § Consequences.
-    last_reviewed: "2026-07-29"
-  - id: "D-565"
-    status: |-
-      open (2026-07-28, external-contributor reproducibility audit — Discussion
-      #11 prompted a fresh-clone onboarding sweep). A stranger's `git clone` builds
-      + tests + gets full 3-OS CI gating with ZERO host-specific setup (see WORKS
-      below); everything that breaks is maintainer-side tooling, and the real
-      liability is DOC STALENESS, not broken machinery. Gaps:
-      (1) DISCHARGED 2026-08-04 — retired co-dev dir name `zwasm_from_scratch`
-          (real dir = `~/Documents/MyProducts/zwasm/`) fixed in `.claude/CLAUDE.md`,
-          `.claude/rules/handover_framing.md`, both wasm-component e2e headers, and
-          `scripts/run_wasm_gate.sh`. That last one was NOT doc rot: its skip guard
-          tested `[ ! -d ../zwasm_from_scratch ]`, so the runner had been exiting 0
-          without running since the rename. The guard is gone entirely — the zon
-          pins zwasm by tag URL, so no sibling checkout is required and the
-          `-Dwasm` build is the real predicate. Verified green after the fix.
-          Historical VERBATIM user quotes in `project_facts.md` and closed ADRs
-          keep the old name (they are a record of what was said).
-      (2) DISCHARGED 2026-08-04 — the sweep found THREE dead reference paths,
-          not one (`zig/`, `wasmtime/`, `openjdk24/`). Zig stdlib now points at
-          the pinned toolchain's own `$(zig env | grep std_dir)`, which is
-          version-exact by construction and present wherever the project builds —
-          strictly better than a clone, since the clone this file named was
-          post-0.16 master and ADR-0090 §Context records a survey misled by that
-          skew. `wasmtime/` + `openjdk24/` are multi-GB and now carry
-          `<!--ref:on-demand-->` plus their clone command. `scripts/check_reference_clones.sh`
-          (gate step `reference_clones`) fails on any claimed-live path that is
-          absent, and on an on-demand row missing its command; it skips entirely
-          when `~/Documents/OSS` does not exist, so a fresh clone is unaffected.
-      (3) DISCHARGED 2026-08-04 — `scripts/cleanup_orphans.sh` shipped in-repo
-          and wired as a `$CLAUDE_PROJECT_DIR` SessionStart hook. Reaps PID-1-orphaned
-          `run_all.sh`/`run_gate.sh` trees, this repo's `cljw`, and `clojure.main -e`
-          oracle JVMs older than 30 min (TERM, so the gate tree clears its stamp
-          files); `--dry-run` lists without killing. Self-tested against a real
-          double-forked orphan: detected, killed, and a 2-second-old orphan spared
-          by the threshold. The two docs that cited the missing global hook also
-          CONTRADICTED each other about whether it reaped JVMs — both now describe
-          the shipped script.
-      (4) DISCHARGED 2026-08-04 — README no longer hard-codes a version (it
-          points at Releases), and every size claim across README / landscape /
-          RELEASE_METRICS / ROADMAP is gated by `size_claims` (ADR-0172), so it
-          cannot rot again silently.
-      (5) DISCHARGED 2026-08-04 — the `continue` skill's model-selection
-          section named specific releases on the strength of a retrieval
-          comparison between two of them; both had been superseded by the
-          settings.json pin, so it was steering subagents to models OLDER than
-          the one running the loop. Replaced with the durable rule (subagents
-          inherit the pinned parent) plus where a re-measured model finding
-          belongs (`.dev/lessons/`, dated). A model name in prose is checked by
-          nothing, which is why it rotted.
-      (6) DISCHARGED 2026-08-04 — README's banner now states the real posture
-          (stable, 1.x line, Issues and PRs open, small team so replies are
-          slow) and `.github/CONTRIBUTING.md` says explicitly which loop
-          conventions do NOT apply to an outside contributor. The mismatch it
-          described is gone.
-      (7) [onboarding] forced-Japanese chat FIXED 2026-07-29 — reduced to the single
-          `outputStyle` setting (the SessionStart language printf + CLAUDE.md
-          re-injection removed), with the settings.local.json override documented.
-          Residual CONTRIBUTING notes: the reference-clone SURVEY workflow needs the
-          gitignored `.claude/settings.local.json` additionalDirectories + personal
-          `~/Documents/OSS` clones (a fresh clone's Step-0 survey has nothing to
-          read); undocumented external tools `clj` (hardcoded /opt/homebrew/bin/clj)
-          + `md-table-align`.
-      (8) [resume degrade] handover "First task on resume" names gitignored
-          `private/notes/*.md` probe recipes a fresh clone lacks — promote the
-          load-bearing ones into a tracked ADR/debt body or mark local-only.
-      WORKS (fair credit — weigh before "fixing" too much): flake.nix + flake.lock
-      pin Zig 0.16.0; build.zig.zon fetches zwasm (tag v2.3.0, lazy, -Dwasm-gated)
-      + zlinter by URL+SHA (no sibling checkout); the main `... ReleaseSafe` build +
-      `test/run_all.sh` run from a bare clone (the `~/Documents/OSS` refs in e2e
-      steps are GUARDED and skip); GitHub Actions `scripts/ci_gate.sh` reproduces
-      the local gate on mac+linux with no personal deps; every settings.json hook
-      is `$CLAUDE_PROJECT_DIR`-relative; the ADR/debt/ROADMAP/CHANGELOG base ships
-      in the clone; `cw v0` via `git worktree add ../cw-v0 v0.5.0`. Companion =
-      zwasm D-526 (same audit, other repo).
-    category: "docs-onboarding"
-    barrier: "none (autonomous doc-hygiene drain, easiest-first: items 1-5 are pure staleness sweeps, item 6 a one-line banner, items 7-8 want a short CONTRIBUTING/onboarding note). Not urgent (maintenance mode, PRs paused) but cheap and removes reader-misleading rot. Do items 1-3 first — broken even for the maintainer."
-    last_reviewed: "2026-07-28"
   - id: "D-564"
     status: |-
       open (2026-07-17, ADR-0174 D6 residual). Thread interrupt family
@@ -1217,23 +1094,6 @@ active:
       deny flag; default-deny in the deploy profile only (local CLI keeps eval). The
       read-string half is already closed (ADR-0122). Cross-ref SE-8, ADR-0122,
       core.zig eval surface.
-    last_reviewed: "2026-08-04"
-  - id: "D-346"
-    status: "open — security (VM operand-stack on large literal). Evaluating a large collection LITERAL (e.g. `(count [1 1 … ×40000])`) overflows the VM operand stack → `internal_error: vm: operand stack overflow` (uncatchable, exit 70). NOT a crash/panic (the tokenizer overflow-panic was the separate, fixed finding) — a clean process-end. Lower severity: it is reached by EVALUATING a large literal (untrusted CODE), not by READING data (read-string builds the collection in the reader, not via operand pushes), and untrusted-code-eval is already a higher-trust scenario. Surfaced 2026-06-09 while testing the tokenizer fix."
-    reviewed_2026_08_04: |-
-      REPRODUCED, unchanged, still low. `(count [1 1 … x40000])` from a file exits
-      70 with "vm: operand stack overflow" — a clean uncatchable process end, not
-      a crash or a memory-safety fault. Reachable only by EVALUATING untrusted
-      code (read-string builds the collection in the reader, not via operand
-      pushes), which is already the higher-trust scenario, so the severity
-      ordering behind the deferral holds.
-    category: "security"
-    barrier: |-
-      blocked-by: untrusted large-literal eval becoming a tracked threat. Options:
-      a growable/​checked operand stack with a catchable error (not internal_error),
-      or compiling a large vector/map literal to a bulk-build (not N operand pushes).
-      Low priority (eval-of-untrusted-code path; clean exit-70, not a crash).
-      Cross-ref the tokenizer long-input fix, vm.zig operand stack.
     last_reviewed: "2026-08-04"
   - id: "D-384"
     status: |-
@@ -7610,6 +7470,116 @@ discharged:
       D-349 (the memory half, discharged); zwasm `src/cli/run.zig`
       `Limits.timeout_ms`; src/runtime/cljw/wasm/engine.zig (`RunOpts`, where
       the three existing axes are threaded).
+  - id: "D-565"
+    status: |-
+      DISCHARGED 2026-10-01. All eight items done. The 2026-07-28 audit
+      (Discussion #11, a fresh-clone onboarding sweep) found that a stranger's
+      clone builds, tests and gets CI with no host setup; what broke was doc
+      staleness. Items 1-6 were drained 2026-08-04; a re-sweep on 2026-10-01
+      found the same rot had come back in new places, fixed here:
+      (1) retired co-dev dir names. `.dev/ubuntunote_setup.md` still pointed at
+          `zwasm_from_scratch/` (five sites); it now cites zwasm's
+          `.dev/ubuntunote_setup.md` by upstream URL. `.claude/CLAUDE.md` and
+          `.dev/wasm_percall_findings.md` named `~/PP/referential-projects/zwasm`,
+          which does not exist on this machine; the clone is `~/PP/zwasm`
+          (origin `BuddhiLW/zwasm`, the fork `build.zig.zon` pins). Verbatim
+          quotes in `project_facts.md`, closed ADRs and the zwasm ledger history
+          keep the old names as a record.
+      (2) dead reference paths. No `~/Documents/OSS` exists on the current
+          maintainer machine, so every row in `.dev/reference_clones.md` is now
+          a `<!--ref:on-demand-->` recipe with a verified `git clone` URL
+          (clojure, babashka, spec.alpha, clojuredocs-export-edn, malli,
+          mattpocock skills, ezi-gex, plus the existing openjdk and wasmtime).
+          `clojure-corpus` has no public source and says so. The mac-only Zig
+          stdlib and `clj` paths are gone (`zig env` `.std_dir`, `clj` from
+          PATH). `check_reference_clones.sh` passes with a populated root (9
+          on-demand recipes) and skips without one.
+      (3) `scripts/cleanup_orphans.sh` is in-repo and wired as a SessionStart
+          hook; `--dry-run` re-verified 2026-10-01. Stale `.claude/rules/*.md`
+          citations near it now name memory ids.
+      (4) README still names no current version (Releases badge); size claims
+          stay gated by `size_claims` (ADR-0172).
+      (5) the `continue` skill names no model. Its resume procedure still read
+          the retired `.dev/handover.md` and the deleted `.dev/principle.md`,
+          and called `main` the work branch; it now starts from
+          `project workflow catchup` on `staging`.
+      (6) README banner states the real posture; CONTRIBUTING lists what loop
+          conventions do not apply to an outside contributor.
+      (7) `.github/CONTRIBUTING.md` "Tools the gate needs, and tools it does
+          not": the gate set (zig, bb, python3, yq, rg, as in flake.nix and
+          ci.yml), `clj` (oracle tools only, PATH-resolved, `CLJ=` override),
+          `md-table-align` (advisory hook, silent when absent), reference clones
+          and `settings.local.json` `additionalDirectories`, and that no hook
+          forces a chat language (`outputStyle` left settings.json earlier).
+          Also corrected its branch advice: PRs target `staging`.
+      (8) the handover file is retired (2026-09-11), so its "First task on
+          resume" no longer exists. `private/notes/*.md` citations are marked
+          local-only in the `continue` skill, `.dev/reference_clones.md` and
+          CONTRIBUTING; the one load-bearing ledger was already promoted to
+          `test/diff/clj_corpus/COVERAGE.md`.
+      WORKS (unchanged): flake.nix pins Zig 0.16.0; build.zig.zon fetches zwasm
+      and zlinter by URL and hash; the e2e steps that read a reference clone
+      are guarded and skip when it is absent; CI runs `scripts/ci_gate.sh`.
+    category: "docs-onboarding"
+    barrier: "none, discharged"
+    last_reviewed: "2026-10-01"
+  - id: "D-568"
+    status: |-
+      DISCHARGED 2026-10-01. `wasm/resource-drop` maps zwasm's `NoResourceTable` to its own Code, `wasm_resource_no_table`, whose template names the real condition (a single core module with no resource table) instead of the catch-all `wasm_component_trap`. Exercised, not asserted: the new fixture `test/e2e/fixtures/wasm/single_resource.{wat,wasm}` is a hand-written component with one core module and no imports, so zwasm `open` takes the `.single` path, and its export returns `own<counter>`, so the host holds a resource it cannot drop. The fixture needs an exported `memory` or the single-path canon context fails every call.
+    category: "wasm"
+    barrier: |-
+      none, discharged. Pinned by `test/e2e/phase16_wasm_require_component.sh` (marker `PASS resource-drop-no-table`, probe `test/e2e/fixtures/wasm_resource_no_table_probe.clj`), which asserts the message names the missing resource table and does not say trapped.
+    first_raised: "2026-08-04"
+    last_reviewed: "2026-10-01"
+    refs: |-
+      .dev/decisions/0159_wasm_resource_lifecycle.md § Amendment 1 (the verification item that raised it); src/runtime/cljw/wasm/component.zig `resourceDropFn` (the NoResourceTable arm); src/runtime/error/catalog.zig `wasm_resource_no_table`; zwasm src/api/component.zig `dropResource`.
+    discharged_at: "2026-10-01"
+  - id: "D-566"
+    status: |-
+      DISCHARGED 2026-10-02. The three parts landed together.
+      (1) Stamp: `GcHeap.owner_thread_id`, set in `GcHeap.init` from
+      `root_set.currentThreadId()` (0 on single-threaded targets).
+      (2) Assert: `GcHeap.allocSized` asserts `mutatorAllowed()` (registered
+      worker, or the heap owner); `root_set.pushAnalysisRoot` asserts
+      `analysisMutatorAllowed()`. `pushAnalysisRoot` has no heap in hand, so it
+      checks a process-wide stamp of the most recent heap owner
+      (`noteHeapOwner`, which a registered worker never overwrites).
+      (3) Test audit of every `std.Thread.spawn` under src/: the gc_heap
+      concurrent-alloc workers and the lazy_seq force-race workers now register
+      through `root_set.workerContext`; vm.zig and the safepoint.zig workers
+      already registered; the root_set churn, eval_budget and latch threads
+      never touch the heap. No exemption was needed.
+      MEASURED: with the gc_heap test registration removed, `zig build test`
+      aborts that test (`reached unreachable code`), 1 crash of 1366. The
+      lazy_seq mock thunk allocates nothing, so the assert does not fire there
+      either way; its registration is for shape, not for the assert.
+      Was: open (2026-07-29, ADR-0175 deferred-hardening row), an unregistered
+      mutator was a ~1.5% GP-fault flake instead of a caught bug.
+    category: "concurrency"
+    barrier: |-
+      none, discharged. Pinned by the gc_heap.zig test "mutatorAllowed: the
+      stamping thread and registered workers may alloc, a foreign unregistered
+      thread may not (D-566)" and by the assert itself under every ReleaseSafe
+      unit and e2e run. Cross-ref ADR-0175 § Consequences.
+    last_reviewed: "2026-10-02"
+  - id: "D-346"
+    status: |-
+      DISCHARGED 2026-10-02 by "fix(vm): build large collection literals without exhausting the operand stack (D-346)". Both options the barrier named landed. A vector, map or set literal whose elements are all constants folds into one constant in the analyzer (clj ConstantExpr), so no operand stack is involved at any size. A literal with an evaluated element compiles to one build op for the first 512 elements and one op_vector_extend / op_map_extend / op_set_extend per further step, so the operand stack holds at most one step. A full operand arena now raises the catchable `stack_overflow` and a compiler limit raises the catchable `form_too_large`, neither an internal error. JVM clj rejects these 40k literals with "Method code too large!"; cljw builds them.
+      Was: open, security (VM operand stack on a large literal). `(count [1 1 (40000 elements)])` ended the process with the uncatchable `internal_error: vm: operand stack overflow` (exit 70). Surfaced 2026-06-09 while testing the tokenizer fix; reproduced unchanged 2026-08-04.
+    reviewed_2026_08_04: |-
+      REPRODUCED, unchanged, still low. `(count [1 1 … x40000])` from a file exits
+      70 with "vm: operand stack overflow" — a clean uncatchable process end, not
+      a crash or a memory-safety fault. Reachable only by EVALUATING untrusted
+      code (read-string builds the collection in the reader, not via operand
+      pushes), which is already the higher-trust scenario, so the severity
+      ordering behind the deferral holds.
+    category: "security"
+    barrier: |-
+      none, discharged. Pinned by `test/e2e/bulk_literal.sh` (both backends through --compare, the eval path, the catchable limits, the cljw build round trip), `test/clj/suites/bulk_literal_test.clj`, the bulk_literal diff corpus and the diff_test.zig D-346 case.
+    last_reviewed: "2026-10-02"
+    refs: |-
+      src/runtime/collection/literal.zig (the one literal construction); src/eval/analyzer/analyzer.zig (the constant fold); src/eval/backend/vm/compiler.zig and vm.zig (the extend opcodes); docs/spec/formats/chunk-v12.edn (bytecode format v12).
+    discharged_at: "2026-10-02"
 conventions: |-
   - Structure: two top-level lists — `active:` and `discharged:`. Active entries carry id / status / category / barrier (+ optional quality_floor / last_reviewed); discharged entries carry id / discharged_at / resolution. Edit as YAML (no Markdown table to align).
   - New debt: grep `.dev/debt.yaml` for class-overlap before adding (per `.claude/rules/debt_dedup.md`).

@@ -38,6 +38,7 @@ const error_mod = @import("../../runtime/error/info.zig");
 const error_catalog = @import("../../runtime/error/catalog.zig");
 const SourceLocation = error_mod.SourceLocation;
 const dispatch = @import("../../runtime/dispatch.zig");
+const class_name = @import("../../runtime/class_name.zig");
 
 const list = @import("../../runtime/collection/list.zig");
 const vector = @import("../../runtime/collection/vector.zig");
@@ -58,6 +59,7 @@ const transient_array_map = @import("../../runtime/collection/transient/transien
 const transient_hash_set = @import("../../runtime/collection/transient/transient_hash_set.zig");
 const lazy_seq = @import("../../runtime/lazy_seq.zig");
 const seqable = @import("../../runtime/seqable.zig");
+const char_sequence = @import("../../runtime/char_sequence.zig");
 const charset = @import("../../runtime/charset.zig");
 const td_mod = @import("../../runtime/type_descriptor.zig");
 const root_set = @import("../../runtime/gc/root_set.zig");
@@ -154,21 +156,17 @@ pub fn countFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation
                 const ext_n: i64 = if (inst.extmap.isNil()) 0 else @intCast(map.count(inst.extmap));
                 break :blk Value.initInteger(@as(i64, inst.field_count) + ext_n);
             }
-            if (desc.isCounted()) {
+            if (class_name.implementsInterface(coll, "Counted")) {
                 var cs: dispatch.CallSite = .{};
                 if (try dispatch.dispatchOrNull(rt, env, &cs, coll, IPC_FQCN, "-count", args, loc)) |v| break :blk v;
                 // declared Counted but no -count body resolved → fall through to walk.
             }
-            if (desc.isPersistentCollection()) break :blk try countBySeqWalk(rt, env, coll, loc);
+            if (class_name.implementsInterface(coll, "IPersistentCollection")) break :blk try countBySeqWalk(rt, env, coll, loc);
             // clj RT.countFrom: a non-collection CharSequence counts by
-            // .length() — instaparse's Segment deftype (D-430). The
-            // CharSequence remap registers `length` as -cs-length
-            // (host_interface.zig CHAR_SEQUENCE), so a null here means the
-            // type is not a CharSequence (or declared it method-less).
-            {
-                var cs: dispatch.CallSite = .{};
-                if (try dispatch.dispatchOrNull(rt, env, &cs, coll, "CharSequence", "-cs-length", args, loc)) |v| break :blk v;
-            }
+            // .length() — instaparse's Segment deftype (D-430). A null here
+            // means the type is not a CharSequence (or declared it
+            // method-less).
+            if (try char_sequence.lengthOrNull(rt, env, coll, loc)) |v| break :blk v;
             return error_catalog.raise(.protocol_no_satisfies, loc, .{
                 .protocol = IPC_FQCN,
                 .method = "-count",
@@ -225,10 +223,14 @@ pub fn countFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation
             // `clojure.core/IPersistentCollection -count`. Reaches
             // `(extend-type LongTag IPersistentCollection -count …)` style
             // native-Tag overrides via the row 7.3 per-Tag descriptor
-            // registry; raises protocol_no_satisfies when no MethodEntry
-            // is registered (cleaner JVM-parity diagnostic than the
-            // pre-7.7 type_arg_invalid).
+            // registry. A host CharSequence with no -count
+            // (java.lang.StringBuilder) counts by .length(), clj
+            // RT.countFrom; anything else raises protocol_no_satisfies
+            // (cleaner JVM-parity diagnostic than the pre-7.7
+            // type_arg_invalid).
             var cs: dispatch.CallSite = .{};
+            if (try dispatch.dispatchOrNull(rt, env, &cs, coll, IPC_FQCN, "-count", args, loc)) |v| break :blk v;
+            if (try char_sequence.lengthOrNull(rt, env, coll, loc)) |v| break :blk v;
             break :blk try dispatch.dispatch(rt, env, &cs, coll, IPC_FQCN, "-count", args, loc);
         },
     };
@@ -253,8 +255,8 @@ fn countBySeqWalk(rt: *Runtime, env: *Env, coll: Value, loc: SourceLocation) any
     defer root_set.eval_frame_head = gc_frame.parent;
     var n: i64 = 0;
     while (cur.tag() == .typed_instance or cur.tag() == .reified_instance) {
-        const desc = instanceDescriptor(cur);
-        if (desc.kind == .defrecord or desc.isCounted()) {
+        // A defrecord is Counted too (it is an IPersistentMap).
+        if (class_name.implementsInterface(cur, "Counted")) {
             const tail = try countFn(rt, env, &.{cur}, loc);
             return Value.initInteger(n + tail.asInteger());
         }
@@ -659,7 +661,7 @@ test "=: a chunked seq is equal to the vector holding the same elements" {
     const loc: SourceLocation = .{ .line = 0, .column = 0 };
     // `sequential?` answers true for a `.chunked_cons`; if `=` disagrees, the
     // value is Sequential that is equal to nothing — the two answers must come
-    // from ONE definition (interface_membership.isSequentialTag).
+    // from ONE definition (class_name.implementsInterface over Sequential).
     const r = try range.make(&fix.rt, 0, 1, 40);
     const s = try seqFn(&fix.rt, &fix.env, &.{r}, loc);
     try testing.expectEqual(Value.Tag.chunked_cons, s.tag());

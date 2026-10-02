@@ -170,8 +170,10 @@ fn readSource(rt: *Runtime, env: *Env, opts: ?Value, source: []const u8, loc: So
         // A specific reader diagnostic (e.g. reader_cond_not_allowed, or an
         // IllegalArgumentException such as a duplicate key) carries its own
         // catalog Info; re-raise it so the message and kind survive rather
-        // than being flattened to the generic EDN-reader-error wrapper.
-        if (e == error.SyntaxError or e == error.ValueError) return e;
+        // than being flattened to the generic EDN-reader-error wrapper. A bad
+        // number token (`12x`) is NumberError: clj NumberFormatException
+        // "Invalid number: 12x" from read-string and edn/read-string alike.
+        if (e == error.SyntaxError or e == error.ValueError or e == error.NumberError) return e;
         // Malformed EDN is bad DATA — clj throws a catchable RuntimeException,
         // and parsing untrusted EDN is exactly when the caller needs the catch.
         return error_catalog.raise(.edn_string_invalid, loc, .{ .reason = @errorName(e) });
