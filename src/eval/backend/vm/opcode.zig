@@ -360,6 +360,13 @@ pub const Opcode = enum(u8) {
     /// artifact — fixing the pre-existing loss where a `cljw build` app's
     /// docstrings vanished while the lazy-source bootstrap kept them.
     op_var_meta = 0x56,
+    /// Append a bounded chunk of evaluated elements to the collection below
+    /// them on the operand stack. Operand is the element count (map: key and
+    /// value each count as one). Unlike the small-literal opcodes, these keep
+    /// the already-built collection rooted on the stack during the append.
+    op_vector_extend = 0x57,
+    op_map_extend = 0x58,
+    op_set_extend = 0x59,
 
     /// True when this opcode carries a **signed-i16 instruction-position
     /// offset** in `operand`, relative to the instruction after itself
@@ -393,6 +400,9 @@ pub const Opcode = enum(u8) {
             .op_vector_literal,
             .op_map_literal,
             .op_set_literal,
+            .op_vector_extend,
+            .op_map_extend,
+            .op_set_extend,
             .op_require,
             .op_ns_with_refer_clojure,
             .op_ctor_call,
@@ -491,6 +501,9 @@ pub const Opcode = enum(u8) {
             .op_vector_literal,
             .op_map_literal,
             .op_set_literal,
+            .op_vector_extend,
+            .op_map_extend,
+            .op_set_extend,
             .op_require,
             .op_ns_with_refer_clojure,
             .op_ctor_call,
