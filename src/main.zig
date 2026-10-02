@@ -149,6 +149,7 @@ test {
     _ = @import("runtime/numeric/big_int.zig");
     _ = @import("runtime/lazy_seq.zig");
     _ = @import("runtime/seqable.zig");
+    _ = @import("runtime/char_sequence.zig");
     _ = @import("eval/form.zig");
     _ = @import("eval/tokenizer.zig");
     _ = @import("eval/reader.zig");
