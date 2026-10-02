@@ -12,9 +12,9 @@
 //! under `=`'s never-raise contract).
 //!
 //! Numeric scope (ADR-0053 D2): same-category exact via the existing
-//! Order fns; the int/float reach via f64; exact cross-category
-//! (ratio/decimal mixed, or big magnitudes beyond i64) is deferred to
-//! the numeric combine ladder (D-014a family) and raises for now.
+//! Order fns; a float operand orders as f64; any other cross-category pair
+//! (ratio/decimal mixed, or big magnitudes beyond i64) orders exactly, by the
+//! sign of its tower-promoting difference (`promote.orderNumeric`).
 
 const std = @import("std");
 const Order = std.math.Order;
@@ -96,12 +96,16 @@ fn numericOrder(rt: *Runtime, a: Value, b: Value, loc: SourceLocation) anyerror!
         };
     }
     // Cross-category: the exact sign of the tower-promoting difference (the
-    // D-014a combine ladder, now done exactly). Float contagion → f64 sign
+    // D-014a combine ladder, done exactly). Float contagion gives the f64 sign
     // (clj: `(compare 1N 1.0)`→0); a no-float mix (ratio/int/BigDecimal/BigInt)
-    // compares EXACTLY. Replaces the old lossy f64 collapse that raised on any
-    // ratio / BigDecimal / big-magnitude operand.
-    _ = loc;
-    return promote.orderNumeric(rt, a, b);
+    // compares EXACTLY. A Ratio meeting a BigDecimal becomes an exact
+    // BigDecimal, as clj's `Numbers.toBigDecimal` makes it, so a non-terminating
+    // one (`(compare 1/3 0.5M)`) is clj's ArithmeticException.
+    return promote.orderNumeric(rt, a, b) catch |err| switch (err) {
+        error.NonTerminatingDecimal => return error_catalog.raise(.non_terminating_decimal, loc, .{}),
+        error.RoundingNecessary => return error_catalog.raise(.rounding_necessary, loc, .{}),
+        else => return err,
+    };
 }
 
 /// Java `String.compareTo` over UTF-16 code units: the raw difference at

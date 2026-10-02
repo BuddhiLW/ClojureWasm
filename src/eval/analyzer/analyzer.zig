@@ -554,24 +554,29 @@ pub fn parseBigDecimalLiteral(rt: *Runtime, digits: []const u8, loc: error_mod.S
     return try big_decimal.allocFromManagedScale(rt, &unscaled, scale);
 }
 
-/// Parse `1/3`-shape Ratio literal into a Value. Reads numerator and
-/// denominator as i64 (Phase 14 row 14.4 gap (b) — wider numerators
-/// fall to the same overflow path as gap (a) D-014a tracks). Collapse
-/// to integer when the reduced denominator is 1 (the orelse branch
-/// covers e.g. `6/2` → 3).
+/// Parse an `n/d` Ratio literal into a Value, as clj's reader does: each side
+/// is an exact integer of any width, a Long when it fits i64 and a BigInt
+/// otherwise, and the value is `promote.divideIntegers` of the two, which is
+/// what `/` answers on the same operands (`6/2` is 3, `24691357802469135781/2`
+/// a Ratio, `123456789012345678901234567890/7` a BigInt).
 pub fn parseRatioLiteral(rt: *Runtime, digits: []const u8, loc: error_mod.SourceLocation) !Value {
     const slash = std.mem.findScalar(u8, digits, '/') orelse
         return error_catalog.raise(.number_literal_invalid, loc, .{ .text = digits });
-    const num = std.fmt.parseInt(i64, digits[0..slash], 10) catch
-        return error_catalog.raise(.number_literal_invalid, loc, .{ .text = digits });
-    const den = std.fmt.parseInt(i64, digits[slash + 1 ..], 10) catch
-        return error_catalog.raise(.number_literal_invalid, loc, .{ .text = digits });
-    const r = ratio_mod.allocFromI64Pair(rt, num, den) catch |err| switch (err) {
-        error.DivideByZero => return error_catalog.raise(.divide_by_zero, loc, .{}),
+    var num = big_int.parseBase10(rt, digits[0..slash]) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
+        else => return error_catalog.raise(.number_literal_invalid, loc, .{ .text = digits }),
     };
-    // Reduced denom == 1: the ratio collapses to a plain integer.
-    return r orelse Value.initInteger(@divTrunc(num, den));
+    defer num.deinit();
+    var den = big_int.parseBase10(rt, digits[slash + 1 ..]) catch |err| switch (err) {
+        error.OutOfMemory => return error.OutOfMemory,
+        else => return error_catalog.raise(.number_literal_invalid, loc, .{ .text = digits }),
+    };
+    defer den.deinit();
+    const bigint_operand = !num.fits(i64) or !den.fits(i64);
+    return promote.divideIntegers(rt, &num, &den, bigint_operand) catch |err| switch (err) {
+        error.DivideByZero => return error_catalog.raise(.divide_by_zero, loc, .{}),
+        else => |e| return e,
+    };
 }
 
 /// Compile a `#"..."` reader-literal body into a regex Value via
