@@ -177,6 +177,16 @@ fn negSeven() callconv(.c) c_int {
     return -7;
 }
 
+/// The address of `f` as the optimiser cannot see it. A comptime-known callee
+/// lets LLVM resolve the indirect call against the real prototype, and a call
+/// through a mismatched one is undefined there (measured: ReleaseSafe returned
+/// 501 for 654321). A dlsym address is always opaque; this makes the test's so.
+fn opaqueAddr(f: anytype) usize {
+    var addr: usize = @intFromPtr(f);
+    const v: *volatile usize = &addr;
+    return v.*;
+}
+
 test "a signature packs into one word and unpacks unchanged" {
     const r = Signature.init(&.{ .long, .double, .string, .pointer, .bytes, .int }, .double);
     const sig = r.ok;
@@ -203,7 +213,7 @@ test "interleaved long and double args land in their own register files" {
     s.putDouble(4);
     s.putInt(5);
     s.putDouble(6);
-    const r = call(@intFromPtr(&mixed), .long, &s);
+    const r = call(opaqueAddr(&mixed), .long, &s);
     try testing.expectEqual(@as(usize, 654321), r.word);
 }
 
@@ -211,7 +221,7 @@ test "a double return reads the float register; an int return is sign-extended" 
     var s: Slots = .{};
     s.putDouble(9);
     s.putInt(2);
-    try testing.expectEqual(@as(f64, 4.5), call(@intFromPtr(&halve), .double, &s).double);
+    try testing.expectEqual(@as(f64, 4.5), call(opaqueAddr(&halve), .double, &s).double);
     const empty: Slots = .{};
-    try testing.expectEqual(@as(i64, -7), intFromWord(call(@intFromPtr(&negSeven), .int, &empty).word));
+    try testing.expectEqual(@as(i64, -7), intFromWord(call(opaqueAddr(&negSeven), .int, &empty).word));
 }
