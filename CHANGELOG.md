@@ -7,6 +7,18 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 
 ## [Unreleased]
 
+### Added
+
+- **`cljw.ffi`: call C symbols in a shared library.** `(ffi/open path)`,
+  `(ffi/function lib "name" [:int :double] :long)` gives an ordinary Clojure
+  fn, plus `close`, `sym`, `call`, `string` and `bytes`. Types `:void :int
+  :long :double :pointer :string :bytes`; up to 6 integer-class and 8 double
+  arguments, called through one register-only shape with no libffi
+  (ADR-0202). Errors are `ex-info` with `{:ffi/error ...}`. The same API as
+  clojurust's `clojure.rust.ffi`. On x86_64 / aarch64 Linux and macOS
+  (`-Dffi=false` drops it); absent on wasm. Example:
+  `docs/examples/ffi/hive_call.clj` drives the hive C ABI.
+
 ### Fixed
 
 - **A number token runs to the next delimiter and is rejected whole, as in
