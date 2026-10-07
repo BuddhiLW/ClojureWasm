@@ -7,6 +7,19 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 
 ## [Unreleased]
 
+### Changed
+
+- **`wasm/run` compiles a module once and reuses it.** The first `(wasm/run
+  path …)` validates and JIT-compiles the module; later runs of the same file
+  only instantiate and run it, each with its own `:args`, `:stdin`, `:env`,
+  `:dir`/`:dirs`, `:fuel`, `:max-memory-pages`, `:max-output-bytes` and
+  `:timeout-ms`, and return the same `{:out :err :exit}`. A Go wasip1 guest
+  that cost 1.2 to 6.6 s per call now pays that once. Up to 8 modules stay
+  compiled, keyed by the file's path, inode, size and mtime, so an edited
+  file is compiled again. `{:cache false}` compiles for that call only, and
+  `(wasm/clear-cache!)` drops every cached module and returns how many there
+  were.
+
 ### Fixed
 
 - **A number token runs to the next delimiter and is rejected whole, as in

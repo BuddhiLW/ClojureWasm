@@ -2926,6 +2926,7 @@ discharged:
       violating F-009. `wasm/load` now rejects any present `:wasi` option so the
       split cannot be mistaken for silently incomplete support; the phase16
       Wasm FFI catchability fixture pins the rejection and exception class.
+      Amended 2026-10-07: the command path no longer recompiles per call. zwasm fork branch feat/captured-wasi-run adds the PUBLIC `cli.run_prepared.PreparedWasi` (validate + JIT-compile once; each run builds a fresh store, WASI host and instance with captured stdio, stdin bytes, argv, env, preopens and every budget axis). `wasm/run` keeps prepared modules in `runtime/cljw/wasm/run_cache.zig` (LRU of 8, keyed by jail-resolved path + inode + size + mtime, leases keep an evicted module alive until its run ends); `:cache false` compiles for one call and `wasm/clear-cache!` drops them. The split above stands: `wasm/run` stays a one-shot command surface, only the compile is shared, and no private zwasm WASI Host is reached (F-009).
   - id: "D-039"
     discharged_at: "ADR-0124 amendment / D-350 (2026-09-03)"
     resolution: |-
