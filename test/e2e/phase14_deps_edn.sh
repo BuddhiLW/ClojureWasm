@@ -97,14 +97,17 @@ esac
 mvn="$WORK/mvn"; mkdir -p "$mvn/repo/com/example/lib/1.0" "$mvn/repo/com/example/child/1.0" "$mvn/jars/lib/mp" "$mvn/jars/child/dep"
 printf '(ns mp.core)\n(defn ok [] :ok)\n' > "$mvn/jars/lib/mp/core.clj"
 printf '(ns dep.core)\n(defn ok [] :transitive)\n' > "$mvn/jars/child/dep/core.clj"
+printf '(ns mp.core)\n(defn ok [] :cljw)\n' > "$mvn/jars/lib/mp/core.cljw"
 (cd "$mvn/jars/lib" && zip -q "$mvn/repo/com/example/lib/1.0/lib-1.0.jar" mp/core.clj)
+(cd "$mvn/jars/lib" && zip -q "$mvn/repo/com/example/lib/1.0/lib-1.0.jar" mp/core.cljw)
 (cd "$mvn/jars/child" && zip -q "$mvn/repo/com/example/child/1.0/child-1.0.jar" dep/core.clj)
 printf '<project><dependencies><dependency><groupId>com.example</groupId><artifactId>child</artifactId><version>1.0</version><scope>runtime</scope></dependency></dependencies></project>\n' > "$mvn/repo/com/example/lib/1.0/lib-1.0.pom"
 printf '<project/>\n' > "$mvn/repo/com/example/child/1.0/child-1.0.pom"
 printf '{:deps {com.example/lib {:mvn/version "1.0"}}}\n' > "$mvn/deps.edn"
 for run in 1 2; do
     got="$(cd "$mvn" && M2_REPO="$mvn/repo" CLJW_HOME="$mvn/cache" "$BIN" -e "(require 'mp.core 'dep.core) [(mp.core/ok) (dep.core/ok)]")"
-    [[ "$(last_line "$got")" == '[:ok :transitive]' ]] || fail "mvn: run $run got '$(last_line "$got")'"
+    [[ "$(last_line "$got")" == '[:cljw :transitive]' ]] || fail "mvn: run $run got '$(last_line "$got")'"
+# The .cljw entry takes precedence over the .clj entry in the same jar.
 done
 [[ -f "$mvn/cache/mvn/com/example/lib/1.0/.complete" ]] || fail "mvn: extraction cache missing"
 echo "PASS deps_mvn_local_jar -> sources + transitive + cache hit"

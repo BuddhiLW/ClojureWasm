@@ -28,6 +28,8 @@ const git_fetch = @import("git_fetch.zig");
 /// `skipped` (optional) collects the lib names of `:mvn`-only deps that were
 /// skipped (source-only policy, ADR-0101 amendment), so the caller can emit a
 /// summary warning. `org.clojure/clojure` (cw itself) is omitted — it is always
+/// Maven coordinates are now resolved to extracted source roots (see
+/// `mvn_fetch.zig`); `skipped` remains for unsupported coordinate shapes.
 /// satisfied at require, so warning about it would be pure noise.
 pub fn resolveClasspath(
     io: std.Io,
