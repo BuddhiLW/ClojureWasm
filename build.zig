@@ -119,6 +119,8 @@ pub fn build(b: *std.Build) void {
     };
     const ffi_enabled = ffi_requested and ffi_target;
     build_options.addOption(bool, "ffi", ffi_enabled);
+    // dlopen/dlsym/dlerror come from libc: link it explicitly whenever ffi is on.
+    if (ffi_enabled) exe_mod.link_libc = true;
 
     exe_mod.addOptions("build_options", build_options);
 
@@ -144,6 +146,7 @@ pub fn build(b: *std.Build) void {
     cache_gen_options.addOption(bool, "ffi", ffi_enabled);
     cache_gen_options.addOption(bool, "embed_raw_clj_sources", true);
     cache_gen_mod.addOptions("build_options", cache_gen_options);
+    if (ffi_enabled) cache_gen_mod.link_libc = true;
     if (zwasm_mod) |zm| cache_gen_mod.addImport("zwasm", zm);
     const cache_gen = b.addExecutable(.{ .name = "cache_gen", .root_module = cache_gen_mod });
     const run_cache_gen = b.addRunArtifact(cache_gen);
