@@ -260,7 +260,11 @@ from `$M2_REPO` (default `~/.m2/repository`). Missing artifacts are downloaded
 from Clojars, then Maven Central via HTTPS (`curl`); extracted source roots are
 cached under `$CLJW_HOME/mvn` (default `~/.cljw/mvn`). Compile/runtime POM
 coordinates are traversed; `org.clojure/clojure` and JARs with no Clojure
-sources are omitted. `curl` and `unzip` are required on the host. For example:
+sources are omitted. `curl` and `unzip` are required on the host. POM traversal
+supports direct compile/runtime dependencies with literal versions or local
+properties; it does not implement BOM imports, inherited dependencyManagement,
+classifiers, exclusions, or Maven version mediation. JVM-only jars provide no
+source path (native Java classes remain unavailable). For example:
 
 ```clojure
 {:deps {metosin/malli {:mvn/version "0.20.2"}}}

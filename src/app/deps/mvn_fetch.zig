@@ -138,3 +138,9 @@ test "Maven coordinate validation and POM tags" {
     try std.testing.expect(!valid("../../evil"));
     try std.testing.expectEqualStrings("runtime", tag("<scope>runtime</scope>", "scope").?);
 }
+test "Maven POM properties and coordinate validation" {
+    try std.testing.expectEqualStrings("1.2", tag("<properties><lib.version>1.2</lib.version></properties>", "lib.version").?);
+    try std.testing.expect(tag("<dependency><groupId>x</groupId></dependency>", "version") == null);
+    try std.testing.expect(!valid("a/b"));
+    try std.testing.expect(!valid("foo..bar"));
+}
