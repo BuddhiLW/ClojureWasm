@@ -108,6 +108,20 @@ pub fn build(b: *std.Build) void {
     // when the flag is on (Phase-16-consistent: wasm becomes always-on there).
     if (zwasm_mod) |zm| exe_mod.addImport("zwasm", zm);
 
+    // `-Dffi`: the `cljw.ffi` C FFI surface (ADR-0202): dlopen + a
+    // register-only call shape, so it exists only where that shape is the C
+    // ABI (x86_64 SysV, aarch64 AAPCS64) on a dlopen host (Linux, macOS).
+    // On by default there; `-Dffi=false` drops it. Off on wasm and Windows.
+    const ffi_requested = b.option(bool, "ffi", "Build the cljw.ffi C FFI surface where the target supports it (ADR-0202).") orelse true;
+    const ffi_target = switch (target.result.cpu.arch) {
+        .x86_64, .aarch64 => target.result.os.tag == .linux or target.result.os.tag.isDarwin(),
+        else => false,
+    };
+    const ffi_enabled = ffi_requested and ffi_target;
+    build_options.addOption(bool, "ffi", ffi_enabled);
+    // dlopen/dlsym/dlerror come from libc: link it explicitly whenever ffi is on.
+    if (ffi_enabled) exe_mod.link_libc = true;
+
     exe_mod.addOptions("build_options", build_options);
 
     // ADR-0056 Cycle 2: AOT-compile the eager bootstrap (clojure.core) to a
@@ -129,8 +143,10 @@ pub fn build(b: *std.Build) void {
     cache_gen_options.addOption([]const u8, "version", build_zon.version);
     cache_gen_options.addOption(Backend, "backend", backend);
     cache_gen_options.addOption(bool, "wasm", wasm_enabled);
+    cache_gen_options.addOption(bool, "ffi", ffi_enabled);
     cache_gen_options.addOption(bool, "embed_raw_clj_sources", true);
     cache_gen_mod.addOptions("build_options", cache_gen_options);
+    if (ffi_enabled) cache_gen_mod.link_libc = true;
     if (zwasm_mod) |zm| cache_gen_mod.addImport("zwasm", zm);
     const cache_gen = b.addExecutable(.{ .name = "cache_gen", .root_module = cache_gen_mod });
     const run_cache_gen = b.addRunArtifact(cache_gen);

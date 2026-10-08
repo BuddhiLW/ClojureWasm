@@ -23,16 +23,30 @@
 
 schema_version: "2.0"
 summary:
-  namespaces_required: 35
-  total: 1437
-  zig: 415
-  clj: 799
+  namespaces_required: 36
+  total: 1452
+  zig: 423
+  clj: 806
   value: 217
   unbound: 6
 vars:
   "cljw.error/*error-context*": { impl: value, flags: "dynamic" }
   "cljw.error/with-context": { impl: clj, flags: "macro" }
   "cljw.eval/with-budget": { impl: zig, flags: "-" }
+  "cljw.ffi/-bytes": { impl: zig, flags: "-" }
+  "cljw.ffi/-close": { impl: zig, flags: "-" }
+  "cljw.ffi/-invoke": { impl: zig, flags: "-" }
+  "cljw.ffi/-open": { impl: zig, flags: "-" }
+  "cljw.ffi/-prepare": { impl: zig, flags: "-" }
+  "cljw.ffi/-string": { impl: zig, flags: "-" }
+  "cljw.ffi/-sym": { impl: zig, flags: "-" }
+  "cljw.ffi/bytes": { impl: clj, flags: "-" }
+  "cljw.ffi/call": { impl: clj, flags: "-" }
+  "cljw.ffi/close": { impl: clj, flags: "-" }
+  "cljw.ffi/function": { impl: clj, flags: "-" }
+  "cljw.ffi/open": { impl: clj, flags: "-" }
+  "cljw.ffi/string": { impl: clj, flags: "-" }
+  "cljw.ffi/sym": { impl: clj, flags: "-" }
   "cljw.fs/absolute?": { impl: clj, flags: "-" }
   "cljw.fs/create-dir": { impl: clj, flags: "-" }
   "cljw.fs/create-dirs": { impl: clj, flags: "-" }
@@ -1456,6 +1470,7 @@ vars:
   "clojure.zip/zip-loc?": { impl: clj, flags: "-" }
   "clojure.zip/zipper": { impl: clj, flags: "-" }
   "wasm/call": { impl: zig, flags: "-" }
+  "wasm/clear-cache!": { impl: zig, flags: "-" }
   "wasm/component-call": { impl: zig, flags: "-" }
   "wasm/component-exports": { impl: zig, flags: "-" }
   "wasm/component-invoke": { impl: zig, flags: "-" }
