@@ -32,6 +32,11 @@ fn valid(s: []const u8) bool {
     };
     return true;
 }
+fn resolvePomProperty(xml: []const u8, property: []const u8, version: []const u8) ?[]const u8 {
+    if (std.mem.eql(u8, property, "project.version") or std.mem.eql(u8, property, "version")) return version;
+    const properties = tag(xml, "properties") orelse return null;
+    return tag(properties, property);
+}
 fn checksumMatches(artifact: []const u8, checksum: []const u8) bool {
     if (checksum.len < 40) return false;
     var digest: [20]u8 = undefined;
@@ -159,7 +164,7 @@ pub fn expand(io: std.Io, a: std.mem.Allocator, lib: []const u8, version: []cons
         const raw_version = tag(block, "version") orelse continue;
         const child_version = if (std.mem.startsWith(u8, raw_version, "${") and std.mem.endsWith(u8, raw_version, "}")) blk: {
             const property = raw_version[2 .. raw_version.len - 1];
-            break :blk tag(xml, property) orelse continue;
+            break :blk resolvePomProperty(xml, property, version) orelse continue;
         } else raw_version;
         if (std.mem.indexOfScalar(u8, child_version, '$') != null) continue;
         try expand(io, a, try std.fmt.allocPrint(a, "{s}/{s}", .{ child_group, child_artifact }), child_version, cache_base, paths, visited);
@@ -185,4 +190,11 @@ test "Maven POM properties and coordinate validation" {
     try std.testing.expect(tag("<dependency><groupId>x</groupId></dependency>", "version") == null);
     try std.testing.expect(!valid("a/b"));
     try std.testing.expect(!valid("foo..bar"));
+}
+test "Maven POM dependency versions resolve local project and nested properties" {
+    const xml = "<project><version>9.2</version><properties><lib.version>1.2</lib.version></properties><dependencies><dependency><version>${lib.version}</version></dependency></dependencies></project>";
+    try std.testing.expectEqualStrings("9.2", resolvePomProperty(xml, "project.version", "9.2").?);
+    try std.testing.expectEqualStrings("9.2", resolvePomProperty(xml, "version", "9.2").?);
+    try std.testing.expectEqualStrings("1.2", resolvePomProperty(xml, "lib.version", "9.2").?);
+    try std.testing.expect(resolvePomProperty(xml, "unknown", "9.2") == null);
 }

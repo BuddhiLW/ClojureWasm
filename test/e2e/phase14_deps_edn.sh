@@ -112,6 +112,21 @@ done
 [[ -f "$mvn/cache/mvn/com/example/lib/1.0/.complete" ]] || fail "mvn: extraction cache missing"
 echo "PASS deps_mvn_local_jar -> sources + transitive + cache hit"
 
+# --- Case 4c2: project version and nested POM properties resolve transitive versions ---
+prop="$WORK/properties"; mkdir -p "$prop/repo/com/example/parent/1.0" "$prop/repo/com/example/child/1.0" "$prop/repo/com/example/nested/2.0" "$prop/src/child" "$prop/src/nested" "$prop/app"
+printf '(ns child.core)\n(defn ok [] :project-version)\n' > "$prop/src/child/core.clj"
+printf '(ns nested.core)\n(defn ok [] :property-version)\n' > "$prop/src/nested/core.clj"
+(cd "$prop/src" && zip -q "$prop/repo/com/example/child/1.0/child-1.0.jar" child/core.clj && zip -q "$prop/repo/com/example/nested/2.0/nested-2.0.jar" nested/core.clj)
+(cd "$prop/src" && zip -q "$prop/repo/com/example/parent/1.0/parent-1.0.jar" child/core.clj)
+printf '<project><properties><nested.version>2.0</nested.version></properties><dependencies><dependency><groupId>com.example</groupId><artifactId>child</artifactId><version>${project.version}</version></dependency><dependency><groupId>com.example</groupId><artifactId>nested</artifactId><version>${nested.version}</version></dependency></dependencies></project>\n' > "$prop/repo/com/example/parent/1.0/parent-1.0.pom"
+printf '<project/>\n' > "$prop/repo/com/example/child/1.0/child-1.0.pom"
+printf '<project/>\n' > "$prop/repo/com/example/nested/2.0/nested-2.0.pom"
+printf '{:deps {com.example/parent {:mvn/version "1.0"}}}\n' > "$prop/app/deps.edn"
+got="$(cd "$prop/app" && M2_REPO="$prop/repo" CLJW_HOME="$prop/cache" "$BIN" -e "(require 'child.core 'nested.core) [(child.core/ok) (nested.core/ok)]" 2>&1)"
+[[ "$(last_line "$got")" == '[:project-version :property-version]' ]] || fail "mvn properties: $got"
+[[ -f "$prop/cache/mvn/com/example/child/1.0/.complete" && -f "$prop/cache/mvn/com/example/nested/2.0/.complete" ]] || fail "mvn properties: transitive artifacts not extracted"
+echo "PASS deps_mvn_pom_properties -> project.version and nested properties"
+
 # --- Case 4d: remote Maven artifacts require same-repository checksums ---
 remote="$WORK/remote"; mkdir -p "$remote/host/com/example/verified/1.0" "$remote/src/verified" "$remote/app"
 printf '(ns verified.core)\n(defn ok [] :verified)\n' > "$remote/src/verified/core.clj"
