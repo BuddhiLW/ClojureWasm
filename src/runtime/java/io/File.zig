@@ -62,6 +62,13 @@ fn isFileInstance(v: Value) bool {
 /// Mint a File instance carrying the string `path_val` (already a cljw string).
 fn allocFile(rt: *Runtime, path_val: Value) !Value {
     const td = file_descriptor orelse return error.NoVTable;
+    // Every caller hands a freshly allocated, still unrooted path string. The
+    // HostInstance alloc below can trigger a collection (every alloc does under
+    // CLJW_GC_TORTURE_ALLOC=1) that swept that string, leaving the File with a
+    // dangling path (measured: `(.getPath (File. "test/clj/suites"))` -> "/tmp",
+    // `.isDirectory` false). No collection inside the region keeps it alive.
+    rt.gc.enterFabrication();
+    defer rt.gc.exitFabrication();
     return host_instance.alloc(rt, td, .{ @intFromEnum(path_val), 0, 0, 0 });
 }
 
