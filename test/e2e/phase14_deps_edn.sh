@@ -112,6 +112,44 @@ done
 [[ -f "$mvn/cache/mvn/com/example/lib/1.0/.complete" ]] || fail "mvn: extraction cache missing"
 echo "PASS deps_mvn_local_jar -> sources + transitive + cache hit"
 
+# --- Case 4d: remote Maven artifacts require same-repository checksums ---
+remote="$WORK/remote"; mkdir -p "$remote/host/com/example/verified/1.0" "$remote/src/verified" "$remote/app"
+printf '(ns verified.core)\n(defn ok [] :verified)\n' > "$remote/src/verified/core.clj"
+(cd "$remote/src" && zip -q "$remote/host/com/example/verified/1.0/verified-1.0.jar" verified/core.clj)
+printf '<project/>\n' > "$remote/host/com/example/verified/1.0/verified-1.0.pom"
+for ext in jar pom; do
+    artifact="$remote/host/com/example/verified/1.0/verified-1.0.$ext"
+    sha1sum "$artifact" | cut -d' ' -f1 > "$artifact.sha1"
+done
+printf '{:deps {com.example/verified {:mvn/version "1.0"}}}\n' > "$remote/app/deps.edn"
+remote_url="file://$remote/host"
+got="$(cd "$remote/app" && M2_REPO="$remote/good-repo" CLJW_HOME="$remote/good-cache" CLJW_MVN_REPOS="$remote_url" "$BIN" -e "(require 'verified.core) (verified.core/ok)" 2>&1)"
+[[ "$(last_line "$got")" == ':verified' ]] || fail "mvn checksum: good artifact: $got"
+[[ -f "$remote/good-repo/com/example/verified/1.0/verified-1.0.jar" && -f "$remote/good-repo/com/example/verified/1.0/verified-1.0.pom" ]] || fail "mvn checksum: verified artifacts not installed"
+printf 'tampered' >> "$remote/host/com/example/verified/1.0/verified-1.0.jar"
+if got="$(cd "$remote/app" && M2_REPO="$remote/bad-repo" CLJW_HOME="$remote/bad-cache" CLJW_MVN_REPOS="$remote_url" "$BIN" -e "(require 'verified.core)" 2>&1)"; then
+    fail "mvn checksum: tampered jar unexpectedly loaded"
+fi
+[[ "$got" == *"SHA-1 checksum mismatch"* && "$got" == *"$remote_url/com/example/verified/1.0/verified-1.0.jar"* ]] || fail "mvn checksum: missing URL diagnosis: $got"
+[[ ! -f "$remote/bad-repo/com/example/verified/1.0/verified-1.0.jar" && ! -f "$remote/bad-repo/com/example/verified/1.0/verified-1.0.jar.tmp" ]] || fail "mvn checksum: bad jar installed or temp retained"
+# Missing sidecars fail closed, including when another repository is configured.
+mv "$remote/host/com/example/verified/1.0/verified-1.0.jar.sha1" "$remote/host/com/example/verified/1.0/verified-1.0.jar.sha1.hidden"
+if got="$(cd "$remote/app" && M2_REPO="$remote/missing-repo" CLJW_HOME="$remote/missing-cache" CLJW_MVN_REPOS="$remote_url" "$BIN" -e "(require 'verified.core)" 2>&1)"; then
+    fail "mvn checksum: missing sidecar unexpectedly loaded"
+fi
+[[ "$got" == *"missing SHA-1 checksum"* && "$got" == *"verified-1.0.jar"* ]] || fail "mvn checksum: missing sidecar diagnosis: $got"
+[[ ! -f "$remote/missing-repo/com/example/verified/1.0/verified-1.0.jar" ]] || fail "mvn checksum: unchecked jar installed"
+mv "$remote/host/com/example/verified/1.0/verified-1.0.jar.sha1.hidden" "$remote/host/com/example/verified/1.0/verified-1.0.jar.sha1"
+# Restore the jar, then tamper only with the POM.
+cp "$remote/good-repo/com/example/verified/1.0/verified-1.0.jar" "$remote/host/com/example/verified/1.0/verified-1.0.jar"
+printf '<bad/>\n' >> "$remote/host/com/example/verified/1.0/verified-1.0.pom"
+if got="$(cd "$remote/app" && M2_REPO="$remote/bad-pom-repo" CLJW_HOME="$remote/bad-pom-cache" CLJW_MVN_REPOS="$remote_url" "$BIN" -e "(require 'verified.core)" 2>&1)"; then
+    fail "mvn checksum: tampered POM unexpectedly loaded"
+fi
+[[ "$got" == *"SHA-1 checksum mismatch"* && "$got" == *"verified-1.0.pom"* ]] || fail "mvn checksum: bad POM diagnosis: $got"
+[[ ! -f "$remote/bad-pom-repo/com/example/verified/1.0/verified-1.0.pom" ]] || fail "mvn checksum: unchecked POM installed"
+echo "PASS deps_mvn_checksum -> verified jar and pom; tampered jar and POM rejected"
+
 
 # --- Case 6: :git/url resolves via a hermetic local bare repo (ADR-0101) ---
 if ! command -v git >/dev/null 2>&1; then

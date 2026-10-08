@@ -32,19 +32,52 @@ fn valid(s: []const u8) bool {
     };
     return true;
 }
-fn fetch(io: std.Io, a: std.mem.Allocator, rel: []const u8, ext: []const u8, dest: []const u8) !bool {
+fn checksumMatches(artifact: []const u8, checksum: []const u8) bool {
+    if (checksum.len < 40) return false;
+    var digest: [20]u8 = undefined;
+    std.crypto.hash.Sha1.hash(artifact, &digest, .{});
+    const actual = std.fmt.bytesToHex(digest, .lower);
+    return std.ascii.eqlIgnoreCase(actual[0..], checksum[0..40]) and
+        (checksum.len == 40 or std.ascii.isWhitespace(checksum[40]) or checksum[40] == '*');
+}
+fn fetch(io: std.Io, a: std.mem.Allocator, lib: []const u8, rel: []const u8, ext: []const u8, dest: []const u8) !bool {
     const tmp = try std.fmt.allocPrint(a, "{s}.tmp", .{dest});
-    for ([_][]const u8{ "https://repo.clojars.org", "https://repo.maven.apache.org/maven2" }) |host| {
-        const url = try std.fmt.allocPrint(a, "{s}/{s}{s}", .{ host, rel, ext });
-        if (run(io, a, &.{ "curl", "-fsSL", "--connect-timeout", "5", "--max-time", "30", "-o", tmp, url })) {
-            try std.Io.Dir.cwd().rename(tmp, std.Io.Dir.cwd(), dest, io);
-            return true;
+    const checksum_tmp = try std.fmt.allocPrint(a, "{s}.sha1.tmp", .{dest});
+    const repos = env.get("CLJW_MVN_REPOS") orelse "https://repo.clojars.org,https://repo.maven.apache.org/maven2";
+    var hosts = std.mem.splitScalar(u8, repos, ',');
+    while (hosts.next()) |base| {
+        const host = std.mem.trim(u8, base, " \t\r\n");
+        if (host.len == 0) continue;
+        const url = try std.fmt.allocPrint(a, "{s}/{s}{s}", .{ std.mem.trimEnd(u8, host, "/"), rel, ext });
+        if (!run(io, a, &.{ "curl", "-fsSL", "--connect-timeout", "5", "--max-time", "30", "-o", tmp, url })) {
+            std.Io.Dir.cwd().deleteFile(io, tmp) catch {};
+            continue;
         }
-        std.Io.Dir.cwd().deleteFile(io, tmp) catch {};
+        const checksum_url = try std.fmt.allocPrint(a, "{s}.sha1", .{url});
+        if (!run(io, a, &.{ "curl", "-fsSL", "--connect-timeout", "5", "--max-time", "30", "-o", checksum_tmp, checksum_url })) {
+            std.Io.Dir.cwd().deleteFile(io, tmp) catch {};
+            std.Io.Dir.cwd().deleteFile(io, checksum_tmp) catch {};
+            return fail(lib, try std.fmt.allocPrint(a, "missing SHA-1 checksum for {s}", .{url}));
+        }
+        const expected = file_io.readAll(io, a, checksum_tmp) catch {
+            std.Io.Dir.cwd().deleteFile(io, tmp) catch {};
+            std.Io.Dir.cwd().deleteFile(io, checksum_tmp) catch {};
+            return fail(lib, try std.fmt.allocPrint(a, "unreadable SHA-1 checksum for {s}", .{url}));
+        };
+        std.Io.Dir.cwd().deleteFile(io, checksum_tmp) catch {};
+        const artifact = file_io.readAll(io, a, tmp) catch {
+            std.Io.Dir.cwd().deleteFile(io, tmp) catch {};
+            return fail(lib, try std.fmt.allocPrint(a, "unreadable artifact at {s}", .{url}));
+        };
+        if (!checksumMatches(artifact, expected)) {
+            std.Io.Dir.cwd().deleteFile(io, tmp) catch {};
+            return fail(lib, try std.fmt.allocPrint(a, "SHA-1 checksum mismatch for {s}", .{url}));
+        }
+        try std.Io.Dir.cwd().rename(tmp, std.Io.Dir.cwd(), dest, io);
+        return true;
     }
     return false;
 }
-
 /// Extract Clojure sources from a Maven jar, recursively following compile/runtime POM deps.
 pub fn expand(io: std.Io, a: std.mem.Allocator, lib: []const u8, version: []const u8, cache_base: ?[]const u8, paths: *std.ArrayList([]const u8), visited: *std.StringHashMapUnmanaged(void)) !void {
     if (std.mem.eql(u8, lib, "org.clojure/clojure")) return;
@@ -67,7 +100,7 @@ pub fn expand(io: std.Io, a: std.mem.Allocator, lib: []const u8, version: []cons
     const cwd = std.Io.Dir.cwd();
     if (cwd.access(io, jar, .{})) |_| {} else |_| {
         try cwd.createDirPath(io, std.fs.path.dirname(jar).?);
-        if (!try fetch(io, a, rel, ".jar", jar)) return fail(lib, "jar unavailable on Clojars and Maven Central");
+        if (!try fetch(io, a, lib, rel, ".jar", jar)) return fail(lib, "jar unavailable on Clojars and Maven Central");
     }
     const base = cache_base orelse return fail(lib, "set CLJW_HOME or HOME");
     const dest = try std.fmt.allocPrint(a, "{s}/mvn/{s}/{s}/{s}", .{ base, group_path, artifact, version });
@@ -99,7 +132,7 @@ pub fn expand(io: std.Io, a: std.mem.Allocator, lib: []const u8, version: []cons
     }
     if (cwd.access(io, marker, .{})) |_| try paths.append(a, dest) else |_| {}
     if (cwd.access(io, pom, .{})) |_| {} else |_| {
-        _ = try fetch(io, a, rel, ".pom", pom);
+        _ = try fetch(io, a, lib, rel, ".pom", pom);
     }
     const xml = file_io.readAll(io, a, pom) catch return;
     // dependencyManagement entries are constraints, not dependencies to load.
@@ -131,6 +164,15 @@ pub fn expand(io: std.Io, a: std.mem.Allocator, lib: []const u8, version: []cons
         if (std.mem.indexOfScalar(u8, child_version, '$') != null) continue;
         try expand(io, a, try std.fmt.allocPrint(a, "{s}/{s}", .{ child_group, child_artifact }), child_version, cache_base, paths, visited);
     }
+}
+
+test "Maven SHA-1 checksum validates bytes and rejects tampering" {
+    const good = "a9993e364706816aba3e25717850c26c9cd0d89d";
+    try std.testing.expect(checksumMatches("abc", good ++ "  abc.jar\n"));
+    try std.testing.expect(checksumMatches("abc", "A9993E364706816ABA3E25717850C26C9CD0D89D\n"));
+    try std.testing.expect(!checksumMatches("abd", good));
+    try std.testing.expect(!checksumMatches("abc", "a9993e364706816aba3e25717850c26c9cd0d89dx"));
+    try std.testing.expect(!checksumMatches("abc", ""));
 }
 
 test "Maven coordinate validation and POM tags" {

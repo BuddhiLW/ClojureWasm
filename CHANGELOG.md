@@ -14,6 +14,10 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
   absent artifacts from Clojars then Maven Central via HTTPS. Compile/runtime
   POM dependencies are traversed; JVM-only JARs and `org.clojure/clojure` do
   not enter the classpath. Source extraction is cached under `$CLJW_HOME/mvn`.
+  Every remotely fetched JAR and POM requires a matching SHA-1 sidecar from
+  the same repository before installation; a missing or mismatched checksum
+  fails closed. `CLJW_MVN_REPOS` accepts comma-separated repository base URLs
+  (default Clojars, Maven Central; `file://` supports hermetic fixtures).
 
 ### Fixed
 
