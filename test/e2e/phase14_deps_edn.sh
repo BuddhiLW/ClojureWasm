@@ -3,6 +3,7 @@
 #
 # Convergence Campaign Stage 1.2 — deps.edn source resolution.
 # A `./deps.edn` in the working directory contributes its `:paths` and
+# Maven coordinates resolve Clojure source jars and compile/runtime POM deps.
 # `:local/root`/`:git/url` deps to the front of the require classpath.
 # `:mvn/version` is SKIPPED (source-only, ADR-0101 amendment): resolution
 # proceeds + a summary warning names the skipped coords, except
@@ -59,8 +60,11 @@ got="$(cd "$al" && "$BIN" -A:dev -e "(require 'devns.tool) (devns.tool/t)" 2>/de
 [[ "$(last_line "$got")" == '"dev-tool"' ]] || fail "alias: -A:dev got '$(last_line "$got")'"
 echo "PASS deps_alias_extra_paths -> dev-tool (off without -A)"
 
+# Case 4 below was written for the old skip-only resolver; this lane now
+# requires Maven coordinates to resolve (the hermetic fixture below tests it).
 # --- Case 4: :mvn/version is SKIPPED (source-only), resolution proceeds; a
 #     non-clojure mvn coord is summary-warned on stderr (ADR-0101 amendment) ---
+if false; then # superseded historical skip-only assertions
 mvn="$WORK/mvn"; mkdir -p "$mvn/src/mp"
 printf '{:paths ["src"] :deps {com.example/lib {:mvn/version "1.0"}}}\n' > "$mvn/deps.edn"
 printf '(ns mp.core)\n(defn ok [] :ok)\n' > "$mvn/src/mp/core.clj"
@@ -73,12 +77,15 @@ case "$warn" in
     *skipped*com.example/lib*) echo "PASS deps_mvn_skip -> resolves + warns" ;;
     *) fail "mvn-skip: expected skip warning naming com.example/lib, got: $warn" ;;
 esac
+fi
 
 # --- Case 4b: org.clojure/clojure :mvn is silently provided (cw itself, no
 #     warning); a dep deps.edn with no :paths defaults to src/ (medley shape) ---
 med="$WORK/med"; mkdir -p "$med/app/src/app" "$med/dep/src/deplib"
 printf '(ns deplib.core)\n(defn v [] "dep-src")\n' > "$med/dep/src/deplib/core.clj"
+# The fixture above supplies a local Maven repo instead of a remote service.
 printf '{:deps {org.clojure/clojure {:mvn/version "1.11.0"}}}\n' > "$med/dep/deps.edn"  # no :paths → src default
+# Keep the :clojure-provided test outside the legacy block.
 printf '{:paths ["src"] :deps {deplib/deplib {:local/root "../dep"}}}\n' > "$med/app/deps.edn"
 out="$(cd "$med/app" && "$BIN" -e "(require 'deplib.core) (deplib.core/v)" 2>&1)"
 [[ "$(last_line "$out")" == '"dep-src"' ]] || fail "medley-shape: no-:paths dep src default failed: '$(last_line "$out")'"
@@ -86,6 +93,22 @@ case "$out" in
     *org.clojure/clojure*) fail "medley-shape: org.clojure/clojure should be silently provided, not warned" ;;
     *) echo "PASS deps_mvn_clojure_provided -> src default + no clojure warning" ;;
 esac
+# --- Case 4c: local Maven jar sources and transitive runtime POM deps ---
+mvn="$WORK/mvn"; mkdir -p "$mvn/repo/com/example/lib/1.0" "$mvn/repo/com/example/child/1.0" "$mvn/jars/lib/mp" "$mvn/jars/child/dep"
+printf '(ns mp.core)\n(defn ok [] :ok)\n' > "$mvn/jars/lib/mp/core.clj"
+printf '(ns dep.core)\n(defn ok [] :transitive)\n' > "$mvn/jars/child/dep/core.clj"
+(cd "$mvn/jars/lib" && zip -q "$mvn/repo/com/example/lib/1.0/lib-1.0.jar" mp/core.clj)
+(cd "$mvn/jars/child" && zip -q "$mvn/repo/com/example/child/1.0/child-1.0.jar" dep/core.clj)
+printf '<project><dependencies><dependency><groupId>com.example</groupId><artifactId>child</artifactId><version>1.0</version><scope>runtime</scope></dependency></dependencies></project>\n' > "$mvn/repo/com/example/lib/1.0/lib-1.0.pom"
+printf '<project/>\n' > "$mvn/repo/com/example/child/1.0/child-1.0.pom"
+printf '{:deps {com.example/lib {:mvn/version "1.0"}}}\n' > "$mvn/deps.edn"
+for run in 1 2; do
+    got="$(cd "$mvn" && M2_REPO="$mvn/repo" CLJW_HOME="$mvn/cache" "$BIN" -e "(require 'mp.core 'dep.core) [(mp.core/ok) (dep.core/ok)]")"
+    [[ "$(last_line "$got")" == '[:ok :transitive]' ]] || fail "mvn: run $run got '$(last_line "$got")'"
+done
+[[ -f "$mvn/cache/mvn/com/example/lib/1.0/.complete" ]] || fail "mvn: extraction cache missing"
+echo "PASS deps_mvn_local_jar -> sources + transitive + cache hit"
+
 
 # --- Case 6: :git/url resolves via a hermetic local bare repo (ADR-0101) ---
 if ! command -v git >/dev/null 2>&1; then

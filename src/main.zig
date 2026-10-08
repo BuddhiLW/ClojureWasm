@@ -93,6 +93,7 @@ test {
     _ = @import("app/render_error.zig");
     _ = @import("runtime/value/value.zig");
     _ = @import("runtime/introspect.zig");
+    _ = @import("app/deps/mvn_fetch.zig");
     _ = @import("runtime/error/info.zig");
     _ = @import("runtime/error/catalog.zig");
     _ = @import("runtime/error/print.zig");
