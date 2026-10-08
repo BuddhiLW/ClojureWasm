@@ -347,6 +347,10 @@ modules/                  comptime-gated optional (math, c-ffi, wasm)
                           imports runtime/ + eval/ only
 ```
 
+The optional modules landed under `src/runtime/cljw/<area>/` rather than a
+top-level `modules/`: `wasm/` behind `-Dwasm` (ADR-0099) and `ffi/` behind
+`-Dffi` (ADR-0202, on by default for x86_64 / aarch64 Linux and macOS).
+
 When a lower zone needs to call an upper zone: vtable pattern. The lower
 zone declares the `VTable` type, the upper zone injects function pointers
 at startup. `scripts/zone_check.sh --gate` blocks any violation in CI.
@@ -635,7 +639,7 @@ ClojureWasm/                         (working dir on disk)
 │
 ├── modules/                        comptime-gated optional
 │   ├── math/                       clojure.math
-│   ├── c_ffi/
+│   ├── c_ffi/                      landed as src/runtime/cljw/ffi/ (cljw.ffi, ADR-0202)
 │   └── wasm/                       cljw.wasm namespace
 │
 ├── test/
@@ -1040,7 +1044,7 @@ audit trail, not as a forward-looking instruction.
 | 15    | **Concurrency** — BUILT + race-hardened (gap area I; ADR-0142)                                 | atom/ref+STM/agent/future/promise/delay/locking/volatile ship; gap = parity/load (R1) + D-442/D-105 (`:volatile-mutable` happens-before DONE 2026-06-16: ADR-0152) | 🔒    |
 | 16    | **Wasm/edge-native** BUILT (gap area II) · ClojureScript→JS = future                          | component build/run/require ship (`cljw.wasm/*`); CLJS→JS genuinely unbuilt                                                                                       |      |
 | 17    | **VM perf: fusion → JIT** PARTIAL (gap area III)                                               | superinstruction/fusion slice landed (D-386 / O-018/019/021/023); narrow ARM64 JIT = milestone M                                                                   |      |
-| 18    | math + module/deps DONE · **C FFI** = future                                                   | `clojure.math` + deps.edn ship; C FFI (`dlopen`/libffi) genuinely unbuilt                                                                                          |      |
+| 18    | math + module/deps DONE · **C FFI** BUILT (register-only shape)                                | `clojure.math` + deps.edn ship; `cljw.ffi` dlopen + 6-int/8-double call shape, no libffi (ADR-0202); structs/varargs/callbacks unbuilt                            |      |
 | 19    | **Wasm/edge-native** cont. — WIT auto-binding (gap area II)                                    | component require BUILT; gap = WIT marshalling (D-404); command/handle embedding shape settled by ADR-0124/D-350                                                   |      |
 | 20    | **broad JIT** = future (distal; gated on gap-area-III fusion outcome)                           | narrow ARM64 JIT (milestone M) is the near-term scope; broad JIT decided after fusion lands                                                                        |      |
 
@@ -1065,7 +1069,7 @@ in ADRs / debt rows / overlays still resolve while R4/R5 rewrite them at source)
 | Phase 15 (§9.17)        | **Gap area I — Concurrency hardening** (BUILT + race-hardened)                  |
 | Phase 16 (§9.18)        | **Gap area II — Wasm/edge-native** (BUILT) · ClojureScript→JS = future bucket |
 | Phase 17 (§9.19)        | **Gap area III — VM perf: fusion → JIT** (PARTIAL)                             |
-| Phase 18 (§9.20)        | math + module/deps **DONE** · C FFI = future bucket                             |
+| Phase 18 (§9.20)        | math + module/deps **DONE** · C FFI **BUILT** (`cljw.ffi`, ADR-0202)            |
 | Phase 19 (§9.21)        | **Gap area II — Wasm/edge-native** (WIT auto-binding; D-404)                    |
 | Phase 20 (§9.22)        | **future bucket** — broad JIT (distal; narrow ARM64 JIT = milestone M)          |
 
@@ -1090,7 +1094,8 @@ in ADRs / debt rows / overlays still resolve while R4/R5 rewrite them at source)
   (distal, D-005 / D-035).
 
 **Genuinely-future bucket** (no impl; honest future): ClojureScript→JS compiler,
-C FFI (`dlopen`/libffi), broad JIT (Phase 20).
+broad JIT (Phase 20). C FFI left this bucket with `cljw.ffi` (ADR-0202); its
+own future tail is structs by value, varargs and C-to-Clojure callbacks.
 
 > **Milestone M** (F-010) = concurrency complete (gap area I drained to parity)
 > + the cw-v0-level narrow ARM64 JIT. M is a **named milestone token**, not a
@@ -1560,13 +1565,17 @@ an independent cljw-bytecode→native path (NOT via zwasm; F-001); bytecode ABI 
 decoder-only-compatible (ADR-0033 D10 / ADR-0034 D6) so JIT go/no-go does not
 perturb placement/build.
 
-### 9.20 math + module/deps DONE (formerly "Phase 18") · C FFI = future
+### 9.20 math + module/deps DONE (formerly "Phase 18") · C FFI BUILT
 
 **Status: math + module/deps DONE.** `clojure.math` ships (`clojure/math.clj`,
 e2e `phase14_math*`); the deps.edn resolver + the `modules/` zone rule already
-exist (Phase 14). **C FFI = genuinely-future bucket**: no `dlopen`/`dlsym`/
-`libffi`/`c_ffi`; `zig build -D<lib>` comptime-gated module builds are future
-work, low priority.
+exist (Phase 14). **C FFI BUILT** (ADR-0202): `cljw.ffi` (`open close sym
+function call string bytes`) dlopens a library and calls any signature of at
+most 6 integer-class and 8 double arguments through two function pointer
+types, no libffi. Comptime-gated by `-Dffi` (default on for x86_64 / aarch64
+Linux and macOS, absent on wasm). The surface is shared with clojurust's
+`clojure.rust.ffi`. Future tail: structs by value, varargs, float32,
+callbacks into Clojure.
 
 ### 9.21 Gap area II (cont.) — WIT auto-binding (formerly "Phase 19")
 
