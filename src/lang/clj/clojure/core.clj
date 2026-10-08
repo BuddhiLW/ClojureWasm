@@ -1149,18 +1149,23 @@
       ;; is interned, so `identical?` detects "no impl" exactly.
       (let* [r (cljw.internal/__kv-reduce-or m f init :clojure.core/kv-reduce-none)]
         (if (identical? r :clojure.core/kv-reduce-none)
-          (reduce (fn* [acc k] (f acc k (get m k))) init (keys m))
+          ;; Walk ENTRIES, never keys-then-get: a key that is not `=` to
+          ;; itself (##NaN, or a list holding it) misses its own lookup, so
+          ;; `(get m k)` would hand f nil instead of the stored value.
+          (reduce (fn* [acc e] (f acc (nth e 0) (nth e 1))) init m)
           r)))))
 
 ;; `(update-keys m f)` — new map with `(f k)` for each key, same vals.
+;; Entry walk, not keys-then-get, for the same NaN-key reason as reduce-kv.
 (def update-keys
   (fn* [m f]
-    (reduce (fn* [acc k] (assoc acc (f k) (get m k))) {} (keys m))))
+    (reduce (fn* [acc e] (assoc acc (f (nth e 0)) (nth e 1))) {} m)))
 
 ;; `(update-vals m f)` — new map with `(f v)` for each val, same keys.
+;; Entry walk, not keys-then-get, for the same NaN-key reason as reduce-kv.
 (def update-vals
   (fn* [m f]
-    (reduce (fn* [acc k] (assoc acc k (f (get m k)))) {} (keys m))))
+    (reduce (fn* [acc e] (assoc acc (nth e 0) (f (nth e 1)))) {} m)))
 
 ;; `(seq-to-map-for-destructuring s)` — clojure 1.11. Builds a map from the rest
 ;; args of a `& {:keys […]}` call: kwargs pairs, a single trailing map, or a mix

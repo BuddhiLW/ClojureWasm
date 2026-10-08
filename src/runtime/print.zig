@@ -354,20 +354,42 @@ fn deepRealizeAt(rt: *Runtime, env: *env_mod.Env, v: Value, depth: i64) anyerror
         // no-op" — deepRealize returns the same Value when nothing was lazy.
         .array_map, .hash_map => {
             var out = v;
-            var ks = try map_collection.keys(rt, v);
-            while (ks.tag() == .list and list_collection.countOf(ks) > 0) : (ks = list_collection.rest(ks)) {
-                const k = list_collection.first(ks);
-                const val = try map_collection.get(v, k);
+            // Walk ENTRIES, not keys-then-get: a key that is not `=` to itself
+            // (a list holding ##NaN) misses its own lookup, so `get` returned
+            // nil, the re-assoc below then ADDED a phantom `k nil` entry and
+            // the map printed one entry too many.
+            // A re-KEYED entry rebuilds the map from its realized entries
+            // instead of dissoc+assoc: `dissoc` of a self-unequal key is a
+            // no-op, which also left a phantom.
+            var rekeyed = false;
+            var es = try map_collection.seq(rt, v);
+            while (es.tag() == .list and list_collection.countOf(es) > 0) : (es = list_collection.rest(es)) {
+                const entry = list_collection.first(es);
+                const k = map_entry_collection.keyOf(entry);
+                const val = map_entry_collection.valOf(entry);
                 const rk = try deepRealizeAt(rt, env, k, depth + 1);
                 const rv = try deepRealizeAt(rt, env, val, depth + 1);
                 if (@intFromEnum(rk) != @intFromEnum(k)) {
-                    out = try map_collection.dissoc(rt, out, k);
-                    out = try map_collection.assoc(rt, out, rk, rv);
+                    rekeyed = true;
+                    break;
                 } else if (@intFromEnum(rv) != @intFromEnum(val)) {
                     out = try map_collection.assoc(rt, out, k, rv);
                 }
             }
-            return out;
+            if (!rekeyed) return out;
+            var rebuilt = map_collection.empty();
+            var rs = try map_collection.seq(rt, v);
+            while (rs.tag() == .list and list_collection.countOf(rs) > 0) : (rs = list_collection.rest(rs)) {
+                const entry = list_collection.first(rs);
+                rebuilt = try map_collection.assoc(
+                    rt,
+                    rebuilt,
+                    try deepRealizeAt(rt, env, map_entry_collection.keyOf(entry), depth + 1),
+                    try deepRealizeAt(rt, env, map_entry_collection.valOf(entry), depth + 1),
+                );
+            }
+            const m = map_collection.metaOf(v);
+            return if (m.isNil()) rebuilt else try map_collection.withMeta(rt, rebuilt, m);
         },
         // Sorted variants ride the sorted module (comparator-aware assoc/
         // dissoc need env; a realized KEY is not re-keyed — the comparator
@@ -388,14 +410,22 @@ fn deepRealizeAt(rt: *Runtime, env: *env_mod.Env, v: Value, depth: i64) anyerror
             return out;
         },
         .hash_set => {
-            var out = v;
+            const out = v;
             var es = try set_collection.seq(rt, v);
             while (es.tag() == .list and list_collection.countOf(es) > 0) : (es = list_collection.rest(es)) {
                 const e = list_collection.first(es);
                 const re = try deepRealizeAt(rt, env, e, depth + 1);
                 if (@intFromEnum(re) != @intFromEnum(e)) {
-                    out = try set_collection.disj(rt, out, e);
-                    out = try set_collection.conj(rt, out, re);
+                    // `disj` of a self-unequal element (a list holding
+                    // ##NaN) is a no-op, so disj+conj printed a phantom
+                    // second element. Rebuild from the realized elements.
+                    var rebuilt = set_collection.empty();
+                    var rs = try set_collection.seq(rt, v);
+                    while (rs.tag() == .list and list_collection.countOf(rs) > 0) : (rs = list_collection.rest(rs)) {
+                        rebuilt = try set_collection.conj(rt, rebuilt, try deepRealizeAt(rt, env, list_collection.first(rs), depth + 1));
+                    }
+                    const m = set_collection.metaOf(v);
+                    return if (m.isNil()) rebuilt else try set_collection.withMeta(rt, rebuilt, m);
                 }
             }
             return out;

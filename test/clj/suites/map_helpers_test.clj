@@ -42,3 +42,14 @@
   (is (thrown? Throwable (keys 0)))
   (is (= [:a] (keys (list [:a 1]))))
   (is (= [1] (vals (list [:a 1])))))
+
+;; A key that is not `=` to itself (##NaN, or a list holding it) misses its
+;; own lookup, so a keys-then-get walk lost its value and the print realize
+;; pass grew a phantom `k nil` entry. Verified against JVM clj 1.12.
+(deftest nan-key-entry-walk
+  (is (= [1] (reduce-kv (fn* [acc k v] (conj acc v)) [] {##NaN 1})) "reduce_kv_nan_key")
+  (is (= [2] (vec (vals (update-vals {##NaN 1} inc)))) "update_vals_nan_key")
+  (is (= [1] (vec (vals (update-keys {##NaN 1} identity)))) "update_keys_nan_key")
+  (is (= "{(##NaN) 1}" (pr-str {(list ##NaN) 1})) "print_list_nan_key_map")
+  (is (= "#{(##NaN)}" (pr-str #{(list ##NaN)})) "print_list_nan_set")
+  (is (= 2 (count (re-seq #"##NaN" (pr-str (hash-map (list ##NaN) 1 (list ##NaN) 2))))) "print_two_nan_keys"))
