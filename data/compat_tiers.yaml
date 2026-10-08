@@ -242,9 +242,9 @@ tiers:
         phase: 15
         files:
           surface: runtime/java/lang/Thread.zig
-        methods: [currentThread, getName, isAlive, isDaemon, join, onSpinWait, setDaemon, setName, sleep, start, yield]
+        methods: [currentThread, getName, getStackTrace, isAlive, isDaemon, join, onSpinWait, setDaemon, setName, sleep, start, yield]
         static_fields: ["MAX_PRIORITY", "MIN_PRIORITY", "NORM_PRIORITY"]
-        opaque_members: [interrupt, isInterrupted, interrupted, getId, threadId, getState, getPriority, setPriority, getStackTrace, getThreadGroup, getContextClassLoader, setContextClassLoader, getUncaughtExceptionHandler, setUncaughtExceptionHandler, getDefaultUncaughtExceptionHandler, setDefaultUncaughtExceptionHandler, ofPlatform, ofVirtual, startVirtualThread, isVirtual, activeCount, dumpStack, enumerate, holdsLock, getAllStackTraces, run]
+        opaque_members: [interrupt, isInterrupted, interrupted, getId, threadId, getState, getPriority, setPriority, getThreadGroup, getContextClassLoader, setContextClassLoader, getUncaughtExceptionHandler, setUncaughtExceptionHandler, getDefaultUncaughtExceptionHandler, setDefaultUncaughtExceptionHandler, ofPlatform, ofVirtual, startVirtualThread, isVirtual, activeCount, dumpStack, enumerate, holdsLock, getAllStackTraces, run]
         clojure_peer_vars: []
       # java.lang.StringBuilder — mutable growable buffer (ADR-0114, host_instance).
       # hiccup's compiler builds HTML with it. java.lang.String also has the
