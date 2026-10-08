@@ -16,3 +16,12 @@
   (is (= "true" (pr-str (pos? (.availableProcessors (Runtime/getRuntime))))) "rt_procs_pos")
   (is (= "true" (pr-str (integer? (.availableProcessors (Runtime/getRuntime))))) "rt_procs_int")
   (is (= "true" (pr-str (identical? (Runtime/getRuntime) (Runtime/getRuntime)))) "rt_singleton"))
+
+;; test.check's failure reporter walks (.getStackTrace (Thread/currentThread))
+;; for file and line. cljw has no StackTraceElement (ADR-0059), so the member
+;; answers an empty array and the reporter takes its empty-trace branch.
+(deftest thread-get-stack-trace-is-empty
+  (let [st (.getStackTrace (Thread/currentThread))]
+    (is (some? st) "stack_trace_present")
+    (is (= 0 (alength st)) "stack_trace_empty")
+    (is (nil? (seq st)) "stack_trace_seq_nil")))
