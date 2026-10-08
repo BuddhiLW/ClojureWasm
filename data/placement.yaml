@@ -24,8 +24,8 @@
 schema_version: "2.0"
 summary:
   namespaces_required: 36
-  total: 1451
-  zig: 422
+  total: 1452
+  zig: 423
   clj: 806
   value: 217
   unbound: 6
@@ -1470,6 +1470,7 @@ vars:
   "clojure.zip/zip-loc?": { impl: clj, flags: "-" }
   "clojure.zip/zipper": { impl: clj, flags: "-" }
   "wasm/call": { impl: zig, flags: "-" }
+  "wasm/clear-cache!": { impl: zig, flags: "-" }
   "wasm/component-call": { impl: zig, flags: "-" }
   "wasm/component-exports": { impl: zig, flags: "-" }
   "wasm/component-invoke": { impl: zig, flags: "-" }
