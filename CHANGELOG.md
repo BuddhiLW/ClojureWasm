@@ -9,6 +9,16 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 
 ### Added
 
+- **deps.edn Maven source JAR resolution.** `:mvn/version` loads `.clj`, `.cljc`
+  and `.cljw` sources from `$M2_REPO` (`~/.m2/repository` by default), fetching
+  absent artifacts from Clojars then Maven Central via HTTPS. Compile/runtime
+  POM dependencies are traversed; JVM-only JARs and `org.clojure/clojure` do
+  not enter the classpath. Source extraction is cached under `$CLJW_HOME/mvn`.
+  Every remotely fetched JAR and POM requires a matching SHA-1 sidecar from
+  the same repository before installation; a missing or mismatched checksum
+  fails closed. `CLJW_MVN_REPOS` accepts comma-separated repository base URLs
+  (default Clojars, Maven Central; `file://` supports hermetic fixtures).
+
 - **`cljw.ffi`: call C symbols in a shared library.** `(ffi/open path)`,
   `(ffi/function lib "name" [:int :double] :long)` gives an ordinary Clojure
   fn, plus `close`, `sym`, `call`, `string` and `bytes`. Types `:void :int
