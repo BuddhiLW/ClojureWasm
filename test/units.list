@@ -66,6 +66,7 @@ check_debt_id_refs|-|yes|via-gate|bash scripts/check_debt_id_refs.sh --gate
 check_doc_coverage|-|yes|via-gate|bash scripts/check_doc_coverage.sh
 check_changelog_reachability|-|yes|via-gate|bash scripts/check_changelog_reachability.sh --gate
 check_e2e_dup|-|yes|via-gate|bash scripts/check_e2e_dup.sh
+check_e2e_count|-|yes|via-gate|bash scripts/check_e2e_count.sh
 check_e2e_reach|-|yes|via-gate|bash scripts/check_e2e_reach.sh --gate
 check_entrypoint_surface|-|yes|via-gate|bash scripts/check_entrypoint_surface.sh
 check_epipe_head|-|yes|via-gate|bash scripts/check_epipe_head.sh
