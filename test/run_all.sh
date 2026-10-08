@@ -363,6 +363,7 @@ run_step "host_interface"       "bash scripts/check_host_interface.sh --gate"
 run_step "test_reach"           "bash scripts/check_test_reach.sh --gate"
 run_step "e2e_reach"            "bash scripts/check_e2e_reach.sh --gate"
 run_step "e2e_dup"              "bash scripts/check_e2e_dup.sh"
+run_step "e2e_count"            "bash scripts/check_e2e_count.sh"
 # Every runnable script in the repository has a row in test/units.list, and
 # every row names a file that exists. An exclusion is a gated=no row, never
 # an absence.
