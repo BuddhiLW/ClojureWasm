@@ -71,6 +71,9 @@ pub const FileEntry = struct {
     /// only under `-Dwasm`. Its `wasm/…` call sites resolve at ANALYZE time,
     /// so a build without the flag cannot compile it at all.
     wasm_only: bool = false,
+    /// The file rides the `cljw.ffi` leaves (`-open`, `-invoke`, ...), which
+    /// are registered only where `build_options.ffi` is set (ADR-0202).
+    ffi_only: bool = false,
 };
 
 /// Is `entry` part of THIS build's bundled set? The ONE predicate behind both
@@ -88,7 +91,7 @@ fn f(comptime ns: []const u8, comptime path: []const u8) FileEntry {
 }
 
 pub fn isActiveFile(entry: FileEntry) bool {
-    return build_options.wasm or !entry.wasm_only;
+    return (build_options.wasm or !entry.wasm_only) and (build_options.ffi or !entry.ffi_only);
 }
 
 /// Bootstrap source table — load order matters. `core.clj` must be
@@ -223,6 +226,10 @@ pub const FILES: []const FileEntry = &.{
     // `cljw.process/run`, resolved at call time so a WASI build (no
     // cljw.process) still loads it. require-on-demand, as in clj. Appended last.
     f("clojure.java.shell", "clj/clojure/java/shell.clj"),
+    // cljw.ffi (ADR-0202): the C FFI API over the native `cljw.ffi/-*` leaves.
+    // require-on-demand AND ffi-gated: the leaves exist only where
+    // `build_options.ffi` is set. Appended last.
+    .{ .ns = "cljw.ffi", .label = defaultLabel("cljw.ffi"), .source = embedSrc("clj/cljw/ffi.clj"), .ffi_only = true },
 };
 
 /// The build-active subset of `FILES`. **Every walk that compiles, emits, or

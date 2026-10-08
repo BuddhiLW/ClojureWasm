@@ -41,6 +41,12 @@ grep -q "PASS wasm-run-exit-code" <<<"$out" || fail "non-zero exit not returned 
 $out"
 grep -q "PASS wasm-run-env" <<<"$out" || fail "the :env option (D-348) failed to parse/run:
 $out"
+grep -q "PASS wasm-run-cache$" <<<"$out" || fail "a cached wasm/run differed from an uncached one (D-350):
+$out"
+grep -q "PASS wasm-run-cache-fuel" <<<"$out" || fail "fuel did not apply to a cached module (D-350):
+$out"
+grep -q "cache-bad-type: CAUGHT" <<<"$out" || fail "a non-boolean :cache was not rejected (D-350):
+$out"
 grep -q "NOT-CAUGHT" <<<"$out" && fail "a wasm/run error escaped (catch …):
 $out"
 grep -q "^DONE$" <<<"$out" || fail "fixture did not run to completion:

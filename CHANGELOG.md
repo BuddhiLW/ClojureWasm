@@ -19,6 +19,30 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
   fails closed. `CLJW_MVN_REPOS` accepts comma-separated repository base URLs
   (default Clojars, Maven Central; `file://` supports hermetic fixtures).
 
+- **`cljw.ffi`: call C symbols in a shared library.** `(ffi/open path)`,
+  `(ffi/function lib "name" [:int :double] :long)` gives an ordinary Clojure
+  fn, plus `close`, `sym`, `call`, `string` and `bytes`. Types `:void :int
+  :long :double :pointer :string :bytes`; up to 6 integer-class and 8 double
+  arguments, called through one register-only shape with no libffi
+  (ADR-0202). Errors are `ex-info` with `{:ffi/error ...}`. The same API as
+  clojurust's `clojure.rust.ffi`. On x86_64 / aarch64 Linux and macOS
+  (`-Dffi=false` drops it); absent on wasm. Example:
+  `docs/examples/ffi/hive_call.clj` drives the hive C ABI.
+
+### Changed
+
+- **`wasm/run` compiles a module once and reuses it.** The first `(wasm/run
+  path …)` validates and JIT-compiles the module; later runs of the same file
+  only instantiate and run it, each with its own `:args`, `:stdin`, `:env`,
+  `:dir`/`:dirs`, `:fuel`, `:max-memory-pages`, `:max-output-bytes` and
+  `:timeout-ms`, and return the same `{:out :err :exit}`. A Go wasip1 guest
+  that cost 1 to 2 s of CPU per call pays that once; later calls take 0.11 to
+  0.27 s. Up to 8 modules stay
+  compiled, keyed by the file's path, inode, size and mtime, so an edited
+  file is compiled again. `{:cache false}` compiles for that call only, and
+  `(wasm/clear-cache!)` drops every cached module and returns how many there
+  were.
+
 ### Fixed
 
 - **A number token runs to the next delimiter and is rejected whole, as in
