@@ -493,7 +493,11 @@ pub fn analyzeDefmacro(
     const doc_key: Form = .{ .data = .{ .keyword = .{ .name = "doc" } }, .location = form.location };
     {
         var meta: form_mod.MapBuilder = .{};
-        if (items[1].meta) |mf| try meta.merge(arena, mf.data.map);
+        // Guarded like analyzeDef: `.meta` is a Form, and reading `.data.map`
+        // off a non-map variant is illegal union access (a ReleaseSafe panic).
+        if (items[1].meta) |mf| {
+            if (mf.data == .map) try meta.merge(arena, mf.data.map);
+        }
         try meta.put(arena, arglists_key, .{ .data = .{ .list = arglists_inner }, .location = form.location });
         if (doc_form) |d| try meta.put(arena, doc_key, d);
         if (attr_form) |a| try meta.merge(arena, a.data.map);
@@ -508,7 +512,11 @@ pub fn analyzeDefmacro(
     const macro_meta_expr: ?*const Node = blk: {
         const src_loc = items[1].location;
         var meta: form_mod.MapBuilder = .{};
-        if (items[1].meta) |mf| try meta.merge(arena, mf.data.map);
+        // Guarded like analyzeDef: `.meta` is a Form, and reading `.data.map`
+        // off a non-map variant is illegal union access (a ReleaseSafe panic).
+        if (items[1].meta) |mf| {
+            if (mf.data == .map) try meta.merge(arena, mf.data.map);
+        }
         // Synthesized arglists are DATA — quoted, like clj's defn/defmacro.
         const agq = try arena.alloc(Form, 2);
         agq[0] = macro_dispatch.makeSymbol("quote", form.location);
