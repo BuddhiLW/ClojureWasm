@@ -17,6 +17,7 @@ const std = @import("std");
 const parse = @import("parse.zig");
 const DepsConfig = parse.DepsConfig;
 const file_io = @import("../../runtime/file_io.zig");
+const mvn_fetch = @import("mvn_fetch.zig");
 const git_fetch = @import("git_fetch.zig");
 
 /// Expand `cfg` (rooted at `deps_dir`) into a classpath: `:paths` first, then
@@ -73,6 +74,11 @@ fn expand(
             const sha = dep.git_sha orelse continue; // :git/url without :git/sha
             const cache = try git_fetch.ensureCached(io, allocator, git_cache_base, url, sha, dep.lib);
             break :blk if (dep.deps_root) |dr| try join(allocator, cache, dr) else cache;
+        } else if (dep.mvn_version) |version| {
+            // Maven jars contribute only Clojure sources; their POM dependencies
+            // are expanded recursively by mvn_fetch with coordinate cycle guards.
+            try mvn_fetch.expand(io, allocator, dep.lib, version, git_cache_base, out, visited);
+            continue;
         } else {
             // No source coord cljw can fetch. A :mvn dep is skipped (source-only
             // policy, ADR-0101 amendment); its lib joins the summary-warning list

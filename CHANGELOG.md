@@ -7,6 +7,14 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 
 ## [Unreleased]
 
+### Added
+
+- **deps.edn Maven source JAR resolution.** `:mvn/version` loads `.clj`, `.cljc`
+  and `.cljw` sources from `$M2_REPO` (`~/.m2/repository` by default), fetching
+  absent artifacts from Clojars then Maven Central via HTTPS. Compile/runtime
+  POM dependencies are traversed; JVM-only JARs and `org.clojure/clojure` do
+  not enter the classpath. Source extraction is cached under `$CLJW_HOME/mvn`.
+
 ### Fixed
 
 - **A number token runs to the next delimiter and is rejected whole, as in
