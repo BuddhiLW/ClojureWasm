@@ -63,6 +63,7 @@ check_compat_members|-|yes|via-gate|bash scripts/check_compat_members.sh
 check_core_surface|-|yes|via-gate|bash scripts/check_core_surface.sh
 check_corpus_regression|-|yes|via-gate,native-clojure|bb scripts/corpus_regression.clj
 check_debt_id_refs|-|yes|via-gate|bash scripts/check_debt_id_refs.sh --gate
+check_debt_category|-|yes|via-gate|bash scripts/check_debt_category.sh --gate
 check_doc_coverage|-|yes|via-gate|bash scripts/check_doc_coverage.sh
 check_changelog_reachability|-|yes|via-gate|bash scripts/check_changelog_reachability.sh --gate
 check_e2e_dup|-|yes|via-gate|bash scripts/check_e2e_dup.sh

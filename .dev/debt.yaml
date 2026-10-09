@@ -177,7 +177,7 @@ active:
       2026-06 residual FP-shape gaps, of which this is the un-reported tail).
   - id: "D-577"
     status: "open (2026-08-12, ADR-0186 residual). The three new layers are OPEN but shallow: golden covers 22 programs, property covers map/set/vector only, and only ONE file has been swept for mutants (vector.zig, 8 of 141 candidates), so the mutation score of this suite is still unmeasured. 120 of 265 src files carry no inline test at all."
-    category: "test"
+    category: "testing"
     barrier: |-
       Not a design question, a queue. Drain in this order, because each step
       tells you where the next one should point:
@@ -320,7 +320,7 @@ active:
       wired. Also distal: closure trackHeap accumulation is a leak-by-design
       for long-lived processes (Functions are never swept) — surface when an
       nREPL/server workload shows it.
-    category: perf
+    category: "perf"
     barrier: |-
       quality-loop floor: GC cost model. Drain when touching the tree_walk
       collect trigger or when a long-lived-process profile shows the stack-scan
@@ -827,7 +827,7 @@ active:
     last_reviewed: "2026-05-24"
   - id: "D-240"
     status: "investigated 2026-06-15 (Step 0); fix DIRECTION confirmed, deferred on an eval_budget interaction + LOW value (working fallback). Only blocks static-field DIFF cases — the analyze/CLI/e2e/corpus paths already cover them."
-    category: "tests"
+    category: "testing"
     barrier: |-
       **The dual-backend diff Fixture (`src/lang/diff_test.zig` / `evaluator.zig`)
       cannot exercise an analyze-time `Class/FIELD` static-field read** (e.g.
@@ -1161,13 +1161,13 @@ active:
     last_reviewed: "2026-07-02"
   - id: "D-437"
     status: "NARROWED (2026-06-20, B/C sweep — the headline repro is now FIXED). Re-probed vs clj: the original `(get {{(map inc [0 1 2]) 1} :v} {(list 1 2 3) 1})` and the map-nested / set-nested / deep-map-nested cases all MATCH clj now (corpus `lazy_nested_key.txt`, 6 golden pairs locked — the map-KEY path hashes its key at construction, realizing the inner lazy). REMAINING gap (4 repro classes, all the SAME root): a lazy nested inside a NON-realizing container that is itself a map key hashes the lazy by IDENTITY — `(get {[(map inc [0 1 2])] :v} [(list 1 2 3)])`, `(get {(list (map inc [0 1])) :v} (list (list 1 2)))`, `(get {{:k (map inc [0 1])} :v} {:k (list 1 2)})`, `(get {[[(map inc [0 1])]] :v} [[(list 1 2)]])` → all cljw nil / clj :v. (`#{lazy}` and a direct lazy key already work — sets + map-keys hash elements at construction.) Cause: `hashConsult` routes only `.lazy_seq/.range/.chunked/.list/.instance` top-level keys through the rt-aware `hashDispatch`; a `.vector`/`.array_map`-VALUE/nested container key falls to rt-free `valueHash`, whose element recursion can't realize a lazy (no rt). FINISHED FORM = the rt-free memoized realized-hash on the lazy_seq/range value (Alt-2) — NOT the alternative of routing collection keys through rt-aware recursion, which would tax the HOT vector-key path (the perf reason the design kept valueHash rt-free, shared with D-381's deferral)."
-    category: clj-parity
+    category: "clj-parity"
     barrier: "none structural, but the finished-form fix is the SHARED memoized-hash-on-heap-value mechanism that D-381 (deftype hasheq cache) also needs — a `realized_hash: ?u32` slot on the lazy_seq/range struct, filled on first realize-and-hash, GC-rooted, read rt-free by valueHash. Best done as ONE dedicated unit with D-381 under the perf campaign (9.2.S / D-180) so the cache's fill-point + GC + perf are measured together, not bolted on. The 6 now-passing nested cases are corpus-locked against regression; the 4 remaining are documented repros. Rare consumer (a vector-wrapping-a-lazy used as a map key)."
     quality_floor: 'correctness: nested seq/lazy map-KEY content hash + rt-free memoized seq-key hash (ADR-0139 Alt-2 finished form)'
     last_reviewed: "2026-06-14"
   - id: "D-439"
     status: 'open (2026-06-14, found probing the BigDecimal interop surface during the clj-parity floor drain). The BigDecimal instance-method surface is PARTIAL: setScale (2+3 arg) + scale/signum/unscaledValue/precision are LANDED (suite test/clj/suites/bigdecimal_test.clj, 28 cases); PARTIAL 2026-06-15 — negate\/abs\/toBigInteger\/stripTrailingZeros LANDED (suite test/clj/suites/bigdecimal_test.clj 35); STILL unimplemented: movePointLeft/movePointRight (scale shift), stripTrailingZeros (trailing-zero strip + scale reduce), negate/abs/plus, toBigInteger/toBigIntegerExact (truncate to int), add/subtract/multiply/divide instance forms. Each returns a new BigDecimal needing Managed arithmetic (negate/clone/mul-10^n) — fiddly but bounded. NICHE: clojure.core ops (- abs + * / and bigdec contagion) cover most arithmetic; the .method interop forms are reached mainly by Java-ported lib code. Take up when a real consumer hits one, or as a big-bang BigDecimal-interop-completion unit (clj_diff_sweep Discipline 2). NARROWED 2026-06-20 (the big-bang completion unit ran): the COMMON instance arithmetic + point-shift LANDED — add/subtract/multiply (delegate to the shared allocAdd/allocSub/allocMul the +/-/* operators use), divide (allocDiv; throws non_terminating_decimal/divide_by_zero like clj (/ aM bM)), movePointLeft/movePointRight (new big_decimal.allocMovePoint: unscaled unchanged + scale shift by ±n, a negative result-scale normalized by *10^|scale|). All clj-verified incl. movePointRight scale<0 (12.34 ·10^3 -> 12340); suite test/clj/suites/bigdecimal_test.clj now 43. The BigDecimal interop surface is now SUBSTANTIALLY COMPLETE (setScale/scale/signum/unscaledValue/precision/negate/abs/toBigInteger/stripTrailingZeros + add/subtract/multiply/divide/movePointLeft/movePointRight). REMAINING (niche, take-up-on-consumer; RE-NARROWED 2026-06-25 debt audit — pow/compareTo/min/max/remainder/round now LAND too, verified directly: 8M/-1/1M/2M/1M/3.14M): only sqrt/scaleByPowerOfTen/ulp/divideAndRemainder still unimplemented. DRAIN 2026-06-25: scaleByPowerOfTen/ulp/divideAndRemainder LANDED — scaleByPowerOfTen (pure scale shift, negative scale KEPT so it prints scientific, big_decimal.allocScaleByPowerOfTen), ulp (unscaled 1 at this scale, allocUlp), divideAndRemainder (2-elem [divideToIntegralValue, remainder] array, built under enterFabrication so the first result survives the alloc of the second; divide-by-zero raises). All clj-verified (123M/0.123M/1.2E+4M, 0.01M/1M/0.1M, [3M 2M]/[4M 0.7M]); suite test/clj/suites/bigdecimal_test.clj bd_sbpt*/bd_ulp*/bd_divrem* (8 cases, 105 total). ONLY sqrt(MathContext) REMAINS — the hardest piece (correctly-rounded arbitrary-precision sqrt + JDK preferred-output-scale reproduction; the native Managed.sqrt integer floor-sqrt is the base, exposed as BigInteger .sqrt). Deferred-by-tractability to a dedicated numeric cycle (easiest-first ordering), NOT abandoned.'
-    category: clj-parity
+    category: "clj-parity"
     barrier: none — bounded numeric work (Managed negate/clone/mul-by-10^n + scale arithmetic), each clj-oracle-verifiable. Deferred as NICHE (clojure.core arithmetic covers the common path; .method interop is Java-port-only). Do as one big-bang completion unit or when a lib pulls a specific method.
     last_reviewed: "2026-06-14"
   - id: "D-442"
@@ -1227,7 +1227,7 @@ active:
     last_reviewed: "2026-06-07"
   - id: "D-381"
     status: "open (2026-06-10, ADR-0129 deferred perf — NOT a correctness gap). A deftype/reify with a custom Object/hasheq used as a map key / set element currently re-dispatches its hasheq on every HAMT bucket op (assoc/get/contains/ dissoc + each node-split rehash of an existing key), and a COLLECTION deftype (flatland.ordered) whose hasheq is `(hash-unordered-coll this)` recomputes its O(size) content hash each time → O(N²) to build an N-entry such map. clj caches hasheq lazily per instance (idempotent IHashEq). The DA fork (ADR-0129 Alternatives) recommended a per-instance hasheq cache as the hash-side representation; it was deferred because correctness comes from arming coverage, not caching, and eager-at-construction caching makes ordered-map construction O(N²). Land a LAZY cache when the perf window opens (F-010 / D-180 optimization campaign): a `hasheq_cache` slot on TypedInstance/ReifiedInstance populated on first armed hashDispatch, read rt-free by valueHash thereafter (also closes the theoretical insert-armed/lookup-unarmed consistency edge). Lazy not eager (eager reintroduces the O(N²) + a top-level-literal unarmed-construction gap)."
-    category: "performance"
+    category: "perf"
     barrier: |-
       Blocked-by: deferred to the F-010 perf window (D-180 optimization campaign),
       NOT a correctness blocker — facet 2 is correct without it (D-377 DISCHARGED).
@@ -2856,7 +2856,7 @@ standing:
     last_reviewed: "2026-06-10"
   - id: "D-436"
     status: "open (2026-06-14, USER-FLAGGED big-cleanup epic). The user observed that the loop accumulates finished-form DEVIATIONS papered over by workarounds, and directed: 'いつか、こういったものも大整理対象にしてほしい' — flag them + accumulate for a future structural 大整理 (big reorganization), don't silently absorb them. This row is the standing aggregator; add a candidate the moment a workaround-instead-of-finished-form is taken. CANDIDATES so far: (a) D-435 — the diff oracle (Layer-3 dual-backend parity, ADR-0005) cannot reach full-runtime behavior (the diff Fixture skips the core.clj bootstrap), so with-out-str/*out*/macro/clojure.core-surface forms are NOT dual-backend-verified — the trigger the user caught; (b) RESOLVED 2026-06-14 by ADR-0138 (Track C): `*out*`/`*err*` were a keyword SENTINEL forcing every Writer-interop method to be special-cased (D-434) — now first-class text_io writer VALUES; sentinel + out_capture threadlocal + out_writer_method.zig all DELETED; with-out-str + nREPL capture are plain `(binding [*out* string-writer] …)`. (*in*/reader value = Track C step 3.) (c) compat_tiers `methods:` is a hand-list that both UNDER-claims (Math/Long missing-but-wired) and OVER-claims (java.time/BigDecimal/Arrays listed-but-unbuilt) — ADR-0137's generated-from-corpus index is the finished form; (d) verified_projects for BUNDLED libs (data.json/csv/tools.cli) carry a deps.edn git coord that cljw shadows with its in-source copy — the coord is moot (documents upstream only). Mechanism: this is NOT a do-now row; it is the durable list so a future 大整理 cycle (or the user) picks them up. Each entry names its own finished form."
-    category: "structural"
+    category: "structure"
     barrier: "none — this is an aggregator, not a single fix. Drained by a dedicated 大整理 cycle (user-initiated or when one candidate blocks real work). Keep ADDING candidates as workarounds are taken (the discipline the user asked for); do not let it rot (review at each Phase boundary audit)."
     last_reviewed: "2026-06-14"
   - id: "D-440"
@@ -3017,7 +3017,7 @@ discharged:
       appended to regex_equivalence.txt; pin e2e regex_parity_gaps.sh (3 cases
       incl. the catchable/uncatchable split). The compile.zig header doc now
       states the true surface (the row's depth-1 doc-fix item).
-    category: clj-parity
+    category: "clj-parity"
     barrier: none — discharged
     last_reviewed: "2026-08-05"
   - id: "D-446"
@@ -3050,7 +3050,7 @@ discharged:
       first half of the same arc; this completes it. ADR-0182 Alternative C
       (io.async cancellation) remains a possible future shape — its
       precondition (a per-evaluation budget object) now exists.
-    category: concurrency
+    category: "concurrency"
     barrier: none — discharged
     last_reviewed: "2026-08-05"
   - id: "D-383"
@@ -4893,7 +4893,7 @@ discharged:
     last_reviewed: "2026-06-07"
   - id: "D-272"
     status: "DISCHARGED 2026-06-06 — ratio arithmetic that reduces to a whole number now yields a BigInt (`2N`), not a Long (`2`), matching clj's JVM Ratio (Numbers.divide returns BigInt when denom=1). Was a DELIBERATE, unit+e2e-tested Long-collapse (promote.zig ratioArith + phase14_ratio_arith) — but F-005's verbatim makes the EXPRESSED behaviour (見た目・表出する振る舞い) JVM-compatible, so `(* 1/2 4)`→2N is the contract and the Long-collapse was a surface divergence F-005 forbids. Single fix point: ratioArith's integer-collapse (the sole path for any ratio-operand +/-/*//) now allocFromManaged(.bigint) instead of wrapManaged; divPromoting/quotPromoting's integer-path collapse already did this for ratio/BigInt operands. Updated 2 unit tests + 7 phase14_ratio_arith assertions (the pinned Long values were the bug). Corpus ratio_integer_collapse (14/14 clj-matched: `(* 1/2 4)`→2N, `(+ 1/3 2/3)`→1N, `(- 1/2 1/2)`→0N; `(/ 6 3)`→2 int-div + `(/ 1 2)`→1/2 ratio + `(+ 1/2 0.5)`→1.0 float all unchanged). Cross-ref F-005, F-011."
-    category: numeric
+    category: "numeric"
     last_reviewed: "2026-06-06"
   - id: "D-269"
     status: "DISCHARGED 2026-06-06 — read-string FLIPPED to throw EOF (eof_unexpected) on empty/whitespace/comment-only input, matching clj; an `:eof` opt still overrides (presence-detected via map contains, so `{:eof nil}` correctly returns nil). Alternatives considered: (b) record an AD for nil-default — REJECTED because no F-NNN invariant backs it (accepted_divergences.md: 'cannot name the invariant → it is a bug') and nil-on-failed-read is a textbook silent-failure. The prior phase9 Case 8 pin (nil) was the bug locked in; flipped to assert the throw + the :eof override. Cross-ref F-011, silent-failure principle."
@@ -6594,7 +6594,7 @@ discharged:
     last_reviewed: "2026-06-14"
   - id: "D-420"
     status: "DISCHARGED 2026-06-14. math.numeric-tower loads + conforms. Landed across cycles: BigDecimal `(.setScale bd n mode)` (all 8 ROUND_* modes) + ROUND_* static constants + bare `BigDecimal`/`BigInteger` default-import; Ratio `.numerator`/`.denominator` instance interop (ratio_methods.zig); and the final unblock D-421 (resolve class symbols → the `(when-available clojure.lang.BigInt …)` guard now emits the BigInt MathFunctions extend, so `round` works). Full-surface verify.clj green (round/floor/ceil/sqrt/expt/gcd/lcm/abs/exact-integer-sqrt, value-equal to clj). The ONE remaining divergence — floor/ceil on a ratio → cljw Long `2`/`3` vs clj BigInt `2N`/`3N` — is CLASSIFIED as AD-031 (F-005 narrow-when-fits; root is cljw's `(numerator 5/2)` returning Long; values `=`, NOT a bug; pinned by phase14_ratio_accessors num+long_eq). verified_projects/math.numeric-tower/{deps.edn :verify alias, verify.clj}. suite test/clj/suites/bigdecimal_test.clj (19) + phase14_ratio_interop (6) + phase14_var_resolve (15). Notes: p14-bigdecimal-setscale.md + p14-resolve-class-symbol.md."
-    category: "numerics"
+    category: "numeric"
     barrier: "none — DISCHARGED. verify_projects math.numeric-tower 1/1; AD-031 records the floor/ceil narrowing."
     last_reviewed: "2026-06-14"
   - id: "D-421"
@@ -6644,7 +6644,7 @@ discharged:
     last_reviewed: "2026-06-14"
   - id: "D-438"
     status: 'DONE 2026-06-14 (ADR-0140, landed same cycle it was minted). Caught-exception cljw frame-seq accessor: (stack-trace e) → a vector of {:ns :fn :file :line :column} maps, innermost-first (:fn bare, :ns separate), reading the ExInfo own deep-copied frames (ADR-0120); empty for a non-ex_info or never-thrown ex-info. Consumers: clojure.stacktrace/print-stack-trace prints <ns>/<fn> (<file>:<line>) per frame (AD-029 amended: marker→cljw frames, format still diverges from JVM); Throwable->map :trace/:at filled as the same maps (D-389 discharged; AD-033). DA fork chose Alt 2 (one map shape everywhere). user-frames-only via AD-024 (push-time elision). THIS ROW ALSO FIXES the dangling D-232 cross-reference: AD-029/D-389/sweep_plan named the validation-campaign row D-232 as the frame-accessor owner, but that owner row never existed (Reservation-as-bias) — D-438 + ADR-0140 are it. Pins: test/e2e/phase15_clojure_stacktrace.sh + phase14_throwable_map.sh.'
-    category: clj-parity
+    category: "clj-parity"
     barrier: none — DONE this cycle (ADR-0140).
     last_reviewed: "2026-06-14"
   - id: "D-534"
@@ -7584,6 +7584,7 @@ discharged:
       src/runtime/collection/literal.zig (the one literal construction); src/eval/analyzer/analyzer.zig (the constant fold); src/eval/backend/vm/compiler.zig and vm.zig (the extend opcodes); docs/spec/formats/chunk-v12.edn (bytecode format v12).
     discharged_at: "2026-10-02"
 conventions: |-
+  - Category vocabulary is a closed set (guarded by scripts/check_debt_category.sh; synonyms were normalized 2026-10-08: structural->structure, tests/test->testing, numerics->numeric, performance->perf). Allowed: app backend bench bootstrap build clj-parity concurrency correctness debt-hygiene demo discipline distribution docs docs-onboarding ecosystem error-system eval eval-semantics feature gc governance host-surface infra interop isolation license macro meta-reorg missing-ns namespace numeric perf polymorphism process project-flow reader refactor regex robustness runtime scope security structure testing tooling wasm. A new category is added here first, in the same commit as the row that needs it.
   - Structure: two top-level lists — `active:` and `discharged:`. Active entries carry id / status / category / barrier (+ optional quality_floor / last_reviewed); discharged entries carry id / discharged_at / resolution. Edit as YAML (no Markdown table to align).
   - New debt: grep `.dev/debt.yaml` for class-overlap before adding (per `.claude/rules/debt_dedup.md`).
   - Discharge: move the entry from `active:` to `discharged:` (do not leave an inline-discharged copy under `active:`).
