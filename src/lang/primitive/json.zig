@@ -243,14 +243,9 @@ fn cwToJson(v: Value, w: *std.Io.Writer, opts: WriteOpts) anyerror!void {
         // `N` suffix. `Managed.format` (`{f}`) renders just the digits
         // (printBigInt adds the `N` for pr-str; JSON must not). (D-182)
         .big_int => try w.print("{f}", .{big_int_mod.asManaged(v)}),
-        // JVM data.json writes a Ratio as its double value (1/2 → 0.5).
-        .ratio => {
-            const f = switch (ratio_mod.parts(v)) {
-                .small => |s| @as(f64, @floatFromInt(s.n)) / @as(f64, @floatFromInt(s.d)),
-                .big => |b| b.n.m.toFloat(f64, .nearest_even)[0] / b.d.m.toFloat(f64, .nearest_even)[0],
-            };
-            try print.printFloat(w, f);
-        },
+        // JVM data.json writes a Ratio as `(double x)`, its `Ratio.doubleValue`
+        // (1/2 → 0.5, 1/7 → 0.1428571428571429).
+        .ratio => try print.printFloat(w, try ratio_mod.toF64(v)),
         .string => try writeJsonString(w, string_collection.asString(v), opts),
         // Keywords serialise as their name string (JVM data.json
         // default: `:keyword-fn` keyword? → str).

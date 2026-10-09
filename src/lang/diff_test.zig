@@ -88,6 +88,29 @@ const Fixture = struct {
     }
 };
 
+test "diff: D-346 chunked collection literals preserve order and nested evaluation" {
+    var f: Fixture = undefined;
+    try Fixture.init(&f, testing.allocator);
+    defer f.deinit();
+    var source: std.Io.Writer.Allocating = .init(testing.allocator);
+    defer source.deinit();
+    // 600 elements crosses the compiler's literal step (512); include
+    // evaluated elements and a collection nested across the step boundary.
+    // The oracle compares value bits, so the result is one integer that
+    // reads the order and the nested element back:
+    // 600 + 7 + 599 + 606 + 600.
+    try source.writer.writeAll("(let* [x 7 v [");
+    for (0..600) |i| {
+        if (i == 511) try source.writer.writeAll("[x 8] ") else try source.writer.print("{d} ", .{i});
+    }
+    try source.writer.writeAll("]] (+ (count v) (get (get v 511) 0) (get v 599) (get {");
+    for (0..600) |i| try source.writer.print("{d} (+ x {d}) ", .{ i, i });
+    try source.writer.writeAll("} 599) (count #{");
+    for (0..600) |i| try source.writer.print("(+ x {d}) ", .{i});
+    try source.writer.writeAll("})))");
+    try f.check(source.written(), 2412);
+}
+
 test "diff: D-413 unresolved symbol → clean symbol_unresolved, not a panic" {
     // Regression for the dangling-`env.rt` fixture bug: analyzing an unresolved
     // symbol falls through var resolution into the host-class lookup

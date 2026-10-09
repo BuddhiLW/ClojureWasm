@@ -29,6 +29,7 @@ const regex_match = @import("../../runtime/regex/match.zig");
 const regex_replace = @import("../../runtime/regex/replace.zig");
 const regex_prim = @import("regex.zig");
 const print_mod = @import("../../runtime/print.zig");
+const char_sequence = @import("../../runtime/char_sequence.zig");
 
 /// `(clojure.string/upper-case s)` — ASCII upper-case fold.
 /// Non-ASCII codepoints pass through unchanged; full Unicode case
@@ -57,21 +58,18 @@ pub fn lowerCase(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocati
     return try string_collection.alloc(rt, buf);
 }
 
-/// `(clojure.string/blank? s)` — true iff `s` is nil, empty, or
-/// contains only whitespace codepoints (per `charset.isAllWhitespace`,
-/// matches JVM `Character.isWhitespace` apart from U+00A0 etc. —
-/// see charset.zig for the JVM-divergence note). Non-string + non-nil
-/// raises a type error; JVM Clojure accepts CharSequence so this is
-/// a deliberate cw v1 surface tightening.
+/// `(clojure.string/blank? s)`: true iff `s` is nil, empty, or contains only
+/// whitespace codepoints (per `charset.isAllWhitespace`, which matches JVM
+/// `Character.isWhitespace` apart from U+00A0 etc.; see charset.zig for the
+/// JVM-divergence note). `s` is any CharSequence (a StringBuilder, a
+/// CharSequence deftype); any other non-nil value raises, clj's
+/// ClassCastException.
 pub fn blank(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
-    _ = rt;
-    _ = env;
     try error_catalog.checkArity("blank?", args, 1, loc);
-    const a = args[0];
-    if (a.tag() == .nil) return .true_val;
-    if (a.tag() != .string)
-        return error_catalog.raise(.type_arg_not_string, loc, .{ .fn_name = "blank?", .actual = @tagName(a.tag()) });
-    const s = string_collection.asString(a);
+    if (args[0].isNil()) return .true_val;
+    var aw: std.Io.Writer.Allocating = .init(rt.gpa);
+    defer aw.deinit();
+    const s = try char_sequence.textArg(rt, env, args[0], "blank?", loc, &aw);
     if (s.len == 0) return .true_val;
     const blank_all = charset.isAllWhitespace(s) catch return .false_val;
     return if (blank_all) .true_val else .false_val;
@@ -90,7 +88,7 @@ pub fn blank(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) 
 ///
 /// NOT for the CharSequence-METHOD fns (trim / reverse / blank? / split): clj
 /// calls CharSequence methods on those directly and throws ClassCastException
-/// for a non-CharSequence, so coercing them would diverge the other way.
+/// for a non-CharSequence, so they read through `char_sequence.textArg`.
 fn toStringArg(
     rt: *Runtime,
     env: *env_mod.Env,
@@ -108,11 +106,11 @@ fn toStringArg(
 
 const TrimVariant = enum { both, left, right, newline_right };
 
-fn trimImpl(rt: *Runtime, fn_name: []const u8, variant: TrimVariant, args: []const Value, loc: SourceLocation) anyerror!Value {
+fn trimImpl(rt: *Runtime, env: *Env, fn_name: []const u8, variant: TrimVariant, args: []const Value, loc: SourceLocation) anyerror!Value {
     try error_catalog.checkArity(fn_name, args, 1, loc);
-    if (args[0].tag() != .string)
-        return error_catalog.raise(.type_arg_not_string, loc, .{ .fn_name = fn_name, .actual = @tagName(args[0].tag()) });
-    const s = string_collection.asString(args[0]);
+    var aw: std.Io.Writer.Allocating = .init(rt.gpa);
+    defer aw.deinit();
+    const s = try char_sequence.textArg(rt, env, args[0], fn_name, loc, &aw);
     const out = switch (variant) {
         .both => charset.trim(s),
         .left => charset.trimLeft(s),
@@ -126,27 +124,23 @@ fn trimImpl(rt: *Runtime, fn_name: []const u8, variant: TrimVariant, args: []con
 /// ends. Matches JVM `clojure.string/trim` (which uses
 /// `Character/isWhitespace`, NOT `String.trim()` which is ASCII-only).
 pub fn trimBoth(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
-    _ = env;
-    return trimImpl(rt, "trim", .both, args, loc);
+    return trimImpl(rt, env, "trim", .both, args, loc);
 }
 
 /// `(clojure.string/triml s)` — left edge only.
 pub fn trimLeft(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
-    _ = env;
-    return trimImpl(rt, "triml", .left, args, loc);
+    return trimImpl(rt, env, "triml", .left, args, loc);
 }
 
 /// `(clojure.string/trimr s)` — right edge only.
 pub fn trimRight(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
-    _ = env;
-    return trimImpl(rt, "trimr", .right, args, loc);
+    return trimImpl(rt, env, "trimr", .right, args, loc);
 }
 
 /// `(clojure.string/trim-newline s)` — strip ONLY trailing `\r` /
 /// `\n`. Narrower than `trimr` (no broader Unicode whitespace).
 pub fn trimNewline(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
-    _ = env;
-    return trimImpl(rt, "trim-newline", .newline_right, args, loc);
+    return trimImpl(rt, env, "trim-newline", .newline_right, args, loc);
 }
 
 const PrefixCheck = enum { starts, ends, contains };
@@ -405,11 +399,10 @@ pub fn strReplaceFirstPattern(rt: *Runtime, env: *Env, args: []const Value, loc:
 /// surrogate pairs are nonexistent so single-codepoint reversal is
 /// the natural semantics.
 pub fn reverse(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
-    _ = env;
     try error_catalog.checkArity("reverse", args, 1, loc);
-    if (args[0].tag() != .string)
-        return error_catalog.raise(.type_arg_not_string, loc, .{ .fn_name = "reverse", .actual = @tagName(args[0].tag()) });
-    const s = string_collection.asString(args[0]);
+    var aw: std.Io.Writer.Allocating = .init(rt.gpa);
+    defer aw.deinit();
+    const s = try char_sequence.textArg(rt, env, args[0], "reverse", loc, &aw);
     const out = try charset.reverseCodepointsAlloc(rt.gc.infra, s);
     defer rt.gc.infra.free(out);
     return try string_collection.alloc(rt, out);
@@ -424,9 +417,9 @@ pub fn reverse(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation
 /// tracked follow-up (D-094).
 pub fn escape(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
     try error_catalog.checkArity("escape", args, 2, loc);
-    if (args[0].tag() != .string)
-        return error_catalog.raise(.type_arg_not_string, loc, .{ .fn_name = "escape", .actual = @tagName(args[0].tag()) });
-    const s = string_collection.asString(args[0]);
+    var aw: std.Io.Writer.Allocating = .init(rt.gpa);
+    defer aw.deinit();
+    const s = try char_sequence.textArg(rt, env, args[0], "escape", loc, &aw);
     const cmap = args[1];
 
     const cmap_kind: enum { map, fn_callable, unsupported } = switch (cmap.tag()) {
@@ -528,13 +521,12 @@ fn coerceRegex(rt: *Runtime, v: Value, loc: SourceLocation, fn_name: []const u8)
 /// A no-match input returns `[s]` (single element, never stripped) — JVM's
 /// `index == 0` short-circuit; the strip only fires once a match was consumed.
 pub fn split(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
-    _ = env;
     if (args.len < 2 or args.len > 3)
         return error_catalog.raise(.arity_out_of_range, loc, .{ .fn_name = "split", .got = args.len, .min = 2, .max = 3 });
-    if (args[0].tag() != .string)
-        return error_catalog.raise(.type_arg_not_string, loc, .{ .fn_name = "split", .actual = @tagName(args[0].tag()) });
+    var aw: std.Io.Writer.Allocating = .init(rt.gpa);
+    defer aw.deinit();
+    const s = try char_sequence.textArg(rt, env, args[0], "split", loc, &aw);
     const r = try coerceRegex(rt, args[1], loc, "split");
-    const s = string_collection.asString(args[0]);
     const limit: i64 = if (args.len == 3) try error_catalog.expectInteger(args[2], "split", loc) else 0;
     // Shared neutral leaf (also used by `.split` per F-009).
     return regex_replace.splitToVector(rt, r.program, s, limit);
@@ -545,11 +537,10 @@ pub fn split(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) 
 /// Matches the JVM contract: trailing empty terminator is dropped
 /// (so `"a\n"` → `["a"]`, not `["a" ""]`).
 pub fn splitLines(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
-    _ = env;
     try error_catalog.checkArity("split-lines", args, 1, loc);
-    if (args[0].tag() != .string)
-        return error_catalog.raise(.type_arg_not_string, loc, .{ .fn_name = "split-lines", .actual = @tagName(args[0].tag()) });
-    const s = string_collection.asString(args[0]);
+    var aw: std.Io.Writer.Allocating = .init(rt.gpa);
+    defer aw.deinit();
+    const s = try char_sequence.textArg(rt, env, args[0], "split-lines", loc, &aw);
 
     if (s.len == 0) {
         const empty_s = try string_collection.alloc(rt, "");

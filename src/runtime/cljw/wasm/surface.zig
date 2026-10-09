@@ -15,6 +15,7 @@
 //! Clojure peer: wasm/load, wasm/call, wasm/engine, wasm/mem-size, wasm/mem-read, wasm/mem-write!
 const std = @import("std");
 const engine = @import("engine.zig");
+const run_cache = @import("run_cache.zig");
 const gaps = @import("gaps.zig");
 const marshal = @import("marshal.zig");
 const wasm_memory = @import("memory.zig");
@@ -274,6 +275,30 @@ fn collectEnvEntry(c: *EnvCollect, k: Value, v: Value) anyerror!void {
     try c.vals.append(c.scratch, string_mod.asString(v));
 }
 
+/// The `:cache` option of `wasm/run`: absent / nil / true caches the compiled
+/// module (D-350), `false` compiles for this call only. Read before the module
+/// file, so a non-map second argument is left to the full option parse.
+fn cacheFromOpts(rt: *Runtime, args: []const Value, loc: SourceLocation) anyerror!bool {
+    if (args.len < 2) return true;
+    const t = args[1].tag();
+    if (t != .array_map and t != .hash_map) return true;
+    const v = map_mod.get(args[1], try keyword_mod.intern(rt, null, "cache")) catch return true;
+    if (v.isNil()) return true;
+    if (v != Value.true_val and v != Value.false_val)
+        return error_catalog.raise(.wasm_run_arg_invalid, loc, .{ .detail = "the :cache option must be a boolean" });
+    return v.asBoolean();
+}
+
+/// `(wasm/clear-cache!)` — drop every module `wasm/run` holds compiled and
+/// return how many there were. A run in progress keeps its module until it
+/// returns; the next `wasm/run` of any path compiles afresh.
+pub fn wasmClearCacheFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
+    _ = rt;
+    _ = env;
+    try error_catalog.checkArity("wasm/clear-cache!", args, 0, loc);
+    return Value.initInteger(@intCast(run_cache.clear()));
+}
+
 /// `(wasm/run "path.wasm")` / `(wasm/run "path.wasm" {:args [...] :stdin "..." :dir "..." :dirs [[h g]...] :env {k v}})`
 /// — run a WASI command module (Rust/Go/… compiled to wasm32-wasip1): compile,
 /// instantiate with a WASI host, run the command entry (`_start`/`main`), and
@@ -282,6 +307,8 @@ fn collectEnvEntry(c: *EnvCollect, k: Value, v: Value) anyerror!void {
 /// FS-jail escape, unreadable file, or compile/instantiate/preopen failure is a
 /// catchable exception. `:dir` preopens one host directory (FS-jail resolved) as
 /// the guest's "/". Complements `wasm/call` (scalar pure-compute, no WASI).
+/// The compiled module is cached per file (`run_cache`), so a repeated run only
+/// instantiates; `:cache false` compiles for this call alone.
 pub fn wasmRunFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
     _ = env;
     try error_catalog.checkArityRange("wasm/run", args, 1, 2, loc);
@@ -296,9 +323,19 @@ pub fn wasmRunFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocati
     defer if (jailed) |j| rt.gpa.free(j);
     const open_path = jailed orelse path;
 
-    const bytes = file_io.readAll(rt.io, rt.gpa, open_path) catch
+    // D-350: a cached module (`run_cache`) skips the read and the compile; a
+    // miss reads here as before and compiles once below.
+    const use_cache = try cacheFromOpts(rt, args, loc);
+    var probe: ?run_cache.Probe = null;
+    if (use_cache) probe = run_cache.lookup(rt.io, open_path) catch
         return error_catalog.raise(.wasm_run_read_failed, loc, .{ .path = path });
-    defer rt.gpa.free(bytes);
+    var lease: ?run_cache.Lease = if (probe) |p| p.hit else null;
+    defer if (lease) |l| l.release();
+    const hit = lease != null;
+
+    const bytes: []const u8 = if (hit) &.{} else file_io.readAll(rt.io, rt.gpa, open_path) catch
+        return error_catalog.raise(.wasm_run_read_failed, loc, .{ .path = path });
+    defer if (!hit) rt.gpa.free(bytes);
 
     // Parse-scratch arena: argv slice, preopen host paths + slice. String views
     // (asString) point into GC strings, which stay valid during engine.run (no
@@ -400,7 +437,15 @@ pub fn wasmRunFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocati
         if (try axisFromMap(rt, m, "timeout-ms", loc)) |b| run_opts.timeout_ms = b;
     }
 
-    const res = engine.run(rt.gpa, rt.io, bytes, run_opts) catch
+    if (use_cache and lease == null) lease = run_cache.insert(rt.gpa, open_path, probe.?.stat, bytes) catch |e| switch (e) {
+        error.OutOfMemory => return e,
+        else => return error_catalog.raise(.wasm_run_failed, loc, .{}),
+    };
+    const run_result = if (lease) |l|
+        engine.runPrepared(rt.gpa, rt.io, l.prepared(), run_opts)
+    else
+        engine.run(rt.gpa, rt.io, bytes, run_opts);
+    const res = run_result catch
         return error_catalog.raise(.wasm_run_failed, loc, .{});
     defer rt.gpa.free(res.out);
     defer rt.gpa.free(res.err);
@@ -560,6 +605,7 @@ pub fn register(env: *Env) !void {
     _ = try env.intern(ns, "call", Value.initBuiltinFn(&wasmCallFn), null);
     _ = try env.intern(ns, "engine", Value.initBuiltinFn(&wasmEngineFn), null);
     _ = try env.intern(ns, "run", Value.initBuiltinFn(&wasmRunFn), null);
+    _ = try env.intern(ns, "clear-cache!", Value.initBuiltinFn(&wasmClearCacheFn), null);
     // ADR-0192: the (ptr,len) half of the FFI — `wasm/call` passes the pointer,
     // these three put something at the other end of it.
     _ = try env.intern(ns, "mem-size", Value.initBuiltinFn(&wasmMemSizeFn), null);

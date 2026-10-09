@@ -32,4 +32,9 @@ assert_eq 'expands-to-import-star' \
   "$("$BIN" -e '(macroexpand-1 (quote (import (quote (java.lang Boolean Integer)))))' 2>&1 | tail -1)" \
   '(do (import* "java.lang.Boolean") (import* "java.lang.Integer"))'
 
-echo "OK — phase15_import_macro (4 cases) green"
+# vector prefix spelling, which clj accepts and the ns :import clause already did
+assert_eq 'prefix-vector' \
+  "$("$BIN" -e '(import (quote [java.lang Integer Long])) [(Integer/parseInt "5") (Long/parseLong "6")]' 2>&1 | tail -1)" \
+  '[5 6]'
+
+echo "OK — phase15_import_macro (5 cases) green"

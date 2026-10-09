@@ -274,7 +274,16 @@
           (do-report {:type :error :message ~msg :expected (quote ~form) :actual t#})
           nil)))
 
-(defmacro is [form & more]
+(defmacro is
+  "Generic assertion macro.  'form' is any predicate test.
+  'msg' is an optional message to attach to the assertion.
+
+  Example: (is (= 4 (+ 2 2)) \"Two plus two should be 4\")
+
+  Special forms: (is (thrown? c body)) checks that an instance of c is
+  thrown from body; (is (thrown-with-msg? c re body)) also checks the
+  exception message against the regular expression re."
+  [form & more]
   `(try-expr ~(first more) ~form))
 
 ;; (are [a b] (= a b) 1 1, 2 2) — expands to one (is …) per argv-sized group,
@@ -296,7 +305,10 @@
                                                (list (quote clojure.test/is) expr)))
              (partition (count argv) args))))
 
-(defmacro testing [s & body]
+(defmacro testing
+  "Adds a new string to the list of testing contexts.  May be nested,
+  but must occur inside a test function (deftest)."
+  [s & body]
   `(binding [*testing-contexts* (cons ~s *testing-contexts*)]
      ~@body))
 
@@ -336,7 +348,18 @@
                (conj vs v)))))
   v)
 
-(defmacro deftest [name & body]
+(defmacro deftest
+  "Defines a test function with no arguments.  Test functions may call
+  other tests, so tests may be composed.  If you compose tests, you
+  should also define a function named test-ns-hook; run-tests will
+  call test-ns-hook instead of testing all vars.
+
+  Note: Actually, the test body goes in the :test metadata on the var,
+  and the real function (the value of the var) calls test-var on
+  itself.
+
+  When *load-tests* is false, deftest is ignored."
+  [name & body]
   (when *load-tests*
     `(do
        (def ~(vary-meta name assoc :test `(fn [] ~@body))

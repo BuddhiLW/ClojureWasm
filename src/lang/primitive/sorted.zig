@@ -217,18 +217,13 @@ fn subseqSorted(rt: *Runtime, env: *Env, args: []const Value, ascending: bool, l
     return takeWhileBound(rt, env, &far, roots[1]);
 }
 
-/// `(sorted? coll)` — true for sorted maps/sets.
+/// `(sorted? coll)` — `(instance? clojure.lang.Sorted coll)`: the sorted maps /
+/// sets, and a deftype / reify declaring Sorted (e.g. data.priority-map).
 pub fn sortedQFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
     _ = rt;
     _ = env;
     try error_catalog.checkArity("sorted?", args, 1, loc);
-    const t = args[0].tag();
-    if (t == .sorted_map or t == .sorted_set) return Value.true_val;
-    // A deftype/reify implementing clojure.lang.Sorted is sorted? in clj
-    // ((sorted? x) == (instance? clojure.lang.Sorted x)) — e.g. data.priority-map.
-    if ((t == .typed_instance or t == .reified_instance) and
-        class_name.isInstance(args[0], "clojure.lang.Sorted")) return Value.true_val;
-    return Value.false_val;
+    return Value.initBoolean(class_name.implementsInterface(args[0], "Sorted"));
 }
 
 // --- registration ---

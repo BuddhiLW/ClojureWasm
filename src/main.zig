@@ -93,6 +93,7 @@ test {
     _ = @import("app/render_error.zig");
     _ = @import("runtime/value/value.zig");
     _ = @import("runtime/introspect.zig");
+    _ = @import("app/deps/mvn_fetch.zig");
     _ = @import("runtime/error/info.zig");
     _ = @import("runtime/error/catalog.zig");
     _ = @import("runtime/error/print.zig");
@@ -149,6 +150,7 @@ test {
     _ = @import("runtime/numeric/big_int.zig");
     _ = @import("runtime/lazy_seq.zig");
     _ = @import("runtime/seqable.zig");
+    _ = @import("runtime/char_sequence.zig");
     _ = @import("eval/form.zig");
     _ = @import("eval/tokenizer.zig");
     _ = @import("eval/reader.zig");

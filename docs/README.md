@@ -17,6 +17,9 @@ GitHub wiki.
 - [`examples/polyglot/`](./examples/polyglot/README.md) — C, Zig, Rust and Go
   guests through the FFI, each with its build line, and one `.cljc` that runs
   on `cljw`, `cljrs` and the JVM. Run it before writing your own guest.
+- [`examples/ffi/`](./examples/ffi/README.md): `cljw.ffi`, calling a native
+  shared library (C, Go c-shared, Rust cdylib, Zig) directly, with the hive C
+  ABI as the worked example.
 - [`works/ladder.md`](./works/ladder.md) — which real-world Clojure libraries
   load and run today.
 

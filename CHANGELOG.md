@@ -7,6 +7,68 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 
 ## [Unreleased]
 
+### Added
+
+- **deps.edn Maven source JAR resolution.** `:mvn/version` loads `.clj`, `.cljc`
+  and `.cljw` sources from `$M2_REPO` (`~/.m2/repository` by default), fetching
+  absent artifacts from Clojars then Maven Central via HTTPS. Compile/runtime
+  POM dependencies are traversed; JVM-only JARs and `org.clojure/clojure` do
+  not enter the classpath. Source extraction is cached under `$CLJW_HOME/mvn`.
+  Every remotely fetched JAR and POM requires a matching SHA-1 sidecar from
+  the same repository before installation; a missing or mismatched checksum
+  fails closed. `CLJW_MVN_REPOS` accepts comma-separated repository base URLs
+  (default Clojars, Maven Central; `file://` supports hermetic fixtures).
+
+- **`cljw.ffi`: call C symbols in a shared library.** `(ffi/open path)`,
+  `(ffi/function lib "name" [:int :double] :long)` gives an ordinary Clojure
+  fn, plus `close`, `sym`, `call`, `string` and `bytes`. Types `:void :int
+  :long :double :pointer :string :bytes`; up to 6 integer-class and 8 double
+  arguments, called through one register-only shape with no libffi
+  (ADR-0202). Errors are `ex-info` with `{:ffi/error ...}`. The same API as
+  clojurust's `clojure.rust.ffi`. On x86_64 / aarch64 Linux and macOS
+  (`-Dffi=false` drops it); absent on wasm. Example:
+  `docs/examples/ffi/hive_call.clj` drives the hive C ABI.
+
+### Changed
+
+- **`wasm/run` compiles a module once and reuses it.** The first `(wasm/run
+  path …)` validates and JIT-compiles the module; later runs of the same file
+  only instantiate and run it, each with its own `:args`, `:stdin`, `:env`,
+  `:dir`/`:dirs`, `:fuel`, `:max-memory-pages`, `:max-output-bytes` and
+  `:timeout-ms`, and return the same `{:out :err :exit}`. A Go wasip1 guest
+  that cost 1 to 2 s of CPU per call pays that once; later calls take 0.11 to
+  0.27 s. Up to 8 modules stay
+  compiled, keyed by the file's path, inode, size and mtime, so an edited
+  file is compiled again. `{:cache false}` compiles for that call only, and
+  `(wasm/clear-cache!)` drops every cached module and returns how many there
+  were.
+
+### Fixed
+
+- **A number token runs to the next delimiter and is rejected whole, as in
+  clj.** `(read-string "12x")`, `"1.5x"`, `"1/2x"`, `"1/2/3"` and `"4/-2"`
+  raise NumberFormatException "Invalid number: 12x" (and so on) in source,
+  `read-string` and `clojure.edn/read-string`, where cljw used to read the
+  leading number and start a new token with the rest. `[1/2x]` in code is now
+  a reader error, not an unresolved symbol `x`. `#`, `'` and `%` end a number
+  token. `0xFFN` and `017N` read as BigInts, and `1.5N` is refused.
+
+- **`compare`, `sort` and sorted collections order Date, UUID, File and
+  Comparable deftypes.** `java.util.Date` orders by time, `java.util.UUID` as
+  `UUID.compareTo` does (signed most-significant long, then least), a
+  `java.io.File` by its path, and a `deftype` or `reify` implementing
+  `java.lang.Comparable` through its `compareTo`, in `compare`, `sort`,
+  `sort-by`, `sorted-set` and `sorted-map` alike. `compare` returns the
+  receiver's compareTo int unchanged, so `(compare (java.io.File. "a")
+  (java.io.File. "c"))` is -2, as in clj. Incomparable pairs, such as a Date
+  and a UUID, still raise ClassCastException.
+
+- **`find`, `select-keys` and a set's `get` answer the STORED key.** `(find
+  {1N :a} 1)` is `[1N :a]`, `(find {0.0 :z} -0.0)` is `[0.0 :z]`,
+  `(select-keys {1N :a} [1])` is `{1N :a}` and `(get #{1N} 1)` is `1N`, for
+  array, hash and sorted maps and sets and transient sets, as in clj. A
+  transient map's `find` keeps the probe key, as `ATransientMap.entryAt` does.
+
 ## [1.14.12] - 2026-10-01
 
 ### Added

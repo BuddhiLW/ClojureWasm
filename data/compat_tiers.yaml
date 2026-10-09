@@ -147,7 +147,7 @@ tiers:
         phase: 14
         files:
           surface: runtime/java/lang/Long.zig
-        methods: [bitCount, compare, compareUnsigned, divideUnsigned, highestOneBit, lowestOneBit, max, min, numberOfLeadingZeros, numberOfTrailingZeros, parseLong, parseUnsignedLong, remainderUnsigned, reverse, reverseBytes, rotateLeft, rotateRight, signum, sum, toBinaryString, toHexString, toOctalString, toUnsignedString, valueOf]
+        methods: [bitCount, byteValue, compare, compareTo, compareUnsigned, divideUnsigned, doubleValue, floatValue, highestOneBit, intValue, longValue, lowestOneBit, max, min, numberOfLeadingZeros, numberOfTrailingZeros, parseLong, parseUnsignedLong, remainderUnsigned, reverse, reverseBytes, rotateLeft, rotateRight, shortValue, signum, sum, toBinaryString, toHexString, toOctalString, toUnsignedString, valueOf]
         static_fields: ["BYTES", "MAX_VALUE", "MIN_VALUE", "SIZE"]
         opaque_members: [TYPE, compress, expand, decode, getLong]
         clojure_peer_vars: [parse-long]
@@ -169,7 +169,7 @@ tiers:
         phase: 14
         files:
           surface: runtime/java/lang/Double.zig
-        methods: [compare, doubleToLongBits, doubleToRawLongBits, isFinite, isInfinite, isNaN, longBitsToDouble, max, min, parseDouble, sum, valueOf]
+        methods: [byteValue, compare, compareTo, doubleToLongBits, doubleToRawLongBits, doubleValue, floatValue, intValue, isFinite, isInfinite, isNaN, longBitsToDouble, longValue, max, min, parseDouble, shortValue, sum, valueOf]
         static_fields: ["BYTES", "MAX_EXPONENT", "MAX_VALUE", "MIN_EXPONENT", "MIN_NORMAL", "MIN_VALUE", "NEGATIVE_INFINITY", "NaN", "POSITIVE_INFINITY", "SIZE"]
         opaque_members: [TYPE, PRECISION, toHexString]
         clojure_peer_vars: [parse-double]
@@ -242,9 +242,9 @@ tiers:
         phase: 15
         files:
           surface: runtime/java/lang/Thread.zig
-        methods: [currentThread, getName, isAlive, isDaemon, join, onSpinWait, setDaemon, setName, sleep, start, yield]
+        methods: [currentThread, getName, getStackTrace, isAlive, isDaemon, join, onSpinWait, setDaemon, setName, sleep, start, yield]
         static_fields: ["MAX_PRIORITY", "MIN_PRIORITY", "NORM_PRIORITY"]
-        opaque_members: [interrupt, isInterrupted, interrupted, getId, threadId, getState, getPriority, setPriority, getStackTrace, getThreadGroup, getContextClassLoader, setContextClassLoader, getUncaughtExceptionHandler, setUncaughtExceptionHandler, getDefaultUncaughtExceptionHandler, setDefaultUncaughtExceptionHandler, ofPlatform, ofVirtual, startVirtualThread, isVirtual, activeCount, dumpStack, enumerate, holdsLock, getAllStackTraces, run]
+        opaque_members: [interrupt, isInterrupted, interrupted, getId, threadId, getState, getPriority, setPriority, getThreadGroup, getContextClassLoader, setContextClassLoader, getUncaughtExceptionHandler, setUncaughtExceptionHandler, getDefaultUncaughtExceptionHandler, setDefaultUncaughtExceptionHandler, ofPlatform, ofVirtual, startVirtualThread, isVirtual, activeCount, dumpStack, enumerate, holdsLock, getAllStackTraces, run]
         clojure_peer_vars: []
       # java.lang.StringBuilder — mutable growable buffer (ADR-0114, host_instance).
       # hiccup's compiler builds HTML with it. java.lang.String also has the
@@ -258,7 +258,7 @@ tiers:
         phase: 14
         files:
           surface: runtime/java/lang/StringBuilder.zig
-        methods: [append, charAt, deleteCharAt, insert, isEmpty, length, reverse, setLength]
+        methods: [append, charAt, deleteCharAt, insert, isEmpty, length, reverse, setLength, subSequence, substring]
         clojure_peer_vars: []
       # java.io
       - fqn: java.io.File
@@ -270,7 +270,7 @@ tiers:
           surface: runtime/java/io/File.zig
           impl: runtime/file_io.zig
           clojure_peer: lang/primitive/file_io.zig
-        methods: [canRead, createTempFile, delete, exists, getAbsoluteFile, getAbsolutePath, getCanonicalFile, getCanonicalPath, getName, getParent, getParentFile, getPath, isAbsolute, isDirectory, isFile, length, list, listFiles, listRoots, mkdir, mkdirs]
+        methods: [canRead, createTempFile, delete, exists, getAbsoluteFile, getAbsolutePath, getCanonicalFile, getCanonicalPath, getName, getParent, getParentFile, getPath, isAbsolute, isDirectory, isFile, length, list, listFiles, listRoots, mkdir, mkdirs, compareTo]
         static_fields: ["pathSeparator", "pathSeparatorChar", "separator", "separatorChar"]
         clojure_peer_vars: [clojure.core/slurp, clojure.core/spit]
       - {fqn: "java.io.InputStream", native_ns: "cljw.host.java.io.InputStream", phase: 6}
@@ -619,7 +619,7 @@ tiers:
         files:
           surface: runtime/java/math/BigDecimal.zig
           impl: runtime/numeric/big_decimal.zig
-        methods: [abs, add, compareTo, divide, divideAndRemainder, divideToIntegralValue, doubleValue, intValue, longValue, max, min, movePointLeft, movePointRight, multiply, negate, pow, precision, remainder, round, scale, scaleByPowerOfTen, setScale, signum, stripTrailingZeros, subtract, toBigInteger, toPlainString, ulp, unscaledValue, valueOf]
+        methods: [abs, add, byteValue, compareTo, divide, divideAndRemainder, divideToIntegralValue, doubleValue, floatValue, intValue, longValue, max, min, movePointLeft, movePointRight, multiply, negate, pow, precision, remainder, round, scale, scaleByPowerOfTen, setScale, shortValue, signum, stripTrailingZeros, subtract, toBigInteger, toPlainString, ulp, unscaledValue, valueOf]
         static_fields: ["ONE", "ROUND_CEILING", "ROUND_DOWN", "ROUND_FLOOR", "ROUND_HALF_DOWN", "ROUND_HALF_EVEN", "ROUND_HALF_UP", "ROUND_UNNECESSARY", "ROUND_UP", "TEN", "TWO", "ZERO"]
         clojure_peer_vars: [clojure.core/bigdec]
       # java.math.RoundingMode — the 8 enum constants (UP..UNNECESSARY) as
@@ -720,6 +720,7 @@ tiers:
       - {fqn: "java.io.BufferedWriter", cljw_ns: "cljw.java.io.BufferedWriter", tier: A, phase: 14, status: "no surface; reservation"}
       # java.util concurrency seed (paired with the EXISTS AtomicLong).
       - {fqn: "java.util.concurrent.atomic.AtomicInteger", cljw_ns: "cljw.java.util.concurrent.atomic.AtomicInteger", tier: A, phase: 15, status: "no surface; paired with AtomicLong reservation"}
+    classes: []
   B:
     description: "Recommended compatibility, target Phase 8-14. Test gate: coverage report (no fail required)."
     namespaces:

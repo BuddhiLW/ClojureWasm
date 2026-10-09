@@ -26,6 +26,14 @@
         // fork as PR-ready branches for github.com/zwasm/zwasm; when upstream
         // carries them the pin returns to a zwasm/zwasm tag.
         //
+        // 2026-10-07: pinned to `feat/captured-wasi-run` (one commit on top of
+        // `cljw`): `cli.run_prepared.PreparedWasi`, a WASI command compiled once
+        // and run many times, which `wasm/run`'s module cache needs (D-350
+        // amendment). PR-ready for upstream; the pin moves back to `cljw` once
+        // that branch carries it.
+        // 2026-10-07 later: `cljw` carries it (fork PR #1, merge 70c8b7ee, same
+        // tree as e9fa9e70, so the `.hash` is unchanged); the pin is `cljw` again.
+        //
         // Previous pin: stable tag v2.6.0 (2026-09-05). The v2.6.0 -> v2.7.0
         // embedding-API delta is additive (five engine hooks,
         // `Instance.engine()`, two appended trap kinds); one behaviour change,
@@ -52,8 +60,8 @@
         // moment anything else claims that name. The `.hash` is
         // content-addressed, so the host of the URL never changes it.
         .zwasm = .{
-            .url = "git+https://github.com/BuddhiLW/zwasm.git?ref=cljw#544f9c12fa19fbe952144b64ebcabf781c14a497",
-            .hash = "zwasm-2.7.0-FT1Fv_ZInADJZP5qmVfBJwpwDOJBdw4smLQ3wP5AVDBe",
+            .url = "git+https://github.com/BuddhiLW/zwasm.git?ref=cljw#70c8b7ee60e66115e3bf1030e1d657f772e7b99f",
+            .hash = "zwasm-2.7.0-FT1FvzKOnADpIAKlkOhKgEpJcG6LFoKrWsUAjd-jSCid",
             .lazy = true,
         },
     },

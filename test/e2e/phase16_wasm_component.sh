@@ -28,6 +28,7 @@ for marker in \
   "PASS component-invoke-greet" \
   "PASS component-exports" \
   "PASS load-component-handle-reuse" \
+  "PASS component-invoke-accepts-handle" \
   "PASS resource-chain" \
   "PASS one-shot-resource-outlives-call" \
   "PASS resource-handle-is-bound-to-its-component"; do

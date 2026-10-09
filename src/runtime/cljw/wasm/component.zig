@@ -558,8 +558,12 @@ pub fn resourceDropFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceL
         host_instance.asHostInstance(comp_handle).descriptor != &component_descriptor)
         return error_catalog.raise(.wasm_opts_invalid, loc, .{ .detail = "resource handle's owning component is not a loaded component" });
     const box: *ComponentLoaded = @ptrFromInt(host_instance.asHostInstance(comp_handle).state[0]);
-    box.opened.dropResource(@intCast(inst.state[1])) catch
-        return error_catalog.raise(.wasm_component_trap, loc, .{});
+    box.opened.dropResource(@intCast(inst.state[1])) catch |e| switch (e) {
+        // zwasm's `.single` variant has no resource table: a structural
+        // property of the component, not a trap (D-568).
+        error.NoResourceTable => return error_catalog.raise(.wasm_resource_no_table, loc, .{}),
+        else => return error_catalog.raise(.wasm_component_trap, loc, .{}),
+    };
     host_instance.setState(args[0], 2, 1);
     return Value.nil_val;
 }
@@ -571,8 +575,11 @@ pub fn resourceDropFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceL
 /// holds a resource handle the component outlives the call, because the handle
 /// names something inside it. See the branch in the body.
 pub fn componentInvokeFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
-    _ = env;
     try error_catalog.checkArityMin("wasm/component-invoke", args, 2, loc);
+    // A handle from `wasm/load-component` (or a resource handle from one) is
+    // already open: invoke on it instead of refusing it as "not a path". Only
+    // a path string takes the one-shot open-and-teardown route below.
+    if (!args[0].isString()) return componentCallFn(rt, env, args, loc);
     if (!args[1].isString())
         return error_catalog.raise(.wasm_export_name_invalid, loc, .{});
     const bytes = try readComponentBytes(rt, args[0], loc);
