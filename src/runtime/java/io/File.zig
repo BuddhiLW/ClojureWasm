@@ -359,6 +359,9 @@ fn createTempFile(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocat
 fn listRoots(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
     _ = env;
     try error_catalog.checkArity("java.io.File/listRoots", args, 0, loc);
+    // `root` is an unrooted local across the array alloc below (see `list`).
+    rt.gc.enterFabrication();
+    defer rt.gc.exitFabrication();
     const root = try allocFile(rt, try string_mod.alloc(rt, "/"));
     return java_array.fromSlice(rt, &.{root});
 }
