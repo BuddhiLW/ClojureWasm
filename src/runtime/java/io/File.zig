@@ -62,6 +62,13 @@ fn isFileInstance(v: Value) bool {
 /// Mint a File instance carrying the string `path_val` (already a cljw string).
 fn allocFile(rt: *Runtime, path_val: Value) !Value {
     const td = file_descriptor orelse return error.NoVTable;
+    // Every caller hands a freshly allocated, still unrooted path string. The
+    // HostInstance alloc below can trigger a collection (every alloc does under
+    // CLJW_GC_TORTURE_ALLOC=1) that swept that string, leaving the File with a
+    // dangling path (measured: `(.getPath (File. "test/clj/suites"))` -> "/tmp",
+    // `.isDirectory` false). No collection inside the region keeps it alive.
+    rt.gc.enterFabrication();
+    defer rt.gc.exitFabrication();
     return host_instance.alloc(rt, td, .{ @intFromEnum(path_val), 0, 0, 0 });
 }
 
@@ -352,6 +359,9 @@ fn createTempFile(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocat
 fn listRoots(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
     _ = env;
     try error_catalog.checkArity("java.io.File/listRoots", args, 0, loc);
+    // `root` is an unrooted local across the array alloc below (see `list`).
+    rt.gc.enterFabrication();
+    defer rt.gc.exitFabrication();
     const root = try allocFile(rt, try string_mod.alloc(rt, "/"));
     return java_array.fromSlice(rt, &.{root});
 }
@@ -370,6 +380,12 @@ fn list(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyer
         rt.gpa.free(names);
     }
     // auto-collect is off (see server.zig buildRequest): build without rooting.
+    // That premise does not hold under CLJW_GC_TORTURE_ALLOC (or any allocation
+    // that triggers a collection): `v` is an unrooted Zig local, and a collection
+    // at the next string alloc swept the half-built vector, so `.list` came back
+    // empty or corrupt. Build inside a fabrication region, like the http client.
+    rt.gc.enterFabrication();
+    defer rt.gc.exitFabrication();
     var v = vector_mod.empty();
     for (names) |n| v = try vector_mod.conj(rt, v, try string_mod.alloc(rt, n));
     return v;
@@ -386,6 +402,10 @@ fn listFiles(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) 
         for (names) |n| rt.gpa.free(n);
         rt.gpa.free(names);
     }
+    // Fabrication region: `v` is an unrooted local and every child File is a
+    // GC allocation that can trigger a collection (see `list`).
+    rt.gc.enterFabrication();
+    defer rt.gc.exitFabrication();
     var v = vector_mod.empty();
     for (names) |n| {
         const child = try path.join(rt.gpa, &.{ p, n });
