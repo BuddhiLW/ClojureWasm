@@ -192,7 +192,9 @@ fn expandImport(
                 const fqcn = if (sy.ns) |p| try std.fmt.allocPrint(arena, "{s}.{s}", .{ p, sy.name }) else sy.name;
                 try items.append(arena, try importStarCall(arena, fqcn, loc));
             },
-            .list => |inner| {
+            // clj's import accepts the vector prefix spelling `[pkg Class …]`
+            // as well as the list one; the ns `:import` clause already did.
+            .list, .vector => |inner| {
                 if (inner.len < 2 or inner[0].data != .symbol)
                     return error_catalog.raise(.form_malformed, spec.location, .{ .name = "import prefix form must be (package Class …)" });
                 const pkg = inner[0].data.symbol.name;
