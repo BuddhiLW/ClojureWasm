@@ -7,6 +7,8 @@
 # launcher.
 #
 # Triggers: pull_request (any target) + push to `main` + manual dispatch.
+# A push to `staging` runs nothing here on purpose: the staging→main PR is its
+# gate (see .github/CONTRIBUTING.md "When CI runs").
 # The gate provisions pinned Zig 0.16.0 and Babashka; python3 is preinstalled
 # on GitHub runners. `zig build -Dwasm` fetches the embedded zwasm engine +
 # the zlinter dev-dep from git over the network.

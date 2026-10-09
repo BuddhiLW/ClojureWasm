@@ -114,6 +114,19 @@ not yours.
   `test/diff/clj_corpus/`**, so the behaviour stays checked against real `clj`
   from then on.
 
+### When CI runs
+
+CI (`.github/workflows/ci.yml`) triggers on `pull_request`, on a push to
+`main`, and on manual dispatch. A push to `staging` gets no remote CI by
+design: `staging` is the integration branch, and its machine-checked verdict
+is the PR from `staging` to `main`, which runs the same full gate. Run
+`scripts/ci_gate.sh` locally before pushing to `staging`; that is the only
+gate those commits get until the PR.
+
+Every push to a branch with an open PR fires `pull_request: synchronize` and
+restarts that PR's CI from the beginning. Once a PR is green and you intend to
+merge it, stop pushing to its branch.
+
 A note on provenance: much of this codebase is machine-written under human
 review and direction. Contributions from people are very welcome and are
 reviewed the same way — on whether the code is right, not on who wrote it.
