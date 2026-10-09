@@ -167,15 +167,12 @@ clojure.test/*testing-contexts*
 clojure.test/*testing-vars*
 clojure.test/are
 clojure.test/assert-expr
-clojure.test/deftest
 clojure.test/do-report
 clojure.test/function?
 clojure.test/inc-report
 clojure.test/inc-report-counter
-clojure.test/is
 clojure.test/print-contexts
 clojure.test/report
-clojure.test/testing
 clojure.test/testing-contexts-str
 clojure.test/testing-vars-str
 clojure.test/try-expr
