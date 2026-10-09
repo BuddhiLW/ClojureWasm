@@ -795,6 +795,7 @@ run_step "e2e_phase14_member_on_native"      "bash test/e2e/phase14_member_on_na
 run_step "e2e_phase14_java_method_grouping"  "bash test/e2e/phase14_java_method_grouping.sh"
 run_step "e2e_semaphore"                     "bash test/e2e/semaphore.sh"
 run_step "e2e_concurrent_atomics"            "bash test/e2e/concurrent_atomics.sh"
+run_step "e2e_host_long_past_i48"            "bash test/e2e/host_long_past_i48.sh"
 run_step "e2e_concurrent_interfaces"         "bash test/e2e/concurrent_interfaces.sh"
 run_step "e2e_linked_blocking_queue"         "bash test/e2e/linked_blocking_queue.sh"
 run_step "e2e_vector_seq_view"               "bash test/e2e/vector_seq_view.sh"
