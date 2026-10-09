@@ -23,9 +23,16 @@ Note the checked-in `echo.component.wasm` in ClojureWit is **older than its own
 `echo.wat`** (838 bytes, scalars only, built 2026-07-30 01:30 against a WAT last
 touched 05:12). Rebuild rather than copy.
 
-## Why it does not run yet
+## Status: it loads and runs
 
-cljw cannot load it, and neither can zwasm's own CLI — so the gap is
+The gap recorded below is FIXED. Measured 2026-10-08 on cljw v1.14.11: the
+16-export component loads with `wasm/load-component`, and `component-call`
+round-trips `echo-f64` (1.5 -> 1.5) and `echo-list-u32` ([1 2 3] -> [1 2 3]).
+The section below is kept as history, with its root cause.
+
+## History: why it did not run (the >= 2-export InvalidSort gap, fixed)
+
+cljw could not load it, and neither could zwasm's own CLI — so the gap is
 engine-side, not cljw-side. **`zwasm` rejects any component with two or more
 exports** with `InvalidSort`. Minimal reproduction, `two_export_component.wasm`
 in this directory: two scalar `s32`/`bool` echoes, nothing else.
