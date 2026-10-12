@@ -75,6 +75,7 @@ const host_class = @import("../../runtime/error/host_class.zig");
 const host_interface = @import("../../runtime/host_interface.zig");
 const host_class_resolve = @import("../../runtime/host_class_resolve.zig");
 const type_descriptor = @import("../../runtime/type_descriptor.zig");
+const class_form = @import("class_form.zig");
 const dispatch = @import("../../runtime/dispatch.zig");
 const error_mod = @import("../../runtime/error/info.zig");
 const error_catalog = @import("../../runtime/error/catalog.zig");
@@ -1859,6 +1860,9 @@ pub fn valueToForm(
         .vector, .sub_vector => try withValueMeta(arena, rt, env, v, try valueVectorToForm(arena, rt, env, v, call_loc), call_loc),
         .array_map, .hash_map => try withValueMeta(arena, rt, env, v, try valueMapToForm(arena, rt, env, v, call_loc), call_loc),
         .hash_set => try withValueMeta(arena, rt, env, v, try valueSetToForm(arena, rt, env, v, call_loc), call_loc),
+        // A class object (`(defmacro m [] [String])`, `` `(f ~Keyword) ``):
+        // re-form it as the class-name symbol that resolves back to it.
+        .type_descriptor => try class_form.classValueToForm(arena, rt, env, v, call_loc),
         else => error_catalog.raise(.macro_return_not_data, call_loc, .{ .tag = @tagName(v.tag()) }),
     };
 }
