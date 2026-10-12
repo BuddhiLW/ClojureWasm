@@ -94,7 +94,7 @@ test "a :keys map param binds each listed name" {
 test "a map param binds :as and nested keys but not :or defaults" {
     const or_m = [_]Form{ tsym("z"), .{ .data = .{ .integer = 1 } } };
     const m = [_]Form{
-        tsym("x"),  tkw("x"),
+        tsym("x"), tkw("x"),
         tkw("as"), tsym("whole"),
         tkw("or"), .{ .data = .{ .map = &or_m } },
     };
