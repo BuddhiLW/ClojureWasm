@@ -207,6 +207,29 @@ const JAVA_COMPARABLE: HostInterface = .{ .kind = .protocol_remap, .canonical = 
     .{ .clj = "compareTo", .protocol = "Comparable", .method = "-compare-to" },
 } };
 
+// java.util.Map$Entry: getKey/getValue. A user type implementing it IS a map
+// entry for clj's `key`/`val` (clojure.core/key is `(.getKey ^Map$Entry e)`), so
+// the methods route to the cljw IMapEntry protocol (-key/-val), which `key`/`val`
+// consult for a non-native entry; the dual-registered clj names keep
+// `(.getKey x)` / `(.getValue x)` reaching the type's own impls. core.logic's
+// Pair declares it. Canonical is the simple nested name (the yaml row's
+// `name` suffix); class_name normalises it to MapEntry for `instance?`.
+const MAP_ENTRY: HostInterface = .{ .kind = .protocol_remap, .canonical = "Map$Entry", .remap = &.{
+    .{ .clj = "getKey", .protocol = "IMapEntry", .method = "-key" },
+    .{ .clj = "getValue", .protocol = "IMapEntry", .method = "-val" },
+    .{ .clj = "hashCode", .protocol = "Object", .method = "hashCode" },
+    .{ .clj = "equals", .protocol = "Object", .method = "equals" },
+} };
+
+// clojure.lang.IMapEntry: key/val (it extends java.util.Map$Entry, so a type
+// may group getKey/getValue under it too). Same IMapEntry targets.
+const IMAP_ENTRY: HostInterface = .{ .kind = .protocol_remap, .canonical = "IMapEntry", .remap = &.{
+    .{ .clj = "key", .protocol = "IMapEntry", .method = "-key" },
+    .{ .clj = "val", .protocol = "IMapEntry", .method = "-val" },
+    .{ .clj = "getKey", .protocol = "IMapEntry", .method = "-key" },
+    .{ .clj = "getValue", .protocol = "IMapEntry", .method = "-val" },
+} };
+
 // clojure.lang.IKVReduce — kvreduce (D-400). `reduce-kv` consults
 // IKVReduce/-kv-reduce via rt/__kv-reduce-or before its keys fallback.
 const IKVREDUCE: HostInterface = .{ .kind = .protocol_remap, .canonical = "IKVReduce", .remap = &.{
@@ -560,6 +583,12 @@ const MARKERS = std.StaticStringMap(HostInterface).initComptime(.{
     .{ "clojure.lang.IPending", IPENDING },
     // D-400 marker-family remainder.
     .{ "clojure.lang.IKVReduce", IKVREDUCE },
+    // java.util.Map$Entry: qualified + the bare nested name a lib uses after
+    // `(:import (java.util Map$Entry))`. clojure.lang.IMapEntry qualified only
+    // (the bare `IMapEntry` is the cljw protocol Var its methods route to).
+    .{ "java.util.Map$Entry", MAP_ENTRY },
+    .{ "Map$Entry", MAP_ENTRY },
+    .{ "clojure.lang.IMapEntry", IMAP_ENTRY },
     .{ "clojure.lang.IBlockingDeref", IBLOCKING_DEREF },
     // Qualified spelling ONLY: a bare "Comparable" key would make the
     // rewrite's own second-pass section (headed by the bare canonical)
@@ -749,4 +778,23 @@ test "ILookup is a protocol_remap (not a quote-wrap marker); valAt → ILookup/-
     try std.testing.expectEqualStrings("ILookup", r.protocol);
     try std.testing.expectEqualStrings("-lookup", r.method);
     try std.testing.expect(hi.remapMethod("nonexistent") == null);
+}
+
+test "java.util.Map$Entry is a protocol_remap onto IMapEntry (getKey/getValue)" {
+    inline for (.{ "java.util.Map$Entry", "Map$Entry" }) |n| {
+        try std.testing.expect(isProtocolRemap(n));
+        try std.testing.expect(!isMarker(n));
+        const hi = lookup(n).?;
+        const k = hi.remapMethod("getKey").?;
+        try std.testing.expectEqualStrings("IMapEntry", k.protocol);
+        try std.testing.expectEqualStrings("-key", k.method);
+        const v = hi.remapMethod("getValue").?;
+        try std.testing.expectEqualStrings("IMapEntry", v.protocol);
+        try std.testing.expectEqualStrings("-val", v.method);
+    }
+    const ime = lookup("clojure.lang.IMapEntry").?;
+    try std.testing.expectEqualStrings("-key", ime.remapMethod("key").?.method);
+    try std.testing.expectEqualStrings("-val", ime.remapMethod("val").?.method);
+    // The bare protocol Var name stays unrecognised (no second-pass re-route).
+    try std.testing.expect(lookup("IMapEntry") == null);
 }

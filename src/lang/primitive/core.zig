@@ -288,12 +288,21 @@ pub fn vectorQ(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation
 
 /// Implements clojure.core/map-entry? — true only for a distinct MapEntry
 /// (D-209 / ADR-0078): `(map-entry? (first {:a 1}))`→true, `(map-entry?
-/// [1 2])`→false. The discriminator a 2-vector cannot provide.
+/// [1 2])`→false. The discriminator a 2-vector cannot provide. clj defines it as
+/// `(instance? java.util.Map$Entry x)`, so a deftype / reify declaring
+/// java.util.Map$Entry (core.logic's Pair) is one too.
 pub fn mapEntryQ(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
     _ = rt;
     _ = env;
     try error_catalog.checkArity("map-entry?", args, 1, loc);
-    return if (args[0].tag() == .map_entry) .true_val else .false_val;
+    return switch (args[0].tag()) {
+        .map_entry => .true_val,
+        // A declared java.util.Map$Entry normalises to MapEntry; clojure.lang.
+        // IMapEntry extends it, so a type declaring only that is one too.
+        .typed_instance, .reified_instance => Value.initBoolean(class_name.isInstance(args[0], "MapEntry") or
+            class_name.isInstance(args[0], "IMapEntry")),
+        else => .false_val,
+    };
 }
 
 /// `(list? x)` — true iff `x` is a persistent List
