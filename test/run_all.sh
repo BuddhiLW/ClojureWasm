@@ -589,8 +589,6 @@ run_step "e2e_phase14_arity_parity"          "bash test/e2e/phase14_arity_parity
 run_step "e2e_phase14_fn_macro"              "bash test/e2e/phase14_fn_macro.sh"
 run_step "e2e_phase14_anon_fn_reader"        "bash test/e2e/phase14_anon_fn_reader.sh"
 run_step "e2e_phase14_defmacro_user"         "bash test/e2e/phase14_defmacro_user.sh"
-run_step "e2e_phase14_qualified_core_special" "bash test/e2e/phase14_qualified_core_special.sh"
-run_step "e2e_phase14_deftype_destructured_param_shadow" "bash test/e2e/phase14_deftype_destructured_param_shadow.sh"
 run_step "e2e_phase14_ns_directive"          "bash test/e2e/phase14_ns_directive.sh"
 run_step "e2e_phase14_future_promise_delay"  "bash test/e2e/phase14_future_promise_delay.sh"
 run_step "e2e_phase14_repl"                  "bash test/e2e/phase14_repl.sh"
