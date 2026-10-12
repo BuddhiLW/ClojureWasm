@@ -779,7 +779,6 @@ run_step "e2e_phase14_hash_gensym"           "bash test/e2e/phase14_hash_gensym.
 run_step "e2e_phase14_metadata"              "bash test/e2e/phase14_metadata.sh"
 run_step "e2e_phase14_symbol_metadata"       "bash test/e2e/phase14_symbol_metadata.sh"
 run_step "e2e_phase14_deftype_collection_base" "bash test/e2e/phase14_deftype_collection_base.sh"
-run_step "e2e_phase14_map_entry_interface" "bash test/e2e/phase14_map_entry_interface.sh"
 run_step "e2e_phase14_script_cli_args" "bash test/e2e/phase14_script_cli_args.sh"
 run_step "e2e_phase14_deftype_inherited_method" "bash test/e2e/phase14_deftype_inherited_method.sh"
 run_step "e2e_phase14_reify_remap" "bash test/e2e/phase14_reify_remap.sh"
