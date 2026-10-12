@@ -179,6 +179,7 @@ test {
     _ = @import("lang/primitive/protocol.zig");
     _ = @import("lang/primitive.zig");
     _ = @import("lang/macro_transforms.zig");
+    _ = @import("lang/binding_names.zig");
     _ = @import("lang/bootstrap.zig");
     // Phase 6 impl files that ship unit tests but have no
     // in-graph referrer yet (Clojure-ns peer / Java-surface

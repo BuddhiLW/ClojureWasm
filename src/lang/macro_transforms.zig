@@ -36,6 +36,7 @@ const Env = env_mod.Env;
 const error_mod = @import("../runtime/error/info.zig");
 const error_catalog = @import("../runtime/error/catalog.zig");
 const host_interface = @import("../runtime/host_interface.zig");
+const binding_names = @import("binding_names.zig");
 const SourceLocation = error_mod.SourceLocation;
 
 pub const RegisterError = error{
@@ -3076,7 +3077,7 @@ fn wrapMethodBodyWithFields(
         const fname = f.data.symbol.name;
         var shadowed = false;
         for (params) |p| {
-            if (p.data == .symbol and std.mem.eql(u8, p.data.symbol.name, fname)) {
+            if (binding_names.binds(p, fname)) {
                 shadowed = true;
                 break;
             }
