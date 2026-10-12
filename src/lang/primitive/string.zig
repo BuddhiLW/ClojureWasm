@@ -368,6 +368,7 @@ fn strReplacePatternImpl(rt: *Runtime, env: *Env, fn_name: []const u8, kind: Rep
     var pos: u32 = 0;
     while (pos <= haystack.len) {
         const match = (try regex_match.findFrom(rt.gc.infra, program, haystack, pos)) orelse break;
+        defer match.deinit(rt.gc.infra);
         try out.appendSlice(rt.gc.infra, haystack[pos..match.start]);
         // The replacement fn receives the `re-find` shape: the match
         // vector `[whole g1 …]` when the pattern has capturing groups,

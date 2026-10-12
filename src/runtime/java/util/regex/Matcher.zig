@@ -49,8 +49,25 @@ const MutState = struct {
     /// Last successful match span (group 0).
     start: u32 = 0,
     end: u32 = 0,
-    /// Capture-slot snapshot of the last successful match (2 per group).
-    slots: [regex_match.MAX_SLOTS_INLINE]i32 = [_]i32{-1} ** regex_match.MAX_SLOTS_INLINE,
+    /// Capture-slot snapshot of the last successful match (2 per group,
+    /// `regex_match.slotCount` wide), owned on `gc.infra` (freed by `record`,
+    /// `reset` and the finaliser). Empty for a pattern without groups.
+    slots: []i32 = &.{},
+
+    /// Capture group `n`'s byte span of the last match, or null when it did
+    /// not participate.
+    fn groupSpan(self: *const MutState, n: usize) ?struct { start: usize, end: usize } {
+        if (2 * n + 1 >= self.slots.len) return null;
+        const s = self.slots[2 * n];
+        const e = self.slots[2 * n + 1];
+        if (s < 0 or e < 0) return null;
+        return .{ .start = @intCast(s), .end = @intCast(e) };
+    }
+
+    fn freeSlots(self: *MutState, infra: std.mem.Allocator) void {
+        if (self.slots.len > 0) infra.free(self.slots);
+        self.slots = &.{};
+    }
 };
 
 fn stateOf(recv: Value) *MutState {
@@ -89,11 +106,16 @@ fn nextFindPos(input: []const u8, r: regex_match.MatchResult) u32 {
     return r.end + len;
 }
 
-fn record(ms: *MutState, input: []const u8, r: regex_match.MatchResult) void {
+/// Record a successful match into the matcher state. Consumes `r` (its
+/// capture slots, allocated on `rt.gpa`, are copied onto `gc.infra` and freed).
+fn record(rt: *Runtime, ms: *MutState, input: []const u8, r: regex_match.MatchResult) !void {
+    defer r.deinit(rt.gpa);
+    const slots: []i32 = if (r.captures.slots.len > 0) try rt.gc.infra.dupe(i32, r.captures.slots) else &.{};
+    ms.freeSlots(rt.gc.infra);
+    ms.slots = slots;
     ms.found = true;
     ms.start = r.start;
     ms.end = r.end;
-    ms.slots = r.captures.slots;
     ms.pos = nextFindPos(input, r);
 }
 
@@ -105,7 +127,7 @@ fn find(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyer
     const input = inputOf(args[0]);
     if (ms.pos <= input.len) {
         if (try regex_match.findFrom(rt.gpa, programOf(args[0]), input, ms.pos)) |r| {
-            record(ms, input, r);
+            try record(rt, ms, input, r);
             return Value.initBoolean(true);
         }
     }
@@ -125,9 +147,10 @@ fn lookingAt(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) 
     // The Pike VM returns the leftmost match; lookingAt holds iff it starts at 0.
     if (try regex_match.findFrom(rt.gpa, programOf(args[0]), input, 0)) |r| {
         if (r.start == 0) {
-            record(ms, input, r);
+            try record(rt, ms, input, r);
             return Value.initBoolean(true);
         }
+        r.deinit(rt.gpa);
     }
     ms.found = false;
     return Value.initBoolean(false);
@@ -140,7 +163,7 @@ fn matches(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) an
     const ms = stateOf(args[0]);
     const input = inputOf(args[0]);
     if (try regex_match.matchFull(rt.gpa, programOf(args[0]), input)) |r| {
-        record(ms, input, r);
+        try record(rt, ms, input, r);
         return Value.initBoolean(true);
     }
     ms.found = false;
@@ -164,10 +187,8 @@ fn group(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anye
         const want = string_collection.asString(args[1]);
         for (programOf(args[0]).group_names) |g| {
             if (std.mem.eql(u8, g.name, want)) {
-                const gs = ms.slots[@intCast(2 * @as(u32, g.index))];
-                const ge = ms.slots[@intCast(2 * @as(u32, g.index) + 1)];
-                if (gs < 0 or ge < 0) return Value.nil_val;
-                return string_collection.alloc(rt, input[@intCast(gs)..@intCast(ge)]);
+                const span = ms.groupSpan(g.index) orelse return Value.nil_val;
+                return string_collection.alloc(rt, input[span.start..span.end]);
             }
         }
         // Java: IllegalArgumentException "No group with name <x>" — catchable.
@@ -179,10 +200,8 @@ fn group(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anye
     if (n == 0) return string_collection.alloc(rt, input[ms.start..ms.end]);
     if (n < 0 or n > programOf(args[0]).capture_count)
         return error_catalog.raise(.index_out_of_range, loc, .{ .fn_name = "java.util.regex.Matcher/group" });
-    const s = ms.slots[@intCast(2 * n)];
-    const e = ms.slots[@intCast(2 * n + 1)];
-    if (s < 0 or e < 0) return Value.nil_val;
-    return string_collection.alloc(rt, input[@intCast(s)..@intCast(e)]);
+    const span = ms.groupSpan(@intCast(n)) orelse return Value.nil_val;
+    return string_collection.alloc(rt, input[span.start..span.end]);
 }
 
 /// `(.groupCount m)` — number of capturing groups in the pattern.
@@ -215,10 +234,11 @@ fn endIndex(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) a
 
 /// `(.reset m)` — rewind the cursor to the input start; returns the matcher.
 fn reset(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
-    _ = rt;
     _ = env;
     try error_catalog.checkArity("reset", args, 1, loc);
-    stateOf(args[0]).* = .{};
+    const ms = stateOf(args[0]);
+    ms.freeSlots(rt.gc.infra);
+    ms.* = .{};
     return args[0];
 }
 
@@ -254,6 +274,7 @@ fn traceState(gc_ptr: *anyopaque, state: *[host_instance.STATE_WORDS]u64) void {
 
 fn finaliseState(infra: std.mem.Allocator, state: *[host_instance.STATE_WORDS]u64) void {
     const ms: *MutState = @ptrFromInt(@as(usize, @intCast(state[2])));
+    ms.freeSlots(infra);
     infra.destroy(ms);
 }
 

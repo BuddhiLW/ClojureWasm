@@ -452,6 +452,7 @@ fn matches(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) an
     defer program.deinit(rt.gpa);
     const m = regex_match.matchFull(rt.gpa, &program, string_collection.asString(args[0])) catch
         return error_catalog.raise(.feature_not_supported, loc, .{ .name = ".matches" });
+    defer if (m) |r| r.deinit(rt.gpa);
     return Value.initBoolean(m != null);
 }
 

@@ -140,8 +140,15 @@ pub fn raiseCompileError(err: anyerror, loc: SourceLocation) error_catalog.Cloju
         error.OutOfMemory => error.OutOfMemory,
         // INV-1: a nested-counted-repetition compile-bomb is a catchable error.
         error.PatternTooLarge => error_catalog.raise(.regex_pattern_too_large, loc, .{}),
+        // Too many groups is a resource bound, like PatternTooLarge: catchable.
+        error.TooManyGroups => error_catalog.raise(.regex_too_many_groups, loc, .{ .max = compile.MAX_CAPTURE_GROUPS }),
+        // AD-060: the declined backreference stays the uncatchable unsupported
+        // signal, but names the construct.
+        error.Backreference => error_catalog.raise(.feature_not_supported, loc, .{
+            .name = "a regex backreference (\\N / \\k<name>; needs a backtracking engine)",
+        }),
         error.NotImplemented => error_catalog.raise(.feature_not_supported, loc, .{
-            .name = "this regex feature (backreferences / an unsupported construct)",
+            .name = "this regex construct (inline flag, Unicode property or class form)",
         }),
         else => error_catalog.raise(.regex_pattern_invalid, loc, .{ .reason = @errorName(err) }),
     };
