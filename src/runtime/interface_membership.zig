@@ -254,6 +254,12 @@ pub const TABLE = [_]Entry{
     // Closeable — no native cljw implementor (host resources only), like SortedMap;
     // resolves as an instance? class arg, matches only host descriptors.
     .{ .name = "Closeable", .tags = &NO_NATIVE_TAGS },
+    // clojure.lang.IRecord — every defrecord, no native value (class_name's
+    // RECORD_INTERFACES answers instance?). Recognised so the symbol resolves
+    // as a class value and `(extend-protocol P clojure.lang.IRecord …)` (as
+    // core.logic does) lands on its class descriptor, which protocol dispatch
+    // consults for a record receiver.
+    .{ .name = "IRecord", .tags = &NO_NATIVE_TAGS },
     // D-480 completion: the remaining recognized markers.
     // Serializable (near-everything but fns-yes / refs-no / transients-no) is
     // deferred — broad + low-value.
@@ -410,7 +416,6 @@ pub const CLASS_NAMES = tagNames(&CLASS_TAGS);
 // tags, the same way IPersistentVector → IPV_NAMES does.
 pub const SET_NAMES = tagNames(&SET_TAGS);
 pub const IPLIST_NAMES = tagNames(&IPLIST_TAGS);
-
 // --- tests ---
 
 const testing = std.testing;
@@ -461,6 +466,11 @@ test "co-membership interfaces share a set" {
     try testing.expect(isMember(.array_map, "Associative"));
     try testing.expect(isMember(.array_map, "ILookup"));
     try testing.expect(!isMember(.hash_set, "Associative"));
+}
+
+test "IRecord is recognised but has no native member" {
+    try testing.expect(isInterface("clojure.lang.IRecord"));
+    try testing.expect(!isMember(.hash_map, "IRecord"));
 }
 
 test "isInterface bounds the recognised set" {
