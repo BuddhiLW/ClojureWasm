@@ -1099,7 +1099,7 @@ fn analyzeList(
 /// the deferral cannot mask a user alias typo (the discriminator the
 /// Devil's-advocate fork required). `java.*` is intentionally EXCLUDED: those
 /// may be real host surfaces cljw should implement, so they stay loud.
-fn isDeferredHostNs(ns: []const u8) bool {
+pub fn isDeferredHostNs(ns: []const u8) bool {
     return std.mem.startsWith(u8, ns, "clojure.lang.") or
         std.mem.startsWith(u8, ns, "clojure.asm.");
 }
