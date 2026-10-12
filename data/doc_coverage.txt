@@ -66,6 +66,7 @@ clojure.core/-fuse-descriptor
 clojure.core/-fused-reduce
 clojure.core/-global-hierarchy
 clojure.core/-invoke
+clojure.core/-key
 clojure.core/-keys
 clojure.core/-kv-reduce
 clojure.core/-length
@@ -97,6 +98,7 @@ clojure.core/-tset-contains?
 clojure.core/-tx-seq-pump
 clojure.core/-tx-seq-run
 clojure.core/-update-in-idx
+clojure.core/-val
 clojure.core/-vals
 clojure.core/-with-meta
 clojure.core/-without
@@ -111,6 +113,7 @@ clojure.core/IEditableCollection
 clojure.core/IFn
 clojure.core/IKVReduce
 clojure.core/ILookup
+clojure.core/IMapEntry
 clojure.core/IObj
 clojure.core/IPending
 clojure.core/IPersistentCollection
