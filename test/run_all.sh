@@ -562,6 +562,7 @@ run_step "e2e_phase14_require_idempotent"    "bash test/e2e/phase14_require_idem
 run_step "e2e_phase14_dot_static_class"      "bash test/e2e/phase14_dot_static_class.sh"
 run_step "e2e_phase14_rt_nextid"             "bash test/e2e/phase14_rt_nextid.sh"
 run_step "e2e_phase14_irecord_extend"        "bash test/e2e/phase14_irecord_extend.sh"
+run_step "e2e_phase14_fn_extend"             "bash test/e2e/phase14_fn_extend.sh"
 run_step "e2e_phase9_csv"                    "bash test/e2e/phase9_csv.sh"
 run_step "e2e_phase9_cli"                    "bash test/e2e/phase9_cli.sh"
 run_step "e2e_phase9_exit_smoke"             "bash test/e2e/phase9_exit_smoke.sh"

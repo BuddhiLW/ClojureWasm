@@ -155,6 +155,7 @@ const FQCN_MAP = std.StaticStringMap([]const u8).initComptime(.{
     .{ "clojure.lang.Var", "Var" },
     .{ "clojure.lang.PersistentQueue", "PersistentQueue" },
     .{ "clojure.lang.IFn", "IFn" },
+    .{ "clojure.lang.Fn", "Fn" },
     .{ "clojure.lang.IPersistentMap", "IPersistentMap" },
     .{ "clojure.lang.IRecord", "IRecord" },
     .{ "clojure.lang.IPersistentSet", "IPersistentSet" },
