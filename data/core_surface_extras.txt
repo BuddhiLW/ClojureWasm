@@ -53,6 +53,7 @@
 -fused-reduce
 -global-hierarchy
 -invoke
+-key
 -keys
 -kv-reduce
 -length
@@ -84,6 +85,7 @@
 -tx-seq-pump
 -tx-seq-run
 -update-in-idx
+-val
 -vals
 -with-meta
 -without
@@ -98,6 +100,7 @@ IEditableCollection
 IFn
 IKVReduce
 ILookup
+IMapEntry
 IObj
 IPending
 IPersistentCollection
