@@ -58,6 +58,8 @@ EOF
 )
 grep -q 'is not supported in ClojureWasm' <<< "$got" \
     || fail "backref_uncatchable: expected the unsupported-feature raise, got '$got'"
+grep -q 'regex backreference' <<< "$got" \
+    || fail "backref_uncatchable: expected the raise to name the backreference, got '$got'"
 grep -qx ':swallowed' <<< "$got" \
     && fail "backref_uncatchable: a catch swallowed the backreference raise"
 echo "PASS backref_uncatchable"

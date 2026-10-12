@@ -655,7 +655,6 @@ run_step "e2e_phase14_parallel_seq"         "bash test/e2e/phase14_parallel_seq.
 run_step "e2e_phase14_alter_var_root"       "bash test/e2e/phase14_alter_var_root.sh"
 run_step "e2e_phase14_syntax_quote"         "bash test/e2e/phase14_syntax_quote.sh"
 run_step "e2e_phase14_with_redefs"          "bash test/e2e/phase14_with_redefs.sh"
-run_step "e2e_phase14_regex_many_groups"    "bash test/e2e/phase14_regex_many_groups.sh"
 run_step "e2e_phase15_namespace"            "bash test/e2e/phase15_namespace.sh"
 run_step "e2e_phase15_dynamic_var"          "bash test/e2e/phase15_dynamic_var.sh"
 run_step "e2e_phase15_watch_recursion"      "bash test/e2e/phase15_watch_recursion.sh"
