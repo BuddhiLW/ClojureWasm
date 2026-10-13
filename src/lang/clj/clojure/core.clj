@@ -1457,8 +1457,14 @@
 ;; `(map-entry? [:a 1])` → false — so `(key [:k :v])` / `(val nil)` throw a
 ;; catchable ClassCastException like clj, rather than indexing positionally.
 ;; (Map destructuring feeds real entries via `(first (seq some-map))`, unaffected.)
-(def key (fn* [e] (if (map-entry? e) (nth e 0) (throw (ClassCastException. "key: not a map entry")))))
-(def val (fn* [e] (if (map-entry? e) (nth e 1) (throw (ClassCastException. "val: not a map entry")))))
+;; java.util.Map$Entry / clojure.lang.IMapEntry on a deftype / reify: its
+;; getKey/getValue (or key/val) route here (host_interface MAP_ENTRY), so `key`
+;; / `val` below reach a user entry type the way clj's `(.getKey ^Map$Entry e)`
+;; does. A native MapEntry keeps the positional fast path.
+(defprotocol IMapEntry (-key [e]) (-val [e]))
+
+(def key (fn* [e] (if (map-entry? e) (if (vector? e) (nth e 0) (-key e)) (throw (ClassCastException. "key: not a map entry")))))
+(def val (fn* [e] (if (map-entry? e) (if (vector? e) (nth e 1) (-val e)) (throw (ClassCastException. "val: not a map entry")))))
 
 ;; `(not-empty coll)` — coll if it has items, else nil.
 (def not-empty (fn* [coll] (if (empty? coll) nil coll)))

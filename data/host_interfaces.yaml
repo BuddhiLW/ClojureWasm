@@ -387,6 +387,31 @@ interfaces:
   # Recognised so collection deftypes declaring them for java-interop LOAD; their
   # methods are inert (cljw has no java dispatch). `recognised: true`, `kind:
   # host_inert`; the gate set-bound matches the bare alias the source uses.
+  - name: java.util.Map$Entry
+    aliases: [Map$Entry]
+    derives_from: "java.util.Map.Entry: a key/value pair (Java, stable); clj's key/val are (.getKey ^Map$Entry e) / (.getValue ^Map$Entry e) and map-entry? is (instance? Map$Entry x). core.logic's Pair declares it."
+    tier: A
+    recognised: true
+    kind: protocol_remap
+    modeled_as: "IMapEntry (defprotocol IMapEntry (-key [e]) (-val [e])); key/val/map-entry? consult it for a typed_instance/reified_instance after the native MapEntry fast path"
+    note: "Dispatched, not inert: getKey/getValue also stay dot-callable under their clj names (dual registration). hashCode/equals go to the Object method-family."
+    methods:
+      getKey: { status: wired, wires_to_protocol: IMapEntry, wires_to_method: "-key" }
+      getValue: { status: wired, wires_to_protocol: IMapEntry, wires_to_method: "-val" }
+      hashCode: { status: wired, wires_to: "Object method-family (hash consult, D-280d1)" }
+      equals: { status: wired, wires_to: "Object method-family (= consult, D-280d1)" }
+  - name: clojure.lang.IMapEntry
+    derives_from: "clojure.lang.IMapEntry: key/val on a map entry; extends java.util.Map$Entry (Clojure, stable)."
+    tier: A
+    recognised: true
+    kind: protocol_remap
+    modeled_as: "IMapEntry (same protocol as java.util.Map$Entry)"
+    note: "Qualified spelling only: the bare IMapEntry is the cljw protocol Var the remap targets."
+    methods:
+      key: { status: wired, wires_to_protocol: IMapEntry, wires_to_method: "-key" }
+      val: { status: wired, wires_to_protocol: IMapEntry, wires_to_method: "-val" }
+      getKey: { status: wired, wires_to_protocol: IMapEntry, wires_to_method: "-key" }
+      getValue: { status: wired, wires_to_protocol: IMapEntry, wires_to_method: "-val" }
   - name: java.util.Map
     aliases: [Map]
     derives_from: "java.util.Map — java-interop map compat; recognised-but-inert in cljw (no JVM dispatch, ADR-0059/ADR-0103). priority-map declares it (bare `Map`, line 374)."

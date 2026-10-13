@@ -24,10 +24,10 @@
 schema_version: "2.0"
 summary:
   namespaces_required: 36
-  total: 1452
+  total: 1455
   zig: 423
   clj: 806
-  value: 217
+  value: 220
   unbound: 6
 vars:
   "cljw.error/*error-context*": { impl: value, flags: "dynamic" }
@@ -276,6 +276,7 @@ vars:
   "clojure.core/-interpose-lazy": { impl: clj, flags: "private" }
   "clojure.core/-invoke": { impl: value, flags: "-" }
   "clojure.core/-keep-indexed-lazy": { impl: clj, flags: "private" }
+  "clojure.core/-key": { impl: value, flags: "-" }
   "clojure.core/-keys": { impl: value, flags: "-" }
   "clojure.core/-kv-reduce": { impl: value, flags: "-" }
   "clojure.core/-lazy-get-fuse": { impl: zig, flags: "private,zig-leaf" }
@@ -316,6 +317,7 @@ vars:
   "clojure.core/-tx-seq-pump": { impl: clj, flags: "-" }
   "clojure.core/-tx-seq-run": { impl: clj, flags: "-" }
   "clojure.core/-update-in-idx": { impl: clj, flags: "-" }
+  "clojure.core/-val": { impl: value, flags: "-" }
   "clojure.core/-vals": { impl: value, flags: "-" }
   "clojure.core/-with-meta": { impl: value, flags: "-" }
   "clojure.core/-without": { impl: value, flags: "-" }
@@ -338,6 +340,7 @@ vars:
   "clojure.core/IFn": { impl: value, flags: "-" }
   "clojure.core/IKVReduce": { impl: value, flags: "-" }
   "clojure.core/ILookup": { impl: value, flags: "-" }
+  "clojure.core/IMapEntry": { impl: value, flags: "-" }
   "clojure.core/IObj": { impl: value, flags: "-" }
   "clojure.core/IPending": { impl: value, flags: "-" }
   "clojure.core/IPersistentCollection": { impl: value, flags: "-" }

@@ -341,7 +341,10 @@ fn dispatchArgsRest(
                 \\ClojureWasm v{s}
                 \\Usage: cljw [options] [<file.clj> | -]
                 \\  -e, --eval <expr>  Read, analyse, evaluate <expr>; print each result.
-                \\  <file.clj>         Run the named source file as a script (no result echo).
+                \\  <file.clj> [args]  Run the named source file as a script (no result echo);
+                \\                     trailing args bind to *command-line-args*
+                \\                     (a -cp <dirs> right after the file still
+                \\                     sets the classpath).
                 \\  -                  Run stdin as a script (no result echo; heredoc-friendly).
                 \\  -cp, --classpath <dirs>  Colon-separated dirs `require` searches
                 \\                     for `.cljw`/`.clj`/`.cljc` libs, in that order
@@ -448,6 +451,36 @@ fn dispatchArgsRest(
             };
             source_label = arg;
             print_results = false;
+            // `cljw script.clj a b` = `clojure script.clj a b`: every token after
+            // the script path is a script argument bound to *command-line-args*
+            // (clojure.main's script contract, same as the `-M script.clj a b`
+            // path, D-310), never another file or cljw option. The setter rides
+            // line 1 with no newline so script line numbers stay exact.
+            // Exception: `-cp` / `--classpath <dirs>` placed DIRECTLY after the
+            // script path stay cljw options (`cljw app.clj -cp lib` is the
+            // documented ADR-0135 shape); the first other token starts the
+            // script args, and every token from there on is an arg.
+            var script_args: std.ArrayList([]const u8) = .empty;
+            while (args.next()) |a| {
+                if (script_args.items.len == 0 and
+                    (std.mem.eql(u8, a, "-cp") or std.mem.eql(u8, a, "--classpath")))
+                {
+                    classpath_arg = args.next() orelse {
+                        try stderr.print("Error: -cp / --classpath requires an argument\n", .{});
+                        try stderr.flush();
+                        std.process.exit(1);
+                    };
+                    continue;
+                }
+                try script_args.append(arena, a);
+            }
+            if (script_args.items.len > 0) {
+                var aw: std.Io.Writer.Allocating = .init(arena);
+                try deps_run_mode.writeClArgsSetter(&aw.writer, script_args.items);
+                try aw.writer.writeAll(source_text.?);
+                source_text = try aw.toOwnedSlice();
+            }
+            break;
         }
     }
 
