@@ -7,7 +7,8 @@
 #    v1.14.11 appended their entries under `## [1.14.8]` and nothing noticed
 #    (fixed by bba2e79f). Every `vX.Y.Z` tag reachable from HEAD, from v1.0.0
 #    on, must have a `## [X.Y.Z] - YYYY-MM-DD` heading, and the newest tag's
-#    heading must be the first one after `## [Unreleased]`.
+#    heading must be the first one after `## [Unreleased]`, or the second when
+#    the first is the untagged release build.zig.zon names.
 #
 # 2. `[Unreleased]` describes something that has already shipped. An entry
 #    that is also present in the newest tag's own `[Unreleased]` section went
@@ -80,6 +81,25 @@ else
   fi
 
   newest_v="${newest_tag#v}"
+
+  # A hand-stamped MINOR/MAJOR heading precedes its tag: allowed only while
+  # build.zig.zon names that version, it is newer, and no such tag exists.
+  pending_v="$(sed -nE 's/^[[:space:]]*\.version = "([0-9]+\.[0-9]+\.[0-9]+)",[[:space:]]*$/\1/p' build.zig.zon 2>/dev/null | sed -n 1p)"
+  if [ -n "$pending_v" ] \
+    && ! git rev-parse -q --verify "refs/tags/v$pending_v" >/dev/null \
+    && [ "$(printf '%s\n%s\n' "$newest_v" "$pending_v" | sort -V | sed -n 2p)" = "$pending_v" ] \
+    && [ "$pending_v" != "$newest_v" ]; then
+    case "$first_after_unreleased" in
+      "## [$pending_v] - "*)
+        first_after_unreleased="$(awk '
+          /^## \[Unreleased\]/ { seen = 1; next }
+          seen && /^## / { n++; if (n == 2) { print; exit } }
+        ' "$CHANGELOG")"
+        echo "check_changelog_reachability: ok, [$pending_v] is the pending release build.zig.zon names (no v$pending_v tag yet)"
+        ;;
+    esac
+  fi
+
   case "$first_after_unreleased" in
     "## [$newest_v] - "*) ;;
     *)
