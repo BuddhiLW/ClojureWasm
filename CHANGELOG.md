@@ -7,6 +7,8 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 
 ## [Unreleased]
 
+## [1.15.0] - 2026-10-13
+
 ### Added
 
 - **deps.edn Maven source JAR resolution.** `:mvn/version` loads `.clj`, `.cljc`
