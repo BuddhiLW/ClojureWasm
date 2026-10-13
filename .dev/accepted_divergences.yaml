@@ -1190,3 +1190,32 @@ accepted:
     why: 'Timestamp extends Date on the JVM, so Date.equals(Object) accepts a Timestamp by millisecond, while Timestamp.equals(Object) rejects every non-Timestamp. The Timestamp javadoc itself calls the pair not symmetric and says the inheritance is implementation inheritance, not type inheritance. Porting it would make `=` depend on argument order, and every hashed collection would then depend on insertion order: clj builds (hash-set t d) as one element and (hash-set d t) as two. cljw models Timestamp as its own value type (D-382: a distinct descriptor carrying epoch-ms plus nanos, never collapsed onto Date), and `=` over temporal values compares within one type, which keeps `=` symmetric and `=` implies equal hash, the two laws src/testing/prop_equal.zig pins. The hashes already agree with clj, so only the cross-type Date-first comparison differs.'
     derives_from: 'D-382 (Timestamp is its own neutral value type with a distinct descriptor; collapsing it onto Date was the rejected smell, user 2026-06-10) + F-014 (linguistically-general Java, not a JVM reimplementation: the JDK equals-contract violation is not ported) + the symmetric `=` law pinned by src/testing/prop_equal.zig.'
     pin: test/e2e/temporal_hash_eq.sh same_hash_distinct_types - asserts on both backends that (= d t) is false and (get {t :t} d) is nil for a Date and a Timestamp of the same millisecond, next to the clj-matching (= t d) false and (count (hash-set d t)) 2.
+  - id: AD-076
+    area: strings
+    summary: 'A string is indexed by Unicode CODE POINT, not by UTF-16 code unit. `count`, `subs`, `nth`, `get`, `seq`/`first`, `(map int s)` and the interop methods `.length`, `.charAt`, `.indexOf` and `.substring` all count a character outside the Basic Multilingual Plane (emoji, rare CJK, most historic scripts) as ONE position, where clj counts its surrogate pair as two. BMP text, including multibyte characters such as é or 世, indexes identically in both runtimes.'
+    example: '(count "🌍") => cljw 1 / clj 2. (count "ab🌍") => cljw 3 / clj 4. (.length "🌍") => cljw 1 / clj 2. (subs "a🌍b" 1 2) => cljw "🌍" / clj a lone high surrogate. (vec (map int "🌍")) => cljw [127757] / clj [55356 57101]. (str (first "🌍")) => cljw "🌍" / clj a lone high surrogate. (.indexOf "a🌍b" "b") => cljw 2 / clj 3. Measured on cljw v1.14.11; clj 1.12 column from GitHub issue #1.'
+    why: |-
+      UTF-16 is how the JVM happens to store a String, not part of Clojure's
+      string semantics: clj's own `count` docstring says "number of items in
+      the collection", and a surrogate half is not an item any user wrote.
+      cljw stores strings as UTF-8 and has no UTF-16 buffer to index, so
+      matching clj would mean synthesising surrogate halves on every index
+      operation: values that cannot be printed, that are not valid Unicode
+      scalar values, and whose only observable use is to be glued back
+      together. `(subs s i j)` handing back half a pair is a bug generator in
+      clj; in cljw every index lands on a character boundary, so no string
+      operation can produce invalid text.
+      The interop methods follow the same model on purpose. A second,
+      UTF-16-unit view behind `.length` / `.charAt` / `.indexOf` /
+      `.substring` would make `(= (count s) (.length s))` false for the same
+      string and would mix two index spaces in one program: an index from
+      `.indexOf` fed to `subs` would land on the wrong character. One index
+      space for every string operation is the narrower and more defensible
+      claim; the interop names are kept for source compatibility, and the
+      ledger records that they are code-point based.
+      Ported JVM code is affected only where it does arithmetic on indices
+      against outside UTF-16 data (a JavaScript or Java peer's offsets, a
+      protocol counting UTF-16 units). docs/clojure_vs_clojurewasm.md gives
+      the porting guidance.
+    derives_from: 'F-011 read at the VALUE level (a string is a sequence of characters; the JVM storage encoding is not surface), plus D-217 (a String is Indexed by codepoint) and D-179 / O-060 (string seq is a UTF-8 byte-offset view over code points). No JVM, ADR-0059: there is no UTF-16 backing store to expose.'
+    pin: test/clj/suites/string_code_point_test.clj (every expression in the example, language and interop surfaces) + test/golden/cases/string_unicode.clj (count of a string holding 🌍, and (count "🌍") => 1).
