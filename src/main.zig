@@ -194,6 +194,7 @@ test {
     _ = @import("runtime/random.zig");
     _ = @import("runtime/regex/value.zig");
     _ = @import("runtime/regex/dfa.zig");
+    _ = @import("runtime/regex/many_groups_test.zig");
     _ = @import("runtime/time/instant.zig");
     _ = @import("runtime/time/instant_value.zig");
     _ = @import("runtime/time/duration_value.zig");

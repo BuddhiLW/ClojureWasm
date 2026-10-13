@@ -454,6 +454,10 @@ pub const Code = enum {
     /// catchable IllegalArgumentException (JVM's `PatternSyntaxException` is also
     /// an IllegalArgumentException), not an OOM that ends the process (INV-1).
     regex_pattern_too_large,
+    /// args: `.{ .max }` — the pattern declares more capturing groups than
+    /// `compile.MAX_CAPTURE_GROUPS`. A resource bound like
+    /// `regex_pattern_too_large`, so the same catchable `.value_error`.
+    regex_too_many_groups,
     /// args: `.{}` — a Matcher `group`/`start`/`end` query before any
     /// successful match op (JVM IllegalStateException; template mirrors the
     /// JVM message — Kind divergence is AD-007).
@@ -1752,6 +1756,11 @@ pub fn entry(comptime code: Code) Entry {
             .kind = .value_error,
             .phase = .eval,
             .template = "re-pattern: the regular expression is too large to compile",
+        },
+        .regex_too_many_groups => .{
+            .kind = .value_error,
+            .phase = .eval,
+            .template = "re-pattern: too many capturing groups (more than {[max]d})",
         },
         .matcher_not_matched => .{
             // clj: IllegalStateException "No match found" — a STATE error (the

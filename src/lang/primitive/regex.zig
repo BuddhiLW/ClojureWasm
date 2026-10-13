@@ -73,6 +73,7 @@ pub fn reFind(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation)
     const input = try char_sequence.textArg(rt, env, args[1], "__re-find", loc, &aw);
     const r = try coerceRegex(rt, args[0], loc, "__re-find");
     const result = (try regex_match.find(rt.gpa, r.program, input)) orelse return .nil_val;
+    defer result.deinit(rt.gpa);
     return try buildMatchResult(rt, r.program, input, result);
 }
 
@@ -86,12 +87,10 @@ pub fn buildMatchResult(rt: *Runtime, program: *const compile_mod.Program, input
     }
     var vec = vector_collection.empty();
     vec = try vector_collection.conj(rt, vec, try string_collection.alloc(rt, input[result.start..result.end]));
-    var g: u16 = 1;
+    var g: usize = 1;
     while (g <= program.capture_count) : (g += 1) {
-        const s = result.captures.slots[@as(usize, 2) * g];
-        const e = result.captures.slots[@as(usize, 2) * g + 1];
-        const gv = if (s >= 0 and e >= 0)
-            try string_collection.alloc(rt, input[@intCast(s)..@intCast(e)])
+        const gv = if (result.group(g)) |span|
+            try string_collection.alloc(rt, input[span.start..span.end])
         else
             Value.nil_val;
         vec = try vector_collection.conj(rt, vec, gv);
@@ -111,6 +110,7 @@ pub fn reMatches(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocati
     const input = try char_sequence.textArg(rt, env, args[1], "re-matches", loc, &aw);
     const r = try coerceRegex(rt, args[0], loc, "re-matches");
     const result = (try regex_match.matchFull(rt.gpa, r.program, input)) orelse return .nil_val;
+    defer result.deinit(rt.gpa);
     return try buildMatchResult(rt, r.program, input, result);
 }
 
@@ -130,6 +130,7 @@ pub fn reFindFrom(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocat
     const start_i = args[2].asInteger();
     if (start_i < 0 or start_i > input.len) return .nil_val;
     const result = (try regex_match.findFrom(rt.gpa, r.program, input, @intCast(start_i))) orelse return .nil_val;
+    defer result.deinit(rt.gpa);
     // PERF: D-386 (O-024) build `[match start end]` in ONE `fromSlice` alloc, not
     // three persistent-vector `conj` copies (re-seq calls this per match ×10000;
     // the 3-conj churn dominated regex_count's malloc profile). The match element
@@ -163,7 +164,10 @@ pub fn reFindAll(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocati
     // Phase 1: collect match bounds (plain structs, no GC Values) — reuses ONE
     // ThreadList pair across the whole scan (vs re-find-from's per-call pair).
     var bounds: std.ArrayList(regex_match.MatchResult) = .empty;
-    defer bounds.deinit(rt.gpa);
+    defer {
+        for (bounds.items) |m| m.deinit(rt.gpa);
+        bounds.deinit(rt.gpa);
+    }
     try regex_match.findAll(rt.gpa, r.program, input, &bounds);
     if (bounds.items.len == 0) return .nil_val; // (seq []) → nil
 
