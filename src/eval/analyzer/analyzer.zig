@@ -277,6 +277,15 @@ const SPECIAL_FORMS = std.StaticStringMap(SpecialFormKind).initComptime(.{
     .{ "__mut-fields*", .mut_fields },
 });
 
+/// The SPECIAL_FORMS entries that are clojure.core macros on the JVM, so a
+/// `clojure.core/`-qualified head (common in macro output and in code that
+/// guards against a local `defmacro`) must reach the same analyzer arm.
+const QUALIFIABLE_CORE_SPECIALS = std.StaticStringMap(SpecialFormKind).initComptime(.{
+    .{ "defmacro", .defmacro_form },
+    .{ "binding", .binding_form },
+    .{ "ns", .ns_form },
+});
+
 // --- Top-level entry ---
 
 /// Resolve a `::name` / `::alias/name` auto-resolved keyword (D-195). `::name`
@@ -991,6 +1000,19 @@ fn analyzeList(
             // former arity-1-field / arity-≥2-method split into one kind.
             if (head.name.len >= 2 and head.name[0] == '.' and items.len >= 2 and !std.mem.eql(u8, head.name, "..")) {
                 return try special_forms.analyzeInstanceMember(arena, rt, env, scope, head.name[1..], items[1], items[2..], form, macro_table, false);
+            }
+        }
+        // `(clojure.core/defmacro …)` (or via a `clojure.core` alias): the
+        // names cljw implements as analyzer special forms but mainline ships
+        // as clojure.core MACROS stay special when qualified. Their marker
+        // Vars have a nil root, so the macro path below would fail with
+        // "root binding is not callable". True JVM specials (`if`, `let*` …)
+        // are not clojure.core Vars and keep failing when qualified.
+        if (head.ns) |ns_head| {
+            if (QUALIFIABLE_CORE_SPECIALS.get(head.name)) |kind| {
+                const core = env.findNs("clojure.core");
+                if (core != null and env.findNsOrAlias(ns_head) == core)
+                    return analyzeSpecial(arena, rt, env, scope, kind, items, form, macro_table);
             }
         }
         // D-121 + ADR-0050: qualified head `(Class/method args...)` —
