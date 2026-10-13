@@ -186,29 +186,27 @@ pub fn count(tm_val: Value) u32 {
     return tm_val.decodePtr(*const TransientArrayMap).count;
 }
 
-/// True iff key `k` is present (both flat + hash modes). Powers
-/// `contains?` / the `get` lookup on a transient map.
-pub fn contains(tm_val: Value, k: Value) !bool {
+/// The STORED entry for `k` (both flat + hash modes), or null when absent.
+/// `contains` / `get` project it, as on the persistent map.
+pub fn entryAt(tm_val: Value, k: Value) !?map_mod.Entry {
     const tm = tm_val.decodePtr(*const TransientArrayMap);
-    if (!tm.overflow.isNil()) return map_mod.contains(tm.overflow, k); // hash mode
+    if (!tm.overflow.isNil()) return map_mod.entryAt(tm.overflow, k); // hash mode
     var i: u32 = 0;
     while (i < tm.count) : (i += 1) {
-        if (keyEq(tm.entries[2 * i], k)) return true;
+        if (keyEq(tm.entries[2 * i], k)) return .{ .key = tm.entries[2 * i], .val = tm.entries[2 * i + 1] };
     }
-    return false;
+    return null;
+}
+
+/// True iff key `k` is present. Powers `contains?` on a transient map.
+pub fn contains(tm_val: Value, k: Value) !bool {
+    return (try entryAt(tm_val, k)) != null;
 }
 
 /// Value for key `k`, or nil when absent (callers guard via `contains`
-/// for the not-found-vs-nil-value distinction, mirroring the persistent
-/// `getFn` path). Both flat + hash modes.
+/// for the not-found-vs-nil-value distinction).
 pub fn get(tm_val: Value, k: Value) !Value {
-    const tm = tm_val.decodePtr(*const TransientArrayMap);
-    if (!tm.overflow.isNil()) return map_mod.get(tm.overflow, k); // hash mode
-    var i: u32 = 0;
-    while (i < tm.count) : (i += 1) {
-        if (keyEq(tm.entries[2 * i], k)) return tm.entries[2 * i + 1];
-    }
-    return Value.nil_val;
+    return if (try entryAt(tm_val, k)) |e| e.val else Value.nil_val;
 }
 
 pub fn dissoc(rt: *Runtime, tm_val: Value, k: Value, loc: SourceLocation) !Value {

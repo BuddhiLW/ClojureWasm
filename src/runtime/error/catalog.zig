@@ -73,9 +73,11 @@ pub const Code = enum {
     /// rejection. Distinct from `feature_not_supported` (uncatchable), which is
     /// for well-FORMED code using something cljw does not implement.
     form_malformed,
-    integer_literal_invalid,
-    float_literal_invalid,
-    big_decimal_literal_invalid,
+    /// A digit-led token that matches no number shape (`12x`, `1/2/3`), or a
+    /// numeric literal whose digits do not parse (`09`, `2r3`). One code for
+    /// every literal kind, as clj LispReader: NumberFormatException
+    /// "Invalid number: <text>".
+    number_literal_invalid,
     string_unterminated,
     map_literal_arity_odd,
     literal_key_duplicate,
@@ -117,6 +119,12 @@ pub const Code = enum {
     /// loop* / recur arity exceeds the internal slot-index width.
     /// args: `.{ .form = "loop*"|"recur", .got = N, .max = 65535 }`
     arity_too_large,
+    /// A form exceeds a limit of the compiled bytecode format: 65535 constants
+    /// or call arguments, a branch longer than 32767 instructions. Catchable,
+    /// as clj's CompilerException for "Method code too large!", a limit clj
+    /// reaches far sooner (D-346).
+    /// args: `.{ .what = "constants"|"call arguments"|..., .max = N }`
+    form_too_large,
     namespace_unknown,
     static_member_unknown,
     static_method_unknown,
@@ -158,6 +166,7 @@ pub const Code = enum {
     catch_form_incomplete,
     catch_head_invalid,
     macro_return_not_data,
+    macro_return_class_unnamed,
     defmacro_name_not_symbol,
     defmacro_params_not_vector,
     defmacro_arity_invalid,
@@ -445,6 +454,10 @@ pub const Code = enum {
     /// catchable IllegalArgumentException (JVM's `PatternSyntaxException` is also
     /// an IllegalArgumentException), not an OOM that ends the process (INV-1).
     regex_pattern_too_large,
+    /// args: `.{ .max }` — the pattern declares more capturing groups than
+    /// `compile.MAX_CAPTURE_GROUPS`. A resource bound like
+    /// `regex_pattern_too_large`, so the same catchable `.value_error`.
+    regex_too_many_groups,
     /// args: `.{}` — a Matcher `group`/`start`/`end` query before any
     /// successful match op (JVM IllegalStateException; template mirrors the
     /// JVM message — Kind divergence is AD-007).
@@ -510,6 +523,11 @@ pub const Code = enum {
     /// tables, so without this check the call silently operates on whatever the
     /// callee happens to have at that index (ADR-0159 amendment 1).
     wasm_resource_foreign,
+    /// args: `.{}` — `wasm/resource-drop` on a resource whose component is a
+    /// single-module component (zwasm's `.single` variant), which carries no
+    /// resource table, so the host cannot run the drop. A structural property
+    /// of the component, not a guest trap (D-568, ADR-0159 amendment 1).
+    wasm_resource_no_table,
     /// args: `.{}` — `wasm/call`'s export-name argument was not a string.
     wasm_export_name_invalid,
     /// args: `.{ .name = "..." }` — `wasm/call` found no export of that name.
@@ -691,20 +709,10 @@ pub fn entry(comptime code: Code) Entry {
             // and echoing a megabyte of it into a message helps nobody.
             .template = "JSON error ({[reason]s})",
         },
-        .integer_literal_invalid => .{
+        .number_literal_invalid => .{
             .kind = .number_error,
             .phase = .parse,
-            .template = "Invalid integer literal '{[text]s}'",
-        },
-        .float_literal_invalid => .{
-            .kind = .number_error,
-            .phase = .parse,
-            .template = "Invalid float literal '{[text]s}'",
-        },
-        .big_decimal_literal_invalid => .{
-            .kind = .number_error,
-            .phase = .parse,
-            .template = "Invalid bigdec literal '{[text]s}M'",
+            .template = "Invalid number: {[text]s}",
         },
         .string_unterminated => .{
             .kind = .string_error,
@@ -895,6 +903,11 @@ pub fn entry(comptime code: Code) Entry {
             .phase = .analysis,
             .template = "{[form]s} arity {[got]d} exceeds the limit of 65535",
         },
+        .form_too_large => .{
+            .kind = .syntax_error,
+            .phase = .analysis,
+            .template = "Form too large to compile: more than {[max]d} {[what]s}",
+        },
         .namespace_unknown => .{
             .kind = .name_error,
             .phase = .analysis,
@@ -1024,6 +1037,11 @@ pub fn entry(comptime code: Code) Entry {
             .kind = .type_error,
             .phase = .macroexpand,
             .template = "macro return value of tag '{[tag]s}' cannot be re-analysed as a form",
+        },
+        .macro_return_class_unnamed => .{
+            .kind = .type_error,
+            .phase = .macroexpand,
+            .template = "macro returned class {[name]s}, which has no class-name symbol that resolves back to it, so it cannot be re-analysed as a form",
         },
         .defmacro_name_not_symbol => .{
             .kind = .syntax_error,
@@ -1739,6 +1757,11 @@ pub fn entry(comptime code: Code) Entry {
             .phase = .eval,
             .template = "re-pattern: the regular expression is too large to compile",
         },
+        .regex_too_many_groups => .{
+            .kind = .value_error,
+            .phase = .eval,
+            .template = "re-pattern: too many capturing groups (more than {[max]d})",
+        },
         .matcher_not_matched => .{
             // clj: IllegalStateException "No match found" — a STATE error (the
             // matcher has no current match), catchable as IllegalStateException.
@@ -1810,6 +1833,11 @@ pub fn entry(comptime code: Code) Entry {
             .kind = .value_error,
             .phase = .eval,
             .template = "wasm component: this resource handle belongs to a different component",
+        },
+        .wasm_resource_no_table => .{
+            .kind = .value_error,
+            .phase = .eval,
+            .template = "wasm/resource-drop: this component is a single core module with no resource table, so the host cannot drop its resources",
         },
         .wasm_export_name_invalid => .{
             .kind = .type_error,

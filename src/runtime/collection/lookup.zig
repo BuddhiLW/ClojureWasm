@@ -195,9 +195,9 @@ pub fn invoke(rt: *Runtime, env: *Env, callee: Value, args: []const Value, loc: 
             // lookupWithDefault fast-path (map.get) cannot see sets, so route
             // set receivers to the same membership test the set-as-fn arm uses.
             if (args[0].tag() == .hash_set)
-                return if (try set.contains(args[0], callee)) callee else default;
+                return (try set.get(args[0], callee)) orelse default;
             if (args[0].tag() == .sorted_set)
-                return if (try sorted.setContains(rt, env, args[0], callee, loc)) callee else default;
+                return (try sorted.setGet(rt, env, args[0], callee, loc)) orelse default;
             // A live transient is a first-class READ target (D-199), so the
             // keyword-as-fn path must see one too: `(:x (transient {:x 1}))` is
             // 1 and `(:x (transient #{:x}))` is :x in clj, where both used to be
@@ -212,7 +212,7 @@ pub fn invoke(rt: *Runtime, env: *Env, callee: Value, args: []const Value, loc: 
             }
             if (args[0].tag() == .transient_set) {
                 try transient_hash_set.ensureLive(args[0], "keyword lookup", loc);
-                return if (try transient_hash_set.contains(args[0], callee)) callee else default;
+                return (try transient_hash_set.get(args[0], callee)) orelse default;
             }
             return lookupWithDefault(args[0], callee, args.len == 2, default);
         },
@@ -228,13 +228,15 @@ pub fn invoke(rt: *Runtime, env: *Env, callee: Value, args: []const Value, loc: 
             if (try sorted.contains(rt, env, callee, args[0], loc)) return try sorted.get(rt, env, callee, args[0], loc);
             return if (args.len == 2) args[1] else Value.nil_val;
         },
+        // A set as fn answers its STORED element, like `get`: `(#{0.0} -0.0)`
+        // is 0.0 and `(#{1N} 1)` is 1N (clj PersistentHashSet.invoke → get).
         .hash_set => {
             if (args.len != 1) return arityError("set", args.len, 1, 1, loc);
-            return if (try set.contains(callee, args[0])) args[0] else Value.nil_val;
+            return (try set.get(callee, args[0])) orelse Value.nil_val;
         },
         .sorted_set => {
             if (args.len != 1) return arityError("sorted-set", args.len, 1, 1, loc);
-            return if (try sorted.setContains(rt, env, callee, args[0], loc)) args[0] else Value.nil_val;
+            return (try sorted.setGet(rt, env, callee, args[0], loc)) orelse Value.nil_val;
         },
         // A live transient is callable exactly like the persistent collection it
         // will become (the D-199 read-only surface, which `get`/`contains?`/
@@ -259,7 +261,7 @@ pub fn invoke(rt: *Runtime, env: *Env, callee: Value, args: []const Value, loc: 
             if (args.len < 1 or args.len > 2) return arityError("transient set", args.len, 1, 2, loc);
             try transient_hash_set.ensureLive(callee, "transient set", loc);
             const default = if (args.len == 2) args[1] else Value.nil_val;
-            return if (try transient_hash_set.contains(callee, args[0])) args[0] else default;
+            return (try transient_hash_set.get(callee, args[0])) orelse default;
         },
         .transient_vector => {
             if (args.len != 1) return arityError("transient vector", args.len, 1, 1, loc);

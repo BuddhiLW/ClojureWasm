@@ -25,6 +25,17 @@
   [& body]
   `(do ~@body))
 
+;; [CLJW-DEFMACRO-GUARD]: analyzeDefmacro now reads the name's reader meta
+;; behind the same `.map` guard analyzeDef uses. Reader meta on a defmacro name
+;; (keyword shorthand, tag shorthand, explicit map) still lands on the Var.
+(defmacro ^:no-doc ^{:added "t300"} guarded-meta-macro [] 1)
+
+(deftest defmacro-name-meta-guarded
+  (is (= 1 (guarded-meta-macro)) "macro still expands")
+  (is (true? (:no-doc (meta #'guarded-meta-macro))) "keyword shorthand meta")
+  (is (= "t300" (:added (meta #'guarded-meta-macro))) "map meta")
+  (is (true? (:macro (meta #'guarded-meta-macro))) "still a macro"))
+
 (defmacro ^:private hand-built
   "Same round trip without syntax-quote, so a failure cannot be blamed on the
    syntax-quote reader."

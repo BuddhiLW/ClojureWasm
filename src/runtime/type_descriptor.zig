@@ -304,68 +304,15 @@ pub const TypeDescriptor = struct {
     /// its `protocol_impls`. Unlike `protocol.satisfies` (which checks the
     /// `method_table`), this consults the declared-interface list, so it
     /// detects a zero-method MARKER protocol (`Sequential`) that has no
-    /// method entry (D-190 / ADR-0068). Shared by the printer's seq-print
-    /// discriminator and `sequential?` — one SSOT for both.
+    /// method entry (D-190 / ADR-0068). An exact-name check: interface
+    /// membership with clj's superinterface closure (`Indexed` is Counted) is
+    /// `class_name.implementsInterface`.
     pub fn declaresProtocol(self: *const TypeDescriptor, protocol_name: []const u8) bool {
         for (self.protocol_impls) |p| {
             if (std.mem.eql(u8, p, protocol_name)) return true;
         }
         if (self.parent) |par| return par.declaresProtocol(protocol_name);
         return false;
-    }
-
-    /// clj `RT.count` discriminator: true iff this descriptor declares `Counted`
-    /// or a Counted-extending `clojure.lang` interface (`Indexed` /
-    /// `IPersistentMap` / `IPersistentVector` / `IPersistentSet`). A Counted
-    /// type's `-count` is authoritative O(1); a type declaring only
-    /// `IPersistentCollection` / `ISeq` / `Seqable` is NOT Counted, so `count`
-    /// WALKS its seq instead of trusting `-count` — matching clj, which ignores
-    /// `IPersistentCollection.count()` unless the type is also `Counted`
-    /// (data.finger-tree's internal trees stub `(count [_])` but aren't Counted;
-    /// only its public `CountedDoubleList` declares `Counted`). The remap
-    /// records the DECLARED interface name verbatim (macro_transforms.zig's
-    /// trailing marker registration), so both bare (D-417) and `clojure.lang.`-
-    /// qualified spellings appear; check both. `defrecord` is Counted-by-nature
-    /// (field_count) and handled by the caller, not here.
-    pub fn isCounted(self: *const TypeDescriptor) bool {
-        const counted_family = [_][]const u8{
-            "Counted",              "Indexed",              "IPersistentMap",              "IPersistentVector",              "IPersistentSet",
-            "clojure.lang.Counted", "clojure.lang.Indexed", "clojure.lang.IPersistentMap", "clojure.lang.IPersistentVector", "clojure.lang.IPersistentSet",
-        };
-        for (counted_family) |name| {
-            if (self.declaresProtocol(name)) return true;
-        }
-        return false;
-    }
-
-    /// clj `RT.count` / `RT.countFrom` walk-eligibility: true iff this descriptor
-    /// declares `IPersistentCollection` or a `clojure.lang` interface that extends
-    /// it (`ISeq` / `IPersistentList` / `IPersistentStack` / `Associative` /
-    /// `IPersistentMap` / `IPersistentVector` / `IPersistentSet`). clj walks a
-    /// non-Counted collection's seq to count it, but a `Seqable`-ONLY type is NOT
-    /// an IPersistentCollection — clj throws `UnsupportedOperationException`
-    /// ("count not supported on this type"). So `count` walks only when this is
-    /// true; a Seqable-only deftype/reify errors instead of being silently walked.
-    /// Both bare (D-417) and `clojure.lang.`-qualified spellings are checked.
-    pub fn isPersistentCollection(self: *const TypeDescriptor) bool {
-        const coll_family = [_][]const u8{
-            "IPersistentCollection",              "ISeq",              "IPersistentList",              "IPersistentStack",              "Associative",              "IPersistentMap",              "IPersistentVector",              "IPersistentSet",
-            "clojure.lang.IPersistentCollection", "clojure.lang.ISeq", "clojure.lang.IPersistentList", "clojure.lang.IPersistentStack", "clojure.lang.Associative", "clojure.lang.IPersistentMap", "clojure.lang.IPersistentVector", "clojure.lang.IPersistentSet",
-        };
-        for (coll_family) |name| {
-            if (self.declaresProtocol(name)) return true;
-        }
-        return false;
-    }
-
-    /// True iff this descriptor declares `IPersistentMap` (bare D-417 or
-    /// `clojure.lang.`-qualified). clj `keys`/`vals` (RT.keys/RT.vals) require an
-    /// IPersistentMap (or java.util.Map) — a non-map type throws ClassCastException,
-    /// NOT a seq-derived key/val list. So `keys`/`vals` derive from a deftype/reify
-    /// ONLY when this holds (a defrecord, which IS an IPersistentMap, is handled by
-    /// its field path before this check).
-    pub fn isPersistentMap(self: *const TypeDescriptor) bool {
-        return self.declaresProtocol("IPersistentMap") or self.declaresProtocol("clojure.lang.IPersistentMap");
     }
 
     /// The defrecord/deftype declared/extmap partition chokepoint (ADR-0154):

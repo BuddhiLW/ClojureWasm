@@ -53,9 +53,7 @@ pub fn expandReplacement(
             if (g == 0) {
                 try out.appendSlice(rt.gc.infra, haystack[match.start..match.end]);
             } else if (g <= program.capture_count) {
-                const s = match.captures.slots[@as(usize, 2) * g];
-                const e = match.captures.slots[@as(usize, 2) * g + 1];
-                if (s >= 0 and e >= 0) try out.appendSlice(rt.gc.infra, haystack[@intCast(s)..@intCast(e)]);
+                if (match.group(g)) |span| try out.appendSlice(rt.gc.infra, haystack[span.start..span.end]);
             }
             continue;
         }
@@ -81,6 +79,7 @@ pub fn replaceString(
     var pos: u32 = 0;
     while (pos <= haystack.len) {
         const match = (try regex_match.findFrom(rt.gc.infra, program, haystack, pos)) orelse break;
+        defer match.deinit(rt.gc.infra);
         try out.appendSlice(rt.gc.infra, haystack[pos..match.start]);
         try expandReplacement(rt, &out, template, match, program, haystack);
         // Advance past the match. An empty match advances by one byte to
@@ -126,6 +125,7 @@ pub fn splitToVector(
         while (true) {
             if (limit > 0 and nsplits >= limit - 1) break;
             const match = (try regex_match.findFrom(rt.gpa, program, haystack, cursor)) orelse break;
+            defer match.deinit(rt.gpa);
             if (index == 0 and match.start == 0 and match.end == 0) {
                 if (match.end >= haystack.len) break;
                 cursor = match.end + 1;

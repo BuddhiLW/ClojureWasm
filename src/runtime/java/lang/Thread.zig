@@ -9,7 +9,7 @@
 //! Statics: `sleep` / `currentThread` / `yield` / `onSpinWait` +
 //! MIN/NORM/MAX_PRIORITY fields. Instances: `(Thread. f)` /
 //! `(Thread. f name)` ctor + start / join(0|ms) / isAlive / getName /
-//! setName / setDaemon / isDaemon on the neutral `runtime/thread.zig`
+//! setName / setDaemon / isDaemon / getStackTrace on the neutral `runtime/thread.zig`
 //! impl (future.zig's worker discipline; non-daemon join-at-exit
 //! registry — JVM-faithful main wait). The interrupt family is
 //! deliberately absent (flag-only interrupt cannot wake a sleeping
@@ -29,6 +29,7 @@ const host_instance = @import("../../host_instance.zig");
 const string_mod = @import("../../collection/string.zig");
 const thread_impl = @import("../../thread.zig");
 const eval_budget = @import("../../concurrency/eval_budget.zig");
+const java_array = @import("../../collection/java_array.zig");
 
 /// Implements `(Thread/sleep millis)` — block the calling thread for `millis`
 /// milliseconds, return nil. JVM reference: java.lang.Thread#sleep(long). A
@@ -178,6 +179,19 @@ fn isDaemonFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation)
     return Value.initBoolean(thread_impl.isDaemon(args[0]));
 }
 
+/// `(.getStackTrace t)`: an EMPTY array. cljw has no JVM
+/// StackTraceElement (ADR-0059), so the honest answer is "no host frames".
+/// JVM-legal: Thread#getStackTrace may return a zero-length array when the
+/// VM has no trace for the thread. Callers that walk it (test.check's
+/// `clojure.test.check.clojure-test.assertions/file-and-line*`) then take
+/// their empty-trace branch instead of raising on a missing member.
+fn getStackTraceFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
+    _ = env;
+    try error_catalog.checkArity(".getStackTrace", args, 1, loc);
+    try expectThread(args, ".getStackTrace", loc);
+    return java_array.make(rt, 0, Value.nil_val);
+}
+
 /// `(Thread/yield)` — a scheduling hint (JVM-exact semantics: a hint).
 fn yieldFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
     _ = rt;
@@ -219,6 +233,7 @@ fn initThread(td: *type_descriptor.TypeDescriptor, gpa: std.mem.Allocator) anyer
         .{ "setName", &setNameFn },
         .{ "setDaemon", &setDaemonFn },
         .{ "isDaemon", &isDaemonFn },
+        .{ "getStackTrace", &getStackTraceFn },
     });
 }
 

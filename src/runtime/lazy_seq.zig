@@ -425,6 +425,14 @@ test "force: concurrent first-force invokes the thunk at most once (D-046, ADR-0
 
     const Worker = struct {
         fn run(rt: *Runtime, e: *env_mod.Env, lazy: Value) void {
+            // D-566: a thread that forces is a mutator, so it runs as a
+            // registered worker (the shape future/agent workers have). The
+            // mock thunk allocates nothing, so the alloc assert does not
+            // depend on this; a real thunk would.
+            var tx: ?*anyopaque = null;
+            var ctx = root_set.workerContext(&tx);
+            root_set.registerThread(&ctx) catch return;
+            defer root_set.unregisterThread(&ctx);
             while (!Mock.start.load(.acquire)) std.atomic.spinLoopHint();
             _ = force(rt, e, lazy, seqable.noloc) catch unreachable;
         }

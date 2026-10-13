@@ -300,7 +300,7 @@ fn findAlias(cfg: parse.DepsConfig, name: []const u8) ?parse.Alias {
 /// `-main` / script / exec-fn that reads `*command-line-args*` sees the trailing
 /// args (D-310). It sets the var ROOT rather than `binding`: cljw evals
 /// form-by-form, so a `binding` could not span a multi-form script.
-fn writeClArgsSetter(w: *std.Io.Writer, args: []const []const u8) !void {
+pub fn writeClArgsSetter(w: *std.Io.Writer, args: []const []const u8) !void {
     try w.writeAll("(clojure.core/alter-var-root (var clojure.core/*command-line-args*) (clojure.core/constantly ");
     if (args.len == 0) {
         try w.writeAll("nil");

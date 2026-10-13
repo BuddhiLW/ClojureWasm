@@ -649,7 +649,6 @@ fn isFalsy(v: Value) bool {
 /// after the sort.
 const NaturalSortCtx = struct {
     rt: *Runtime,
-    env: *Env,
     loc: SourceLocation,
     err: ?anyerror = null,
 };
@@ -657,19 +656,8 @@ const NaturalSortCtx = struct {
 fn naturalLessThan(opaque_ctx: *anyopaque, a: Value, b: Value) bool {
     const ctx: *NaturalSortCtx = @ptrCast(@alignCast(opaque_ctx));
     if (ctx.err != null) return false;
-    // A deftype declaring java.lang.Comparable supplies its own ordering
-    // (instaparse's AutoFlattenSeq): consult Comparable/-compare-to before
-    // the native valueCompare — the same split the compare primitive applies.
-    if (a.tag() == .typed_instance or a.tag() == .reified_instance) {
-        var cs: dispatch.CallSite = .{};
-        const maybe = dispatch.dispatchOrNull(ctx.rt, ctx.env, &cs, a, "Comparable", "-compare-to", &.{ a, b }, ctx.loc) catch |e| {
-            ctx.err = e;
-            return false;
-        };
-        if (maybe) |r| {
-            if (r.tag() == .integer) return r.asInteger() < 0;
-        }
-    }
+    // A Comparable deftype/reify (instaparse's AutoFlattenSeq) orders itself
+    // inside valueCompare (compare.zig comparableOrder).
     const ord = compare_mod.valueCompare(ctx.rt, a, b, ctx.loc) catch |e| {
         ctx.err = e;
         return false;
@@ -753,6 +741,7 @@ fn sortNaturalFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocati
     if (args.len != 1) {
         return error_catalog.raise(.arity_not_expected, loc, .{ .fn_name = "-sort-natural", .expected = 1, .got = args.len });
     }
+    _ = env;
     const v = args[0];
     const n = vector_mod.count(v);
     if (n <= 1) return v; // 0/1 elements are already sorted
@@ -760,7 +749,7 @@ fn sortNaturalFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocati
     defer rt.gpa.free(buf);
     var i: u32 = 0;
     while (i < n) : (i += 1) buf[i] = vector_mod.nth(v, i);
-    var ctx: NaturalSortCtx = .{ .rt = rt, .env = env, .loc = loc };
+    var ctx: NaturalSortCtx = .{ .rt = rt, .loc = loc };
     value_sort.sort(buf, @ptrCast(&ctx), &naturalLessThan);
     if (ctx.err) |e| return e;
     return vector_mod.fromSlice(rt, buf);

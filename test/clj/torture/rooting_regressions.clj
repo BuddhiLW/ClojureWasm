@@ -40,4 +40,13 @@
            (vec (subseq (into (sorted-map) (map vector (range 20) (range 20))) > 15)))
         "sorted_subseq")
 
-(println "PASS rooting_regressions_allocation: 12 assertions")
+;; java.io.File .list/.listFiles: the result vector sat in a Zig local across
+;; each child string/File alloc, so a collection swept it and the harness's
+;; suite discovery saw 0 files ([CLJW-ALLOC-HARNESS]).
+(let [expected (count (.list (java.io.File. "test/clj/torture")))]
+  (assert (pos? expected) "file_list_nonempty")
+  (assert (= expected (count (eval '(.list (java.io.File. "test/clj/torture"))))) "file_list_rooted")
+  (assert (= expected (count (eval '(.listFiles (java.io.File. "test/clj/torture")))))
+          "file_list_files_rooted"))
+
+(println "PASS rooting_regressions_allocation: 15 assertions")

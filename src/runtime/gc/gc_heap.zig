@@ -274,9 +274,17 @@ pub const GcHeap = struct {
     /// (the allocator API has no `io` arg). Uncontended until real
     /// threads land (`future` / `pmap`).
     gc_mutex: std.Io.Mutex = .init,
+    /// The heap's owning main thread (D-566, ADR-0175 Consequences): the OS
+    /// thread that ran `init`. Production builds the Runtime (and so this heap)
+    /// on the `runtime_thread.runMain` entry thread, the one unregistered
+    /// mutator the STW collect walks directly. Every other thread must be a
+    /// registered worker before it allocates; `allocSized` asserts it.
+    owner_thread_id: std.Thread.Id,
 
     pub fn init(infra: std.mem.Allocator) GcHeap {
-        var g = GcHeap{ .infra = infra };
+        const owner = root_set_mod.currentThreadId();
+        root_set_mod.noteHeapOwner(owner);
+        var g = GcHeap{ .infra = infra, .owner_thread_id = owner };
         g.free_pools.initMap(infra);
         // D-519 (ADR-0164): CLJW_GC_THRESHOLD_MB tunes the auto-collect floor — the
         // wall-clock GO gate raises it until every won fastest-script bench holds.
@@ -442,8 +450,19 @@ pub const GcHeap = struct {
         return self.allocSized(T, @sizeOf(T) + tail_bytes);
     }
 
+    /// True iff the calling thread may mutate this heap (D-566): it is a
+    /// registered GC worker, or it is the heap's owning main thread. Anything
+    /// else is an unregistered mutator, invisible to the STW rendezvous and the
+    /// root walk (the ADR-0175 corruption class).
+    pub fn mutatorAllowed(self: *const GcHeap) bool {
+        return root_set_mod.is_registered_worker or root_set_mod.currentThreadId() == self.owner_thread_id;
+    }
+
     fn allocSized(self: *GcHeap, comptime T: type, size: usize) !*T {
         comptime assertHeaderAtOffsetZero(T);
+        // D-566: an unregistered, non-owner allocator is a caught bug here
+        // instead of a rare GP fault in a peer's root walk.
+        std.debug.assert(self.mutatorAllowed());
         // Worker safe point (ADR-0090 Alt B / D-244 #4): if a peer is collecting,
         // park HERE — BEFORE contending on `gc_mutex` — so the collector counts
         // us parked. A thread that blocked on `gc_mutex` first would never be
@@ -708,6 +727,11 @@ test "concurrent alloc through the global heap lock is race-free (ADR-0090 §2)"
 
     const Worker = struct {
         fn run(g: *GcHeap) void {
+            // D-566: a non-owner thread allocates only as a registered worker.
+            var tx: ?*anyopaque = null;
+            var ctx = root_set_mod.workerContext(&tx);
+            root_set_mod.registerThread(&ctx) catch return;
+            defer root_set_mod.unregisterThread(&ctx);
             var i: usize = 0;
             while (i < per_thread) : (i += 1) {
                 const c = g.alloc(Cell) catch return;
@@ -723,6 +747,38 @@ test "concurrent alloc through the global heap lock is race-free (ADR-0090 §2)"
     // Every alloc landed exactly once — no lost append, no double-count.
     try testing.expectEqual(@as(usize, n_threads * per_thread), gc.allocations.items.len);
     try testing.expectEqual(@as(u64, n_threads * per_thread), gc.stats.alloc_count);
+}
+
+test "mutatorAllowed: the stamping thread and registered workers may alloc, a foreign unregistered thread may not (D-566)" {
+    if (@import("builtin").single_threaded) return error.SkipZigTest;
+    var gc = GcHeap.init(testing.allocator);
+    defer gc.deinit();
+    // The thread that built the heap is its owning main thread.
+    try testing.expect(gc.mutatorAllowed());
+    try testing.expect(root_set_mod.analysisMutatorAllowed());
+
+    const Probe = struct {
+        var unregistered: bool = true;
+        var unregistered_analysis: bool = true;
+        var registered: bool = false;
+        fn run(g: *const GcHeap) void {
+            unregistered = g.mutatorAllowed();
+            unregistered_analysis = root_set_mod.analysisMutatorAllowed();
+            var tx: ?*anyopaque = null;
+            var ctx = root_set_mod.workerContext(&tx);
+            root_set_mod.registerThread(&ctx) catch return;
+            defer root_set_mod.unregisterThread(&ctx);
+            registered = g.mutatorAllowed();
+        }
+    };
+    Probe.unregistered = true;
+    Probe.unregistered_analysis = true;
+    Probe.registered = false;
+    const t = try std.Thread.spawn(.{}, Probe.run, .{&gc});
+    t.join();
+    try testing.expect(!Probe.unregistered);
+    try testing.expect(!Probe.unregistered_analysis);
+    try testing.expect(Probe.registered);
 }
 
 test "GcHeap.alloc returned pointer aliases the live-list HeapHeader" {

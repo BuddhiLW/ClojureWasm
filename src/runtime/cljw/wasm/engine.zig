@@ -192,6 +192,31 @@ pub const RunResult = struct {
 /// load/instantiate/preopen failure returns a Zig error. F-006: `alloc` is the
 /// layer-1 backing allocator (the cljw GC heap is never handed to zwasm).
 pub fn run(alloc: std.mem.Allocator, io: std.Io, bytes: []const u8, opts: RunOpts) !RunResult {
+    return runSource(alloc, io, .{ .bytes = bytes }, opts);
+}
+
+/// A WASI command validated + JIT-compiled once (zwasm `PreparedWasi`), for
+/// `runPrepared`. Owns a copy of the bytes; `deinit` frees it and the code.
+pub const Prepared = zwasm.cli.run_prepared.PreparedWasi;
+
+/// Validate + compile `bytes` for repeated `runPrepared` under the `.auto`
+/// engine `run` uses. A module `run` would reject fails here instead.
+pub fn prepare(alloc: std.mem.Allocator, bytes: []const u8) !Prepared {
+    return Prepared.init(alloc, bytes, .auto);
+}
+
+/// `run` against a `Prepared` module: instantiate + run only. Every `opts`
+/// field applies per call exactly as in `run`, and the result is the same.
+pub fn runPrepared(alloc: std.mem.Allocator, io: std.Io, prepared: *const Prepared, opts: RunOpts) !RunResult {
+    return runSource(alloc, io, .{ .prepared = prepared }, opts);
+}
+
+const RunSource = union(enum) {
+    bytes: []const u8,
+    prepared: *const Prepared,
+};
+
+fn runSource(alloc: std.mem.Allocator, io: std.Io, source: RunSource, opts: RunOpts) !RunResult {
     var out_list: std.ArrayList(u8) = .empty;
     errdefer out_list.deinit(alloc);
     var err_list: std.ArrayList(u8) = .empty;
@@ -217,27 +242,31 @@ pub fn run(alloc: std.mem.Allocator, io: std.Io, bytes: []const u8, opts: RunOpt
         .timeout_ms = (opts.timeout_ms orelse Budget{ .limited = default_timeout_ms }).toOptional(),
     };
 
-    const exit = try zwasm.cli.run.runWasmCapturedFull(
-        alloc,
-        io,
-        bytes,
-        opts.argv,
-        &out_list,
-        &err_list,
-        // zwasm 2.6.0 (#257) widened fd 0 from `?[]const u8` to a `StdinSource`
-        // union so a core module can INHERIT the host's stdin. cljw's
-        // `(wasm/run … {:stdin "…"})` is a byte slice by contract, so the two
-        // pre-2.6 states map straight across and behaviour is unchanged.
-        // `.inherit` is a new capability, not wired: handing an untrusted guest
-        // the host's terminal is a sandbox decision, not a build fix.
-        if (opts.stdin) |b| .{ .bytes = b } else .none,
-        null, // invoke_name → _start / main / first export
-        opts.preopens,
-        opts.env_keys,
-        opts.env_vals,
-        null, // invoke_args
-        limits,
-    );
+    // zwasm 2.6.0 (#257) widened fd 0 from `?[]const u8` to a `StdinSource`
+    // union so a core module can INHERIT the host's stdin. cljw's
+    // `(wasm/run … {:stdin "…"})` is a byte slice by contract, so the two
+    // pre-2.6 states map straight across and behaviour is unchanged.
+    // `.inherit` is a new capability, not wired: handing an untrusted guest
+    // the host's terminal is a sandbox decision, not a build fix.
+    const stdin: zwasm.cli.run.StdinSource = if (opts.stdin) |b| .{ .bytes = b } else .none;
+    const exit = switch (source) {
+        .bytes => |bytes| try zwasm.cli.run.runWasmCapturedFull(
+            alloc,
+            io,
+            bytes,
+            opts.argv,
+            &out_list,
+            &err_list,
+            stdin,
+            null, // invoke_name → _start / main / first export
+            opts.preopens,
+            opts.env_keys,
+            opts.env_vals,
+            null, // invoke_args
+            limits,
+        ),
+        .prepared => |p| try p.run(alloc, io, opts.argv, &out_list, &err_list, stdin, opts.preopens, opts.env_keys, opts.env_vals, limits),
+    };
 
     return .{
         .out = try out_list.toOwnedSlice(alloc),

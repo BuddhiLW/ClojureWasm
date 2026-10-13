@@ -45,6 +45,7 @@
 //! auto-registry in cw v1.
 
 const std = @import("std");
+const builtin = @import("builtin");
 const testing = std.testing;
 
 const value_mod = @import("../value/value.zig");
@@ -236,6 +237,9 @@ pub fn endAnalysisPersist(frame: *AnalysisFrame, gc: *GcHeap) void {
 /// are filtered here so the registry holds only real heap objects.
 pub fn pushAnalysisRoot(v: Value) !void {
     if (v.heapHeader() == null) return;
+    // D-566: an analysis root pushed by an unregistered non-owner thread is
+    // invisible to a peer's collect, the same hazard `GcHeap.allocSized` asserts.
+    std.debug.assert(analysisMutatorAllowed());
     // Safe-build tripwire: a constant producer outside any bracket is an
     // unrooted-window bug at the NEXT collect — fail loud at the source.
     std.debug.assert(analysis_frame_head != null);
@@ -358,6 +362,34 @@ var registered_count: std.atomic.Value(u32) = .init(0);
 /// the complete root set. The worker-initiated multi-thread collect is the
 /// dormant D-244 #4 path, validated separately under user awareness.
 pub threadlocal var is_registered_worker: bool = false;
+
+/// The calling OS thread's id; `0` on single-threaded targets, where every
+/// caller is the one main thread (wasm32-wasi, ADR-0193).
+pub fn currentThreadId() std.Thread.Id {
+    if (comptime builtin.single_threaded) return 0;
+    return std.Thread.getCurrentId();
+}
+
+/// Owner of the most recently initialised `GcHeap` (D-566). `pushAnalysisRoot`
+/// has no heap in hand, so it checks against this stamp instead of a
+/// per-heap field. Every heap in a process is built on its main thread (the
+/// `runMain` entry thread in production, the test runner's thread in unit
+/// tests), so the latest stamp names that thread.
+var heap_owner_thread_id: std.atomic.Value(std.Thread.Id) = .init(0);
+
+/// Stamp the owning main thread; called by `GcHeap.init`. A registered worker
+/// building a heap is already allowed everywhere and must not steal the stamp
+/// from the main thread.
+pub fn noteHeapOwner(id: std.Thread.Id) void {
+    if (is_registered_worker) return;
+    heap_owner_thread_id.store(id, .release);
+}
+
+/// True iff the calling thread may push analysis roots: a registered worker or
+/// the heaps' owning main thread (D-566, see `GcHeap.mutatorAllowed`).
+pub fn analysisMutatorAllowed() bool {
+    return is_registered_worker or currentThreadId() == heap_owner_thread_id.load(.acquire);
+}
 
 /// Live worker-thread accounting for the PROCESS-EXIT teardown guard
 /// (D-548(a) / ADR-0176). The spawner increments BEFORE `Thread.spawn`

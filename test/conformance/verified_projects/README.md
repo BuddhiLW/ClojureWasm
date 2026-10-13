@@ -78,5 +78,5 @@ demand and at **Phase boundaries**. The per-commit deps.edn *mechanism* test
   entry (the committed, re-runnable proof).
 - **memory `20260911004835-63674963`** (stage exits are mechanical predicates) — the campaign driver; this
   directory is its committed-artifact form.
-- **`.dev/decisions/0101_deps_git_fetch.md`** (+ amendment 1) — the deps.edn
+- **ADR-0101** (+ amendment 1) — the deps.edn
   git-fetch + `:mvn`-skip mechanism these projects exercise.

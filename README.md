@@ -255,8 +255,26 @@ Real libraries that load and run today (medley, tools.cli, data.json,
 core.cache, malli, hiccup, honeysql, test.check, ...) are tracked in
 [`docs/works/ladder.md`](./docs/works/ladder.md).
 
-What does not: Maven artifacts are not fetched (`:mvn/version` is skipped,
-clone and point a `:local/root` at it), `core.async` is not bundled, and JVM
+Maven `:mvn/version` coordinates resolve Clojure source entries in cached JARs
+from `$M2_REPO` (default `~/.m2/repository`). Missing artifacts are downloaded
+from Clojars, then Maven Central via HTTPS (`curl`); extracted source roots are
+cached under `$CLJW_HOME/mvn` (default `~/.cljw/mvn`). Compile/runtime POM
+coordinates are traversed; `org.clojure/clojure` and JARs with no Clojure
+sources are omitted. Remote JARs and POMs must match their repository's SHA-1
+sidecar before installation; a missing or mismatched checksum fails closed.
+`CLJW_MVN_REPOS` overrides the ordered repository bases as comma-separated URLs
+(default Clojars, then Maven Central; `file://` is useful for hermetic tests).
+Artifacts already in `$M2_REPO` are trusted. `curl` and `unzip` are required on the host. POM traversal
+supports direct compile/runtime dependencies with literal versions or local
+properties; it does not implement BOM imports, inherited dependencyManagement,
+classifiers, exclusions, or Maven version mediation. JVM-only jars provide no
+source path (native Java classes remain unavailable). For example:
+
+```clojure
+{:deps {metosin/malli {:mvn/version "0.20.2"}}}
+```
+
+What does not: `core.async` is not bundled, and JVM
 interop that exists only to reach the JVM (`gen-class`, `proxy` over arbitrary
 classes, reflection, `import` of arbitrary Java classes) is out of scope by
 design. The full picture, including the intentional divergences, is

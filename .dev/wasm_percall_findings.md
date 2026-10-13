@@ -69,7 +69,7 @@ measurement of this axis from here on.
 ## Two independent causes, both upstream, both already documented there
 
 zwasm ADR-0209 (`.dev/decisions/0209_percall_latency_bench.md` in the zwasm
-tree; clone at `~/PP/referential-projects/zwasm`) names both. Do not re-report
+tree; upstream <https://github.com/zwasm/zwasm>; local clone at `~/PP/zwasm`) names both. Do not re-report
 them upstream.
 
 - **zwasm/D-584** dominates on Linux. `computeStackLimit` runs on every JIT

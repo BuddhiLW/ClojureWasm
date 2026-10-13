@@ -93,6 +93,7 @@ test {
     _ = @import("app/render_error.zig");
     _ = @import("runtime/value/value.zig");
     _ = @import("runtime/introspect.zig");
+    _ = @import("app/deps/mvn_fetch.zig");
     _ = @import("runtime/error/info.zig");
     _ = @import("runtime/error/catalog.zig");
     _ = @import("runtime/error/print.zig");
@@ -149,11 +150,13 @@ test {
     _ = @import("runtime/numeric/big_int.zig");
     _ = @import("runtime/lazy_seq.zig");
     _ = @import("runtime/seqable.zig");
+    _ = @import("runtime/char_sequence.zig");
     _ = @import("eval/form.zig");
     _ = @import("eval/tokenizer.zig");
     _ = @import("eval/reader.zig");
     _ = @import("eval/node.zig");
     _ = @import("eval/analyzer/analyzer.zig");
+    _ = @import("eval/analyzer/class_form.zig");
     _ = @import("eval/macro_dispatch.zig");
     _ = @import("eval/backend/tree_walk.zig");
     _ = @import("eval/backend/vm.zig");
@@ -177,6 +180,7 @@ test {
     _ = @import("lang/primitive/protocol.zig");
     _ = @import("lang/primitive.zig");
     _ = @import("lang/macro_transforms.zig");
+    _ = @import("lang/binding_names.zig");
     _ = @import("lang/bootstrap.zig");
     // Phase 6 impl files that ship unit tests but have no
     // in-graph referrer yet (Clojure-ns peer / Java-surface
@@ -190,6 +194,7 @@ test {
     _ = @import("runtime/random.zig");
     _ = @import("runtime/regex/value.zig");
     _ = @import("runtime/regex/dfa.zig");
+    _ = @import("runtime/regex/many_groups_test.zig");
     _ = @import("runtime/time/instant.zig");
     _ = @import("runtime/time/instant_value.zig");
     _ = @import("runtime/time/duration_value.zig");

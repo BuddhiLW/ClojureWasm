@@ -31,6 +31,8 @@ const error_mod = @import("../../runtime/error/info.zig");
 const error_catalog = @import("../../runtime/error/catalog.zig");
 const SourceLocation = error_mod.SourceLocation;
 const dispatch = @import("../../runtime/dispatch.zig");
+const class_name = @import("../../runtime/class_name.zig");
+const char_sequence = @import("../../runtime/char_sequence.zig");
 const lookup = @import("../../runtime/collection/lookup.zig");
 const tagged_literal_mod = @import("../../runtime/tagged_literal.zig");
 
@@ -480,7 +482,10 @@ pub fn getFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) 
             }
             break :blk default;
         },
-        .hash_set => if (try set.contains(coll, k)) k else default,
+        // A set answers its STORED element (clj PersistentHashSet.get), not
+        // the probe: `(get #{1N} 1)` is 1N, `(get #{0.0} -0.0)` is 0.0.
+        .hash_set => (try set.get(coll, k)) orelse default,
+        .sorted_set => (try sorted.setGet(rt, env, coll, k, loc)) orelse default,
         .vector, .sub_vector => blk: {
             if (k.tag() != .integer) break :blk default;
             const idx = k.asInteger();
@@ -535,7 +540,7 @@ pub fn getFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) 
         },
         .transient_set => blk: {
             try transient_hash_set.ensureLive(coll, "get", loc);
-            break :blk if (try transient_hash_set.contains(coll, k)) k else default;
+            break :blk (try transient_hash_set.get(coll, k)) orelse default;
         },
         // Declared field → ILookup -lookup slow-path → default. Shared
         // with the keyword-as-fn `(:k rec)` path so the two agree (D-089).
@@ -554,6 +559,33 @@ pub fn getFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) 
         // (D-089 row 8.6 historic semantic preserved).
         else => try lookup.lookupDispatch(rt, env, coll, k, args.len == 3, default, loc),
     };
+}
+
+// --- find (entryAt) ---
+
+/// `(cljw.internal/__entry-at m k)`: the backing of clojure.core/find and
+/// `.entryAt`: the map entry for k as STORED in m (clj Associative.entryAt),
+/// or nil when absent. The entry carries the map's own key object, so
+/// `(find {1N :a} 1)` is [1N :a] and `(find {0.0 :z} -0.0)` is [0.0 :z].
+/// Every other receiver (vector, record, deftype, transient map) keeps the
+/// contains?/get composition, whose entry carries the PROBE: that is clj's
+/// own answer there, `ATransientMap.entryAt` builds its entry from the probe,
+/// so `(find (transient {1N :a}) 1)` is [1 :a] on the JVM.
+pub fn entryAtFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
+    try error_catalog.checkArity("find", args, 2, loc);
+    const coll = args[0];
+    const k = args[1];
+    const found: ?map.Entry = switch (coll.tag()) {
+        .nil => return .nil_val,
+        .array_map, .hash_map => try map.entryAt(coll, k),
+        .sorted_map => try sorted.entryAt(rt, env, coll, k, loc),
+        else => blk: {
+            if ((try containsQFn(rt, env, args, loc)) != .true_val) break :blk null;
+            break :blk .{ .key = k, .val = try getFn(rt, env, args, loc) };
+        },
+    };
+    const e = found orelse return .nil_val;
+    return map_entry.make(rt, e.key, e.val);
 }
 
 // --- nth ---
@@ -743,6 +775,10 @@ pub fn nthFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) 
             }
             var cs: dispatch.CallSite = .{};
             const slow_args = [_]Value{ coll, i_val };
+            if (try dispatch.dispatchOrNull(rt, env, &cs, coll, INDEXED_FQCN, "-nth", &slow_args, loc)) |r| break :blk r;
+            // clj RT.nthFrom: a CharSequence that is not Indexed answers its
+            // charAt (java.lang.StringBuilder, instaparse's Segment).
+            if (try char_sequence.nthOrNull(rt, env, coll, i_val, if (has_default) default else null, loc)) |r| break :blk r;
             break :blk try dispatch.dispatch(rt, env, &cs, coll, INDEXED_FQCN, "-nth", &slow_args, loc);
         },
     };
@@ -1102,7 +1138,7 @@ pub fn keysFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation)
             // D-285: a non-record map deftype/reify (priority-map etc.). clj keys/vals
             // require an IPersistentMap (else ClassCastException) — gate on it, then try
             // the optional -keys impl, else derive from seq: keys = (map key (seq m)).
-            if (desc.isPersistentMap()) {
+            if (class_name.implementsInterface(coll, "IPersistentMap")) {
                 var cs: dispatch.CallSite = .{};
                 if (try dispatch.dispatchOrNull(rt, env, &cs, coll, IPM_FQCN, "-keys", args, loc)) |v| break :blk v;
                 break :blk try seqDeriveEntryColumn(rt, env, coll, 0, "keys", loc);
@@ -1166,7 +1202,7 @@ pub fn valsFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation)
             // D-285: non-record map deftype/reify — gate on IPersistentMap (clj vals
             // requires it), then -vals impl, else derive from seq (vals = (map val
             // (seq m))). col 1 = val of each 2-vector entry.
-            if (desc.isPersistentMap()) {
+            if (class_name.implementsInterface(coll, "IPersistentMap")) {
                 var cs: dispatch.CallSite = .{};
                 if (try dispatch.dispatchOrNull(rt, env, &cs, coll, IPM_FQCN, "-vals", args, loc)) |v| break :blk v;
                 break :blk try seqDeriveEntryColumn(rt, env, coll, 1, "vals", loc);
@@ -1333,6 +1369,7 @@ const ENTRIES = [_]Entry{
     .{ .name = "disj", .f = &disjFn },
     .{ .name = "contains?", .f = &containsQFn },
     .{ .name = "get", .f = &getFn },
+    .{ .name = "__entry-at", .f = &entryAtFn },
     .{ .name = "nth", .f = &nthFn },
     .{ .name = "assoc", .f = &assocFn },
     .{ .name = "dissoc", .f = &dissocFn },

@@ -53,8 +53,39 @@ runs the unit tests, the dual-backend differential oracle, the linter, and the
 one end-to-end step you touched — tens of seconds instead of ~20 minutes. Run
 the full gate before you open the PR.
 
-Branch from `main` as `develop/<short-slug>`, open a PR, and let CI run. CI
-runs the same gate on macOS and Linux; a green CI is what merges.
+Branch from `staging` as `develop/<short-slug>` and open the PR against
+`staging`; `main` only moves by a release PR from `staging`. CI runs the same
+gate on macOS and Linux; a green CI is what merges.
+
+### Tools the gate needs, and tools it does not
+
+The gate needs Zig 0.16.0, `bb` (Babashka), `python3`, `yq` and `rg`. The Nix
+dev shell (`flake.nix`) provides all of them; CI installs the same set.
+
+Some files in the repo describe the maintainer's own tooling. You can skip it:
+
+- **`clj` (the Clojure CLI).** The differential-oracle tools
+  (`bb scripts/clj_diff_sweep.clj`, `scripts/lib_conformance.sh`) run real
+  Clojure through it, resolved from `PATH`. The gate does not call it. Install
+  it from <https://clojure.org/guides/install_clojure> only if you want to
+  compare against the JVM yourself, which is also how you fill in the
+  divergence issue template.
+- **`md-table-align`.** A commit hook uses it to report unaligned Markdown
+  tables. The hook is advisory and exits silently when the tool is absent.
+- **Reference clones under `~/Documents/OSS`.** `.dev/reference_clones.md`
+  lists upstream sources (JVM Clojure, Babashka and others) to read during a
+  design survey, each with its `git clone` command. A fresh clone has none,
+  the gate step that checks them skips, and the e2e steps that read one skip
+  when it is absent. To let a Claude Code session read a clone outside the
+  repo, add it to `permissions.additionalDirectories` in your own
+  `.claude/settings.local.json` (gitignored).
+- **`private/`.** Gitignored per-developer scratch. Older notes, ledgers and
+  test headers cite `private/notes/*.md`; those files never ship, and nothing
+  the gate runs reads them. Where one held something load-bearing, it was
+  promoted into a tracked file (for example
+  `test/diff/clj_corpus/COVERAGE.md`).
+- **`.claude/`.** Settings and skills for the maintainer's Claude Code loop.
+  Chat language is whatever your client uses; no hook forces one.
 
 ### What we do **not** ask of you
 
@@ -82,6 +113,19 @@ not yours.
 - For a `clojure.core` behaviour change, **a line in the relevant corpus under
   `test/diff/clj_corpus/`**, so the behaviour stays checked against real `clj`
   from then on.
+
+### When CI runs
+
+CI (`.github/workflows/ci.yml`) triggers on `pull_request`, on a push to
+`main`, and on manual dispatch. A push to `staging` gets no remote CI by
+design: `staging` is the integration branch, and its machine-checked verdict
+is the PR from `staging` to `main`, which runs the same full gate. Run
+`scripts/ci_gate.sh` locally before pushing to `staging`; that is the only
+gate those commits get until the PR.
+
+Every push to a branch with an open PR fires `pull_request: synchronize` and
+restarts that PR's CI from the beginning. Once a PR is green and you intend to
+merge it, stop pushing to its branch.
 
 A note on provenance: much of this codebase is machine-written under human
 review and direction. Contributions from people are very welcome and are

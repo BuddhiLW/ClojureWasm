@@ -1937,7 +1937,7 @@ finding has been applied in place in this document**:
   `.dev/debt.yaml` D-386/D-450; ADR-0131/0132/0151/0172/0184;
   `project_facts.md` F-004/F-005/F-006/F-011/F-012.
 - `~/Documents/MyProducts/zwasm`: README.md, CHANGELOG.md (v2.4.1,
-  2026-08-04), `.dev/decisions/0200_jit_backed_embedding_api.md`,
+  2026-08-04), ADR-0200,
   docs/benchmarks.md (M4 Pro, hyperfine, ReleaseFast).
 - `~/Documents/MyProducts/ClojureWit`: README.md, doc/roadmap.md,
   doc/status.md (2026-07-30), doc/design/0001–0030 (esp. 0002 S0

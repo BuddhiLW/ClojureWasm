@@ -24,4 +24,7 @@ pub fn installAll(env: *Env) !void {
     // never resolves zwasm (F-001). The comptime-false branch is not analysed,
     // so `wasm/surface.zig` (and its `@import("zwasm")`) is absent by default.
     if (build_options.wasm) try @import("wasm/surface.zig").register(env);
+    // C FFI surface (ADR-0202): only where `build.zig` set `ffi` (x86_64 /
+    // aarch64 on Linux or macOS, `-Dffi` not false). Absent on wasm targets.
+    if (build_options.ffi) try @import("ffi/surface.zig").register(env);
 }

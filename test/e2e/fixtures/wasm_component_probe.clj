@@ -102,3 +102,10 @@
     (catch Throwable _ "CAUGHT")))
 
 (println "DONE")
+
+;; --- happy: component-invoke also takes a load-component handle (it used to
+;;     refuse it as "the module path must be a string") and reuses it ---
+(let [c (wasm/load-component greet)
+      r (wasm/component-invoke c "greet" "handle")]
+  (assert (= "Hello, handle!" r) (pr-str r))
+  (println "PASS component-invoke-accepts-handle"))

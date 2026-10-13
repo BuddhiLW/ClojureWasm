@@ -170,10 +170,23 @@ pub fn makeProtocolFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceL
 /// native impl, etc.). Bumps `rt.protocol_generation` via
 /// `extendTypeWithImpls` so live CallSite caches invalidate on
 /// next dispatch. Returns the target Value (args[0]) unchanged so
-/// macros can chain.
+/// macros can chain. The type now declares `proto` (`protocol_impls`).
+///
+/// `(rt/__extend-type! td-ref proto impls-vec :routed)` installs the same
+/// rows WITHOUT declaring `proto`: the section is a protocol_remap routing
+/// target (a Counted `count` installed as IPersistentCollection/-count), and
+/// the type implements only the interfaces it named.
 pub fn extendType(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
     _ = env;
-    try error_catalog.checkArity("__extend-type!", args, 3, loc);
+    try error_catalog.checkArityRange("__extend-type!", args, 3, 4, loc);
+    const routed = args.len == 4;
+    if (routed and !(args[3].tag() == .keyword and std.mem.eql(u8, keyword_mod.asKeyword(args[3]).name, "routed"))) {
+        return error_catalog.raise(.type_arg_invalid, loc, .{
+            .fn_name = "__extend-type!",
+            .expected = ":routed",
+            .actual = @tagName(args[3].tag()),
+        });
+    }
     // `(extend-type nil P ...)` extends a protocol to the nil type (clj
     // nil-punning — a common idiom, e.g. data.finger-tree's empty-meter
     // defaults). nil resolves below to the per-Tag nil descriptor, the same
@@ -293,8 +306,8 @@ pub fn extendType(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocat
     // Record the protocol in the declared-interface list so a zero-method
     // MARKER protocol (`Sequential`, no method_table entry) is still
     // detectable, and `protocol_impls` stays an honest "implements P" set
-    // (D-190 / ADR-0068).
-    try protocol_mod.addProtocolImpl(rt, td.?, proto_name);
+    // (D-190 / ADR-0068). A routed section declares nothing.
+    if (!routed) try protocol_mod.addProtocolImpl(rt, td.?, proto_name);
     return args[0];
 }
 
@@ -1064,6 +1077,51 @@ test "__extend-type! rejects a non-type_descriptor target" {
     try testing.expectError(
         error.TypeError,
         extendType(&fix.rt, &fix.env, &[_]Value{ Value.initInteger(7), proto_val, impls }, .{}),
+    );
+}
+
+test "__extend-type! :routed installs the rows without declaring the protocol" {
+    var fix: TestFixture = undefined;
+    try fix.init(testing.allocator);
+    defer fix.deinit();
+
+    const proto_name = try symbol_mod.intern(&fix.rt, null, "P");
+    var methods_vec = vector_mod.empty();
+    methods_vec = try vector_mod.conj(&fix.rt, methods_vec, try symbol_mod.intern(&fix.rt, null, "m"));
+    const proto_val = try makeProtocol(&fix.rt, &fix.env, &[_]Value{ proto_name, methods_vec }, .{});
+
+    const td = try fix.rt.gc.infra.create(td_mod.TypeDescriptor);
+    defer fix.rt.gc.infra.destroy(td);
+    td.* = .{
+        .fqcn = "user/Foo",
+        .kind = .deftype,
+        .field_layout = null,
+        .protocol_impls = &.{},
+        .method_table = &.{},
+        .parent = null,
+        .meta = Value.nil_val,
+    };
+    const td_ref = try td_mod.makeTypeDescriptorRef(&fix.rt, td);
+
+    var impls = vector_mod.empty();
+    impls = try vector_mod.conj(&fix.rt, impls, try buildImplPair(&fix.rt, "m", Value.initBuiltinFn(&extendTypeMockBuiltin)));
+    const routed = try keyword_mod.intern(&fix.rt, null, "routed");
+    _ = try extendType(&fix.rt, &fix.env, &[_]Value{ td_ref, proto_val, impls, routed }, .{});
+    defer {
+        for (td.method_table) |entry| fix.rt.gc.infra.free(entry.method_name);
+        fix.rt.gc.infra.free(td.method_table);
+    }
+
+    // The method dispatches under P, but the type does not declare P.
+    try testing.expectEqual(@as(usize, 1), td.method_table.len);
+    try testing.expectEqualStrings("P", td.method_table[0].protocol_name);
+    try testing.expectEqual(@as(usize, 0), td.protocol_impls.len);
+
+    // Any other fourth argument is a type error.
+    const other = try keyword_mod.intern(&fix.rt, null, "declared");
+    try testing.expectError(
+        error.TypeError,
+        extendType(&fix.rt, &fix.env, &[_]Value{ td_ref, proto_val, impls, other }, .{}),
     );
 }
 

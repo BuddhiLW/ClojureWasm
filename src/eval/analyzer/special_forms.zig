@@ -215,12 +215,27 @@ pub fn analyzeDot(
     // A `.-field` style leading-dash member reads a field only.
     const field_only = member_name.len >= 1 and member_name[0] == '-';
     const resolved_member = if (field_only) member_name[1..] else member_name;
-    // Static when the receiver is a symbol naming a class with this method.
-    if (recv.data == .symbol and recv.data.symbol.ns == null) {
-        if (resolveJavaSurface(rt, env, recv.data.symbol.name)) |td| {
-            if (td.lookupMethod(null, resolved_member) != null) {
-                return analyzeStaticMethodCall(arena, rt, env, scope, td, resolved_member, arg_forms, form, macro_table);
-            }
+    // Static access when the receiver is a (non-local) symbol naming a class:
+    // JVM `(. Class member)` / `(. Class (method args…))` is exactly the
+    // `(Class/member args…)` static form. Lower to that form so the one
+    // qualified-head path serves both spellings — static methods, zero-arg
+    // static field reads (`(. Math PI)`), and the AD-008 deferred rewrite for
+    // an unmodelled `clojure.lang.*` member (the ns still loads).
+    if (recv.data == .symbol and recv.data.symbol.ns == null and
+        !(scope != null and scope.?.lookup(recv.data.symbol.name) != null))
+    {
+        const cls = recv.data.symbol.name;
+        const static_hit = if (resolveJavaSurface(rt, env, cls)) |td|
+            (!field_only and td.lookupMethod(null, resolved_member) != null) or
+                (arg_forms.len == 0 and td.lookupStaticField(resolved_member) != null)
+        else
+            false;
+        if (static_hit or analyzer_mod.isDeferredHostNs(cls)) {
+            const call_items = try arena.alloc(Form, arg_forms.len + 1);
+            call_items[0] = .{ .data = .{ .symbol = .{ .ns = cls, .name = resolved_member } }, .location = member_form.location };
+            @memcpy(call_items[1..], arg_forms);
+            const call_form: Form = .{ .data = .{ .list = call_items }, .location = form.location };
+            return analyzer_mod.analyze(arena, rt, env, scope, call_form, macro_table);
         }
     }
     return analyzeInstanceMember(arena, rt, env, scope, resolved_member, recv, arg_forms, form, macro_table, field_only);
@@ -493,7 +508,11 @@ pub fn analyzeDefmacro(
     const doc_key: Form = .{ .data = .{ .keyword = .{ .name = "doc" } }, .location = form.location };
     {
         var meta: form_mod.MapBuilder = .{};
-        if (items[1].meta) |mf| try meta.merge(arena, mf.data.map);
+        // Guarded like analyzeDef: `.meta` is a Form, and reading `.data.map`
+        // off a non-map variant is illegal union access (a ReleaseSafe panic).
+        if (items[1].meta) |mf| {
+            if (mf.data == .map) try meta.merge(arena, mf.data.map);
+        }
         try meta.put(arena, arglists_key, .{ .data = .{ .list = arglists_inner }, .location = form.location });
         if (doc_form) |d| try meta.put(arena, doc_key, d);
         if (attr_form) |a| try meta.merge(arena, a.data.map);
@@ -508,7 +527,11 @@ pub fn analyzeDefmacro(
     const macro_meta_expr: ?*const Node = blk: {
         const src_loc = items[1].location;
         var meta: form_mod.MapBuilder = .{};
-        if (items[1].meta) |mf| try meta.merge(arena, mf.data.map);
+        // Guarded like analyzeDef: `.meta` is a Form, and reading `.data.map`
+        // off a non-map variant is illegal union access (a ReleaseSafe panic).
+        if (items[1].meta) |mf| {
+            if (mf.data == .map) try meta.merge(arena, mf.data.map);
+        }
         // Synthesized arglists are DATA — quoted, like clj's defn/defmacro.
         const agq = try arena.alloc(Form, 2);
         agq[0] = macro_dispatch.makeSymbol("quote", form.location);

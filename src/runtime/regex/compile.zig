@@ -73,6 +73,14 @@ pub const REPEAT_INF: u16 = std.math.maxInt(u16);
 /// untrusted *input*; this guards the compile side against untrusted *patterns*.
 pub const MAX_PROGRAM_INSTS: usize = 100_000;
 
+/// Upper bound on a pattern's capturing groups. The matcher sizes its
+/// capture slots per program (`match.zig:slotCount`), so this is a resource
+/// guard, not an encoding limit: each group costs 2 i32 slots per live thread,
+/// and a thread list holds at most one thread per instruction. 1024 groups is
+/// far beyond any real pattern (Java has no fixed limit) while bounding the
+/// slot slab of an untrusted `(re-pattern …)`; over it, `TooManyGroups`.
+pub const MAX_CAPTURE_GROUPS: u16 = 1024;
+
 pub const Node = union(enum) {
     /// A single literal byte (e.g. `a`).
     lit: u8,
@@ -213,10 +221,19 @@ pub const CompileError = error{
     /// Pattern source uses a feature that is recognised but not
     /// implemented: named groups, lookaround, Unicode category
     /// `\\p{L}` / script names, the `(?x)` extended / `(?m)`-only
-    /// mid-pattern flag forms, more than 8 capture groups, and an
-    /// escaped range endpoint inside `[...]`. Per
-    /// `no_op_stub_forbidden`, the error is explicit, not silent.
+    /// mid-pattern flag forms, and an escaped range endpoint inside
+    /// `[...]`. Per `no_op_stub_forbidden`, the error is explicit, not
+    /// silent.
     NotImplemented,
+
+    /// A backreference `\1`..`\9` / `\k<name>`. Valid Java, permanently
+    /// declined (AD-060, the RE2 posture): it needs a backtracking engine,
+    /// which ADR-0031's linear-time Pike-NFA invariant rules out.
+    Backreference,
+
+    /// The pattern declares more than `MAX_CAPTURE_GROUPS` capturing groups.
+    /// A resource bound (like `PatternTooLarge`), not a missing feature.
+    TooManyGroups,
 
     /// Parser-level syntax error: stray metacharacter, dangling
     /// quantifier, etc. Replaces JVM's `PatternSyntaxException`
@@ -799,8 +816,8 @@ const Parser = struct {
                         if (!std.ascii.isAlphanumeric(g)) return CompileError.UnexpectedToken;
                     }
                     const gname = self.src[name_start .. self.pos - 1];
+                    if (self.group_count >= MAX_CAPTURE_GROUPS) return CompileError.TooManyGroups;
                     self.group_count += 1;
-                    if (self.group_count >= 8) return CompileError.NotImplemented; // MAX_SLOTS_INLINE/2
                     // Java forbids duplicate names.
                     for (self.names.items) |existing| {
                         if (std.mem.eql(u8, existing.name, gname)) return CompileError.UnexpectedToken;
@@ -831,9 +848,9 @@ const Parser = struct {
                     }
                 }
             } else {
+                if (self.group_count >= MAX_CAPTURE_GROUPS) return CompileError.TooManyGroups;
                 self.group_count += 1;
                 idx = self.group_count;
-                if (idx >= 8) return CompileError.NotImplemented; // MAX_SLOTS_INLINE/2
             }
             // DOTALL / MULTILINE are parse-time (the `.` bitmap and `^`/`$`
             // anchor variants are built during the child parse), so set them for
@@ -1139,11 +1156,12 @@ const Parser = struct {
             'Z' => .{ .anchor = .input_end_final },
             // Backreferences are recognised and REJECTED: they need a
             // backtracking engine, which ADR-0031's non-backtracking invariant
-            // (the RE2 posture — RE2 rejects them too) rules out. NotImplemented
+            // (the RE2 posture — RE2 rejects them too) rules out. Backreference
             // (not InvalidEscape) so the raise stays the uncatchable
-            // unsupported-feature signal, distinct from a malformed pattern.
-            '1', '2', '3', '4', '5', '6', '7', '8', '9' => CompileError.NotImplemented,
-            'k' => CompileError.NotImplemented,
+            // unsupported-feature signal, distinct from a malformed pattern,
+            // and names the construct instead of a generic "unsupported".
+            '1', '2', '3', '4', '5', '6', '7', '8', '9' => CompileError.Backreference,
+            'k' => CompileError.Backreference,
             // POSIX named classes `\p{Alpha}` / negated `\P{Alpha}` (ASCII —
             // Java's POSIX `\p{…}` set is ASCII by definition, so exact parity).
             // Routed through here so they also work inside `[…]` (parseCharClass
@@ -1837,7 +1855,8 @@ test "compile rejects unsupported metas / stray quantifier" {
     try testing.expectError(CompileError.NotImplemented, compile(testing.allocator, "{", .{}));
     // Backreferences: recognised and DECLINED (AD-060, RE2 posture) — the
     // unsupported signal, NOT a syntax error.
-    try testing.expectError(CompileError.NotImplemented, compile(testing.allocator, "(a)\\1", .{}));
+    try testing.expectError(CompileError.Backreference, compile(testing.allocator, "(a)\\1", .{}));
+    try testing.expectError(CompileError.Backreference, compile(testing.allocator, "(?<n>a)\\k<n>", .{}));
     // Lone trailing backslash: parseEscape sees end-of-input.
     try testing.expectError(CompileError.InvalidEscape, compile(testing.allocator, "\\", .{}));
     // Unclosed character class.

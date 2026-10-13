@@ -66,6 +66,7 @@ clojure.core/-fuse-descriptor
 clojure.core/-fused-reduce
 clojure.core/-global-hierarchy
 clojure.core/-invoke
+clojure.core/-key
 clojure.core/-keys
 clojure.core/-kv-reduce
 clojure.core/-length
@@ -97,6 +98,7 @@ clojure.core/-tset-contains?
 clojure.core/-tx-seq-pump
 clojure.core/-tx-seq-run
 clojure.core/-update-in-idx
+clojure.core/-val
 clojure.core/-vals
 clojure.core/-with-meta
 clojure.core/-without
@@ -111,6 +113,7 @@ clojure.core/IEditableCollection
 clojure.core/IFn
 clojure.core/IKVReduce
 clojure.core/ILookup
+clojure.core/IMapEntry
 clojure.core/IObj
 clojure.core/IPending
 clojure.core/IPersistentCollection
@@ -167,15 +170,12 @@ clojure.test/*testing-contexts*
 clojure.test/*testing-vars*
 clojure.test/are
 clojure.test/assert-expr
-clojure.test/deftest
 clojure.test/do-report
 clojure.test/function?
 clojure.test/inc-report
 clojure.test/inc-report-counter
-clojure.test/is
 clojure.test/print-contexts
 clojure.test/report
-clojure.test/testing
 clojure.test/testing-contexts-str
 clojure.test/testing-vars-str
 clojure.test/try-expr

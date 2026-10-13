@@ -77,6 +77,16 @@ grep -q "^DONE$" <<<"$rd_out" || fail "resource drop fixture did not complete:
 $rd_out"
 echo "PASS resource-lifecycle -> own-handle wrapper + drop + use-after-drop trap + with-resource"
 
+# --- D-568: a resource from a single-module component has no resource table ---
+# zwasm's `.single` variant cannot drop a resource; the error must name that
+# structural condition, not report a guest trap.
+nt_out="$("$BIN" test/e2e/fixtures/wasm_resource_no_table_probe.clj 2>&1)" \
+  || fail "resource no-table fixture exited non-zero:
+$nt_out"
+grep -q "PASS resource-drop-no-table" <<<"$nt_out" || fail "missing: PASS resource-drop-no-table
+$nt_out"
+echo "PASS resource-drop-no-table -> single-module drop names the missing resource table"
+
 # --- ADR-0135 A2 (D-404 Impl E): a BARE component name resolves via the CLASSPATH ---
 # `(:require ["greet_component.wasm" :as g])` with `-cp test/e2e/fixtures/wasm` — the
 # bare name (no `./` or `/`) is searched on the classpath, like a `.clj` lib. The

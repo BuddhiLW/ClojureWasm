@@ -148,6 +148,22 @@ pub fn dispatch(
             }
         }
     }
+    // clj: every defrecord implements clojure.lang.IRecord, so an
+    // `(extend-protocol P clojure.lang.IRecord …)` impl (registered on the
+    // IRecord class descriptor) serves any record with no impl of its own.
+    // Like an interface impl on the JVM it outranks the Object default.
+    if (receiver.tag() == .typed_instance and
+        receiver.decodePtr(*const td_mod.TypedInstance).descriptor.kind == .defrecord)
+    {
+        if (rt.class_descriptors.get("IRecord")) |rec_td| {
+            if (rec_td.lookupMethod(protocol_name, method_name)) |me| {
+                if (me.method_val.tag() != .nil) {
+                    const vt = rt.vtable orelse return error.NoVTable;
+                    return try vt.callFn(rt, env, me.method_val, args, loc);
+                }
+            }
+        }
+    }
     // clj: `(extend-protocol P Object …)` is a UNIVERSAL default — after a
     // per-type miss, consult the Object descriptor (where the Object extension
     // registered). nil is excluded: clj nil is not an Object, so a type extends

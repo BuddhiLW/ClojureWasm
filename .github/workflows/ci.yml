@@ -7,6 +7,8 @@
 # launcher.
 #
 # Triggers: pull_request (any target) + push to `main` + manual dispatch.
+# A push to `staging` runs nothing here on purpose: the staging→main PR is its
+# gate (see .github/CONTRIBUTING.md "When CI runs").
 # The gate provisions pinned Zig 0.16.0 and Babashka; python3 is preinstalled
 # on GitHub runners. `zig build -Dwasm` fetches the embedded zwasm engine +
 # the zlinter dev-dep from git over the network.
@@ -72,6 +74,12 @@ jobs:
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           ref: ${{ github.sha }}
+          # scripts/check_changelog_reachability.sh lists release tags with
+          # `git tag --merged HEAD`, which needs both the tags and the history
+          # that connects them to HEAD. A depth-1 clone (even with fetch-tags)
+          # reaches no tag, so the step would report "no release tag" and pass.
+          fetch-depth: 0
+          fetch-tags: true
 
       - name: Cache Zig 0.16.0
         id: cache-zig

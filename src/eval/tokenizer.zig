@@ -34,6 +34,9 @@ pub const TokenKind = enum(u8) {
     /// `1/3` — rational literal. Token text holds the full `num/den`
     /// digit pair; the reader splits on `/` before parsing each side.
     ratio_literal,
+    /// A digit-led run that is not a number (`12x`, `1/2/3`, `4/-2`). Token
+    /// text is the whole run up to the delimiter; the reader rejects it.
+    number_invalid,
     string,
     /// `\a` / `\newline` / `\uXXXX` / `\oNNN` — character literal. Token text
     /// includes the leading `\`; the reader decodes the body to a codepoint.
@@ -246,7 +249,21 @@ pub const Tokenizer = struct {
         return self.makeToken(.keyword, start, start_line, start_col);
     }
 
+    /// A number token runs to the next delimiter, as clj's LispReader.readNumber
+    /// does: scan the longest numeric shape, and if a symbol constituent still
+    /// follows (`12x`, `1/2/3`, `4/-2`, `1.5.3`) consume the whole run and emit
+    /// `.number_invalid`, which the reader rejects as `Invalid number: <text>`.
     fn readNumber(self: *Tokenizer, start: u32, start_line: u32, start_col: u16) Token {
+        const kind = self.scanNumber();
+        if (self.pos < self.source.len and isNumberChar(self.source[self.pos])) {
+            while (self.pos < self.source.len and isNumberChar(self.source[self.pos])) self.advance();
+            return self.makeToken(.number_invalid, start, start_line, start_col);
+        }
+        return self.makeToken(kind, start, start_line, start_col);
+    }
+
+    /// Advance over the longest numeric literal shape at `pos` and classify it.
+    fn scanNumber(self: *Tokenizer) TokenKind {
         var is_float = false;
 
         if (self.pos < self.source.len and (self.source[self.pos] == '+' or self.source[self.pos] == '-')) {
@@ -260,7 +277,12 @@ pub const Tokenizer = struct {
             self.advance();
             self.advance();
             while (self.pos < self.source.len and isHexDigit(self.source[self.pos])) self.advance();
-            return self.makeToken(.integer, start, start_line, start_col);
+            // clj's int pattern takes the `N` suffix on every radix form: `0xFFN` is 255N.
+            if (self.pos < self.source.len and self.source[self.pos] == 'N') {
+                self.advance();
+                return .big_int_literal;
+            }
+            return .integer;
         }
 
         while (self.pos < self.source.len and isDigit(self.source[self.pos])) self.advance();
@@ -268,14 +290,14 @@ pub const Tokenizer = struct {
         // Radix literal: `<base>r<digits>` (e.g. 2r1010, 16rFF, 36rZ). The
         // leading decimal digits are the base; `r`/`R` introduces the mantissa
         // in that base (digits 0-9a-zA-Z). Only when an alphanumeric mantissa
-        // digit follows — `2r` alone falls through to symbol-split.
+        // digit follows — `2r` alone is an invalid number token.
         if (self.pos + 1 < self.source.len and
             (self.source[self.pos] == 'r' or self.source[self.pos] == 'R') and
             isAlphanumeric(self.source[self.pos + 1]))
         {
             self.advance(); // 'r' / 'R'
             while (self.pos < self.source.len and isAlphanumeric(self.source[self.pos])) self.advance();
-            return self.makeToken(.integer, start, start_line, start_col);
+            return .integer;
         }
 
         if (self.pos < self.source.len and self.source[self.pos] == '.') {
@@ -296,29 +318,29 @@ pub const Tokenizer = struct {
         // Phase 14 row 14.4 gap (b): Ratio literal `1/3`. Only valid
         // when the numerator was a plain integer (no dot / exp) and
         // the `/` is followed by at least one digit. Anything else
-        // (`1/foo`) falls through to the integer/symbol split.
+        // (`1/foo`) is an invalid number token.
         if (!is_float and self.pos + 1 < self.source.len and
             self.source[self.pos] == '/' and isDigit(self.source[self.pos + 1]))
         {
             self.advance(); // consume '/'
             while (self.pos < self.source.len and isDigit(self.source[self.pos])) self.advance();
-            return self.makeToken(.ratio_literal, start, start_line, start_col);
+            return .ratio_literal;
         }
 
         // Phase 5.10.d: BigInt `N` and BigDecimal `M` suffixes get
         // their own token kinds so the reader can parse them via
         // std.math.big.int.Managed.setString (lossless) instead of
         // i64 / f64 parse (lossy on overflow).
-        if (self.pos < self.source.len and self.source[self.pos] == 'N') {
+        if (!is_float and self.pos < self.source.len and self.source[self.pos] == 'N') {
             self.advance();
-            return self.makeToken(.big_int_literal, start, start_line, start_col);
+            return .big_int_literal;
         }
         if (self.pos < self.source.len and self.source[self.pos] == 'M') {
             self.advance();
-            return self.makeToken(.big_decimal_literal, start, start_line, start_col);
+            return .big_decimal_literal;
         }
 
-        return self.makeToken(if (is_float) .float else .integer, start, start_line, start_col);
+        return if (is_float) .float else .integer;
     }
 
     fn readSymbol(self: *Tokenizer, start: u32, start_line: u32, start_col: u16) Token {
@@ -486,6 +508,12 @@ fn isTerminator(c: u8) bool {
 
 fn isSymbolChar(c: u8) bool {
     return !isTerminator(c) and c > ' ';
+}
+
+/// clj LispReader.readNumber ends a number at whitespace or ANY macro char,
+/// so unlike a symbol, `#`, `'` and `%` also end it: `1#` is 1 then `#`.
+fn isNumberChar(c: u8) bool {
+    return isSymbolChar(c) and c != '#' and c != '\'' and c != '%';
 }
 
 fn isSymbolStart(c: u8) bool {
@@ -706,4 +734,24 @@ test "@ ^ backtick ~ end a symbol, keyword or char token; ' and # do not" {
     try testing.expectEqual(TokenKind.deref, c.next().kind);
     try testing.expectEqualStrings("b", c.next().text(c.source));
     try testing.expectEqualStrings("\\@", c.next().text(c.source));
+}
+
+test "a number token runs to the delimiter; a non-number run is number_invalid" {
+    const bad = [_][]const u8{ "12x", "1.5x", "1/2x", "1/2/3", "4/-2", "12N3", "1.5Mx", "1.5.3", "2r", "0x1g", "+12x", "1.5N" };
+    for (bad) |src| {
+        var t = Tokenizer.init(src);
+        const tok = t.next();
+        try testing.expectEqual(TokenKind.number_invalid, tok.kind);
+        try testing.expectEqualStrings(src, tok.text(src));
+        try testing.expectEqual(TokenKind.eof, t.next().kind);
+    }
+}
+
+test "a number token ends at a macro char, even ones a symbol keeps" {
+    var t = Tokenizer.init("1#'%");
+    try testing.expectEqual(TokenKind.integer, t.next().kind);
+    var u = Tokenizer.init("0xFFN 1(");
+    try testing.expectEqual(TokenKind.big_int_literal, u.next().kind);
+    try testing.expectEqual(TokenKind.integer, u.next().kind);
+    try testing.expectEqual(TokenKind.lparen, u.next().kind);
 }
