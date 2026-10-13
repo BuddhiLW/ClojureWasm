@@ -43,6 +43,14 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
   `(wasm/clear-cache!)` drops every cached module and returns how many there
   were.
 
+- **Strings indexed by code point are now a recorded divergence (AD-076).**
+  Behaviour is unchanged: `count`, `subs`, `nth`, `seq` and the interop
+  methods `.length`, `.charAt`, `.indexOf` and `.substring` count a character
+  outside the BMP as one position, where clj counts its UTF-16 surrogate pair
+  as two (`(count "🌍")` is 1 in cljw, 2 in clj). The rationale and porting
+  guidance are in `docs/clojure_vs_clojurewasm.md`, and
+  `test/clj/suites/string_code_point_test.clj` pins the answers (#1).
+
 ### Fixed
 
 - **A number token runs to the next delimiter and is rejected whole, as in
