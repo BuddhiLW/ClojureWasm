@@ -159,6 +159,8 @@ const clojure_surfaces = [_]type{
     @import("../clojure/lang/LazilyPersistentVector.zig"),
     @import("../clojure/lang/PersistentArrayMap.zig"),
     @import("../clojure/lang/PersistentList.zig"),
+    // core.logic mints lvar ids with `(. clojure.lang.RT (nextID))`.
+    @import("../clojure/lang/RT.zig"),
 };
 
 /// Walk every enumerated surface's `___HOST_EXTENSION` declaration,

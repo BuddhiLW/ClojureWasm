@@ -80,6 +80,10 @@ const SEQUENTIAL_TAGS = [_]Tag{ .vector, .sub_vector, .map_entry, .list, .cons, 
 /// persistent maps / sets / vectors, the map entry and the transients (all
 /// invocable as lookups). NOT list / seq / queue.
 const IFN_TAGS = [_]Tag{ .fn_val, .builtin_fn, .multi_fn, .protocol_fn, .keyword, .symbol, .var_ref, .vector, .sub_vector, .map_entry, .array_map, .hash_map, .hash_set, .sorted_map, .sorted_set, .transient_vector, .transient_map, .transient_set };
+/// clojure.lang.Fn: the marker every compiled `fn` implements (AFunction),
+/// i.e. the three fn tags `(class f)` reports as `Fn` (D-337). NOT multi_fn
+/// (clj's MultiFn extends AFn, not AFunction), not the invocable collections.
+const FN_TAGS = [_]Tag{ .fn_val, .builtin_fn, .protocol_fn };
 /// Number — the full numeric tower (mirrors `number?` / `(instance? Number x)`):
 /// inline Long/Double + heap BigInt/Ratio/BigDecimal. (Was `{integer, float}`;
 /// widened with ADR-0128 so `isInstance("Number")` IS `number?` and the macro's
@@ -205,6 +209,7 @@ pub const Entry = struct { name: []const u8, tags: []const Tag };
 /// `tagsFor`). Co-membership names share a `tags` constant.
 pub const TABLE = [_]Entry{
     .{ .name = "IFn", .tags = &IFN_TAGS },
+    .{ .name = "Fn", .tags = &FN_TAGS },
     .{ .name = "Number", .tags = &NUMBER_TAGS },
     .{ .name = "IPersistentMap", .tags = &MAP_TAGS },
     .{ .name = "Map", .tags = &MAP_TAGS },
@@ -254,6 +259,12 @@ pub const TABLE = [_]Entry{
     // Closeable — no native cljw implementor (host resources only), like SortedMap;
     // resolves as an instance? class arg, matches only host descriptors.
     .{ .name = "Closeable", .tags = &NO_NATIVE_TAGS },
+    // clojure.lang.IRecord — every defrecord, no native value (class_name's
+    // RECORD_INTERFACES answers instance?). Recognised so the symbol resolves
+    // as a class value and `(extend-protocol P clojure.lang.IRecord …)` (as
+    // core.logic does) lands on its class descriptor, which protocol dispatch
+    // consults for a record receiver.
+    .{ .name = "IRecord", .tags = &NO_NATIVE_TAGS },
     // D-480 completion: the remaining recognized markers.
     // Serializable (near-everything but fns-yes / refs-no / transients-no) is
     // deferred — broad + low-value.
@@ -410,6 +421,8 @@ pub const CLASS_NAMES = tagNames(&CLASS_TAGS);
 // tags, the same way IPersistentVector → IPV_NAMES does.
 pub const SET_NAMES = tagNames(&SET_TAGS);
 pub const IPLIST_NAMES = tagNames(&IPLIST_TAGS);
+// `(extend-type clojure.lang.Fn …)` (core.logic's Inc stream) → the fn tags.
+pub const FN_NAMES = tagNames(&FN_TAGS);
 
 // --- tests ---
 
@@ -461,6 +474,16 @@ test "co-membership interfaces share a set" {
     try testing.expect(isMember(.array_map, "Associative"));
     try testing.expect(isMember(.array_map, "ILookup"));
     try testing.expect(!isMember(.hash_set, "Associative"));
+}
+
+test "clojure.lang.Fn is the fn tags only; IRecord has no native member" {
+    inline for (.{ .fn_val, .builtin_fn, .protocol_fn }) |t| {
+        try testing.expect(isMember(t, "clojure.lang.Fn"));
+    }
+    try testing.expect(!isMember(.multi_fn, "Fn"));
+    try testing.expect(!isMember(.keyword, "Fn"));
+    try testing.expect(isInterface("clojure.lang.IRecord"));
+    try testing.expect(!isMember(.hash_map, "IRecord"));
 }
 
 test "isInterface bounds the recognised set" {

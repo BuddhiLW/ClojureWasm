@@ -155,7 +155,9 @@ const FQCN_MAP = std.StaticStringMap([]const u8).initComptime(.{
     .{ "clojure.lang.Var", "Var" },
     .{ "clojure.lang.PersistentQueue", "PersistentQueue" },
     .{ "clojure.lang.IFn", "IFn" },
+    .{ "clojure.lang.Fn", "Fn" },
     .{ "clojure.lang.IPersistentMap", "IPersistentMap" },
+    .{ "clojure.lang.IRecord", "IRecord" },
     .{ "clojure.lang.IPersistentSet", "IPersistentSet" },
     .{ "clojure.lang.IPersistentCollection", "IPersistentCollection" },
     .{ "clojure.lang.IEditableCollection", "IEditableCollection" },
@@ -471,10 +473,10 @@ fn matchUserType(v: Value, simple: []const u8) bool {
 
 /// The recognised interfaces every defrecord implements without naming them
 /// (clj's defrecord emits IRecord, IHashEq, IObj, ILookup, IKeywordLookup,
-/// IPersistentMap, java.util.Map and Serializable; IRecord / IKeywordLookup are
-/// not recognised names). IPersistentMap brings Counted, Associative and the
+/// IPersistentMap, java.util.Map and Serializable; IKeywordLookup is not a
+/// recognised name). IPersistentMap brings Counted, Associative and the
 /// rest of its closure, so `(counted? rec)` and `(coll? rec)` are true.
-const RECORD_INTERFACES = [_][]const u8{ "IPersistentMap", "IObj", "ILookup", "IHashEq", "Map", "Serializable" };
+const RECORD_INTERFACES = [_][]const u8{ "IRecord", "IPersistentMap", "IObj", "ILookup", "IHashEq", "Map", "Serializable" };
 
 /// True iff a declared name (a `protocol_impls` or `host_supertypes` entry)
 /// makes its type an instance of the class `simple`: it names that class, or an
