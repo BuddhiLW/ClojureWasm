@@ -166,6 +166,7 @@ pub const Code = enum {
     catch_form_incomplete,
     catch_head_invalid,
     macro_return_not_data,
+    macro_return_class_unnamed,
     defmacro_name_not_symbol,
     defmacro_params_not_vector,
     defmacro_arity_invalid,
@@ -1032,6 +1033,11 @@ pub fn entry(comptime code: Code) Entry {
             .kind = .type_error,
             .phase = .macroexpand,
             .template = "macro return value of tag '{[tag]s}' cannot be re-analysed as a form",
+        },
+        .macro_return_class_unnamed => .{
+            .kind = .type_error,
+            .phase = .macroexpand,
+            .template = "macro returned class {[name]s}, which has no class-name symbol that resolves back to it, so it cannot be re-analysed as a form",
         },
         .defmacro_name_not_symbol => .{
             .kind = .syntax_error,

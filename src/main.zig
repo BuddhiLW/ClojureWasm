@@ -156,6 +156,7 @@ test {
     _ = @import("eval/reader.zig");
     _ = @import("eval/node.zig");
     _ = @import("eval/analyzer/analyzer.zig");
+    _ = @import("eval/analyzer/class_form.zig");
     _ = @import("eval/macro_dispatch.zig");
     _ = @import("eval/backend/tree_walk.zig");
     _ = @import("eval/backend/vm.zig");
