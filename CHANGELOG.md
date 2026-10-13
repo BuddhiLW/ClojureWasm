@@ -7,6 +7,8 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 
 ## [Unreleased]
 
+## [1.15.0] - 2026-10-13
+
 ### Added
 
 - **deps.edn Maven source JAR resolution.** `:mvn/version` loads `.clj`, `.cljc`
@@ -29,7 +31,61 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
   (`-Dffi=false` drops it); absent on wasm. Example:
   `docs/examples/ffi/hive_call.clj` drives the hive C ABI.
 
+- **`java.lang.Number` instance methods on every number.** Long, Double,
+  BigInt, Ratio and BigDecimal answer `.intValue`, `.longValue`,
+  `.shortValue`, `.byteValue`, `.doubleValue` and `.floatValue`; Long, Double,
+  BigInt and Ratio also answer the class-gated `.compareTo`, `.equals` and
+  `.hashCode` with their JVM semantics (not clj `=` / `hash`), and a Double
+  answers `.isNaN` and `.isInfinite`. Narrowing follows the JLS: an integer
+  keeps its low bits, a Double truncates toward zero and saturates, NaN gives
+  0. `.floatValue` answers the double, as `(float x)` does (AD-004).
+
+- **Ratio literals wider than a Long.** `24691357802469135781/2` reads as a
+  Ratio in source, `read-string` and `clojure.edn/read-string`, and a literal
+  that divides evenly collapses to a Long or BigInt exactly as `/` does. Such
+  ratios compare, `max`/`min` and truncate (`bigint`, `biginteger`) by exact
+  value, never through doubles; `long` and `int` still reject one past their
+  range.
+
+- **`clojure.lang.RT/nextID`.** Returns the next value of the per-runtime
+  gensym counter, so ids are monotonic and never collide with gensym
+  suffixes. core.logic mints logic-variable ids with it.
+
+- **`clojure.lang.IRecord` and `clojure.lang.Fn` as interfaces.** Every
+  defrecord is an `(instance? clojure.lang.IRecord r)`, and `extend-type` /
+  `extend-protocol` onto `IRecord` reaches every record (after the record's
+  own impls, before an `Object` default). `clojure.lang.Fn` names fns,
+  builtins and protocol fns, but not a MultiFn or an invocable keyword or
+  collection, as in clj. `(. Class member)` and `(. Class (member args))` on
+  a class symbol are static access, for fields as well as methods.
+
+- **A `deftype` or `reify` can implement `java.util.Map$Entry`.** Declaring
+  `java.util.Map$Entry` or `clojure.lang.IMapEntry` with `getKey` /
+  `getValue` makes `key`, `val` and `map-entry?` answer the instance, and the
+  methods stay dot-callable. core.logic's `Pair` loads.
+
 ### Changed
+
+- **`cljw script.clj a b` passes `a b` to the script.** Every token after
+  the script path is bound to `*command-line-args*`, as `clojure script.clj
+  a b` does; cljw used to open `a` as another source file. A `-cp` /
+  `--classpath <dirs>` directly after the script path is still the classpath
+  option (`cljw app.clj -cp lib`); the first other token starts the script
+  arguments, and everything from there on is an argument.
+
+- **Large collection literals build at any size.** A vector, map or set
+  literal of constants folds into one constant, and one with evaluated
+  elements is built in bounded steps, so `[1 1 1 … 40000 elements]` no longer
+  ends the process with an uncatchable operand stack overflow (D-346). Code
+  past a compiler limit raises the catchable `form_too_large`, and a full
+  operand arena the catchable `stack_overflow`. `cljw build` writes bytecode
+  format v12.
+
+- **Regex patterns take up to 1024 capturing groups** (was 7). The 8th group
+  used to be reported as an unsupported feature; emmy.complex's number
+  pattern has 8. More than 1024 raises a catchable "too many capturing
+  groups" error, and a backreference is still unsupported but now named as
+  such.
 
 - **`wasm/run` compiles a module once and reuses it.** The first `(wasm/run
   path …)` validates and JIT-compiles the module; later runs of the same file
@@ -76,6 +132,77 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
   `(select-keys {1N :a} [1])` is `{1N :a}` and `(get #{1N} 1)` is `1N`, for
   array, hash and sorted maps and sets and transient sets, as in clj. A
   transient map's `find` keeps the probe key, as `ATransientMap.entryAt` does.
+
+- **Ratio and BigDecimal convert to double as clj's `doubleValue`.** A Ratio
+  rounds through a DECIMAL64 quotient and a BigDecimal rounds once to the
+  nearest double, in `double`, float contagion, mixed comparison, `format`
+  and `.doubleValue` alike: `(double 2/3)` is `0.6666666666666667`, `(double
+  0.3M)` is `0.3` and `(== 2/3 0.6666666666666667)` is true, where cljw gave
+  `0.6666666666666666`, `0.30000000000000004` and false. `(double 1e400M)` is
+  `##Inf`, not NaN. `(/ Long/MIN_VALUE 1)` is a BigInt, as in clj.
+
+- **`Long/valueOf` raises IllegalArgumentException on an unmatched
+  overload.** A BigInt or a Double argument used to raise a type error no
+  `catch IllegalArgumentException` caught; `nil` raises
+  NumberFormatException, as in clj.
+
+- **Equal Date and java.time values hash alike.** `Date`, `Timestamp`,
+  `Instant`, `Duration`, `LocalDate`, `LocalDateTime` and `LocalTime` hash by
+  their JDK `hashCode`, so `hash-set`, map lookup, `distinct`, `frequencies`
+  and `group-by` no longer split equal instances. `compare` orders two
+  `java.sql.Timestamp`s (millis, then nanos); a Timestamp against a Date still
+  raises.
+
+- **Collection predicates answer a `deftype` or `reify` from its declared
+  interfaces.** `seq?`, `coll?`, `counted?`, `sequential?`, `associative?`,
+  `vector?`, `map?`, `set?`, `sorted?`, `ifn?`, `indexed?`, `reversible?` and
+  `seqable?` follow the type's interfaces and clj's superinterface closure.
+  A map entry and the three transients are `ifn?`, as in clj.
+
+- **clojure.string and the regex fns accept any CharSequence.** `trim`,
+  `blank?`, `split`, `split-lines`, `escape`, `reverse`, `re-find`,
+  `re-matches`, `re-seq` and the rest read a `StringBuilder` or a
+  CharSequence `deftype` as its text, and `seq`, `count` and `nth` treat a
+  `StringBuilder` as a CharSequence. A non-CharSequence is still refused.
+
+- **Macros may return Class objects and `clojure.core`-qualified special
+  heads.** A class inside a macro expansion, as in `(defmacro m []
+  [String])`, is re-read as the class symbol that names it (an anonymous
+  `reify` class raises a named error), and `(clojure.core/defmacro …)`,
+  `(clojure.core/binding …)` and `(clojure.core/ns …)` analyze like their
+  bare heads. Emmy's `defgeneric` and sci-macro output load.
+
+- **A destructured `deftype` / `defrecord` method parameter shadows a field
+  of the same name.** `(f [_ {:keys [a]}] a)` answers the argument's `a`, not
+  the field's, as on the JVM.
+
+- **`(import '[java.util.concurrent Semaphore])`** accepts the vector prefix
+  spelling, as the ns `:import` clause already did.
+
+- **NaN-keyed maps keep their values.** `reduce-kv`, `update-keys`,
+  `update-vals` and printing walk entries, so a key that is not `=` to itself
+  (`##NaN`, or a list holding it) no longer loses its value or prints a
+  phantom `k nil` entry.
+
+- **`(.getStackTrace (Thread/currentThread))`** answers an empty array, so
+  test.check's clojure.test reporter shows a failing property's shrunk
+  counterexample instead of raising a missing-member error.
+
+- **`wasm/component-invoke` accepts a `wasm/load-component` handle** instead
+  of refusing it as a non-string path, and dropping a resource of a
+  single-module component names the missing resource table instead of
+  reporting a guest trap.
+
+- **`cljw.json/write-str` and `read-str`** call clojure.data.json at call
+  time, so `with-redefs` of the data.json var reaches them, and both carry a
+  docstring and arglists.
+
+- **`java.io.File` `.list`, `.listFiles`, `listRoots` and the constructor
+  survive a collection mid-build**, where a GC during the call could return a
+  short or empty result.
+
+- **A `defmacro` name with reader metadata** no longer risks a ReleaseSafe
+  panic during analysis.
 
 ## [1.14.12] - 2026-10-01
 
