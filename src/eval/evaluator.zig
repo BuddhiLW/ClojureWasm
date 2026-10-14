@@ -41,14 +41,14 @@ pub const CompareResult = struct {
     /// failed with the same Zig error.
     equal: bool,
     /// Source position of the error each backend raised; null when that
-    /// backend returned a value. Only `line`/`column` are captured — the
+    /// backend returned a value. Only `line`/`column` are captured: the
     /// `file` field of a fixture-analysed form is "unknown" on both
     /// backends and carries no signal.
     tree_walk_loc: ?ErrorPos = null,
     vm_loc: ?ErrorPos = null,
     /// `true` when both backends agree on WHERE the failure is: neither
     /// raised, or both raised at the same line:column. The error half of
-    /// the dual-backend contract (ADR-0036) — a backend that raises the
+    /// the dual-backend contract (ADR-0036). A backend that raises the
     /// same Kind at 0:0 while the other reports 3:11 is a parity break,
     /// invisible to `equal` (which only compares returned Values).
     loc_equal: bool = true,

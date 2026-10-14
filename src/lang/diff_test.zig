@@ -1828,7 +1828,7 @@ test "diff: op_get / op_nth collection intrinsics (O-043, both backends)" {
 
 /// Assert the error-location half of the dual-backend contract (ADR-0036):
 /// both backends must raise, and both must report the SAME source position.
-/// A raise at line 0 is rejected on either side — "both agree on nothing" is
+/// A raise at line 0 is rejected on either side: "both agree on nothing" is
 /// vacuous parity, and 0:0 is exactly what a dropped location looks like.
 fn checkErrorLoc(f: *Fixture, source: []const u8) !void {
     const r = evaluator.compare(&f.rt, &f.env, &f.table, f.arena.allocator(), source);
