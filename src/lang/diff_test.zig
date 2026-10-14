@@ -74,8 +74,18 @@ const Fixture = struct {
 
     fn check(self: *Fixture, source: []const u8, expected: i64) !void {
         const r = evaluator.compare(&self.rt, &self.env, &self.table, self.arena.allocator(), source);
+        try expectLocParity(r, source);
         try testing.expect(r.equal);
         try testing.expectEqual(expected, (try r.tree_walk).asInteger());
+    }
+
+    /// Both backends raise the same error at the same source position
+    /// (ADR-0036 error half). For cases whose contract is the failure itself.
+    fn checkRaises(self: *Fixture, source: []const u8, expected: anyerror) !void {
+        const r = evaluator.compare(&self.rt, &self.env, &self.table, self.arena.allocator(), source);
+        try testing.expectError(expected, r.tree_walk);
+        try testing.expectError(expected, r.vm);
+        try expectLocParity(r, source);
     }
 
     /// Assert only that both backends agree (VM == TreeWalk) — for results whose
@@ -83,10 +93,27 @@ const Fixture = struct {
     /// `asInteger()` cannot be used. `r.equal` is the dual-backend parity oracle.
     fn checkEqual(self: *Fixture, source: []const u8) !void {
         const r = evaluator.compare(&self.rt, &self.env, &self.table, self.arena.allocator(), source);
+        try expectLocParity(r, source);
         _ = try r.tree_walk; // surface an eval error rather than a silent mismatch
         try testing.expect(r.equal);
     }
 };
+
+/// The shared error-location assertion every fixture check runs (ADR-0036
+/// error half): whenever either backend raises, both must report the same
+/// line:column. `loc_equal` is true when neither raised, so value cases pass
+/// through; a raise on one backend only, or at a different position, fails
+/// here with both positions printed.
+fn expectLocParity(r: evaluator.CompareResult, source: []const u8) !void {
+    if (r.loc_equal) return;
+    const tw = r.tree_walk_loc orelse evaluator.ErrorPos{ .line = 0, .column = 0 };
+    const v = r.vm_loc orelse evaluator.ErrorPos{ .line = 0, .column = 0 };
+    std.debug.print(
+        "error-location parity broken for: {s}\n  tree_walk {d}:{d} (raised: {})\n  vm        {d}:{d} (raised: {})\n",
+        .{ source, tw.line, tw.column, r.tree_walk_loc != null, v.line, v.column, r.vm_loc != null },
+    );
+    return error.TestUnexpectedResult;
+}
 
 test "diff: D-346 chunked collection literals preserve order and nested evaluation" {
     var f: Fixture = undefined;
@@ -120,9 +147,7 @@ test "diff: D-413 unresolved symbol → clean symbol_unresolved, not a panic" {
     var f: Fixture = undefined;
     try Fixture.init(&f, testing.allocator);
     defer f.deinit();
-    const r = evaluator.compare(&f.rt, &f.env, &f.table, f.arena.allocator(), "(re-matcher 1)");
-    try testing.expectError(error.NameError, r.tree_walk);
-    try testing.expectError(error.NameError, r.vm);
+    try f.checkRaises("(re-matcher 1)", error.NameError);
 }
 
 test "diff: D-563b def meta — user ^meta + compiler :line land on the Var in BOTH backends (op_var_meta ≡ evalDef meta_expr)" {
@@ -1799,4 +1824,49 @@ test "diff: op_get / op_nth collection intrinsics (O-043, both backends)" {
     // op_nth returning a nested collection (let-bound to avoid the no-core
     // fixture's literal-arg quirk in TreeWalk; the value path is what matters).
     try f.check("(let [v [[1 2] [3 4]]] (count (nth v 0 nil)))", 2);
+}
+
+/// Assert the error-location half of the dual-backend contract (ADR-0036):
+/// both backends must raise, and both must report the SAME source position.
+/// A raise at line 0 is rejected on either side — "both agree on nothing" is
+/// vacuous parity, and 0:0 is exactly what a dropped location looks like.
+fn checkErrorLoc(f: *Fixture, source: []const u8) !void {
+    const r = evaluator.compare(&f.rt, &f.env, &f.table, f.arena.allocator(), source);
+    const tw = r.tree_walk_loc orelse {
+        std.debug.print("tree_walk did not raise for: {s}\n", .{source});
+        return error.TestExpectedRaise;
+    };
+    const vm_pos = r.vm_loc orelse {
+        std.debug.print("vm did not raise for: {s}\n", .{source});
+        return error.TestExpectedRaise;
+    };
+    if (tw.line == 0 or vm_pos.line == 0 or !r.loc_equal) {
+        std.debug.print(
+            "error-location parity broken for: {s}\n  tree_walk {d}:{d}\n  vm        {d}:{d}\n",
+            .{ source, tw.line, tw.column, vm_pos.line, vm_pos.column },
+        );
+        return error.TestUnexpectedResult;
+    }
+}
+
+test "diff: error source location survives BOTH backends (ADR-0036 error half)" {
+    var f: Fixture = undefined;
+    try Fixture.init(&f, testing.allocator);
+    defer f.deinit();
+    // Control arm: a builtin raising through op_call already threads the call
+    // form's loc into `vt.callFn`, so this one held before the fix.
+    try checkErrorLoc(&f, "(/ 1 0)");
+    // `set!` on a var with no active thread binding → var_set_not_bound, raised
+    // by the VM's op_set_var directly rather than through `vt.callFn`.
+    try checkErrorLoc(&f, "(do (def svl 1) (set! svl 2))");
+    // Interop member on a receiver whose type has no such method → raised by
+    // the VM's op_method_call directly.
+    try checkErrorLoc(&f, "(.noSuchMember \"s\")");
+    // Constructor arity failure → raised inside constructInstance with the
+    // loc the backend hands it (TreeWalk n.loc, VM op_ctor_call instr_loc).
+    try checkErrorLoc(&f, "(MapEntry. 1)");
+    // Multi-line source: the position must be the inner form's own line and
+    // column, not the enclosing form's and not the last argument's.
+    try checkErrorLoc(&f, "(do\n  (def svl2 1)\n  (set! svl2\n        2))");
+    try checkErrorLoc(&f, "(let [x 1]\n  (MapEntry. x))");
 }
