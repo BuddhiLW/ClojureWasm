@@ -24,50 +24,6 @@
 # md-table-align no longer pads it to ~800 KB of whitespace.
 
 active:
-  - id: "D-587"
-    status: |-
-      open (2026-09-09). USE-AFTER-FREE, user-reachable panic. Re-registering a
-      deftype/defrecord name frees a TypeDescriptor that live instances still
-      point at. `type_descriptor.zig registerType` keys `rt.types` by the SIMPLE
-      name, and on re-registration does `fetchRemove(name)` then frees the old
-      descriptor (each field_layout entry name, the layout slice, fqcn,
-      defining_ns, method_table entries, protocol_impls, then
-      `gpa.destroy(old.value)`). Every constructed instance holds
-      `inst.descriptor` as a raw pointer to it, so `print.zig
-      printTypedInstance` then reads `field_layout` out of freed memory: the
-      symptom is `thread panic: integer overflow` (a garbage field index or
-      layout length), the defect is the free.
-      Repro (ReleaseSafe v1.14.3): `(ns aaa) (defrecord Point [x y]) (def a
-      (->Point 1 2)) (ns bbb) (defrecord Point [x y]) (def b (->Point 1 2))
-      (prn (pr-str aaa/a))` panics; printing `bbb/b` is fine. Variants: two ns
-      with DIFFERENT names is fine; two ns SAME name panics; SAME ns redefining
-      the same name panics (this is the ordinary REPL / `require :reload` path
-      `dev/user.clj` depends on); same name with a different field count panics;
-      the deftype form raises `WriteFailed` instead, same root.
-      TWO separable defects: (1) the registry is keyed by simple name, so
-      `aaa/Point` and `bbb/Point` collide with no redefinition at all (clj gives
-      each ns its own class); (2) re-registration frees a descriptor live
-      instances reference.
-      ADR-0019 forbids a panic on a user-reachable path, and this one is reached
-      by re-evaluating a defrecord form. It also caps the native-suite migration:
-      `test/clj/suites/` shares ONE image, so no two suites may define the same
-      type name (worked around 2026-09-09 by renaming defrecord_test's record to
-      DPoint; 45 type definitions across 103 suites, no other duplicate today).
-      Found while migrating phase7_defrecord.sh to a native suite.
-      Card `[CLJW-TD-UAF]` 20260909211032-6471bc49.
-    category: "correctness"
-    quality_floor: "correctness: a user-reachable panic from an ordinary redefine"
-    barrier: |-
-      Needs an ADR: the free is deliberate (comments cite row 7.7 cycle 5 and
-      D-190 / ADR-0068) and exists to avoid leaking on redefine, so removing it
-      trades the leak back. Candidate shapes: key `rt.types` by the qualified
-      name when `defining_ns` is present and RETIRE rather than free a replaced
-      descriptor (a leak bounded by redefinition count, which is what clj does
-      with the old class), or make descriptors GC-managed so a descriptor dies
-      only when no instance references it. Devil's-advocate fork is mandatory at
-      this depth. Not blocked on anything external: the repro is one file and the
-      owning function is ~70 lines.
-    last_reviewed: "2026-09-09"
   - id: "D-586"
     status: |-
       open (2026-09-05, ADR-0195 trigger). UPSTREAM: zwasm/D-584. zwasm's JIT
@@ -7583,6 +7539,17 @@ discharged:
     refs: |-
       src/runtime/collection/literal.zig (the one literal construction); src/eval/analyzer/analyzer.zig (the constant fold); src/eval/backend/vm/compiler.zig and vm.zig (the extend opcodes); docs/spec/formats/chunk-v12.edn (bytecode format v12).
     discharged_at: "2026-10-02"
+  - id: "D-587"
+    status: |-
+      DISCHARGED 2026-10-14 by ADR-0198 plus ADR-0201. Both defects the row named are fixed. (1) rt.types is keyed by <defining_ns>.<Name>, so aaa.Point and bbb.Point are two classes (ADR-0198), and a bare constructor binds the class of the namespace its form was analyzed in ([CLJW-CTOR-ANALYZE-TIME]: a ctor site carries definer_ns, bytecode v13), so `aaa/->Point` builds aaa.Point even after bbb registered a namesake. (2) A displaced descriptor is retired, never freed, until Runtime.deinit (ADR-0198; ADR-0201 Part B makes that the one lifetime rule for every user descriptor). ADR-0201 also made membership descriptor identity: instance?, .isInstance, isa? and multimethod dispatch agree with (= (class x) C) for a redefined record, a namesake in another namespace and a reify class. The original repro prints both records and the narrowed redefine on both backends.
+      Was: open (2026-09-09), USE-AFTER-FREE, user-reachable panic. Re-registering a deftype/defrecord name freed a TypeDescriptor that live instances still pointed at, and the registry was keyed by the simple name, so two namespaces defining Point collided with no redefinition at all. Symptom `thread panic: integer overflow` from printTypedInstance, or `WriteFailed` for a deftype.
+    category: "correctness"
+    barrier: |-
+      none, discharged. Pinned by test/clj/suites/type_redefine_test.clj (the six scenarios of the former type_descriptor_redefinition e2e, incl. 3000 redefinitions interleaved with reify under a forced collection and the defining-namespace ctor binding), test/clj/suites/user_class_identity_test.clj, the type_redefinition diff corpus, and the class_name.zig / analyzer.zig unit tests. Still open and separate: rt.types_by_simple still exists for the bare-name paths that are not ctor sites (card 20260909231443-1ba4303c), and D-574 (reify mints a descriptor per evaluation).
+    last_reviewed: "2026-10-14"
+    refs: |-
+      ADR-0198, ADR-0201; src/runtime/type_descriptor.zig (registerType retires), src/runtime/class_name.zig (isInstanceOfClass, classIsaOf, descriptorIsa), src/eval/analyzer/special_forms.zig (constructInstance definer_ns lookup), docs/spec/formats/chunk-v13.edn.
+    discharged_at: "2026-10-14"
 conventions: |-
   - Category vocabulary is a closed set (guarded by scripts/check_debt_category.sh; synonyms were normalized 2026-10-08: structural->structure, tests/test->testing, numerics->numeric, performance->perf). Allowed: app backend bench bootstrap build clj-parity concurrency correctness debt-hygiene demo discipline distribution docs docs-onboarding ecosystem error-system eval eval-semantics feature gc governance host-surface infra interop isolation license macro meta-reorg missing-ns namespace numeric perf polymorphism process project-flow reader refactor regex robustness runtime scope security structure testing tooling wasm. A new category is added here first, in the same commit as the row that needs it.
   - Structure: two top-level lists — `active:` and `discharged:`. Active entries carry id / status / category / barrier (+ optional quality_floor / last_reviewed); discharged entries carry id / discharged_at / resolution. Edit as YAML (no Markdown table to align).
