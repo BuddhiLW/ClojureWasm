@@ -425,6 +425,12 @@ pub const InteropCallNode = struct {
     /// `.constructor`: type name string for eval-time `resolveJavaSurface`
     /// lookup. Other kinds: empty string.
     type_name: []const u8 = "",
+    /// `.constructor` with a dot-free `type_name`: the namespace the form was
+    /// ANALYZED in. A user type is keyed `<ns>.<Name>` (ADR-0198) and clj
+    /// binds a class name lexically, so the eval-time lookup tries
+    /// `<definer_ns>.<type_name>` before anything the caller's namespace
+    /// could answer. Empty when there is none.
+    definer_ns: []const u8 = "",
     /// `.static_method` / `.instance_member`: method or field name.
     /// `.constructor`: ignored.
     name: []const u8 = "",

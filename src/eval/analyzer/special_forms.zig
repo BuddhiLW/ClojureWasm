@@ -104,9 +104,22 @@ pub fn constructInstance(
     rt: *Runtime,
     env: *Env,
     type_name: []const u8,
+    /// The namespace the ctor form was analyzed in ("" when none). A user
+    /// type registered as `<definer_ns>.<type_name>` wins over every other
+    /// reading of the bare name, as a class name clj compiled there would.
+    definer_ns: []const u8,
     args: []const Value,
     loc: error_catalog.SourceLocation,
 ) anyerror!Value {
+    if (definer_ns.len != 0) {
+        var qbuf: [512]u8 = undefined;
+        if (std.fmt.bufPrint(&qbuf, "{s}.{s}", .{ definer_ns, type_name })) |qualified| {
+            if (rt.types.get(qualified)) |td| return constructFromDescriptor(rt, env, td, type_name, args, loc);
+        } else |_| {
+            // Namespace + name longer than the buffer: no registered key
+            // could match it either, so fall through to the steps below.
+        }
+    }
     // D-284: `(MapEntry. k v)` / `(new clojure.lang.MapEntry k v)` constructs an
     // entry, so collection libs that build entries explicitly (priority-map,
     // ordered, …) work. It used to return a plain 2-vector, from when a map entry
@@ -151,9 +164,23 @@ pub fn constructInstance(
     }
     const td = resolveJavaSurface(rt, env, type_name) orelse
         return error_catalog.raise(.symbol_unresolved, loc, .{ .sym = type_name });
+    return constructFromDescriptor(rt, env, td, type_name, args, loc);
+}
+
+/// The descriptor-driven half of `constructInstance`: a field layout
+/// (deftype / record) allocates an instance, a `<init>` entry (java surface)
+/// is called through the runtime vtable, anything else takes no constructor.
+fn constructFromDescriptor(
+    rt: *Runtime,
+    env: *Env,
+    td: *const type_descriptor_mod.TypeDescriptor,
+    type_name: []const u8,
+    args: []const Value,
+    loc: error_catalog.SourceLocation,
+) anyerror!Value {
     if (td.field_layout) |fl| {
         if (args.len != fl.len)
-            return error_catalog.raise(.arity_not_expected, loc, .{ .got = args.len, .fn_name = type_name, .expected = fl.len });
+            return error_catalog.raise(.arity_not_expected, loc, .{ .got = args.len, .fn_name = td.fqcn orelse type_name, .expected = fl.len });
         return type_descriptor_mod.allocInstance(rt, td, args);
     }
     if (td.lookupMethod(null, "<init>")) |me| {
@@ -261,14 +288,20 @@ pub fn analyzeCtorCall(
     // lexically correct one. Eval-time resolution would consult the CALLER's
     // ns and miss it (hiccup.util's `(URI. s)` inside to-uri, called from
     // user code). Guarded on the FQCN actually resolving as a registered
-    // surface. A USER deftype keeps the bare spelling here and resolves on
-    // the eval-time path (which also allows forward refs to later deftypes);
-    // since ADR-0198 that path finds it by qualifying the bare name with the
-    // current ns inside `host_class_resolve.resolve`, rather than by the
-    // simple-name registry hit this comment used to describe.
+    // surface.
+    //
+    // A USER type keeps the bare spelling and resolves at eval time, which is
+    // what lets a `(Name. …)` inside the defrecord's own expansion refer to a
+    // type registered a moment later. The namespace of THIS analysis rides
+    // along as `definer_ns` so that eval-time lookup qualifies the name
+    // lexically (ADR-0198): the current ns at eval time is the CALLER's, and
+    // a bare `Point` there fell to the last-wins simple-name index, so
+    // `aaa/->Point` built whichever `Point` any namespace registered last.
     var resolved_name = type_name;
+    var definer_ns: []const u8 = "";
     if (std.mem.findScalar(u8, type_name, '.') == null) {
         if (env.current_ns) |cur_ns| {
+            definer_ns = try arena.dupe(u8, cur_ns.name);
             if (cur_ns.imports.get(type_name)) |fqcn| {
                 if (rt.types.get(fqcn) != null) {
                     resolved_name = fqcn;
@@ -288,6 +321,7 @@ pub fn analyzeCtorCall(
     n.* = .{ .interop_call_node = .{
         .kind = .constructor,
         .type_name = resolved_name,
+        .definer_ns = if (resolved_name.ptr == type_name.ptr) definer_ns else "",
         .args = args,
         .loc = form.location,
     } };

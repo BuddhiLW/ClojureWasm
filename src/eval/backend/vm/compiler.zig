@@ -738,6 +738,7 @@ const Compiler = struct {
                 const name_dup = try self.arena.dupe(u8, n.type_name);
                 try self.ctor_sites.append(self.arena, .{
                     .type_name = name_dup,
+                    .definer_ns = try self.arena.dupe(u8, n.definer_ns),
                     .arg_count = @intCast(n.args.len),
                 });
                 try self.emit(.op_ctor_call, ctor_idx);
