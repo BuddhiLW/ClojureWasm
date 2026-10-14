@@ -1,6 +1,5 @@
 {
   "defaultMode": "acceptEdits",
-  "model": "claude-opus-4-8",
   "permissions": {
     "allow": [
       "Agent",
