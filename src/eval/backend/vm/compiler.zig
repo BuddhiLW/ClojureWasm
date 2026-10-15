@@ -193,6 +193,9 @@ const Compiler = struct {
     fn compileSet(self: *Compiler, n: node_mod.SetNode) Error!void {
         try self.compileNode(n.value_expr);
         const idx = try self.addConstant(Value.encodeHeapPtr(.var_ref, n.var_ptr));
+        // The value expr re-stamped `current_*`; op_set_var raises at the
+        // set! form itself (TreeWalk evalSet's n.loc, ADR-0036 error half).
+        self.stampLoc(n.loc);
         try self.emit(.op_set_var, idx);
     }
 
@@ -205,6 +208,7 @@ const Compiler = struct {
         try self.compileNode(n.value_expr);
         const name_val = try string_mod.alloc(self.rt, n.field_name);
         const idx = try self.addConstant(name_val);
+        self.stampLoc(n.loc);
         try self.emit(.op_set_field, idx);
     }
 
@@ -741,6 +745,9 @@ const Compiler = struct {
                     .definer_ns = try self.arena.dupe(u8, n.definer_ns),
                     .arg_count = @intCast(n.args.len),
                 });
+                // Raise at the ctor form, not its last argument
+                // (TreeWalk evalConstructorCall's n.loc, ADR-0036 error half).
+                self.stampLoc(n.loc);
                 try self.emit(.op_ctor_call, ctor_idx);
             },
             .instance_member => {
@@ -758,6 +765,9 @@ const Compiler = struct {
                     .arg_count = total_args,
                     .field_only = n.field_only,
                 });
+                // Raise at the interop form, not its last argument
+                // (TreeWalk evalInstanceMember's n.loc, ADR-0036 error half).
+                self.stampLoc(n.loc);
                 try self.emit(.op_method_call, cs_idx);
             },
             .static_method => {
@@ -774,6 +784,7 @@ const Compiler = struct {
                     .arg_count = arg_count,
                     .descriptor = td,
                 });
+                self.stampLoc(n.loc);
                 try self.emit(.op_static_method_call, cs_idx);
             },
         }
