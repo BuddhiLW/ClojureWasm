@@ -1373,7 +1373,7 @@ inline fn stepOnce(
             // Shared resolver/dispatcher (deftype/record + java-surface
             // `<init>`) — identical to TreeWalk's evalConstructorCall so a
             // `(java.io.File. …)` ctor works on both backends.
-            const new_val = try special_forms.constructInstance(rt, env, type_name, args_slice, .{});
+            const new_val = try special_forms.constructInstance(rt, env, type_name, ctor.definer_ns, args_slice, .{});
             sp -= arg_count;
             stack[sp] = new_val;
             sp += 1;

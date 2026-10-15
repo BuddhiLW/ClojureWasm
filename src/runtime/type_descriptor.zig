@@ -262,6 +262,15 @@ pub const TypeDescriptor = struct {
         big_decimal: i64,
     };
 
+    /// True iff this descriptor is a class the USER defined (`deftype`,
+    /// `defrecord`, `reify`), as opposed to a native / host-surface class.
+    /// A user class is identified by the descriptor itself, never by its
+    /// display name (ADR-0201): two vintages of a redefined `R`, or `aaa.Point`
+    /// and `bbb.Point`, share a simple name and are still different classes.
+    pub fn isUserClass(self: *const TypeDescriptor) bool {
+        return self.kind != .native;
+    }
+
     /// Find a static field by name (ADR-0061). Linear — field tables are
     /// tiny (≤ 2 today). Parallel to `lookupMethod`; walks the parent
     /// chain for symmetry though host surfaces have no parent.
@@ -662,17 +671,6 @@ pub fn finaliseReifiedInstance(gc_ptr: *anyopaque, header: *HeapHeader) void {
     _ = header;
 }
 
-/// Allocate a TypeDescriptor on `rt.gpa` with the declared field
-/// layout and register it in `rt.types` under `name`. Re-registering
-/// the same name frees the previous descriptor (keeps the REPL
-/// re-`def` path clean). `field_names` is borrowed; each entry is
-/// `dupe`'d into the descriptor.
-///
-/// Shared by the `__deftype!` and `__defrecord!` Layer-2 primitives —
-/// both lower to the same Layer-0 surface per F-009 (feature-impl
-/// neutrality), differing only in the `kind` argument. Since ADR-0066
-/// both `deftype` and `defrecord` are macros emitting their respective
-/// `rt/__…!` registration call (no analyzer Node fork, no backend op).
 /// Build a defrecord instance from map `m` — clj's `Record/create`:
 /// declared fields pulled by keyword (nil when absent), every remaining
 /// key held in the extmap (nil when empty, so the result `=`/hashes as a
@@ -700,6 +698,19 @@ pub fn recordFromMap(rt: *Runtime, td: *const TypeDescriptor, m: Value) !Value {
     return allocInstanceFull(rt, td, fields, Value.nil_val, ext);
 }
 
+/// Allocate a TypeDescriptor on `rt.gpa` with the declared field layout and
+/// register it in `rt.types` under its qualified key `<defining_ns>.<name>`
+/// (ADR-0198). Re-registering the same key RETIRES the previous descriptor to
+/// `rt.retired_types` rather than freeing it: instances, boxed class values
+/// and CallSite caches still hold it, and the retired descriptor stays a
+/// distinct class from its replacement (ADR-0201). `field_names` is borrowed;
+/// each entry is `dupe`'d into the descriptor.
+///
+/// Shared by the `__deftype!` and `__defrecord!` Layer-2 primitives, which
+/// lower to the same Layer-0 surface per F-009 (feature-impl neutrality) and
+/// differ only in the `kind` argument. Since ADR-0066 both `deftype` and
+/// `defrecord` are macros emitting their `__deftype!` / `__defrecord!`
+/// registration call (no analyzer Node fork, no backend op).
 pub fn registerType(
     rt: *Runtime,
     name: []const u8,

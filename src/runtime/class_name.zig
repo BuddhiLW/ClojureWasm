@@ -28,9 +28,13 @@
 //! - **Throwable hierarchy**: delegates to `host_class.matches`
 //!   (covers `Throwable` / `Exception` / `RuntimeException` /
 //!   `ExceptionInfo` etc.).
-//! - **User types** (`defrecord` / `deftype` / `reify`): walks the
-//!   `TypeDescriptor.parent` chain, comparing `fqcn` against the
-//!   class name.
+//! - **User classes** (`defrecord` / `deftype` / `reify`) are NOT matched
+//!   by name (ADR-0201). A user class is its TypeDescriptor, so membership
+//!   in one is descriptor identity: `isInstanceOfClass` / `classIsaOf`,
+//!   which take the class VALUE's descriptor. The name oracle below only
+//!   answers which host interfaces a user type declares (its
+//!   `protocol_impls` / `method_table`), and matches a descriptor's own
+//!   fqcn only for a native host-surface descriptor.
 //!
 //! ## DIVERGENCE from cw v0
 //!
@@ -308,13 +312,14 @@ fn isInterfaceName(simple: []const u8) bool {
 /// 1. Throwable hierarchy (host_class.matches walks the parent chain).
 /// 2. Native exact-tag table (`String`, `Long`, etc.).
 /// 3. Interface-shaped multi-tag set (`IFn`, `Number`, `IPersistent*`).
-/// 4. User TypeDescriptor walk for `.typed_instance` / `.reified_instance`
-///    receivers — comparing the simple name against each ancestor's
-///    `fqcn`.
+/// 4. Descriptor walk for `.typed_instance` / `.reified_instance` /
+///    `.host_instance` receivers: the interfaces a type declares, plus the
+///    own fqcn of a native host-surface descriptor (see `matchUserType`).
 ///
-/// Unknown class names return false here; callers (= the
-/// `__instance?` primitive) should pre-check with `isKnown` and raise
-/// loud rather than relying on silent false.
+/// This is the NAME oracle, for host / native classes. A user class is
+/// never answered by name; callers holding a class VALUE go through
+/// `isInstanceOfClass`, which routes a user class to descriptor identity.
+/// Unknown class names return false here.
 pub fn isInstance(v: Value, class_name: []const u8) bool {
     const simple = normalizeClassName(class_name);
 
@@ -336,6 +341,59 @@ pub fn isInstance(v: Value, class_name: []const u8) bool {
     if (matchNativeExact(v, simple)) return true;
     if (matchInterface(v, simple)) return true;
     if (matchUserType(v, simple)) return true;
+    return false;
+}
+
+/// `(instance? C v)` for a class VALUE, where `class_td` is the descriptor `C`
+/// evaluates to. The entry point for every caller that holds a class rather
+/// than a name (`instance?`, `Class.isInstance`). A user class is answered by
+/// identity (ADR-0201): `v` is a member iff `class_td` is `v`'s descriptor or on
+/// its parent chain, so a redefined `R` and its previous vintage, or `aaa.Point`
+/// and `bbb.Point`, never answer for each other. A host / native class has no
+/// user descriptor and goes to the name oracle `isInstance`.
+pub fn isInstanceOfClass(v: Value, class_td: *const TypeDescriptor) bool {
+    if (class_td.isUserClass()) {
+        const own = userInstanceDescriptor(v) orelse return false;
+        return descendsFrom(own, class_td);
+    }
+    const name = class_td.fqcn orelse return false;
+    return isInstance(v, name);
+}
+
+/// Class-vs-class `isa?` over class VALUES, shared by the `isa?` primitive and
+/// multimethod dispatch so the two cannot drift (D-464). Identity first. A
+/// user-class PARENT is reached only along `child`'s parent chain. A user-class
+/// CHILD under a host parent is a subclass of Object and of what it declares
+/// (`descriptorIsa`, the relation `instance?` reads), never of a host class that
+/// merely shares its simple name: a `(deftype BigInt [])` is not a Number. Only
+/// a native child keeps the name relation `classIsa` (ADR-0201).
+pub fn classIsaOf(child: *const TypeDescriptor, parent: *const TypeDescriptor) bool {
+    if (child == parent) return true;
+    if (parent.isUserClass()) return descendsFrom(child, parent);
+    const parent_name = parent.fqcn orelse return false;
+    if (child.isUserClass()) {
+        const simple = normalizeClassName(parent_name);
+        return host_class.isUniversalClass(simple) or descriptorIsa(child, simple);
+    }
+    return classIsa(child.fqcn orelse "", parent_name);
+}
+
+/// The descriptor a user-class instance carries, or null for any other value
+/// (a host_instance's descriptor is a native surface, never a user class).
+fn userInstanceDescriptor(v: Value) ?*const TypeDescriptor {
+    return switch (v.tag()) {
+        .typed_instance => v.decodePtr(*const TypedInstance).descriptor,
+        .reified_instance => v.decodePtr(*const ReifiedInstance).descriptor,
+        else => null,
+    };
+}
+
+/// True iff `ancestor` is `td` itself or on `td`'s parent chain, by pointer.
+fn descendsFrom(td: *const TypeDescriptor, ancestor: *const TypeDescriptor) bool {
+    var cursor: ?*const TypeDescriptor = td;
+    while (cursor) |t| : (cursor = t.parent) {
+        if (t == ancestor) return true;
+    }
     return false;
 }
 
@@ -408,15 +466,15 @@ fn displayClassTag(name: []const u8) ?Tag {
     return M.get(name);
 }
 
-/// Class-vs-class `isa?` (the `(isa? <class> <class>)` hierarchy step), by fqcn
-/// name. SHARED by `core.classIsaPrim` (the `isa?` primitive) and
-/// `multimethod.isaCheck` (method dispatch) so the two cannot drift (D-464 — a
-/// `(defmethod f java.lang.Number)` must be found for a `Long` dispatch value
-/// exactly as `(isa? Long Number)` is true). Order mirrors clj's isa? class
-/// step: identity, universal Object, narrow Number, narrow IFn, interface-marker
-/// membership, then the host exception/parent hierarchy. The ad-hoc `derive`
-/// hierarchy and non-class isa? stay with the callers.
-pub fn classIsa(child: []const u8, parent: []const u8) bool {
+/// Class-vs-class `isa?` BY NAME, for a host / native parent: the name half of
+/// `classIsaOf`, which is the entry both `core.classIsaPrim` (the `isa?`
+/// primitive) and `multimethod.isaCheck` (method dispatch) call so the two
+/// cannot drift (D-464: a `(defmethod f java.lang.Number)` must be found for a
+/// `Long` dispatch value exactly as `(isa? Long Number)` is true). Order mirrors
+/// clj's isa? class step: identity, universal Object, narrow Number, narrow IFn,
+/// interface-marker membership, then the host exception/parent hierarchy. The
+/// ad-hoc `derive` hierarchy and non-class isa? stay with the callers.
+fn classIsa(child: []const u8, parent: []const u8) bool {
     if (std.mem.eql(u8, child, parent)) return true;
     if (host_class.isUniversalClass(parent)) return true;
     if (host_class.isNumberClass(parent)) return host_class.isNumericClass(child);
@@ -442,11 +500,27 @@ fn matchUserType(v: Value, simple: []const u8) bool {
         .host_instance => @import("host_instance.zig").asHostInstance(v).descriptor,
         else => return false,
     };
+    return descriptorIsa(td, simple);
+}
+
+/// True iff a value whose descriptor is `td` is an instance of the host class
+/// named `simple` (normalised). The descriptor-level half of `matchUserType`,
+/// shared with `classIsaOf` so `(instance? C x)` and `(isa? (class x) C)` read
+/// ONE relation. A user class answers only from what it DECLARES (its
+/// interfaces), never from its own name; a native host-surface descriptor also
+/// answers to its own fqcn (ADR-0201).
+fn descriptorIsa(td: *const TypeDescriptor, simple: []const u8) bool {
     var cursor: ?*const TypeDescriptor = td;
     while (cursor) |t| {
-        if (t.fqcn) |fqcn| {
-            if (std.mem.eql(u8, fqcn, simple)) return true;
-            if (std.mem.eql(u8, normalizeClassName(fqcn), simple)) return true;
+        // Only a native host-surface descriptor is its NAME. A user class's
+        // fqcn is a display string it may share with a host interface (a
+        // `(deftype Sorted [])` is not `clojure.lang.Sorted`) or with another
+        // user class, so it never answers here (ADR-0201).
+        if (!t.isUserClass()) {
+            if (t.fqcn) |fqcn| {
+                if (std.mem.eql(u8, fqcn, simple)) return true;
+                if (std.mem.eql(u8, normalizeClassName(fqcn), simple)) return true;
+            }
         }
         // The declared interfaces (ADR-0116 Decision B). `protocol_impls` holds
         // what the type DECLARED; the method table is not consulted, because a
@@ -675,4 +749,55 @@ test "isCallableClassName derives from the IFn tag set" {
     try testing.expect(!isCallableClassName("LazySeq"));
     try testing.expect(isClassInterfaceMember("TransientArrayMap", "Counted"));
     try testing.expect(!isClassInterfaceMember("Cons", "Counted"));
+}
+
+test "ADR-0201: a user class is matched by descriptor identity, never by its simple name" {
+    const Runtime = @import("runtime.zig").Runtime;
+    const td_mod = @import("type_descriptor.zig");
+    var threaded = std.Io.Threaded.init(testing.allocator, .{});
+    defer threaded.deinit();
+    var rt = Runtime.init(threaded.io(), testing.allocator);
+    defer rt.deinit();
+
+    // Two vintages of user.R, plus a namesake in another namespace.
+    const old = try td_mod.registerType(&rt, "R", "user", &.{"a"}, &.{}, .defrecord);
+    const old_inst = try td_mod.allocInstance(&rt, old, &.{Value.initInteger(1)});
+    const new = try td_mod.registerType(&rt, "R", "user", &.{ "a", "b" }, &.{}, .defrecord);
+    const namesake = try td_mod.registerType(&rt, "R", "other", &.{"a"}, &.{}, .defrecord);
+    try testing.expect(old != new);
+
+    try testing.expect(isInstanceOfClass(old_inst, old));
+    try testing.expect(!isInstanceOfClass(old_inst, new));
+    try testing.expect(!isInstanceOfClass(old_inst, namesake));
+    try testing.expect(!isInstanceOfClass(Value.initInteger(1), old));
+    try testing.expect(classIsaOf(old, old));
+    try testing.expect(!classIsaOf(old, new));
+    try testing.expect(!classIsaOf(new, old));
+    try testing.expect(!classIsaOf(namesake, old));
+    // The name oracle no longer answers for a user class by its display name.
+    try testing.expect(!isInstance(old_inst, "R"));
+
+    // Under a host parent a user class is an Object, and is NOT the subclass of
+    // a host class that merely shares its simple name.
+    const object = try rt.classDescriptor("Object");
+    try testing.expect(classIsaOf(old, object));
+    try testing.expect(isInstanceOfClass(old_inst, object));
+    const user_big_int = try td_mod.registerType(&rt, "BigInt", "user", &.{}, &.{}, .deftype);
+    try testing.expect(!classIsaOf(user_big_int, try rt.classDescriptor("Number")));
+    try testing.expect(classIsaOf(user_big_int, object));
+
+    // A reify descriptor has no name at all and is still its own class.
+    const reify_td: TypeDescriptor = .{
+        .fqcn = null,
+        .kind = .reify_anon,
+        .field_layout = null,
+        .protocol_impls = &.{},
+        .method_table = &.{},
+        .parent = null,
+        .meta = .nil_val,
+    };
+    const reified = try td_mod.allocReifiedInstance(&rt, &reify_td);
+    try testing.expect(isInstanceOfClass(reified, &reify_td));
+    try testing.expect(!isInstanceOfClass(reified, old));
+    try testing.expect(classIsaOf(&reify_td, object));
 }
