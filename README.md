@@ -23,9 +23,18 @@ WebAssembly engine so a `.wasm` compiled from Rust, Go, C or Zig can be
 required like a namespace and called like a function, inside a sandbox whose
 fuel and memory the caller sets.
 
-This is the maintained continuation of the project
-[@chaploud](https://github.com/chaploud) started and released through v1.10.1.
-The `1.x` line continues here; install and version pins point at this repo.
+## News
+
+**2026-10: the project has a new maintainer.**
+[@chaploud](https://github.com/chaploud), who created ClojureWasm and released
+it through v1.10.1, has handed the [clojurewasm](https://github.com/clojurewasm)
+organization over to [@BuddhiLW](https://github.com/BuddhiLW). The fork's work
+(v1.11 through v1.15.0) is merged back into
+[clojurewasm/ClojureWasm](https://github.com/clojurewasm/ClojureWasm), so the
+original repository is active again. Releases and the Homebrew tap keep
+publishing from [BuddhiLW/ClojureWasm](https://github.com/BuddhiLW/ClojureWasm)
+for now; existing install commands and version pins keep working.
+
 [Issues](https://github.com/BuddhiLW/ClojureWasm/issues) and PRs are open, and
 the most useful report is Clojure code that behaves differently here than on
 the JVM (there is an issue template for it).
@@ -303,5 +312,7 @@ Eclipse Public License 2.0, see [LICENSE](./LICENSE) and
 
 ClojureWasm was created by [Shota Kudo (@chaploud)](https://github.com/chaploud),
 who took it from nothing to a working JVM-free Clojure runtime with a Wasm FFI
-through v1.10. Everything this fork ships is built on that work. The embedded
+through v1.10, and in 2026-10 passed the project on to
+[@BuddhiLW](https://github.com/BuddhiLW). Everything shipped since is built on
+that work. The embedded
 engine is [zwasm](https://github.com/zwasm/zwasm).
