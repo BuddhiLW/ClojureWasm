@@ -722,7 +722,7 @@ fn evalConstructorCall(rt: *Runtime, env: *Env, locals: []Value, n: node_mod.Int
         buf[i] = try eval(rt, env, locals, &arg_node);
         af.publish(i + 1);
     }
-    return special_forms.constructInstance(rt, env, n.type_name, buf[0..n.args.len], n.loc);
+    return special_forms.constructInstance(rt, env, n.type_name, n.definer_ns, buf[0..n.args.len], n.loc);
 }
 
 /// `(.member recv args...)` / `(.-field recv)` unified instance member

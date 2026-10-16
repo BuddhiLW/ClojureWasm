@@ -29,7 +29,8 @@
 //!                           + has_only:u8 + (only_count:u32
 //!                             + each: only_len:u32 + bytes)?
 //!   [...]     ctor_sites_count (u32 LE)
-//!             for each entry: type_name_len:u32 + bytes + arg_count:u16
+//!             for each entry: type_name_len:u32 + bytes
+//!                           + definer_ns_len:u32 + bytes + arg_count:u16
 //!   [...]     import_sites_count (u32 LE)
 //!             for each entry: simple_len:u32 + bytes + fqcn_len:u32 + bytes
 //!
@@ -78,6 +79,10 @@ const tree_walk = @import("../backend/tree_walk.zig");
 const Function = tree_walk.Function;
 
 pub const MAGIC: [4]u8 = .{ 'C', 'L', 'J', 'W' };
+// v13: a ctor site carries `definer_ns`, the namespace its form was analyzed
+// in, so a bare user-type name is qualified lexically instead of by the
+// caller's namespace (ADR-0198, ADR-0201). A v12 ctor site has no such field,
+// so v12 is rejected.
 // v12 (D-346): the op_*_extend opcodes build a large literal in bounded steps,
 // and a folded constant literal may be a hash_map (new wire tag) or a set past
 // the array-map threshold. A v11 decoder cannot read either, so v11 is rejected.
@@ -89,7 +94,7 @@ pub const MAGIC: [4]u8 = .{ 'C', 'L', 'J', 'W' };
 // v10: def operands capture Var constants instead of caller-relative names.
 // v9 added op_var_meta; v8 unified host-class FQCNs; v7 compacted WireInstr
 // and interned the name pool; v6 merged rt into clojure.core.
-pub const VERSION: u16 = 12;
+pub const VERSION: u16 = 13;
 
 pub const SerializeError = error{
     OutOfMemory,
@@ -852,6 +857,7 @@ fn writeChunkBody(ctx: *WriteCtx, w: *std.Io.Writer, chunk: BytecodeChunk) Seria
     try writeU32(w, @intCast(chunk.ctor_sites.len));
     for (chunk.ctor_sites) |ct| {
         try writeLenPrefixed(w, ct.type_name);
+        try writeLenPrefixed(w, ct.definer_ns);
         try writeU16(w, ct.arg_count);
     }
     try writeU32(w, @intCast(chunk.import_sites.len));
@@ -1039,8 +1045,10 @@ fn readChunkBody(ctx: *ReadCtx, r: *ByteReader) DeserializeError!BytecodeChunk {
     while (i < ctor_count) : (i += 1) {
         const tn_bytes = try r.readLenPrefixed();
         const tn_dup = try allocator.dupe(u8, tn_bytes);
+        const dn_bytes = try r.readLenPrefixed();
+        const dn_dup = try allocator.dupe(u8, dn_bytes);
         const arg_count = try r.readU16();
-        ctor_sites[i] = .{ .type_name = tn_dup, .arg_count = arg_count };
+        ctor_sites[i] = .{ .type_name = tn_dup, .definer_ns = dn_dup, .arg_count = arg_count };
     }
 
     const import_count = try r.readU32();
@@ -1132,7 +1140,10 @@ pub fn freeChunk(allocator: std.mem.Allocator, chunk: BytecodeChunk) void {
         if (nf.doc) |d| allocator.free(d);
     }
     allocator.free(chunk.ns_filters);
-    for (chunk.ctor_sites) |ct| allocator.free(ct.type_name);
+    for (chunk.ctor_sites) |ct| {
+        allocator.free(ct.type_name);
+        allocator.free(ct.definer_ns);
+    }
     allocator.free(chunk.ctor_sites);
     for (chunk.import_sites) |ip| {
         allocator.free(ip.simple);
@@ -2077,7 +2088,7 @@ test "chunk completeness gate: every side-table + entry field round-trips (D-365
     }
     inline for (std.meta.fields(CtorEntry)) |f| {
         const classified: bool = switch (@field(std.meta.FieldEnum(CtorEntry), f.name)) {
-            .type_name, .arg_count => true,
+            .type_name, .definer_ns, .arg_count => true,
         };
         try testing.expect(classified);
     }
@@ -2119,6 +2130,7 @@ test "chunk completeness gate: every side-table + entry field round-trips (D-365
     };
     const ctor_sites = [_]CtorEntry{
         .{ .type_name = "java.io.File", .arg_count = 1 },
+        .{ .type_name = "Point", .definer_ns = "app.core", .arg_count = 2 },
     };
     const import_sites = [_]ImportPair{
         .{ .simple = "File", .fqcn = "java.io.File" },
@@ -2179,9 +2191,13 @@ test "chunk completeness gate: every side-table + entry field round-trips (D-365
     try testing.expectEqual(@as(u32, 7), round.ns_filters[0].attr_const);
 
     // ctor_sites
-    try testing.expectEqual(@as(usize, 1), round.ctor_sites.len);
+    try testing.expectEqual(@as(usize, 2), round.ctor_sites.len);
     try testing.expectEqualStrings("java.io.File", round.ctor_sites[0].type_name);
+    try testing.expectEqualStrings("", round.ctor_sites[0].definer_ns);
     try testing.expectEqual(@as(u16, 1), round.ctor_sites[0].arg_count);
+    try testing.expectEqualStrings("Point", round.ctor_sites[1].type_name);
+    try testing.expectEqualStrings("app.core", round.ctor_sites[1].definer_ns);
+    try testing.expectEqual(@as(u16, 2), round.ctor_sites[1].arg_count);
 
     // import_sites
     try testing.expectEqual(@as(usize, 1), round.import_sites.len);

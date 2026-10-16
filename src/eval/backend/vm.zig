@@ -527,7 +527,7 @@ inline fn stepOnce(
         },
         .op_load_local => {
             if (instr.operand >= locals.len)
-                return error_catalog.raise(.slot_out_of_range, .{}, .{ .form = "Local", .index = instr.operand, .max = locals.len });
+                return error_catalog.raise(.slot_out_of_range, instr_loc, .{ .form = "Local", .index = instr.operand, .max = locals.len });
             if (sp >= stack.len)
                 return operandOverflow(instr_loc);
             stack[sp] = locals[instr.operand];
@@ -535,7 +535,7 @@ inline fn stepOnce(
         },
         .op_store_local => {
             if (instr.operand >= locals.len)
-                return error_catalog.raise(.slot_out_of_range, .{}, .{ .form = "let*", .index = instr.operand, .max = locals.len });
+                return error_catalog.raise(.slot_out_of_range, instr_loc, .{ .form = "let*", .index = instr.operand, .max = locals.len });
             if (sp == 0) return raiseInternal("vm: op_store_local on empty stack");
             sp -= 1;
             locals[instr.operand] = stack[sp];
@@ -600,7 +600,7 @@ inline fn stepOnce(
                 return raiseInternal("vm: op_ns_import site index out of range");
             const imp = chunk.import_sites[instr.operand];
             const here = env.current_ns orelse
-                return error_catalog.raise(.current_namespace_missing, .{}, .{ .sym = imp.simple });
+                return error_catalog.raise(.current_namespace_missing, instr_loc, .{ .sym = imp.simple });
             try here.addImport(env.alloc, imp.simple, imp.fqcn);
             if (sp >= stack.len)
                 return operandOverflow(instr_loc);
@@ -618,7 +618,7 @@ inline fn stepOnce(
             if (!env_mod.setBinding(var_ptr, val)) {
                 const full = try std.fmt.allocPrint(rt.gpa, "{s}/{s}", .{ var_ptr.ns.name, var_ptr.name });
                 defer rt.gpa.free(full);
-                return error_catalog.raise(.var_set_not_bound, .{}, .{ .@"var" = full });
+                return error_catalog.raise(.var_set_not_bound, instr_loc, .{ .@"var" = full });
             }
         },
         .op_set_field => {
@@ -644,7 +644,7 @@ inline fn stepOnce(
                     break;
                 }
             }
-            if (!wrote) return error_catalog.raise(.symbol_unresolved, .{}, .{ .sym = field_name });
+            if (!wrote) return error_catalog.raise(.symbol_unresolved, instr_loc, .{ .sym = field_name });
             sp -= 2;
             stack[sp] = value;
             sp += 1;
@@ -860,7 +860,7 @@ inline fn stepOnce(
             const lslot: usize = instr.operand >> 8;
             const cidx: usize = instr.operand & 0xFF;
             if (lslot >= locals.len)
-                return error_catalog.raise(.slot_out_of_range, .{}, .{ .form = "Local", .index = @as(u16, @intCast(lslot)), .max = locals.len });
+                return error_catalog.raise(.slot_out_of_range, instr_loc, .{ .form = "Local", .index = @as(u16, @intCast(lslot)), .max = locals.len });
             if (cidx >= chunk.constants.len)
                 return raiseInternal("vm: local_const constant index out of range");
             const a = locals[lslot];
@@ -893,7 +893,7 @@ inline fn stepOnce(
             const sa: usize = instr.operand >> 8;
             const sb: usize = instr.operand & 0xFF;
             if (sa >= locals.len or sb >= locals.len)
-                return error_catalog.raise(.slot_out_of_range, .{}, .{ .form = "Local", .index = @as(u16, @intCast(if (sa >= locals.len) sa else sb)), .max = locals.len });
+                return error_catalog.raise(.slot_out_of_range, instr_loc, .{ .form = "Local", .index = @as(u16, @intCast(if (sa >= locals.len) sa else sb)), .max = locals.len });
             const a = locals[sa];
             const b = locals[sb];
             const aop = intrinsic.fromLocalsOpcode(instr_op).?;
@@ -931,7 +931,7 @@ inline fn stepOnce(
             const offset: i16 = @bitCast(chunk.instructions[ip].operand);
             ip += 1;
             if (sa >= locals.len)
-                return error_catalog.raise(.slot_out_of_range, .{}, .{ .form = "Local", .index = @as(u16, @intCast(sa)), .max = locals.len });
+                return error_catalog.raise(.slot_out_of_range, instr_loc, .{ .form = "Local", .index = @as(u16, @intCast(sa)), .max = locals.len });
             const a = locals[sa];
             const b = if (info.b_is_const) bblk: {
                 if (sb >= chunk.constants.len)
@@ -939,7 +939,7 @@ inline fn stepOnce(
                 break :bblk chunk.constants[sb];
             } else bblk: {
                 if (sb >= locals.len)
-                    return error_catalog.raise(.slot_out_of_range, .{}, .{ .form = "Local", .index = @as(u16, @intCast(sb)), .max = locals.len });
+                    return error_catalog.raise(.slot_out_of_range, instr_loc, .{ .form = "Local", .index = @as(u16, @intCast(sb)), .max = locals.len });
                 break :bblk locals[sb];
             };
             const fast: ?Value = if (rt.core_arith_pristine)
@@ -975,7 +975,7 @@ inline fn stepOnce(
             ip += 1;
             if (sp < nb) return raiseInternal("vm: op_recur_loop underflow");
             if (base + nb > locals.len)
-                return error_catalog.raise(.slot_out_of_range, .{}, .{ .form = "loop*", .index = @as(u16, @intCast(base + nb)), .max = locals.len });
+                return error_catalog.raise(.slot_out_of_range, instr_loc, .{ .form = "loop*", .index = @as(u16, @intCast(base + nb)), .max = locals.len });
             const top: u16 = sp - @as(u16, @intCast(nb));
             var k: usize = 0;
             while (k < nb) : (k += 1) {
@@ -1096,7 +1096,7 @@ inline fn stepOnce(
             // through `op_call` + vtable). Per
             // `no_op_stub_forbidden.md`, raise rather than fall
             // through silently.
-            return error_catalog.raise(.feature_not_supported, .{}, .{ .name = "op_invoke_builtin" });
+            return error_catalog.raise(.feature_not_supported, instr_loc, .{ .name = "op_invoke_builtin" });
         },
         .op_push_handler => {
             const offset: i16 = @bitCast(instr.operand);
@@ -1303,7 +1303,7 @@ inline fn stepOnce(
             // lib_not_found renders the caret (tree_walk parity).
             const target_ns = try loader.loadOrFindNs(rt, env, spec.ns_name, instr_loc);
             const here = env.current_ns orelse
-                return error_catalog.raise(.current_namespace_missing, .{}, .{ .sym = spec.ns_name });
+                return error_catalog.raise(.current_namespace_missing, instr_loc, .{ .sym = spec.ns_name });
             if (spec.alias) |alias_name| {
                 try env.setAlias(here, alias_name, target_ns);
             }
@@ -1319,7 +1319,7 @@ inline fn stepOnce(
                     .private_blocked => {
                         const full = try std.fmt.allocPrint(rt.gpa, "{s}/{s}", .{ spec.ns_name, refer_name });
                         defer rt.gpa.free(full);
-                        return error_catalog.raise(.private_access_error, .{}, .{
+                        return error_catalog.raise(.private_access_error, instr_loc, .{
                             .sym = full,
                             .ns = spec.ns_name,
                         });
@@ -1327,7 +1327,7 @@ inline fn stepOnce(
                     .not_found => {
                         const full = try std.fmt.allocPrint(rt.gpa, "{s}/{s}", .{ spec.ns_name, refer_name });
                         defer rt.gpa.free(full);
-                        return error_catalog.raise(.symbol_unresolved, .{}, .{ .sym = full });
+                        return error_catalog.raise(.symbol_unresolved, instr_loc, .{ .sym = full });
                     },
                 }
             }
@@ -1373,7 +1373,7 @@ inline fn stepOnce(
             // Shared resolver/dispatcher (deftype/record + java-surface
             // `<init>`) — identical to TreeWalk's evalConstructorCall so a
             // `(java.io.File. …)` ctor works on both backends.
-            const new_val = try special_forms.constructInstance(rt, env, type_name, args_slice, .{});
+            const new_val = try special_forms.constructInstance(rt, env, type_name, ctor.definer_ns, args_slice, instr_loc);
             sp -= arg_count;
             stack[sp] = new_val;
             sp += 1;
@@ -1419,11 +1419,11 @@ inline fn stepOnce(
                 stack[sp] = fv;
                 sp += 1;
             } else if (cs_entry.field_only) {
-                return error_catalog.raise(.symbol_unresolved, .{}, .{ .sym = cs_entry.method_name });
+                return error_catalog.raise(.symbol_unresolved, instr_loc, .{ .sym = cs_entry.method_name });
             } else {
                 if (cs_entry.cache.lookupWithCache(td, null, cs_entry.method_name, rt.protocol_generation)) |me| {
                     if (me.method_val.tag() == .nil)
-                        return error_catalog.raise(.feature_not_supported, .{}, .{ .name = "method declared but not implemented" });
+                        return error_catalog.raise(.feature_not_supported, instr_loc, .{ .name = "method declared but not implemented" });
                     const args_slice = stack[sp - arg_count .. sp];
                     const vt = rt.vtable orelse return error.NoVTable;
                     // Frame the user `<protocol>/<method>` so the interop form
@@ -1448,7 +1448,7 @@ inline fn stepOnce(
                     stack[sp] = r;
                     sp += 1;
                 } else {
-                    return error_catalog.raise(.protocol_no_satisfies, .{}, .{
+                    return error_catalog.raise(.protocol_no_satisfies, instr_loc, .{
                         .protocol = "<.member>",
                         .method = cs_entry.method_name,
                         .type_name = td.fqcn orelse "<anonymous>",
@@ -1470,17 +1470,17 @@ inline fn stepOnce(
             const td = cs_entry.descriptor orelse
                 return raiseInternal("vm: op_static_method_call missing descriptor (compiler bug)");
             const me = td.lookupMethod(null, cs_entry.method_name) orelse {
-                return error_catalog.raise(.protocol_no_satisfies, .{}, .{
+                return error_catalog.raise(.protocol_no_satisfies, instr_loc, .{
                     .protocol = "<static>",
                     .method = cs_entry.method_name,
                     .type_name = td.fqcn orelse "<anonymous>",
                 });
             };
             if (me.method_val.tag() == .nil)
-                return error_catalog.raise(.feature_not_supported, .{}, .{ .name = "static method declared but not implemented" });
+                return error_catalog.raise(.feature_not_supported, instr_loc, .{ .name = "static method declared but not implemented" });
             const args_slice = stack[sp - arg_count .. sp];
             const vt = rt.vtable orelse return error.NoVTable;
-            const result = try vt.callFn(rt, env, me.method_val, args_slice, .{});
+            const result = try vt.callFn(rt, env, me.method_val, args_slice, instr_loc);
             sp -= arg_count;
             stack[sp] = result;
             // Result loc = this call form (pops below sp_entry, so the sweep misses it).
