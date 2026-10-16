@@ -56,7 +56,7 @@ while IFS= read -r hit; do
     file="${hit%%:*}"
     rest="${hit#*:}"
     lineno="${rest%%:*}"
-    id=$(printf '%s' "$hit" | grep -oE 'claim:planned:D-[0-9]+' | sed -n 1p | sed 's/claim:planned://')
+    id=$(grep -oE 'claim:planned:D-[0-9]+' <<<"$hit" | sed -n 1p | sed 's/claim:planned://')
     found_markers=$((found_markers + 1))
     [[ "$MODE" == list ]] && echo "    planned  $file:$lineno  -> $id"
 
@@ -90,7 +90,7 @@ for entry in "${FORBIDDEN[@]}"; do
     while IFS= read -r hit; do
         [[ -z "$hit" ]] && continue
         # A line that carries a status marker has been consciously classified.
-        if printf '%s' "$hit" | grep -q 'claim:planned:\|claim:shipped'; then
+        if grep -q 'claim:planned:\|claim:shipped' <<<"$hit"; then
             continue
         fi
         echo "capability_claims: unmarked capability claim — \"$pattern\"" >&2

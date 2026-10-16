@@ -200,7 +200,13 @@ pub fn asProtocolFn(val: Value) *const ProtocolFn {
 /// primitive (lang/primitive/protocol.zig) calls this on a
 /// typed_instance's descriptor.
 pub fn satisfies(proto: *const ProtocolDescriptor, td: *const TypeDescriptor) bool {
-    const target_name = proto.fqcn();
+    return satisfiesName(proto.fqcn(), td);
+}
+
+/// `satisfies` by protocol NAME — the same walk, for callers holding an fqcn
+/// rather than a descriptor (ADR-0187's dispatch-miss fallback, which knows
+/// only the recorded target's name).
+pub fn satisfiesName(target_name: []const u8, td: *const TypeDescriptor) bool {
     var cursor: ?*const TypeDescriptor = td;
     while (cursor) |t| {
         for (t.method_table) |entry| {

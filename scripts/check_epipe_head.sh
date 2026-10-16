@@ -18,7 +18,7 @@
 # left no check, so the population kept 24 more — and a new e2e written the same
 # afternoon reintroduced it and failed CI while passing on two other machines.
 # A one-off fix for a mechanical hazard is a fix for the instances someone
-# remembered (`.claude/rules/framework_completion.md`).
+# remembered (`memory 20260909234612-6f9c927b (framework_completion)`).
 #
 # Exempt: a pipeline whose producer is `printf` or `echo` of a shell value. That
 # is a single write into the pipe buffer with no later flush, so there is no
@@ -36,7 +36,7 @@ while IFS=: read -r file lineno line; do
     [[ "$(printf '%s' "$line" | sed 's/^[[:space:]]*//')" == \#* ]] && continue
     [[ "$line" == *"$MARKER"* ]] && continue
     # Single-write producers cannot lose a SIGPIPE race.
-    printf '%s' "$line" | grep -qE '(printf|echo)[[:space:]]+[^|]*\|[[:space:]]*head -[0-9]' && continue
+    grep -qE '(printf|echo)[[:space:]]+[^|]*\|[[:space:]]*head -[0-9]' <<<"$line" && continue
     bad=$((bad + 1))
     echo "check_epipe_head: $file:$lineno pipes a command into 'head -N' under pipefail." >&2
     echo "  → $(printf '%s' "$line" | sed 's/^[[:space:]]*//' | cut -c1-110)" >&2

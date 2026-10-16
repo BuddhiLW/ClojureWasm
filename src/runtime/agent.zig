@@ -39,6 +39,8 @@
 //! Per F-009 the implementation is namespace-neutral.
 
 const std = @import("std");
+const atomics = @import("atomics.zig");
+const spawn = @import("concurrency/spawn.zig");
 const value_mod = @import("value/value.zig");
 const Value = value_mod.Value;
 const HeapHeader = value_mod.HeapHeader;
@@ -191,7 +193,7 @@ pub fn setErrorHandler(v: Value, f: Value) void {
 /// `@agent` / `(deref a)` — non-blocking atomic read of the current state.
 pub fn current(v: Value) Value {
     const a = v.decodePtr(*const Agent);
-    return @atomicLoad(Value, &a.state, .acquire);
+    return atomics.load(Value, &a.state, .acquire);
 }
 
 /// Dispatch an action (a `[f & args]` vector, already built on the GC heap) to
@@ -374,7 +376,7 @@ fn enqueueDirect(rt: *Runtime, agent_val: Value, action: Action) !void {
         try rt.gc.pin(agent_val);
         // Teardown guard (ADR-0176): account the drainer BEFORE spawn.
         root_set.noteWorkerSpawned();
-        var t = std.Thread.spawn(.{}, drainer, .{a}) catch |e| {
+        var t = spawn.spawn(drainer, .{a}) catch |e| {
             root_set.noteWorkerExited();
             io_default.lockMutex(&a.cell.mutex);
             a.cell.draining = false;
@@ -524,7 +526,7 @@ fn validateState(a: *Agent, newstate: Value) !void {
 /// `[f & args]` vector, or nil for a pure `await` barrier (state unchanged — the
 /// barrier exists only to fire its no-op `[s s]` watch + deliver `completion`).
 fn runAction(a: *Agent, action: Action) !void {
-    const oldstate = @atomicLoad(Value, &a.state, .acquire);
+    const oldstate = atomics.load(Value, &a.state, .acquire);
     var newstate = oldstate;
     // Bind `*agent*` to this agent for the whole action (body fn + its watches),
     // mirroring clj's `binding [*agent* a]` conveyed to the worker (ADR-0155 /
@@ -567,7 +569,7 @@ fn runAction(a: *Agent, action: Action) !void {
             try validateState(a, newstate);
         }
     }
-    @atomicStore(Value, &a.state, newstate, .release);
+    atomics.store(Value, &a.state, newstate, .release);
     try notifyWatches(a, oldstate, newstate);
     // Deliver an await barrier's completion promise AFTER the watch fire above,
     // so `(await a)` is released only once this action's `notifyWatches` ran
@@ -597,7 +599,7 @@ pub fn restart(rt: *Runtime, agent_val: Value, new_state: Value, clear_actions: 
     const a = agent_val.decodePtr(*Agent);
     io_default.lockMutex(&a.cell.mutex);
     a.error_val = .nil_val;
-    @atomicStore(Value, &a.state, new_state, .release);
+    atomics.store(Value, &a.state, new_state, .release);
     if (clear_actions) {
         for (a.cell.actions.items[a.cell.head..]) |act| {
             if (act.budget) |b| b.unref();
@@ -613,7 +615,7 @@ pub fn restart(rt: *Runtime, agent_val: Value, new_state: Value, clear_actions: 
         try rt.gc.pin(agent_val);
         // Teardown guard (ADR-0176): account the drainer BEFORE spawn.
         root_set.noteWorkerSpawned();
-        var t = std.Thread.spawn(.{}, drainer, .{a}) catch |e| {
+        var t = spawn.spawn(drainer, .{a}) catch |e| {
             root_set.noteWorkerExited();
             io_default.lockMutex(&a.cell.mutex);
             a.cell.draining = false;

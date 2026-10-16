@@ -12,7 +12,7 @@ body:
 
         Crashes and hangs are the highest-priority reports here. A crash in the
         WebAssembly FFI or the sandbox may be a security issue — in that case
-        please use [private vulnerability reporting](https://github.com/clojurewasm/ClojureWasm/security/advisories/new)
+        please use [private vulnerability reporting](https://github.com/BuddhiLW/ClojureWasm/security/advisories/new)
         rather than a public issue.
 
   - type: textarea

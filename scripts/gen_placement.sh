@@ -23,8 +23,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 BIN="zig-out/bin/cljw"
-[ -x "$BIN" ] || { echo "gen_placement: building cljw…" >&2; zig build -Dwasm -Doptimize="${CLJW_OPT:-ReleaseSafe}" >/dev/null; }
-
+[ -n "${CLJW_SKIP_BUILD:-}" ] || zig build -Dwasm -Doptimize="${CLJW_OPT:-ReleaseSafe}" >/dev/null
 # Bundled .clj → ns name (same munge inverse as check_lazy_ns_replay.sh:
 # '/'→'.', '_'→'-').
 mapfile -t NSES < <(
@@ -79,7 +78,7 @@ emit() {
         print "# .dev/debt.yaml where it can carry a barrier — today exactly one var"
         print "# (clojure.string/escape, D-094). ADR-0033 D2-D5 remains the placement rule."
         print "#"
-        print "# Read with yq per .claude/rules/yaml_ssot_yq.md."
+        print "# Read with yq per memory 20260909234558-3c83a76a (yaml_ssot_yq)."
         print ""
         print "schema_version: \"2.0\""
         print "summary:"

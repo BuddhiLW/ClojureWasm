@@ -27,12 +27,14 @@
 //! (`runtime/java/lang/Thread.zig`) wires it from above.
 
 const std = @import("std");
+const spawn = @import("concurrency/spawn.zig");
 const value_mod = @import("value/value.zig");
 const Value = value_mod.Value;
 const Runtime = @import("runtime.zig").Runtime;
 const Env = @import("env.zig").Env;
 const root_set = @import("gc/root_set.zig");
 const io_default = @import("concurrency/io_default.zig");
+const safepoint = @import("concurrency/safepoint.zig");
 const eval_budget = @import("concurrency/eval_budget.zig");
 const lock_tx = @import("concurrency/lock_tx.zig");
 const host_instance = @import("host_instance.zig");
@@ -43,6 +45,7 @@ const SourceLocation = @import("error/info.zig").SourceLocation;
 pub const FQCN = "java.lang.Thread";
 
 pub const RunState = enum(u8) { unstarted = 0, running = 1, done = 2 };
+pub const NativeEntry = *const fn (*anyopaque, bool) void;
 
 /// The blocking join cell (mutex + condition), `rt.gpa`-allocated at
 /// construction, freed by the host_instance finaliser. Same shape as
@@ -70,6 +73,12 @@ pub const ThreadState = struct {
     /// The eval budget inherited from the spawner at `.start` (D-571), or
     /// null. The worker adopts it; the reference drops on worker exit.
     budget: ?*eval_budget.EvalBudget = null,
+    /// Optional runtime-service entry.  A host ThreadFactory still creates the
+    /// actual Thread object (and therefore controls its name/daemon policy),
+    /// then the service attaches its loop before `.start`.  `registered` tells
+    /// the entry whether this OS thread joined the GC root registry.
+    native_entry: ?NativeEntry = null,
+    native_context: ?*anyopaque = null,
 };
 
 /// The Thread object the CURRENT OS thread is running as: set by `worker`
@@ -82,12 +91,12 @@ pub threadlocal var current_thread_val: Value = .nil_val;
 var auto_name_counter: std.atomic.Value(u32) = .init(0);
 
 fn stateOf(v: Value) *ThreadState {
-    return @ptrFromInt(host_instance.asHostInstance(v).state[0]);
+    return @ptrFromInt(@as(usize, @intCast(host_instance.asHostInstance(v).state[0])));
 }
 
 /// `host_trace` hook: the thunk is a live edge until the worker clears it.
 pub fn traceState(gc_ptr: *anyopaque, state: *[4]u64) void {
-    const st: *ThreadState = @ptrFromInt(state[0]);
+    const st: *ThreadState = @ptrFromInt(@as(usize, @intCast(state[0])));
     const gc: *@import("gc/gc_heap.zig").GcHeap = @ptrCast(@alignCast(gc_ptr));
     const mark_sweep = @import("gc/mark_sweep.zig");
     if (st.thunk.heapHeader()) |hdr| mark_sweep.mark(gc, hdr);
@@ -96,7 +105,7 @@ pub fn traceState(gc_ptr: *anyopaque, state: *[4]u64) void {
 /// `host_finalise` hook: free the state + name + cell. A running thread's
 /// value is pinned, so finalisation only reaches unstarted/done Threads.
 pub fn finaliseState(infra: std.mem.Allocator, state: *[4]u64) void {
-    const st: *ThreadState = @ptrFromInt(state[0]);
+    const st: *ThreadState = @ptrFromInt(@as(usize, @intCast(state[0])));
     infra.free(st.name);
     // The cell is gpa-allocated; infra == gpa backing per F-006 (the same
     // equivalence runtime.zig's deinit relies on for rt.types tables).
@@ -129,6 +138,19 @@ pub fn isThread(v: Value) bool {
     return std.mem.eql(u8, fq, FQCN);
 }
 
+/// Attach a native runtime-service body to an unstarted Thread.  Used by the
+/// executor adapter so caller-supplied ThreadFactory objects create the real
+/// workers rather than being accepted and ignored.
+pub fn attachNativeEntry(thread_val: Value, entry: NativeEntry, context: *anyopaque, loc: SourceLocation) !void {
+    const st = stateOf(thread_val);
+    io_default.lockMutex(&st.cell.mutex);
+    defer io_default.unlockMutex(&st.cell.mutex);
+    if (st.run_state != .unstarted)
+        return error_catalog.raise(.thread_already_started, loc, .{ .op = "attach executor worker" });
+    st.native_entry = entry;
+    st.native_context = context;
+}
+
 /// `.start` — spawn the detached worker. Second start (or start of a
 /// finished thread) raises the IllegalThreadState-shaped error, JVM-exact.
 pub fn start(rt: *Runtime, thread_val: Value, loc: SourceLocation) !Value {
@@ -153,7 +175,7 @@ pub fn start(rt: *Runtime, thread_val: Value, loc: SourceLocation) !Value {
     // returns at the done-broadcast, BEFORE the worker's unpin epilogue, so
     // even a joined Thread needs the exit boundary to see its live count.
     root_set.noteWorkerSpawned();
-    var t = std.Thread.spawn(.{}, worker, .{thread_val}) catch |e| {
+    var t = spawn.spawn(worker, .{thread_val}) catch |e| {
         root_set.noteWorkerExited();
         if (st.budget) |b| b.unref();
         st.budget = null;
@@ -201,6 +223,12 @@ fn worker(thread_val: Value) void {
         const w = &fw.interface;
         w.print("Exception in thread \"{s}\" worker registration refused (thread cap); body not run\n", .{st.name}) catch {};
         w.flush() catch {};
+        // A runtime service still needs its non-heap lifecycle bookkeeping
+        // (live-worker decrement / termination edge) even though its body must
+        // not run on an unregistered mutator.
+        if (st.native_entry) |entry| entry(st.native_context.?, false);
+    } else if (st.native_entry) |entry| {
+        entry(st.native_context.?, true);
     } else if (st.rt.vtable) |vt| {
         if (vt.callFn(st.rt, st.env, st.thunk, &.{}, .{})) |_| {
             // A thread's return value is discarded (JVM Runnable.run is void).
@@ -229,7 +257,7 @@ fn reportUncaught(st: *ThreadState) void {
     const w = &fw.interface;
     w.print("Exception in thread \"{s}\" ", .{st.name}) catch return;
     const print_mod = @import("print.zig");
-    print_mod.printValue(w, msg) catch {};
+    print_mod.printValue(null, w, msg) catch {};
     w.writeByte('\n') catch {};
     w.flush() catch {};
 }
@@ -237,21 +265,30 @@ fn reportUncaught(st: *ThreadState) void {
 /// `.join` — block until done. `timeout_ms` null = indefinite (condition
 /// wait); a timeout polls in slices (no timed condwait in io_default) and
 /// returns when the deadline passes with the thread still alive (JVM
-/// join(ms) semantics: returns, caller re-checks isAlive).
+/// join(ms) semantics: returns, caller re-checks isAlive). Both waits count a
+/// registered worker as parked, so a future joining a Thread does not stall
+/// (or, when the collector is the thread it waits on, deadlock) a collection.
 pub fn join(thread_val: Value, timeout_ms: ?i64) void {
     const st = stateOf(thread_val);
     if (timeout_ms) |ms| {
         if (ms <= 0) return;
         const slice_ns: u64 = 5 * std.time.ns_per_ms;
-        var remaining: u64 = @as(u64, @intCast(ms)) * std.time.ns_per_ms;
+        var remaining: u64 = @as(u64, @intCast(ms)) *| std.time.ns_per_ms;
         while (remaining > 0) {
             if (runState(thread_val) == .done) return;
             const this_slice = @min(remaining, slice_ns);
-            io_default.sleep(this_slice);
+            safepoint.blocking(io_default.sleep, .{this_slice});
             remaining -= this_slice;
         }
         return;
     }
+    safepoint.blocking(waitDone, .{st});
+}
+
+/// The untimed join's wait: the thread's run state reaches `.done`. Takes and
+/// releases the cell mutex itself, so `safepoint.blocking` closes its bracket
+/// only after the unlock and a worker never parks holding the mutex.
+fn waitDone(st: *ThreadState) void {
     io_default.lockMutex(&st.cell.mutex);
     defer io_default.unlockMutex(&st.cell.mutex);
     while (st.run_state != .done) {

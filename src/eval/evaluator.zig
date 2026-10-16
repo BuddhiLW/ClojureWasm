@@ -36,9 +36,8 @@ const driver = @import("driver.zig");
 pub const CompareResult = struct {
     tree_walk: anyerror!Value,
     vm: anyerror!Value,
-    /// `true` when both backends succeeded AND produced the same
-    /// NaN-boxed bit pattern. See module docstring for the
-    /// immediate-Value caveat.
+    /// `true` when both backends produced the same NaN-boxed bit pattern, or
+    /// failed with the same Zig error.
     equal: bool,
 };
 
@@ -55,15 +54,24 @@ pub fn compare(
     vm.installVTable(rt);
     const vm_value = runOnce(rt, env, table, arena, source, .vm);
 
-    const equal = blk: {
-        const tw = tw_value catch break :blk false;
+    const equal = if (tw_value) |tw| blk: {
         const vm_v = vm_value catch break :blk false;
         break :blk @intFromEnum(tw) == @intFromEnum(vm_v);
+    } else |tw_err| blk: {
+        _ = vm_value catch |vm_err| break :blk tw_err == vm_err;
+        break :blk false;
     };
     return .{ .tree_walk = tw_value, .vm = vm_value, .equal = equal };
 }
 
-const BackendChoice = enum { tree_walk, vm };
+pub const BackendChoice = enum { tree_walk, vm };
+
+pub fn installBackend(rt: *Runtime, backend: BackendChoice) void {
+    switch (backend) {
+        .tree_walk => tree_walk.installVTable(rt),
+        .vm => vm.installVTable(rt),
+    }
+}
 
 fn runOnce(
     rt: *Runtime,
@@ -73,7 +81,20 @@ fn runOnce(
     source: []const u8,
     backend: BackendChoice,
 ) anyerror!Value {
+    return runOnceLabeled(rt, env, table, arena, source, "<compare>", backend);
+}
+
+pub fn runOnceLabeled(
+    rt: *Runtime,
+    env: *Env,
+    table: *const macro_dispatch.Table,
+    arena: std.mem.Allocator,
+    source: []const u8,
+    source_label: []const u8,
+    backend: BackendChoice,
+) anyerror!Value {
     var reader = Reader.init(arena, source);
+    reader.file_name = source_label;
     var last: Value = .nil_val;
     while (true) {
         const form_opt = try reader.read();
@@ -198,6 +219,16 @@ test "compare: boolean and nil immediate Values" {
     defer f3.deinit();
     const r_false = compare(&f3.rt, &f3.env, &f3.table, f3.arena.allocator(), "false");
     try testing.expect(r_false.equal);
+}
+
+test "compare: identical backend errors are agreement" {
+    var f: Fixture = undefined;
+    try Fixture.init(&f, testing.allocator);
+    defer f.deinit();
+    const r = compare(&f.rt, &f.env, &f.table, f.arena.allocator(), "missing-symbol");
+    try testing.expect(r.equal);
+    try testing.expectError(error.NameError, r.tree_walk);
+    try testing.expectError(error.NameError, r.vm);
 }
 
 test "ADR-0125: a step budget kills an infinite loop under BOTH backends" {

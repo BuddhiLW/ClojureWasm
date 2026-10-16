@@ -48,9 +48,9 @@ echo "PASS typed-fixture-lists-all-exports -> $got"
 # that survives the round-trip was encoded into the canonical ABI and decoded
 # back. A one-directional check would pass on two mistakes that cancel.
 out="$("$BIN" test/e2e/fixtures/wasm_marshalling_table.clj 2>&1 || true)"
-echo "$out" | grep -q "MISMATCH" && fail "ADR-0135 marshalling table round-trip mismatch:
+grep -q "MISMATCH" <<<"$out" && fail "ADR-0135 marshalling table round-trip mismatch:
 $out"
-echo "$out" | grep -q "^TABLE-DONE$" || fail "the marshalling table did not run to completion:
+grep -q "^TABLE-DONE$" <<<"$out" || fail "the marshalling table did not run to completion:
 $out"
 echo "PASS adr0135-marshalling-table-round-trips (20 rows, both directions)"
 

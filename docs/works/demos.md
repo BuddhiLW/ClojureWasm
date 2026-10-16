@@ -37,9 +37,9 @@ still ahead.)
 
 ## 3. A real app — the Bookshelf (the polyglot story inside a real web app)
 
-> The hosted instance ran on Fly until August 2026 and is shut down with the
-> project; the repository is archived. The description below is a record of what
-> it did, and the source still builds.
+> The hosted instance ran on Fly until August 2026. It belongs to the upstream
+> project, which wound it down; the URL is not maintained here. The description
+> below is a record of what it did, and the source still builds.
 
 [`clojurewasm/cw-serverless-demo`](https://github.com/clojurewasm/cw-serverless-demo)
 — a multi-user bookshelf served end-to-end by cljw's own HTTP server, no JVM.
@@ -72,8 +72,8 @@ the numeric tower, ratios, lazy seqs, STM, and the Wasm modules.
 ## The honest edges
 
 - Verified on macOS arm64 + Ubuntu x86_64 only.
-- Throughput/GC have headroom; the strengths are startup (~4–5 ms), size (<4 MB),
-  and a small footprint.
+- Throughput/GC have headroom; the strengths are startup (~6 ms), size
+  (one 8.1 MB static binary, Wasm engine included), and a small footprint.
 - The demos ran a Debian-slim (glibc) image with the full `-Dwasm` build, so the
   polyglot Wasm FFI was live in production, not just in tests. (A static-musl
   build still omits `-Dwasm` — zwasm's GC uses a glibc-only

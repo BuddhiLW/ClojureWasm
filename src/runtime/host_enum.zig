@@ -38,6 +38,7 @@ pub const Idx = enum(u8) {
     chrono_unit = 1,
     day_of_week = 2,
     month = 3,
+    time_unit = 4,
 };
 
 // Canonical per-enum tables. `to_strings` == `names` except ChronoUnit, whose
@@ -47,6 +48,7 @@ const CHRONO_NAMES = [_][]const u8{ "NANOS", "MICROS", "MILLIS", "SECONDS", "MIN
 const CHRONO_DISPLAY = [_][]const u8{ "Nanos", "Micros", "Millis", "Seconds", "Minutes", "Hours", "HalfDays", "Days", "Weeks", "Months", "Years", "Decades", "Centuries", "Millennia", "Eras", "Forever" };
 const DOW_NAMES = [_][]const u8{ "MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY", "SUNDAY" };
 const MONTH_NAMES = [_][]const u8{ "JANUARY", "FEBRUARY", "MARCH", "APRIL", "MAY", "JUNE", "JULY", "AUGUST", "SEPTEMBER", "OCTOBER", "NOVEMBER", "DECEMBER" };
+const TIME_UNIT_NAMES = [_][]const u8{ "NANOSECONDS", "MICROSECONDS", "MILLISECONDS", "SECONDS", "MINUTES", "HOURS", "DAYS" };
 
 pub const EnumDef = struct {
     /// FQCN — the `rt.types` key the singleton's descriptor is registered under.
@@ -69,6 +71,7 @@ pub const defs = build: {
         .{ .fqcn = "java.time.temporal.ChronoUnit", .names = &CHRONO_NAMES, .to_strings = &CHRONO_DISPLAY, .value_base = null, .cache_base = 0 },
         .{ .fqcn = "java.time.DayOfWeek", .names = &DOW_NAMES, .to_strings = &DOW_NAMES, .value_base = 1, .cache_base = 0 },
         .{ .fqcn = "java.time.Month", .names = &MONTH_NAMES, .to_strings = &MONTH_NAMES, .value_base = 1, .cache_base = 0 },
+        .{ .fqcn = "java.util.concurrent.TimeUnit", .names = &TIME_UNIT_NAMES, .to_strings = &TIME_UNIT_NAMES, .value_base = null, .cache_base = 0 },
     };
     var base: u16 = 0;
     for (&d) |*e| {
@@ -200,16 +203,18 @@ const std = @import("std");
 const testing = std.testing;
 
 test "host_enum registry: cache_base accumulation + TOTAL + name/toString/value" {
-    // Counts: 8 + 16 + 7 + 12 = 43, non-overlapping flat-cache windows.
-    try testing.expectEqual(@as(u16, 43), TOTAL);
+    // Counts: 8 + 16 + 7 + 12 + 7 = 50, non-overlapping flat-cache windows.
+    try testing.expectEqual(@as(u16, 50), TOTAL);
     try testing.expectEqual(@as(usize, 8), count(.rounding_mode));
     try testing.expectEqual(@as(usize, 16), count(.chrono_unit));
     try testing.expectEqual(@as(usize, 7), count(.day_of_week));
     try testing.expectEqual(@as(usize, 12), count(.month));
+    try testing.expectEqual(@as(usize, 7), count(.time_unit));
     try testing.expectEqual(@as(u16, 0), defs[@intFromEnum(Idx.rounding_mode)].cache_base);
     try testing.expectEqual(@as(u16, 8), defs[@intFromEnum(Idx.chrono_unit)].cache_base);
     try testing.expectEqual(@as(u16, 24), defs[@intFromEnum(Idx.day_of_week)].cache_base);
     try testing.expectEqual(@as(u16, 31), defs[@intFromEnum(Idx.month)].cache_base);
+    try testing.expectEqual(@as(u16, 43), defs[@intFromEnum(Idx.time_unit)].cache_base);
 
     // name vs toString: ChronoUnit toString is the display name; others equal.
     try testing.expectEqualStrings("HALF_UP", name(.rounding_mode, 4));
@@ -218,6 +223,8 @@ test "host_enum registry: cache_base accumulation + TOTAL + name/toString/value"
     try testing.expectEqualStrings("Days", toStringOf(.chrono_unit, 7));
     try testing.expectEqualStrings("MONDAY", name(.day_of_week, 0));
     try testing.expectEqualStrings("DECEMBER", name(.month, 11));
+    try testing.expectEqualStrings("MILLISECONDS", name(.time_unit, 2));
+    try testing.expectEqualStrings("MILLISECONDS", toStringOf(.time_unit, 2));
 
     // getValue: DayOfWeek/Month = ordinal+1 (ISO); RoundingMode/ChronoUnit = none.
     try testing.expectEqual(@as(?i64, null), value(.rounding_mode, 4));

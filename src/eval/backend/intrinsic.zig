@@ -32,6 +32,7 @@ const Opcode = @import("vm/opcode.zig").Opcode;
 const env_mod = @import("../../runtime/env.zig");
 const map_mod = @import("../../runtime/collection/map.zig");
 const vector_mod = @import("../../runtime/collection/vector.zig");
+const sub_vector_mod = @import("../../runtime/collection/sub_vector.zig");
 
 /// The intrinsifiable binary operations (ADR-0130 + am1). `/` stays absent
 /// (integer `/` yields a Ratio / divide-by-zero raise — no fixnum fast path).
@@ -289,13 +290,14 @@ pub fn fastGet(coll: Value, k: Value) !?Value {
 /// default); an in-range index returns the element; out-of-range / negative
 /// returns the default. Every non-vector collection defers. Reads only.
 pub fn fastNth3(coll: Value, i_val: Value, default: Value) ?Value {
-    if (coll.tag() != .vector) return null;
+    const is_sub = coll.tag() == .sub_vector;
+    if (coll.tag() != .vector and !is_sub) return null;
     if (i_val.tag() != .integer) return null;
     const idx = i_val.asInteger();
     if (idx < 0) return default;
-    const n = vector_mod.count(coll);
+    const n = if (is_sub) sub_vector_mod.count(coll) else vector_mod.count(coll);
     if (idx >= n) return default;
-    return vector_mod.nth(coll, @intCast(idx));
+    return if (is_sub) sub_vector_mod.nth(coll, @intCast(idx)) else vector_mod.nth(coll, @intCast(idx));
 }
 
 /// 2-arg `(nth coll i)` fast path. Inlines an IN-RANGE vector index only —
@@ -303,13 +305,14 @@ pub fn fastNth3(coll: Value, i_val: Value, default: Value) ?Value {
 /// 2-arg `nth` RAISES) returns `null` so the VM defers to the builtin for the
 /// correct error (gc_alloc_rate's `(nth v 2)`). Reads only.
 pub fn fastNth2(coll: Value, i_val: Value) ?Value {
-    if (coll.tag() != .vector) return null;
+    const is_sub = coll.tag() == .sub_vector;
+    if (coll.tag() != .vector and !is_sub) return null;
     if (i_val.tag() != .integer) return null;
     const idx = i_val.asInteger();
     if (idx < 0) return null;
-    const n = vector_mod.count(coll);
+    const n = if (is_sub) sub_vector_mod.count(coll) else vector_mod.count(coll);
     if (idx >= n) return null;
-    return vector_mod.nth(coll, @intCast(idx));
+    return if (is_sub) sub_vector_mod.nth(coll, @intCast(idx)) else vector_mod.nth(coll, @intCast(idx));
 }
 
 /// Fixnum fast path. Returns `null` unless BOTH operands are inline fixnums, so

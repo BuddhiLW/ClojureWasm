@@ -10,7 +10,7 @@
 # `scripts/run_gate.sh reap` covers the same ground WITHIN a session; this is
 # the ACROSS-session backstop.
 #
-# History: `.claude/rules/orphan_prevention.md` and `.dev/reference_clones.md`
+# History: `memory 20260909234832-598b7c16 (orphan_prevention)` and `.dev/reference_clones.md`
 # both cited `~/.claude/hooks/cleanup_orphans.sh` as the live reaper. That file
 # did not exist on the maintainer machine and could not exist on anyone else's
 # — it was outside the repo, so cloning never brought it. An orphan guarantee
@@ -91,4 +91,4 @@ if [[ "$killed" -eq 0 ]]; then
 fi
 echo "cleanup_orphans: $killed orphan(s) reaped of $scanned process(es) scanned (threshold ${AGE_MIN}m)."
 echo "  An orphan here means a background long-runner outlived its session — check that its"
-echo "  launch site wraps with 'timeout' per .claude/rules/orphan_prevention.md."
+echo "  launch site wraps with 'timeout' per memory 20260909234832-598b7c16 (orphan_prevention)."

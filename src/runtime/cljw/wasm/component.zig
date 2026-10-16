@@ -31,6 +31,7 @@ const keyword_mod = @import("../../keyword.zig");
 const file_io = @import("../../file_io.zig");
 const host_instance = @import("../../host_instance.zig");
 const marshal = @import("marshal.zig");
+const surface = @import("surface.zig");
 const promote = @import("../../numeric/promote.zig");
 const big_int = @import("../../numeric/big_int.zig");
 const type_descriptor = @import("../../type_descriptor.zig");
@@ -145,12 +146,12 @@ fn witTypeName(alloc: std.mem.Allocator, ty: WitType) ![]const u8 {
 /// auto-selects single-module vs WASI-P2 graph). The WasiHost is caller-owned
 /// and must outlive `Opened` (the graph path borrows it); both are freed by the
 /// caller's `defer`s in LIFO order (opened first, then host).
-fn openComponent(rt: *Runtime, engine: *zwasm.Engine, host: *WasiHost, bytes: []const u8, loc: SourceLocation) anyerror!comp.Opened {
+fn openComponent(rt: *Runtime, engine: *zwasm.Engine, host: *WasiHost, bytes: []const u8, opts: comp.InstantiateOpts, loc: SourceLocation) anyerror!comp.Opened {
     host.* = WasiHost.init(rt.gpa) catch return error_catalog.raise(.wasm_load_failed, loc, .{});
     errdefer host.deinit();
     host.io = rt.io;
-    return comp.open(engine, rt.gpa, bytes, host, .{}) catch
-        error_catalog.raise(.wasm_load_failed, loc, .{});
+    return comp.open(engine, rt.gpa, bytes, host, opts) catch |e|
+        error_catalog.raise(.wasm_component_open_failed, loc, .{ .reason = @errorName(e) });
 }
 
 /// `(wasm/component-exports "p.wasm")` — vector of
@@ -166,7 +167,7 @@ pub fn componentExportsFn(rt: *Runtime, env: *Env, args: []const Value, loc: Sou
         return error_catalog.raise(.wasm_load_failed, loc, .{});
     defer engine.deinit();
     var host: WasiHost = undefined;
-    var opened = try openComponent(rt, &engine, &host, bytes, loc);
+    var opened = try openComponent(rt, &engine, &host, bytes, .{}, loc);
     defer host.deinit();
     defer opened.deinit();
 
@@ -176,6 +177,9 @@ pub fn componentExportsFn(rt: *Runtime, env: *Env, args: []const Value, loc: Sou
     var type_arena = std.heap.ArenaAllocator.init(rt.gpa);
     defer type_arena.deinit();
 
+    // `out` and each export map are unrooted locals until returned.
+    rt.gc.enterFabrication();
+    defer rt.gc.exitFabrication();
     var out = vector_mod.empty();
     for (funcs) |f| {
         const sig = (opened.resolveFuncSig(type_arena.allocator(), f.name) catch null) orelse continue;
@@ -554,8 +558,12 @@ pub fn resourceDropFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceL
         host_instance.asHostInstance(comp_handle).descriptor != &component_descriptor)
         return error_catalog.raise(.wasm_opts_invalid, loc, .{ .detail = "resource handle's owning component is not a loaded component" });
     const box: *ComponentLoaded = @ptrFromInt(host_instance.asHostInstance(comp_handle).state[0]);
-    box.opened.dropResource(@intCast(inst.state[1])) catch
-        return error_catalog.raise(.wasm_trap, loc, .{});
+    box.opened.dropResource(@intCast(inst.state[1])) catch |e| switch (e) {
+        // zwasm's `.single` variant has no resource table: a structural
+        // property of the component, not a trap (D-568).
+        error.NoResourceTable => return error_catalog.raise(.wasm_resource_no_table, loc, .{}),
+        else => return error_catalog.raise(.wasm_component_trap, loc, .{}),
+    };
     host_instance.setState(args[0], 2, 1);
     return Value.nil_val;
 }
@@ -567,8 +575,11 @@ pub fn resourceDropFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceL
 /// holds a resource handle the component outlives the call, because the handle
 /// names something inside it. See the branch in the body.
 pub fn componentInvokeFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
-    _ = env;
     try error_catalog.checkArityMin("wasm/component-invoke", args, 2, loc);
+    // A handle from `wasm/load-component` (or a resource handle from one) is
+    // already open: invoke on it instead of refusing it as "not a path". Only
+    // a path string takes the one-shot open-and-teardown route below.
+    if (!args[0].isString()) return componentCallFn(rt, env, args, loc);
     if (!args[1].isString())
         return error_catalog.raise(.wasm_export_name_invalid, loc, .{});
     const bytes = try readComponentBytes(rt, args[0], loc);
@@ -581,7 +592,7 @@ pub fn componentInvokeFn(rt: *Runtime, env: *Env, args: []const Value, loc: Sour
     // decision — they made an `own` result a handle into a table destroyed one
     // line later: a number naming nothing, or naming a DIFFERENT resource in
     // whatever instance it was next handed to (ADR-0159 amendment 1).
-    const box = try openComponentBoxed(rt, bytes, loc);
+    const box = try openComponentBoxed(rt, bytes, .{}, loc);
     var escapes = false;
     defer if (!escapes) freeComponentBox(rt, box);
 
@@ -657,10 +668,15 @@ fn invokeWithSig(rt: *Runtime, opened: *comp.Opened, sig: anytype, fname: []cons
     const in = try arena.allocator().alloc(ComponentValue, call_args.len);
     for (call_args, sig.params, 0..) |a, p, i| in[i] = try lower(rt, arena.allocator(), a, p.ty, loc, component_handle);
 
-    const out = opened.invokeTyped(fname, in, rt.gpa) catch
-        return error_catalog.raise(.wasm_trap, loc, .{});
+    const out = opened.invokeTyped(fname, in, rt.gpa) catch |e| switch (e) {
+        error.OutOfFuel => return error_catalog.raise(.wasm_component_fuel_exhausted, loc, .{}),
+        else => return error_catalog.raise(.wasm_component_trap, loc, .{}),
+    };
     if (out) |o| {
         defer o.deinit(rt.gpa);
+        // `lift` builds nested collections from unrooted locals.
+        rt.gc.enterFabrication();
+        defer rt.gc.exitFabrication();
         return try lift(rt, o, loc, component_handle);
     }
     return Value.nil_val;
@@ -698,7 +714,7 @@ const ComponentLoaded = struct {
 /// escapes, and a caller-side `errdefer` for the same resources would then fire
 /// alongside its own teardown and double-free (it did — an `0xaa…` segfault on
 /// the error path).
-fn openComponentBoxed(rt: *Runtime, bytes: []const u8, loc: SourceLocation) anyerror!*ComponentLoaded {
+fn openComponentBoxed(rt: *Runtime, bytes: []const u8, opts: comp.InstantiateOpts, loc: SourceLocation) anyerror!*ComponentLoaded {
     const engine = try rt.gpa.create(zwasm.Engine);
     errdefer rt.gpa.destroy(engine);
     engine.* = zwasm.Engine.init(rt.gpa, .{}) catch
@@ -707,7 +723,7 @@ fn openComponentBoxed(rt: *Runtime, bytes: []const u8, loc: SourceLocation) anye
 
     const host = try rt.gpa.create(WasiHost);
     errdefer rt.gpa.destroy(host);
-    var opened = try openComponent(rt, engine, host, bytes, loc);
+    var opened = try openComponent(rt, engine, host, bytes, opts, loc);
     // LIFO: `opened` borrows `host`, so host.deinit registers first and runs last.
     errdefer host.deinit();
     errdefer opened.deinit();
@@ -749,17 +765,32 @@ var component_descriptor: type_descriptor.TypeDescriptor = .{
     .host_finalise = &componentFinalise,
 };
 
-/// `(wasm/load-component "p.wasm")` → a cached component handle. Opens once,
+/// `(wasm/load-component "p.wasm" {:fuel N :max-memory-pages M})` → a cached component handle.
+/// Options are optional; omitted axes retain zwasm's finite defaults. Like
+/// wasm/load, a nonpositive budget explicitly opts a trusted guest out. Opens once,
 /// frees the load buffer immediately (REQ-7), and keeps the `Opened` alive
 /// behind a GC-finalised host_instance for `(wasm/component-call …)` to invoke
 /// across time.
 pub fn loadComponentFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
     _ = env;
-    try error_catalog.checkArity("wasm/load-component", args, 1, loc);
+    try error_catalog.checkArityRange("wasm/load-component", args, 1, 2, loc);
+    var opts: comp.InstantiateOpts = .{};
+    if (args.len == 2) {
+        const parsed = try surface.parseLoadOpts(rt, args[1], loc);
+        // Components are interpreter-pinned by zwasm. Do not accept options
+        // that would promise an engine or deadline we cannot enforce.
+        for ([_][]const u8{ "engine", "timeout-ms" }) |name| {
+            const key = try keyword_mod.intern(rt, null, name);
+            if (try map_mod.contains(args[1], key))
+                return error_catalog.raise(.wasm_opts_invalid, loc, .{ .detail = "components support :fuel and :max-memory-pages, not :engine or :timeout-ms" });
+        }
+        if (parsed.fuel) |b| opts.fuel = b;
+        if (parsed.max_memory_pages) |b| opts.max_memory_pages = b;
+    }
     const bytes = try readComponentBytes(rt, args[0], loc);
     defer rt.gpa.free(bytes); // REQ-7: the Opened owns its bytes — drop the load buffer now.
 
-    const box = try openComponentBoxed(rt, bytes, loc);
+    const box = try openComponentBoxed(rt, bytes, opts, loc);
     errdefer freeComponentBox(rt, box);
     return host_instance.alloc(rt, &component_descriptor, .{ @intFromPtr(box), 0, 0, 0 });
 }

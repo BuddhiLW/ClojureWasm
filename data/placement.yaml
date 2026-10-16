@@ -19,20 +19,34 @@
 # .dev/debt.yaml where it can carry a barrier — today exactly one var
 # (clojure.string/escape, D-094). ADR-0033 D2-D5 remains the placement rule.
 #
-# Read with yq per .claude/rules/yaml_ssot_yq.md.
+# Read with yq per memory 20260909234558-3c83a76a (yaml_ssot_yq).
 
 schema_version: "2.0"
 summary:
-  namespaces_required: 32
-  total: 1353
-  zig: 394
-  clj: 748
-  value: 205
+  namespaces_required: 36
+  total: 1455
+  zig: 423
+  clj: 806
+  value: 220
   unbound: 6
 vars:
   "cljw.error/*error-context*": { impl: value, flags: "dynamic" }
   "cljw.error/with-context": { impl: clj, flags: "macro" }
   "cljw.eval/with-budget": { impl: zig, flags: "-" }
+  "cljw.ffi/-bytes": { impl: zig, flags: "-" }
+  "cljw.ffi/-close": { impl: zig, flags: "-" }
+  "cljw.ffi/-invoke": { impl: zig, flags: "-" }
+  "cljw.ffi/-open": { impl: zig, flags: "-" }
+  "cljw.ffi/-prepare": { impl: zig, flags: "-" }
+  "cljw.ffi/-string": { impl: zig, flags: "-" }
+  "cljw.ffi/-sym": { impl: zig, flags: "-" }
+  "cljw.ffi/bytes": { impl: clj, flags: "-" }
+  "cljw.ffi/call": { impl: clj, flags: "-" }
+  "cljw.ffi/close": { impl: clj, flags: "-" }
+  "cljw.ffi/function": { impl: clj, flags: "-" }
+  "cljw.ffi/open": { impl: clj, flags: "-" }
+  "cljw.ffi/string": { impl: clj, flags: "-" }
+  "cljw.ffi/sym": { impl: clj, flags: "-" }
   "cljw.fs/absolute?": { impl: clj, flags: "-" }
   "cljw.fs/create-dir": { impl: clj, flags: "-" }
   "cljw.fs/create-dirs": { impl: clj, flags: "-" }
@@ -63,6 +77,7 @@ vars:
   "cljw.internal/__chunk-nth": { impl: zig, flags: "-" }
   "cljw.internal/__class": { impl: zig, flags: "-" }
   "cljw.internal/__class-isa?": { impl: zig, flags: "-" }
+  "cljw.internal/__class-parents": { impl: zig, flags: "-" }
   "cljw.internal/__class?": { impl: zig, flags: "-" }
   "cljw.internal/__create-local-var": { impl: zig, flags: "-" }
   "cljw.internal/__defrecord!": { impl: zig, flags: "-" }
@@ -70,6 +85,7 @@ vars:
   "cljw.internal/__delay-create": { impl: zig, flags: "-" }
   "cljw.internal/__dump-host-classes": { impl: zig, flags: "-" }
   "cljw.internal/__dump-placement": { impl: zig, flags: "-" }
+  "cljw.internal/__entry-at": { impl: zig, flags: "-" }
   "cljw.internal/__extend-type!": { impl: zig, flags: "-" }
   "cljw.internal/__extends?": { impl: zig, flags: "-" }
   "cljw.internal/__future-call": { impl: zig, flags: "-" }
@@ -79,6 +95,7 @@ vars:
   "cljw.internal/__instance-of?": { impl: zig, flags: "-" }
   "cljw.internal/__kv-reduce-or": { impl: zig, flags: "-" }
   "cljw.internal/__lazy-seq-create": { impl: zig, flags: "-" }
+  "cljw.internal/__load-source": { impl: zig, flags: "-" }
   "cljw.internal/__locking": { impl: zig, flags: "-" }
   "cljw.internal/__make-multifn": { impl: zig, flags: "-" }
   "cljw.internal/__make-protocol!": { impl: zig, flags: "-" }
@@ -101,6 +118,8 @@ vars:
   "cljw.internal/__resolve": { impl: zig, flags: "-" }
   "cljw.internal/__run-in-transaction": { impl: zig, flags: "-" }
   "cljw.internal/__satisfies?": { impl: zig, flags: "-" }
+  "cljw.internal/__send": { impl: zig, flags: "-" }
+  "cljw.internal/__send-off": { impl: zig, flags: "-" }
   "cljw.internal/__stderr-writer": { impl: zig, flags: "-" }
   "cljw.internal/__stdin-reader": { impl: zig, flags: "-" }
   "cljw.internal/__stdout-writer": { impl: zig, flags: "-" }
@@ -108,17 +127,45 @@ vars:
   "cljw.internal/__stream-slurp": { impl: zig, flags: "-" }
   "cljw.internal/__string-reader": { impl: zig, flags: "-" }
   "cljw.internal/__string-writer": { impl: zig, flags: "-" }
+  "cljw.internal/__subvec": { impl: zig, flags: "-" }
   "cljw.internal/__unsupported-host-ref": { impl: zig, flags: "-" }
   "cljw.internal/__update-in": { impl: zig, flags: "-" }
+  "cljw.internal/__vector-pop": { impl: zig, flags: "-" }
   "cljw.internal/__writer->str": { impl: zig, flags: "-" }
   "cljw.json/decode": { impl: clj, flags: "-" }
   "cljw.json/decode-strict": { impl: clj, flags: "-" }
   "cljw.json/encode": { impl: clj, flags: "-" }
   "cljw.json/read-str": { impl: clj, flags: "-" }
   "cljw.json/write-str": { impl: clj, flags: "-" }
+  "cljw.net/connect": { impl: zig, flags: "-" }
+  "cljw.net/connect-unix": { impl: zig, flags: "-" }
+  "cljw.net/listen": { impl: zig, flags: "-" }
+  "cljw.net/listen-unix": { impl: zig, flags: "-" }
+  "cljw.process/run": { impl: zig, flags: "-" }
+  "cljw.proxy/->ThreadLocalCell": { impl: clj, flags: "-" }
+  "cljw.proxy/IThreadLocalCell": { impl: value, flags: "-" }
+  "cljw.proxy/ThreadLocalCell": { impl: value, flags: "-" }
+  "cljw.proxy/get": { impl: value, flags: "-" }
+  "cljw.proxy/remove": { impl: value, flags: "-" }
+  "cljw.proxy/set": { impl: value, flags: "-" }
+  "cljw.proxy/threadlocal-cell": { impl: clj, flags: "-" }
+  "cljw.test/-main": { impl: clj, flags: "-" }
+  "cljw.test/files-under": { impl: clj, flags: "private" }
+  "cljw.test/namespaces": { impl: clj, flags: "-" }
+  "cljw.test/parse-args": { impl: clj, flags: "private" }
+  "cljw.test/path->ns": { impl: clj, flags: "private" }
+  "cljw.test/run": { impl: clj, flags: "-" }
+  "cljw.test/run-ns": { impl: clj, flags: "private" }
+  "cljw.test/selected": { impl: clj, flags: "private" }
+  "cljw.test/source-extensions": { impl: value, flags: "private" }
+  "cljw.test/source-file?": { impl: clj, flags: "private" }
+  "cljw.test/source-path": { impl: clj, flags: "private" }
+  "cljw.test/strip-extension": { impl: clj, flags: "private" }
+  "cljw.wasm/component-var?": { impl: clj, flags: "private" }
   "cljw.wasm/require-component": { impl: clj, flags: "macro" }
   "cljw.wasm/require-component*": { impl: clj, flags: "-" }
   "cljw.wasm/require-component-libspec": { impl: clj, flags: "-" }
+  "cljw.wasm/retire-var!": { impl: clj, flags: "private" }
   "cljw.wasm/strip-export-name": { impl: clj, flags: "private" }
   "cljw.wasm/with-resource": { impl: clj, flags: "macro" }
   "clojure.core-meta/fill": { impl: clj, flags: "private" }
@@ -197,6 +244,7 @@ vars:
   "clojure.core/-as-transient": { impl: value, flags: "-" }
   "clojure.core/-assoc": { impl: value, flags: "-" }
   "clojure.core/-assoc!": { impl: value, flags: "-" }
+  "clojure.core/-assoc-ex": { impl: value, flags: "-" }
   "clojure.core/-assoc-n": { impl: value, flags: "-" }
   "clojure.core/-assoc-n!": { impl: value, flags: "-" }
   "clojure.core/-blocking-deref": { impl: value, flags: "-" }
@@ -225,13 +273,17 @@ vars:
   "clojure.core/-fuse-descriptor": { impl: clj, flags: "-" }
   "clojure.core/-fused-reduce": { impl: clj, flags: "-" }
   "clojure.core/-global-hierarchy": { impl: value, flags: "-" }
+  "clojure.core/-interpose-lazy": { impl: clj, flags: "private" }
   "clojure.core/-invoke": { impl: value, flags: "-" }
+  "clojure.core/-keep-indexed-lazy": { impl: clj, flags: "private" }
+  "clojure.core/-key": { impl: value, flags: "-" }
   "clojure.core/-keys": { impl: value, flags: "-" }
   "clojure.core/-kv-reduce": { impl: value, flags: "-" }
   "clojure.core/-lazy-get-fuse": { impl: zig, flags: "private,zig-leaf" }
   "clojure.core/-lazy-set-fuse": { impl: zig, flags: "private,zig-leaf" }
   "clojure.core/-length": { impl: value, flags: "-" }
   "clojure.core/-lookup": { impl: value, flags: "-" }
+  "clojure.core/-map-indexed-lazy": { impl: clj, flags: "private" }
   "clojure.core/-map-lazy": { impl: clj, flags: "-" }
   "clojure.core/-map-n-step": { impl: clj, flags: "-" }
   "clojure.core/-merge-sorted": { impl: clj, flags: "-" }
@@ -265,6 +317,7 @@ vars:
   "clojure.core/-tx-seq-pump": { impl: clj, flags: "-" }
   "clojure.core/-tx-seq-run": { impl: clj, flags: "-" }
   "clojure.core/-update-in-idx": { impl: clj, flags: "-" }
+  "clojure.core/-val": { impl: value, flags: "-" }
   "clojure.core/-vals": { impl: value, flags: "-" }
   "clojure.core/-with-meta": { impl: value, flags: "-" }
   "clojure.core/-without": { impl: value, flags: "-" }
@@ -287,6 +340,7 @@ vars:
   "clojure.core/IFn": { impl: value, flags: "-" }
   "clojure.core/IKVReduce": { impl: value, flags: "-" }
   "clojure.core/ILookup": { impl: value, flags: "-" }
+  "clojure.core/IMapEntry": { impl: value, flags: "-" }
   "clojure.core/IObj": { impl: value, flags: "-" }
   "clojure.core/IPending": { impl: value, flags: "-" }
   "clojure.core/IPersistentCollection": { impl: value, flags: "-" }
@@ -478,6 +532,7 @@ vars:
   "clojure.core/extends?": { impl: clj, flags: "-" }
   "clojure.core/false?": { impl: zig, flags: "-" }
   "clojure.core/ffirst": { impl: clj, flags: "-" }
+  "clojure.core/file-seq": { impl: clj, flags: "-" }
   "clojure.core/filter": { impl: clj, flags: "-" }
   "clojure.core/filterv": { impl: clj, flags: "-" }
   "clojure.core/find": { impl: clj, flags: "-" }
@@ -529,7 +584,7 @@ vars:
   "clojure.core/in-ns": { impl: zig, flags: "-" }
   "clojure.core/inc": { impl: zig, flags: "-" }
   "clojure.core/inc'": { impl: zig, flags: "-" }
-  "clojure.core/indexed?": { impl: clj, flags: "-" }
+  "clojure.core/indexed?": { impl: zig, flags: "-" }
   "clojure.core/infinite?": { impl: zig, flags: "-" }
   "clojure.core/inst-ms": { impl: zig, flags: "-" }
   "clojure.core/inst?": { impl: zig, flags: "-" }
@@ -564,6 +619,7 @@ vars:
   "clojure.core/list": { impl: clj, flags: "-" }
   "clojure.core/list*": { impl: clj, flags: "-" }
   "clojure.core/list?": { impl: zig, flags: "-" }
+  "clojure.core/load-file": { impl: clj, flags: "-" }
   "clojure.core/load-string": { impl: clj, flags: "-" }
   "clojure.core/locking": { impl: value, flags: "macro" }
   "clojure.core/long": { impl: zig, flags: "-" }
@@ -591,6 +647,10 @@ vars:
   "clojure.core/min-key": { impl: clj, flags: "-" }
   "clojure.core/mix-collection-hash": { impl: zig, flags: "-" }
   "clojure.core/mod": { impl: zig, flags: "-" }
+  "clojure.core/monitor-enter": { impl: zig, flags: "-" }
+  "clojure.core/monitor-exit": { impl: zig, flags: "-" }
+  "clojure.core/munge": { impl: clj, flags: "-" }
+  "clojure.core/munge-char-map": { impl: value, flags: "private" }
   "clojure.core/name": { impl: zig, flags: "-" }
   "clojure.core/namespace": { impl: zig, flags: "-" }
   "clojure.core/namespace-munge": { impl: clj, flags: "-" }
@@ -616,6 +676,7 @@ vars:
   "clojure.core/ns-refers": { impl: zig, flags: "-" }
   "clojure.core/ns-resolve": { impl: zig, flags: "-" }
   "clojure.core/ns-unalias": { impl: zig, flags: "-" }
+  "clojure.core/ns-unmap": { impl: zig, flags: "-" }
   "clojure.core/nth": { impl: zig, flags: "-" }
   "clojure.core/nthnext": { impl: clj, flags: "-" }
   "clojure.core/nthrest": { impl: clj, flags: "-" }
@@ -658,6 +719,9 @@ vars:
   "clojure.core/prn": { impl: zig, flags: "-" }
   "clojure.core/prn-str": { impl: clj, flags: "-" }
   "clojure.core/promise": { impl: zig, flags: "-" }
+  "clojure.core/proxy": { impl: clj, flags: "macro" }
+  "clojure.core/proxy-base-registry": { impl: value, flags: "private" }
+  "clojure.core/proxy-threadlocal-expansion": { impl: clj, flags: "private" }
   "clojure.core/push-thread-bindings": { impl: zig, flags: "-" }
   "clojure.core/pvalues": { impl: clj, flags: "macro" }
   "clojure.core/qualified-ident?": { impl: clj, flags: "-" }
@@ -714,20 +778,20 @@ vars:
   "clojure.core/rest": { impl: zig, flags: "-" }
   "clojure.core/restart-agent": { impl: zig, flags: "-" }
   "clojure.core/reverse": { impl: clj, flags: "-" }
-  "clojure.core/reversible?": { impl: clj, flags: "-" }
+  "clojure.core/reversible?": { impl: zig, flags: "-" }
   "clojure.core/rseq": { impl: zig, flags: "-" }
   "clojure.core/rsubseq": { impl: zig, flags: "-" }
   "clojure.core/run!": { impl: clj, flags: "-" }
   "clojure.core/satisfies?": { impl: clj, flags: "-" }
   "clojure.core/second": { impl: clj, flags: "-" }
   "clojure.core/select-keys": { impl: clj, flags: "-" }
-  "clojure.core/send": { impl: zig, flags: "-" }
-  "clojure.core/send-off": { impl: zig, flags: "-" }
+  "clojure.core/send": { impl: clj, flags: "-" }
+  "clojure.core/send-off": { impl: clj, flags: "-" }
   "clojure.core/send-via": { impl: zig, flags: "-" }
   "clojure.core/seq": { impl: zig, flags: "-" }
   "clojure.core/seq-to-map-for-destructuring": { impl: clj, flags: "-" }
   "clojure.core/seq?": { impl: zig, flags: "-" }
-  "clojure.core/seqable?": { impl: clj, flags: "-" }
+  "clojure.core/seqable?": { impl: zig, flags: "-" }
   "clojure.core/sequence": { impl: clj, flags: "-" }
   "clojure.core/sequential?": { impl: zig, flags: "-" }
   "clojure.core/set": { impl: clj, flags: "-" }
@@ -872,6 +936,7 @@ vars:
   "clojure.datafy/datafy": { impl: clj, flags: "-" }
   "clojure.datafy/nav": { impl: clj, flags: "-" }
   "clojure.datafy/sortmap": { impl: clj, flags: "private" }
+  "clojure.edn/read": { impl: zig, flags: "-" }
   "clojure.edn/read-string": { impl: zig, flags: "-" }
   "clojure.instant/parse-inst": { impl: clj, flags: "private" }
   "clojure.instant/read-instant-date": { impl: clj, flags: "-" }
@@ -888,6 +953,13 @@ vars:
   "clojure.java.io/reader": { impl: clj, flags: "-" }
   "clojure.java.io/resource": { impl: clj, flags: "-" }
   "clojure.java.io/writer": { impl: clj, flags: "-" }
+  "clojure.java.shell/*sh-dir*": { impl: value, flags: "dynamic" }
+  "clojure.java.shell/*sh-env*": { impl: value, flags: "dynamic" }
+  "clojure.java.shell/env-map": { impl: clj, flags: "private" }
+  "clojure.java.shell/sh": { impl: clj, flags: "-" }
+  "clojure.java.shell/utf-8?": { impl: clj, flags: "private" }
+  "clojure.java.shell/with-sh-dir": { impl: clj, flags: "macro" }
+  "clojure.java.shell/with-sh-env": { impl: clj, flags: "macro" }
   "clojure.math/E": { impl: value, flags: "-" }
   "clojure.math/IEEE-remainder": { impl: clj, flags: "-" }
   "clojure.math/PI": { impl: value, flags: "-" }
@@ -999,6 +1071,7 @@ vars:
   "clojure.repl/root-cause": { impl: clj, flags: "-" }
   "clojure.repl/source": { impl: clj, flags: "macro" }
   "clojure.repl/source-fn": { impl: clj, flags: "-" }
+  "clojure.repl/stack-element-str": { impl: clj, flags: "-" }
   "clojure.set/difference": { impl: clj, flags: "-" }
   "clojure.set/index": { impl: clj, flags: "-" }
   "clojure.set/intersect2": { impl: clj, flags: "private" }
@@ -1294,30 +1367,54 @@ vars:
   "clojure.test.tap/tap-report": { impl: clj, flags: "dynamic" }
   "clojure.test.tap/with-tap-output": { impl: clj, flags: "macro" }
   "clojure.test/*initial-report-counters*": { impl: value, flags: "-" }
+  "clojure.test/*load-tests*": { impl: value, flags: "dynamic" }
   "clojure.test/*report-counters*": { impl: value, flags: "dynamic" }
   "clojure.test/*stack-trace-depth*": { impl: value, flags: "dynamic" }
   "clojure.test/*test-out*": { impl: value, flags: "dynamic" }
   "clojure.test/*test-registry*": { impl: value, flags: "-" }
   "clojure.test/*testing-contexts*": { impl: value, flags: "dynamic" }
   "clojure.test/*testing-vars*": { impl: value, flags: "dynamic" }
+  "clojure.test/add-ns-meta": { impl: clj, flags: "private" }
   "clojure.test/are": { impl: clj, flags: "macro" }
+  "clojure.test/assert-any": { impl: clj, flags: "-" }
   "clojure.test/assert-expr": { impl: clj, flags: "-" }
+  "clojure.test/assert-predicate": { impl: clj, flags: "-" }
+  "clojure.test/compose-fixtures": { impl: clj, flags: "-" }
+  "clojure.test/default-fixture": { impl: clj, flags: "-" }
   "clojure.test/deftest": { impl: clj, flags: "macro" }
+  "clojure.test/deftest-": { impl: clj, flags: "macro" }
   "clojure.test/do-report": { impl: clj, flags: "-" }
   "clojure.test/file-position": { impl: clj, flags: "-" }
+  "clojure.test/fixtures-for": { impl: clj, flags: "private" }
   "clojure.test/function?": { impl: clj, flags: "-" }
+  "clojure.test/get-possibly-unbound-var": { impl: clj, flags: "-" }
   "clojure.test/inc-report": { impl: clj, flags: "-" }
   "clojure.test/inc-report-counter": { impl: clj, flags: "-" }
   "clojure.test/is": { impl: clj, flags: "macro" }
+  "clojure.test/join-fixtures": { impl: clj, flags: "-" }
+  "clojure.test/ns-sym-of": { impl: clj, flags: "private" }
   "clojure.test/print-contexts": { impl: clj, flags: "-" }
+  "clojure.test/register-test!": { impl: clj, flags: "-" }
   "clojure.test/report": { impl: clj, flags: "dynamic" }
   "clojure.test/run-all-tests": { impl: clj, flags: "-" }
+  "clojure.test/run-test": { impl: clj, flags: "macro" }
+  "clojure.test/run-test-var": { impl: clj, flags: "-" }
   "clojure.test/run-tests": { impl: clj, flags: "-" }
+  "clojure.test/set-test": { impl: clj, flags: "macro" }
+  "clojure.test/successful?": { impl: clj, flags: "-" }
+  "clojure.test/test-all-vars": { impl: clj, flags: "-" }
+  "clojure.test/test-ns": { impl: clj, flags: "-" }
   "clojure.test/test-var": { impl: clj, flags: "-" }
+  "clojure.test/test-vars": { impl: clj, flags: "-" }
+  "clojure.test/test-vars-of-ns": { impl: clj, flags: "private" }
   "clojure.test/testing": { impl: clj, flags: "macro" }
   "clojure.test/testing-contexts-str": { impl: clj, flags: "-" }
   "clojure.test/testing-vars-str": { impl: clj, flags: "-" }
+  "clojure.test/tests-in-ns": { impl: clj, flags: "private" }
   "clojure.test/try-expr": { impl: clj, flags: "macro" }
+  "clojure.test/use-fixtures": { impl: clj, flags: "-" }
+  "clojure.test/var-ns-sym": { impl: clj, flags: "private" }
+  "clojure.test/with-test": { impl: clj, flags: "macro" }
   "clojure.test/with-test-out": { impl: clj, flags: "macro" }
   "clojure.tools.cli/apply-spec": { impl: clj, flags: "private" }
   "clojure.tools.cli/compile-spec": { impl: clj, flags: "private" }
@@ -1376,10 +1473,15 @@ vars:
   "clojure.zip/zip-loc?": { impl: clj, flags: "-" }
   "clojure.zip/zipper": { impl: clj, flags: "-" }
   "wasm/call": { impl: zig, flags: "-" }
+  "wasm/clear-cache!": { impl: zig, flags: "-" }
   "wasm/component-call": { impl: zig, flags: "-" }
   "wasm/component-exports": { impl: zig, flags: "-" }
   "wasm/component-invoke": { impl: zig, flags: "-" }
+  "wasm/engine": { impl: zig, flags: "-" }
   "wasm/load": { impl: zig, flags: "-" }
   "wasm/load-component": { impl: zig, flags: "-" }
+  "wasm/mem-read": { impl: zig, flags: "-" }
+  "wasm/mem-size": { impl: zig, flags: "-" }
+  "wasm/mem-write!": { impl: zig, flags: "-" }
   "wasm/resource-drop": { impl: zig, flags: "-" }
   "wasm/run": { impl: zig, flags: "-" }

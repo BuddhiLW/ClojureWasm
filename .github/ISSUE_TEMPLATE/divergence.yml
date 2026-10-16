@@ -12,7 +12,7 @@ body:
         down yet.
 
         Before filing, it is worth a glance at
-        [`docs/clojure_vs_clojurewasm.md`](https://github.com/clojurewasm/ClojureWasm/blob/main/docs/clojure_vs_clojurewasm.md)
+        [`docs/clojure_vs_clojurewasm.md`](https://github.com/BuddhiLW/ClojureWasm/blob/main/docs/clojure_vs_clojurewasm.md)
         — some differences are deliberate and already recorded there. If yours
         is listed, no need to file; if you think the reasoning is wrong, a
         Discussion is the better place for that.

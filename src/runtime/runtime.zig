@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: EPL-2.0
 //! Runtime — the process-wide handle every layer threads through.
 //!
 //! Three-tier architecture (see ROADMAP §4.3):
@@ -80,6 +81,14 @@ pub const RequireResolverFn = *const fn (rt: *Runtime, ns_name: []const u8) anye
 pub const EmbeddedComponent = struct {
     path: []const u8,
     bytes: []const u8,
+};
+
+/// One `(extend-protocol A B …)` where the TARGET `B` is a protocol
+/// (ADR-0187). `target_proto` is B's fqcn; `impls` are A's methods to use for
+/// any type that satisfies B.
+pub const ProtocolTargetExt = struct {
+    target_proto: []const u8,
+    impls: []const TypeDescriptor.MethodEntry,
 };
 
 /// Process-wide execution context.
@@ -210,6 +219,13 @@ pub const Runtime = struct {
     coll_vars: [2]?*anyopaque = .{ null, null },
     core_coll_pristine: bool = true,
 
+    /// Cached `clojure.core/*unchecked-math*` Var (D-298 sibling / CLJW-UNCHECKED-MATH).
+    /// The analyzer reads its CURRENT value at analyze time: while truthy (JVM's
+    /// `true`/`:warn-on-boxed`), a call to a pristine core +/-/*/inc/dec is
+    /// rewritten to nested WRAPPING unchecked-* ops, so 64-bit arithmetic wraps
+    /// instead of promoting to BigInt. null until bootstrap caches it.
+    unchecked_math_var: ?*anyopaque = null,
+
     /// Monotonic counter for `gensym` / auto-gensym (`foo#`). Lives on
     /// the Runtime so multiple macros within one analyse pass share a
     /// single sequence; per-Runtime so parallel tests don't collide.
@@ -325,6 +341,35 @@ pub const Runtime = struct {
     /// (`Foo. args`) and method-dispatch (`(.m inst)`) eval paths.
     types: std.StringHashMap(*const TypeDescriptor) = undefined,
 
+    /// Secondary index: SIMPLE name to descriptor, last registration wins
+    /// (D-587 / ADR-0198). `types` is keyed by the qualified name so two
+    /// namespaces can each own a `Point`, but a bare type name still has to
+    /// resolve where the defining namespace is not known at the point of
+    /// resolution. The VM's `op_ctor_call` is the case that forces this: it
+    /// stores the bare `type_name` and resolves at RUNTIME, where
+    /// `env.current_ns` is the CALLING namespace, not the defining one. So a
+    /// current-ns qualification cannot answer it, and this index preserves
+    /// exactly the pre-ADR-0198 behaviour for that path.
+    ///
+    /// Last-wins is the ambiguity that remains: with two `Point` records,
+    /// a BARE `Point` names whichever was defined last. That is what cljw
+    /// did for every lookup before; it is now confined to references that
+    /// carry no namespace information. Qualified references, record
+    /// literals, printing and instance identity all go through `types`.
+    types_by_simple: std.StringHashMapUnmanaged(*const TypeDescriptor) = .empty,
+
+    /// Descriptors displaced from `types` by a re-registration (D-587).
+    /// A redefine does NOT free the old descriptor: instances built against
+    /// it hold `inst.descriptor` as a raw pointer, the boxed refs handed out
+    /// by `makeTypeDescriptorRef` are process-lifetime mark waypoints, and
+    /// `CallSite.last_type` compares descriptors by address from analyzer
+    /// storage the GC cannot see. Freeing here made all three dangle. The
+    /// descriptor therefore keeps the process lifetime its own doc comment
+    /// promises, and is released only in `deinit`, which is also what clj
+    /// does with a superseded class. Retention is bounded by the number of
+    /// re-evaluations, not by data size.
+    retired_types: std.ArrayList(*const TypeDescriptor) = .empty,
+
     /// Set of namespace names currently being loaded by `require`.
     /// ADR-0035 D5: `requireOne` adds the target before loading and
     /// removes it after (errdefer-safe). If the target is already in
@@ -339,6 +384,9 @@ pub const Runtime = struct {
     /// `info.location.file` here for the per-file source-line preview.
     /// Keys + SourceContext field slices are gpa-owned.
     source_registry: std.StringHashMapUnmanaged(SourceContext) = .empty,
+    /// Texts `replaceSource` swapped out of `source_registry`, kept alive
+    /// until deinit in case a renderer on another thread still reads one.
+    retired_sources: std.ArrayListUnmanaged([]const u8) = .empty,
     /// C5'-b (ADR-0173): registry-miss fallback installed by the bootstrap
     /// layer — decompresses a bundled `.clj`'s text on demand (the shipped
     /// binary carries flate sources, not raw). Vtable-style injection keeps
@@ -424,6 +472,15 @@ pub const Runtime = struct {
     /// exception to one class. Each distinct class name gets one descriptor,
     /// lazily built on `gc.infra` by `classDescriptor`, freed in `deinit`.
     class_descriptors: std.StringHashMapUnmanaged(*TypeDescriptor) = .empty,
+
+    /// `(extend-protocol A some.ns.B …)` where B is a PROTOCOL, not a type
+    /// (ADR-0187). Keyed by the PROVIDING protocol's fqcn; each entry names a
+    /// target protocol and the impls to use for any type satisfying it. There is
+    /// no descriptor to write these onto — a protocol's implementor set is open
+    /// and grows at runtime — so `dispatch` consults this on a per-type miss.
+    /// Keys and `MethodEntry.protocol_name` borrow the protocols' interned
+    /// fqcns; `method_name` and the slices are owned here.
+    protocol_target_exts: std.StringHashMapUnmanaged([]ProtocolTargetExt) = .empty,
 
     // java.util.Date's descriptor is the canonical rt.types entry
     // (ADR-0174 merge) — no per-Runtime lazy field.
@@ -576,12 +633,15 @@ pub const Runtime = struct {
         @import("collection/list.zig").registerGcHooks();
         @import("collection/ex_info.zig").registerGcHooks();
         @import("collection/vector.zig").registerGcHooks();
+        @import("collection/sub_vector.zig").registerGcHooks();
         @import("collection/map.zig").registerGcHooks();
         @import("collection/map_entry.zig").registerGcHooks();
         @import("collection/persistent_queue.zig").registerGcHooks();
         @import("collection/java_array.zig").registerGcHooks();
         @import("collection/set.zig").registerGcHooks();
         @import("lazy_seq.zig").registerGcHooks();
+        @import("collection/array_seq.zig").registerGcHooks();
+        @import("collection/string_seq.zig").registerGcHooks();
         @import("collection/chunked_cons.zig").registerGcHooks();
         @import("collection/reduced.zig").registerGcHooks();
         @import("collection/sorted.zig").registerGcHooks();
@@ -733,6 +793,21 @@ pub const Runtime = struct {
             self.class_descriptors.deinit(self.gc.infra);
         }
 
+        // ADR-0187: each entry owns its `impls` slice and every `method_name`
+        // in it. The map key and `protocol_name` borrow interned protocol
+        // fqcns, so neither is freed here.
+        {
+            var it = self.protocol_target_exts.valueIterator();
+            while (it.next()) |exts| {
+                for (exts.*) |ext| {
+                    for (ext.impls) |entry| self.gc.infra.free(entry.method_name);
+                    if (ext.impls.len > 0) self.gc.infra.free(ext.impls);
+                }
+                if (exts.*.len > 0) self.gc.infra.free(exts.*);
+            }
+            self.protocol_target_exts.deinit(self.gc.infra);
+        }
+
         for (self.heap_objects.items) |entry| {
             entry.free(self.gpa, entry.ptr);
         }
@@ -768,6 +843,31 @@ pub const Runtime = struct {
             self.gpa.destroy(@constCast(td));
         }
         self.types.deinit();
+        // D-587: descriptors displaced by a redefine were retired rather than
+        // freed, because live instances / boxed refs / CallSite slots still
+        // pointed at them. Teardown is the one moment nothing can, so the
+        // same free body applies -- minus the key, which `registerType`
+        // already freed when it removed the map entry.
+        for (self.retired_types.items) |td| {
+            if (td.field_layout) |layout| {
+                for (layout) |fe| self.gpa.free(fe.name);
+                self.gpa.free(layout);
+            }
+            if (td.fqcn) |n| self.gpa.free(n);
+            if (td.defining_ns) |n| self.gpa.free(n);
+            for (td.method_table) |mentry| {
+                self.gpa.free(mentry.method_name);
+            }
+            if (td.method_table.len > 0) self.gpa.free(td.method_table);
+            if (td.protocol_impls.len > 0) self.gpa.free(td.protocol_impls);
+            self.gpa.destroy(@constCast(td));
+        }
+        self.retired_types.deinit(self.gpa);
+        // The simple-name index owns only its KEYS; every value is a
+        // descriptor already freed above, via `types` or `retired_types`.
+        var sit = self.types_by_simple.keyIterator();
+        while (sit.next()) |k| self.gpa.free(k.*);
+        self.types_by_simple.deinit(self.gpa);
         // Thread join-at-exit registry (ADR-0174 D6): values are gc-heap
         // objects (freed by the heap teardown); only the list storage is ours.
         self.user_threads.deinit(self.gpa);
@@ -794,6 +894,8 @@ pub const Runtime = struct {
             self.gpa.free(entry.value_ptr.text);
         }
         self.source_registry.deinit(self.gpa);
+        for (self.retired_sources.items) |t| self.gpa.free(t);
+        self.retired_sources.deinit(self.gpa);
 
         // (gc.deinit moved up — D-481: it must run before the descriptor frees.)
         self.symbols.deinit();
@@ -821,6 +923,25 @@ pub const Runtime = struct {
             .file = owned_file,
             .text = owned_text,
         });
+    }
+
+    /// Register `(label, text)`, replacing the text of an existing entry: a
+    /// file `load-file`d again after an edit must render its errors against
+    /// the new text, not the first version's. The old text is retired rather
+    /// than freed, because an error being rendered on another thread may still
+    /// hold a slice of it; retired texts are freed at deinit.
+    pub fn replaceSource(
+        self: *Runtime,
+        label: []const u8,
+        text: []const u8,
+    ) !void {
+        const entry = self.source_registry.getPtr(label) orelse
+            return self.registerSource(label, text);
+        if (std.mem.eql(u8, entry.text, text)) return;
+        const owned_text = try self.gpa.dupe(u8, text);
+        errdefer self.gpa.free(owned_text);
+        try self.retired_sources.append(self.gpa, entry.text);
+        entry.text = owned_text;
     }
 
     /// Look up a registered source. Returns `null` when `label` is

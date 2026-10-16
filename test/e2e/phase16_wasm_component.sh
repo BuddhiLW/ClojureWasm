@@ -28,17 +28,18 @@ for marker in \
   "PASS component-invoke-greet" \
   "PASS component-exports" \
   "PASS load-component-handle-reuse" \
+  "PASS component-invoke-accepts-handle" \
   "PASS resource-chain" \
   "PASS one-shot-resource-outlives-call" \
   "PASS resource-handle-is-bound-to-its-component"; do
-  echo "$out" | grep -q "$marker" || fail "missing: $marker
+  grep -q "$marker" <<<"$out" || fail "missing: $marker
 $out"
 done
 
 # Every error path must be CAUGHT (no NOT-CAUGHT, no exit-70 crash above).
-echo "$out" | grep -q "NOT-CAUGHT" && fail "a component error escaped (catch …):
+grep -q "NOT-CAUGHT" <<<"$out" && fail "a component error escaped (catch …):
 $out"
-echo "$out" | grep -q "^DONE$" || fail "fixture did not run to completion:
+grep -q "^DONE$" <<<"$out" || fail "fixture did not run to completion:
 $out"
 
 echo

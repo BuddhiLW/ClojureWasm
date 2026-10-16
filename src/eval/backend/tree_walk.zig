@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: EPL-2.0
 //! TreeWalk — evaluate the Node tree by recursive descent.
 //!
 //! This is the simplest possible interpreter. It is also the
@@ -36,6 +37,7 @@ const Value = @import("../../runtime/value/value.zig").Value;
 const HeapHeader = @import("../../runtime/value/value.zig").HeapHeader;
 const Runtime = @import("../../runtime/runtime.zig").Runtime;
 const eval_budget_mod = @import("../../runtime/concurrency/eval_budget.zig");
+const runtime_thread = @import("../../runtime/concurrency/runtime_thread.zig");
 const env_mod = @import("../../runtime/env.zig");
 const Env = env_mod.Env;
 const Var = env_mod.Var;
@@ -430,11 +432,12 @@ pub fn allocFunctionFromSerialized(
 /// deep user recursion (or a self-triggering watch's notify→swap!→notify
 /// chain) overflows the native stack → SIGSEGV where the VM raises the
 /// catchable stack_overflow. Anchor to the shallowest `eval` entry seen on
-/// this thread and raise once the REAL bytes consumed exceed the same 6 MiB
-/// budget. The anchor LIVES in root_set (`conservative_stack_top`) — it
-/// doubles as the D-556 conservative-scan upper bound, one anchor for both
-/// concerns. Per-node cost is a threadlocal read + two compares.
-const STACK_BUDGET_BYTES: usize = 6 * 1024 * 1024;
+/// this thread and raise once the REAL bytes consumed exceed the budget
+/// `runtime_thread.zig` owns (ADR-0195, shared with vm.zig). The anchor
+/// LIVES in root_set (`conservative_stack_top`): it doubles as the D-556
+/// conservative-scan upper bound, one anchor for both concerns. Per-node
+/// cost is a threadlocal read + two compares.
+const STACK_BUDGET_BYTES = runtime_thread.STACK_BUDGET_BYTES;
 
 /// Evaluate one Node into a Value. `locals` is the slot array owned
 /// by the caller — typically a fixed 256-entry stack array.
@@ -848,15 +851,13 @@ fn evalStaticMethodCall(rt: *Runtime, env: *Env, locals: []Value, n: node_mod.In
 }
 
 fn evalDef(rt: *Runtime, env: *Env, locals: []Value, n: node_mod.DefNode) !Value {
-    const ns = env.current_ns orelse
-        return error_catalog.raiseInternal(n.loc, "def: no current namespace");
-    // A no-init `(def x)` interns an UNBOUND placeholder (does not clobber an
-    // existing root — clj parity; leaves `Var.bound` false). `(def x v)`
-    // assigns the value via `intern` (sets `Var.bound`).
-    const var_ptr = if (n.has_init) blk: {
-        const v = try eval(rt, env, locals, n.value_expr);
-        break :blk try env.intern(ns, n.name, v, null);
-    } else try env.internDeclare(ns, n.name);
+    const var_ptr = n.var_ptr;
+    // Evaluate first: a throwing initializer leaves the previous root intact.
+    // A no-init def returns the declared Var without changing its bound state.
+    if (n.has_init) {
+        var_ptr.root = try eval(rt, env, locals, n.value_expr);
+        var_ptr.bound = true;
+    }
     var_ptr.flags.dynamic = n.is_dynamic;
     var_ptr.flags.macro_ = n.is_macro;
     var_ptr.flags.private = n.is_private;
@@ -1282,7 +1283,13 @@ pub fn treeWalkCall(
         // (#{…} x) / ([…] i) / (entry i). Routes through the same dispatch so
         // the VM, `apply`, and `(map :k coll)` all get it for free. A
         // `.map_entry` is clj's 2-vector AMapEntry, callable like a vector.
-        .keyword, .symbol, .array_map, .hash_map, .hash_set, .vector, .sorted_map, .sorted_set, .map_entry => lookup_mod.invoke(rt, env, callee, args, loc),
+        // A LIVE transient is callable like the persistent collection it will
+        // become (D-199 read-only surface). `get` / `contains?` / `count`
+        // already accepted one; the call path did not, so `((transient m) :k)`
+        // raised value_not_callable. Routed through the same shared invoke, so
+        // the VM gets it here too (this switch is the single both-backend call
+        // choke point) and the ADR-0036 parity contract stays unengaged.
+        .keyword, .symbol, .array_map, .hash_map, .hash_set, .vector, .sub_vector, .sorted_map, .sorted_set, .map_entry, .transient_map, .transient_set, .transient_vector => lookup_mod.invoke(rt, env, callee, args, loc),
         // Var-as-IFn (D-231): a runtime `.var_ref` Value (from `#'f` /
         // `(var f)` / `(resolve 'f)`) in call position derefs to its current
         // value (thread binding else root) and re-dispatches — clj's Var IFn
@@ -1360,7 +1367,7 @@ pub fn callFunction(rt: *Runtime, env: *Env, fn_val: Value, args: []const Value,
 }
 
 /// ADR-0042 am1: `apply`'s lazy-preserving entry. `args = [leading…,
-/// rest_seq]`; `applyFn::canBindDirect` has verified the callee is a
+/// rest_seq]`; `applyVariadic` has verified the callee is a
 /// variadic fn whose `& rest` should bind `rest_seq` DIRECTLY. Distinct
 /// from `callFunction` so the generic path stays wrap-only — no flag, no
 /// shared mutable state, the signal is the in-band `RestMode` argument.
@@ -1407,10 +1414,9 @@ pub fn bindCallFrame(
         locals[f.slot_base + i] = v;
     }
     if (m.has_rest) {
-        // bind_direct only fires on apply's exact shape (one seq-shaped
-        // trailing arg); vectors are excluded so JVM `(apply f x [y])`
-        // spread stays (xs = (y), not [y]). Everything else cons-wraps.
-        if (rest_mode == .bind_direct and args.len == m.arity + 1 and isRestSeqShaped(args[m.arity])) {
+        // apply has normalized its tail to an ISeq. Intent, not a closed
+        // tag list, distinguishes spreading from an ordinary call.
+        if (rest_mode == .bind_direct and args.len == m.arity + 1) {
             locals[f.slot_base + m.arity] = args[m.arity];
         } else {
             // Cons-wrap the trailing args (those past `m.arity`). JVM
@@ -1435,7 +1441,11 @@ fn callMethodImpl(rt: *Runtime, env: *Env, fn_val: Value, args: []const Value, l
     // arity wins on exact match; fall through to `variadic` when
     // `args.len >= variadic.arity`. Single-arity fns produce a
     // 1-element `methods` slice = same code path.
-    const m: *const FunctionMethod = selectMethod(f, args.len) orelse {
+    const selected = if (rest_mode == .bind_direct)
+        (if (f.variadic) |*method| method else null)
+    else
+        selectMethod(f, args.len);
+    const m: *const FunctionMethod = selected orelse {
         return raiseArityNotMatched(f, args.len, loc);
     };
 
@@ -1510,17 +1520,6 @@ fn callMethodImpl(rt: *Runtime, env: *Env, fn_val: Value, args: []const Value, l
             else => return err,
         }
     }
-}
-
-/// ADR-0042: tags eligible for the bind-direct rest-pack fast-path —
-/// already shape-compatible with Clojure's `& rest` binding (an ISeq).
-/// Vector / set / map / etc. are intentionally excluded so their spread
-/// semantics stay observable for `(apply f x [y])`-style calls.
-fn isRestSeqShaped(v: Value) bool {
-    return switch (v.tag()) {
-        .list, .cons, .chunked_cons, .lazy_seq, .nil => true,
-        else => false,
-    };
 }
 
 pub fn selectMethod(f: *const Function, n: usize) ?*const FunctionMethod {

@@ -75,6 +75,34 @@ assert_eq 'future_shared_atom_identity' "$got" '1'
 got=$("$BIN" -e '(deref (future (vec (range 5))))' 2>/dev/null | last_line)
 assert_eq 'future_worker_allocates' "$got" '[0 1 2 3 4]'
 
+# --- Binding conveyance (clj parity, CLJW-FUTURE-BINDINGS) ---
+# A future re-establishes the CREATING thread's dynamic bindings in the worker
+# (clj's binding-conveyor-fn). Without it a `(binding […] (future …))` sees the
+# var's root, silently dropping the caller's dynamic environment.
+got=$("$BIN" - <<'EOF' 2>/dev/null | last_line
+(def ^:dynamic *cv* :unset)
+(prn (binding [*cv* :caller] @(future *cv*)))
+EOF
+)
+assert_eq 'future_conveys_bindings' "$got" ':caller'
+
+# A future created OUTSIDE any binding sees the var's ROOT — conveyance captures
+# the frame at creation time, it does not invent one.
+got=$("$BIN" - <<'EOF' 2>/dev/null | last_line
+(def ^:dynamic *cv* :unset)
+(prn @(future *cv*))
+EOF
+)
+assert_eq 'future_no_conveyance_sees_root' "$got" ':unset'
+
+# pmap runs each (f x) on its own future, so conveyance flows through it too.
+got=$("$BIN" - <<'EOF' 2>/dev/null | last_line
+(def ^:dynamic *cv* :unset)
+(prn (binding [*cv* :caller] (doall (pmap (fn [_] *cv*) [1 2 3]))))
+EOF
+)
+assert_eq 'pmap_conveys_bindings' "$got" '(:caller :caller :caller)'
+
 # --- Promise ---
 got=$("$BIN" - <<'EOF' 2>/dev/null | last_line
 (def p (promise))

@@ -23,10 +23,12 @@ assert_eq 'prefix-form' "$("$BIN" -e '(ns a (:import [java.util UUID])) (uuid? (
 assert_eq 'fqcn-still'  "$("$BIN" -e '(ns a (:import java.util.UUID)) (uuid? (java.util.UUID/randomUUID))' 2>&1 | tail -1)" 'true'
 # an ns with no :import is unaffected
 assert_eq 'no-import'   "$("$BIN" -e '(ns z) (+ 1 2)' 2>&1 | tail -1)" '3'
-# importing a class cljw lacks LOADS fine (directive accepted). Uses ArrayDeque
-# as the unsupported example — HashSet/TreeSet are now implemented (D-431).
-assert_eq 'unsupp-load' "$("$BIN" -e '(ns y (:import java.util.ArrayDeque)) :loaded' 2>&1 | tail -1)" ':loaded'
+# importing a class cljw lacks LOADS fine (directive accepted). ServiceLoader is
+# the unsupported example: it is classloader-driven, so a JVM-free runtime never
+# implements it and this fixture cannot go stale the way HashSet/TreeSet (D-431)
+# and ArrayDeque did.
+assert_eq 'unsupp-load' "$("$BIN" -e '(ns y (:import java.util.ServiceLoader)) :loaded' 2>&1 | tail -1)" ':loaded'
 # ...but USING it raises a clean (catchable) error, not a silent success
-assert_has 'unsupp-use' "$("$BIN" -e '(ns y (:import java.util.ArrayDeque)) (ArrayDeque.)' 2>&1)" "Unable to resolve symbol: 'ArrayDeque'"
+assert_has 'unsupp-use' "$("$BIN" -e '(ns y (:import java.util.ServiceLoader)) (ServiceLoader.)' 2>&1)" "Unable to resolve symbol: 'ServiceLoader'"
 
 echo "OK — phase15_ns_import (6 cases) green"

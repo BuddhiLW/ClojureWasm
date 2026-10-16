@@ -107,7 +107,7 @@ pub const Value = enum(u64) {
         tval = 56, // D8 — STM Ref TVal (ADR-0010 amendment 4; HeapTag-only — TVal is not NaN-boxed as a Value)
         matcher = 57,
         tuple = 58,
-        box = 59,
+        sub_vector = 59, // D11 — PersistentVector index-range VIEW (F-004 amend 2026-08-20; was `box`)
         wasm_module = 60, // D12 — wasm surfaces at the tail (Phase 16+)
         wasm_fn = 61,
         wasm_funcref = 62,
@@ -170,7 +170,8 @@ pub const Value = enum(u64) {
     /// Extract the heap pointer from a heap-tagged Value.
     pub fn decodePtr(self: Value, comptime T: type) T {
         const shifted = @intFromEnum(self) & nb.NB_ADDR_SHIFTED_MASK;
-        return @ptrFromInt(@as(usize, shifted) << nb.NB_ADDR_ALIGN_SHIFT);
+        const addr: u64 = shifted << nb.NB_ADDR_ALIGN_SHIFT;
+        return @ptrFromInt(@as(usize, @intCast(addr)));
     }
 
     /// Map a HeapTag integer to its parallel Tag entry. Per ADR-0027 §2 +
@@ -251,7 +252,7 @@ pub const Value = enum(u64) {
     /// supplies the concrete pointer type via `FnPtr`.
     pub fn asBuiltinFn(self: Value, comptime FnPtr: type) FnPtr {
         const raw = @intFromEnum(self) & nb.NB_PAYLOAD_MASK;
-        return @ptrFromInt(raw);
+        return @ptrFromInt(@as(usize, @intCast(raw)));
     }
 
     /// The raw builtin_fn function-pointer address as a `usize`, type-erased —

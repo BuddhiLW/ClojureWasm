@@ -6,10 +6,10 @@
 //!   - `-e <expr>` / `--eval <expr>`: in-line source string.
 //!   - `<file.clj>` (positional): file's contents.
 //!   - `-` (positional): stdin (heredoc-friendly).
-//!   - `--compare`: runs source through BOTH backends
-//!     via `eval/evaluator.compare`; prints `OK` + the value when
-//!     they agree, `MISMATCH` + both values when they diverge
-//!     (exit 1 on mismatch). ADR-0005 full-bench remit.
+//!   - `--compare`: runs source through BOTH backends in isolated runtimes;
+//!     prints `OK` + the agreed value/error when value and stdout agree,
+//!     `MISMATCH` + both outcomes otherwise (exit 1 on mismatch).
+//!     ADR-0005 full-bench remit.
 //!   - `-h` / `--help`: usage message.
 //!
 //! Argv parsing lives here (extracted from `src/main.zig`, D-031) so
@@ -34,7 +34,16 @@ const deps_resolve = @import("deps/resolve.zig");
 const deps_run_mode = @import("deps/run_mode.zig");
 const error_print = @import("../runtime/error/print.zig");
 const build_options = @import("build_options");
+const builtin = @import("builtin");
 const startup_profile = @import("../runtime/startup_profile.zig");
+
+/// Cross-platform argv iterator.
+fn argIter(init: std.process.Init, gpa: std.mem.Allocator) !std.process.Args.Iterator {
+    return if (comptime builtin.os.tag == .wasi)
+        try std.process.Args.Iterator.initAllocator(init.minimal.args, gpa)
+    else
+        init.minimal.args.iterate();
+}
 
 /// Top-level CLI dispatcher. Called from `src/main.zig::main` with
 /// the Juicy-Main `std.process.Init` bundle. Parses argv, decides
@@ -102,15 +111,17 @@ pub fn dispatch(init: std.process.Init) !void {
     // dispatch proceeds.
     var embedded_args: std.ArrayList([]const u8) = .empty;
     {
-        var ait = init.minimal.args.iterate();
+        var ait = try argIter(init, gpa);
         _ = ait.skip(); // argv[0]
         while (ait.next()) |a| try embedded_args.append(arena, a);
     }
     var cli_prof = startup_profile.Profiler.start(io);
-    if (try builder.tryRunEmbedded(io, gpa, arena, stdout, embedded_args.items)) return;
+    if (comptime builtin.os.tag != .wasi) {
+        if (try builder.tryRunEmbedded(io, gpa, arena, stdout, embedded_args.items)) return;
+    }
     cli_prof.mark("tryRunEmbedded(self-exe read)");
 
-    var args = init.minimal.args.iterate();
+    var args = try argIter(init, gpa);
     _ = args.skip(); // argv[0]
 
     // Env-derived run config, hoisted so every dispatch path (REPL entries +
@@ -330,10 +341,14 @@ fn dispatchArgsRest(
                 \\ClojureWasm v{s}
                 \\Usage: cljw [options] [<file.clj> | -]
                 \\  -e, --eval <expr>  Read, analyse, evaluate <expr>; print each result.
-                \\  <file.clj>         Run the named source file as a script (no result echo).
+                \\  <file.clj> [args]  Run the named source file as a script (no result echo);
+                \\                     trailing args bind to *command-line-args*
+                \\                     (a -cp <dirs> right after the file still
+                \\                     sets the classpath).
                 \\  -                  Run stdin as a script (no result echo; heredoc-friendly).
                 \\  -cp, --classpath <dirs>  Colon-separated dirs `require` searches
-                \\                     for `.clj`/`.cljc` libs (else $CLJW_PATH, else ".").
+                \\                     for `.cljw`/`.clj`/`.cljc` libs, in that order
+                \\                     (else $CLJW_PATH, else ".").
                 \\  -A:a1:a2           Select deps.edn aliases (their :extra-paths /
                 \\                     :extra-deps join the classpath).
                 \\  -M[:a] [main-opts] Run mode: the alias :main-opts + your args via
@@ -429,13 +444,43 @@ fn dispatchArgsRest(
             defer file.close(io);
             var file_buf: [4096]u8 = undefined;
             var file_reader = file.reader(io, &file_buf);
-            source_text = file_reader.interface.allocRemaining(arena, .unlimited) catch |err| {
+            source_text = file_io.readToEnd(&file_reader, arena) catch |err| {
                 try stderr.print("Error reading {s}: {s}\n", .{ arg, @errorName(err) });
                 try stderr.flush();
                 std.process.exit(1);
             };
             source_label = arg;
             print_results = false;
+            // `cljw script.clj a b` = `clojure script.clj a b`: every token after
+            // the script path is a script argument bound to *command-line-args*
+            // (clojure.main's script contract, same as the `-M script.clj a b`
+            // path, D-310), never another file or cljw option. The setter rides
+            // line 1 with no newline so script line numbers stay exact.
+            // Exception: `-cp` / `--classpath <dirs>` placed DIRECTLY after the
+            // script path stay cljw options (`cljw app.clj -cp lib` is the
+            // documented ADR-0135 shape); the first other token starts the
+            // script args, and every token from there on is an arg.
+            var script_args: std.ArrayList([]const u8) = .empty;
+            while (args.next()) |a| {
+                if (script_args.items.len == 0 and
+                    (std.mem.eql(u8, a, "-cp") or std.mem.eql(u8, a, "--classpath")))
+                {
+                    classpath_arg = args.next() orelse {
+                        try stderr.print("Error: -cp / --classpath requires an argument\n", .{});
+                        try stderr.flush();
+                        std.process.exit(1);
+                    };
+                    continue;
+                }
+                try script_args.append(arena, a);
+            }
+            if (script_args.items.len > 0) {
+                var aw: std.Io.Writer.Allocating = .init(arena);
+                try deps_run_mode.writeClArgsSetter(&aw.writer, script_args.items);
+                try aw.writer.writeAll(source_text.?);
+                source_text = try aw.toOwnedSlice();
+            }
+            break;
         }
     }
 
@@ -453,7 +498,7 @@ fn dispatchArgsRest(
     // D-309: a `-M`/`-X` (or bare `-m`) run mode supersedes the `-e`/file path —
     // it runs a `-main` / `:exec-fn` instead of printing eval results.
     if (run_mode) |mode| {
-        try deps_run_mode.run(io, gpa, arena, stdout, stderr, mode, deps.cfg, alias_names.items, run_args.items, deps.load_paths, fs_jail_root);
+        try deps_run_mode.run(io, gpa, arena, stdout, stderr, mode, deps.cfg, alias_names.items, run_args.items, deps.load_paths, compare_mode, fs_jail_root);
         return;
     }
 
@@ -467,7 +512,7 @@ fn dispatchArgsRest(
     }
 
     if (compare_mode) {
-        try runner.runSourceCompare(io, gpa, arena, stdout, stderr, source_text.?, source_label);
+        try runner.runSourceCompare(io, gpa, arena, stdout, stderr, source_text.?, source_label, deps.load_paths, fs_jail_root);
     } else {
         try runner.runSource(io, gpa, arena, stdout, stderr, source_text.?, source_label, deps.load_paths, print_results, fs_jail_root);
     }

@@ -29,6 +29,7 @@ const vm_compiler = @import("../eval/backend/vm/compiler.zig");
 const serialize = @import("../eval/bytecode/serialize.zig");
 const BytecodeChunk = @import("../eval/backend/vm/opcode.zig").BytecodeChunk;
 const driver = @import("../eval/driver.zig");
+const file_io = @import("../runtime/file_io.zig");
 const Value = @import("../runtime/value/value.zig").Value;
 const vm = @import("../eval/backend/vm.zig");
 const bootstrap = @import("../lang/bootstrap.zig");
@@ -346,12 +347,10 @@ pub fn buildMainEnvelope(
 // === cljw build CLI core + embedded-run startup ===
 
 /// Read an entire file into a freshly `gpa`-allocated slice (caller frees).
+/// One read path for the whole runtime (`file_io.readAll`), so a file that
+/// stats as size 0 reads to EOF here too.
 fn readFileAll(io: std.Io, gpa: std.mem.Allocator, path: []const u8) ![]u8 {
-    const f = try std.Io.Dir.cwd().openFile(io, path, .{});
-    defer f.close(io);
-    var buf: [4096]u8 = undefined;
-    var fr = f.reader(io, &buf);
-    return fr.interface.allocRemaining(gpa, .unlimited);
+    return file_io.readAll(io, gpa, path);
 }
 
 /// Read the running executable's own bytes (the runtime binary

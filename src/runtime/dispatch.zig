@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: EPL-2.0
 //! Layer-0 → Layer-1+ dispatch types.
 //!
 //! `BuiltinFn` has the signature `(rt, env, args, loc) Error!Value`
@@ -37,6 +38,7 @@ const Runtime = @import("runtime.zig").Runtime;
 const Env = @import("env.zig").Env;
 const SourceLocation = @import("error/info.zig").SourceLocation;
 const td_mod = @import("type_descriptor.zig");
+const protocol_mod = @import("protocol.zig");
 const method_table = @import("dispatch/method_table.zig");
 const error_catalog = @import("error/catalog.zig");
 
@@ -129,6 +131,39 @@ pub fn dispatch(
     loc: SourceLocation,
 ) anyerror!Value {
     if (try dispatchOrNull(rt, env, cs, receiver, protocol_name, method_name, args, loc)) |v| return v;
+    // ADR-0187: `(extend-protocol P some.ns.Q …)` where Q is a PROTOCOL means
+    // "every type satisfying Q". Consulted BEFORE the Object default because on
+    // the JVM an interface impl is a real per-type impl and outranks an Object
+    // fallback. Membership is answered from the receiver's descriptor
+    // (`protocol_impls` is the SSOT, D-190), so no receiver value is needed.
+    if (rt.protocol_target_exts.get(protocol_name)) |exts| {
+        const rtd = try resolveDescriptor(rt, receiver);
+        for (exts) |ext| {
+            if (!protocol_mod.satisfiesName(ext.target_proto, rtd)) continue;
+            for (ext.impls) |me| {
+                if (!std.mem.eql(u8, me.method_name, method_name)) continue;
+                if (me.method_val.tag() == .nil) break;
+                const vt = rt.vtable orelse return error.NoVTable;
+                return try vt.callFn(rt, env, me.method_val, args, loc);
+            }
+        }
+    }
+    // clj: every defrecord implements clojure.lang.IRecord, so an
+    // `(extend-protocol P clojure.lang.IRecord …)` impl (registered on the
+    // IRecord class descriptor) serves any record with no impl of its own.
+    // Like an interface impl on the JVM it outranks the Object default.
+    if (receiver.tag() == .typed_instance and
+        receiver.decodePtr(*const td_mod.TypedInstance).descriptor.kind == .defrecord)
+    {
+        if (rt.class_descriptors.get("IRecord")) |rec_td| {
+            if (rec_td.lookupMethod(protocol_name, method_name)) |me| {
+                if (me.method_val.tag() != .nil) {
+                    const vt = rt.vtable orelse return error.NoVTable;
+                    return try vt.callFn(rt, env, me.method_val, args, loc);
+                }
+            }
+        }
+    }
     // clj: `(extend-protocol P Object …)` is a UNIVERSAL default — after a
     // per-type miss, consult the Object descriptor (where the Object extension
     // registered). nil is excluded: clj nil is not an Object, so a type extends
@@ -173,6 +208,29 @@ pub fn dispatchOrNull(
     const me = cs.lookupWithCache(td, protocol_name, method_name, rt.protocol_generation) orelse return null;
     if (me.method_val.tag() == .nil) return error_catalog.raise(.feature_not_supported, loc, .{
         .name = "protocol method with nil method_val (declare-only)",
+    });
+    const vt = rt.vtable orelse return error.NoVTable;
+    return try vt.callFn(rt, env, me.method_val, args, loc);
+}
+
+/// Bare host-member dispatch (`(.method receiver ...)`) for runtime services
+/// that must invoke a reified Java method themselves.  Unlike protocol
+/// dispatch, this intentionally ignores the MethodEntry's protocol name: a
+/// method-family marker may be written/imported under either its short or FQCN
+/// spelling, while dot dispatch is defined by the bare member name.
+pub fn dispatchBareOrNull(
+    rt: *Runtime,
+    env: *Env,
+    cs: *CallSite,
+    receiver: Value,
+    method_name: []const u8,
+    args: []const Value,
+    loc: SourceLocation,
+) anyerror!?Value {
+    const td = try resolveDescriptor(rt, receiver);
+    const me = cs.lookupWithCache(td, null, method_name, rt.protocol_generation) orelse return null;
+    if (me.method_val.tag() == .nil) return error_catalog.raise(.feature_not_supported, loc, .{
+        .name = "host method with nil method_val (declare-only)",
     });
     const vt = rt.vtable orelse return error.NoVTable;
     return try vt.callFn(rt, env, me.method_val, args, loc);

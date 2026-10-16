@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: EPL-2.0
 //! Stage-1 bootstrap — read+analyse+evaluate the embedded Clojure
 //! source files (currently `clj/clojure/core.clj` and
 //! `clj/clojure/string.clj`) after `primitive.registerAll` populates
@@ -70,6 +71,9 @@ pub const FileEntry = struct {
     /// only under `-Dwasm`. Its `wasm/…` call sites resolve at ANALYZE time,
     /// so a build without the flag cannot compile it at all.
     wasm_only: bool = false,
+    /// The file rides the `cljw.ffi` leaves (`-open`, `-invoke`, ...), which
+    /// are registered only where `build_options.ffi` is set (ADR-0202).
+    ffi_only: bool = false,
 };
 
 /// Is `entry` part of THIS build's bundled set? The ONE predicate behind both
@@ -87,7 +91,7 @@ fn f(comptime ns: []const u8, comptime path: []const u8) FileEntry {
 }
 
 pub fn isActiveFile(entry: FileEntry) bool {
-    return build_options.wasm or !entry.wasm_only;
+    return (build_options.wasm or !entry.wasm_only) and (build_options.ffi or !entry.ffi_only);
 }
 
 /// Bootstrap source table — load order matters. `core.clj` must be
@@ -209,6 +213,23 @@ pub const FILES: []const FileEntry = &.{
     // plus a SEQUENTIAL fold (AD-058: no ForkJoinPool). require-on-demand; clj
     // does not auto-load it either, so eager here would break F-011 parity.
     f("clojure.core.reducers", "clj/clojure/core/reducers.clj"),
+    // cljw.test — source-path test discovery + runner over clojure.test
+    // (`cljw -m cljw.test`). Loads after clojure.test (FILES[10]) and cljw.fs;
+    // require-on-demand. Appended last so earlier FILES[N] indices stay stable.
+    f("cljw.test", "clj/cljw/test.clj"),
+    // cljw.proxy (D-298) — runtime support for `clojure.core/proxy` over the
+    // registered proxyable base classes (ThreadLocal is entry 1). deftype +
+    // protocol, no JVM class extension; require-on-demand (the proxy macro
+    // requiring-resolves it). Appended last so earlier FILES[N] indices stay stable.
+    f("cljw.proxy", "clj/cljw/proxy.clj"),
+    // clojure.java.shell (ADR-0199, D-273) — `sh` over the native
+    // `cljw.process/run`, resolved at call time so a WASI build (no
+    // cljw.process) still loads it. require-on-demand, as in clj. Appended last.
+    f("clojure.java.shell", "clj/clojure/java/shell.clj"),
+    // cljw.ffi (ADR-0202): the C FFI API over the native `cljw.ffi/-*` leaves.
+    // require-on-demand AND ffi-gated: the leaves exist only where
+    // `build_options.ffi` is set. Appended last.
+    .{ .ns = "cljw.ffi", .label = defaultLabel("cljw.ffi"), .source = embedSrc("clj/cljw/ffi.clj"), .ffi_only = true },
 };
 
 /// The build-active subset of `FILES`. **Every walk that compiles, emits, or
@@ -565,6 +586,12 @@ pub fn cacheArithIntrinsics(rt: *Runtime, env: *Env) void {
         if (v) |p| rt.coll_vars[@intFromEnum(op)] = p;
     }
     rt.core_coll_pristine = true;
+
+    // *unchecked-math* (CLJW-UNCHECKED-MATH): cache the Var so the analyzer can
+    // read its current value and rewrite pristine core arith to wrapping
+    // unchecked-* ops while it is truthy. Resolved from clojure.core (interned
+    // in core.clj); null if absent (the rewrite then never fires).
+    if (core) |c| rt.unchecked_math_var = c.resolve("*unchecked-math*");
 }
 
 /// Intern `clojure.core/*print-length*` and `*print-level*` as `^:dynamic`

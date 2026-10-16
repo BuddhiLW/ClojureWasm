@@ -27,7 +27,7 @@ const env_mod = @import("../../runtime/env.zig");
 const Env = env_mod.Env;
 const error_catalog = @import("../../runtime/error/catalog.zig");
 const macro_dispatch = @import("../macro_dispatch.zig");
-const vector_mod = @import("../../runtime/collection/vector.zig");
+const map_entry_mod = @import("../../runtime/collection/map_entry.zig");
 const analyzer_mod = @import("analyzer.zig");
 const bindings = @import("bindings.zig");
 const map_collection = @import("../../runtime/collection/map.zig");
@@ -107,14 +107,17 @@ pub fn constructInstance(
     args: []const Value,
     loc: error_catalog.SourceLocation,
 ) anyerror!Value {
-    // D-284: cljw has no clojure.lang.MapEntry type — a map entry IS a 2-vector
-    // `[k v]` (core.clj). `(MapEntry. k v)` (or the qualified form) constructs that
-    // 2-vector, so collection libs that build entries explicitly (priority-map,
-    // ordered, …) work. `key`/`val`/`nth` already operate on a 2-vector.
+    // D-284: `(MapEntry. k v)` / `(new clojure.lang.MapEntry k v)` constructs an
+    // entry, so collection libs that build entries explicitly (priority-map,
+    // ordered, …) work. It used to return a plain 2-vector, from when a map entry
+    // WAS one; a map entry is now a distinct type, and `key`/`val` require a real
+    // one, so a vector here made `(key (MapEntry. :a 1))` throw. clj agrees with
+    // the current shape: `(map-entry? (clojure.lang.MapEntry. :a 1))` is true —
+    // and so is `vector?`, which the map_entry type also satisfies.
     if (std.mem.eql(u8, type_name, "MapEntry") or std.mem.eql(u8, type_name, "clojure.lang.MapEntry")) {
         if (args.len != 2)
             return error_catalog.raise(.arity_not_expected, loc, .{ .got = args.len, .fn_name = "MapEntry.", .expected = 2 });
-        return vector_mod.fromSlice(rt, args);
+        return map_entry_mod.make(rt, args[0], args[1]);
     }
     // D-416: `(Object.)` mints a fresh identity-unique value — the Clojure
     // unique-sentinel idiom (`(def notfound (Object.))`, data.finger-tree). No
@@ -159,8 +162,10 @@ pub fn constructInstance(
         const vt = rt.vtable orelse return error.NoVTable;
         return vt.callFn(rt, env, me.method_val, args, loc);
     }
+    // No constructor takes arguments: clj's IllegalArgumentException, not an
+    // arity error against an imaginary 0-arg ctor.
     if (args.len != 0)
-        return error_catalog.raise(.arity_not_expected, loc, .{ .got = args.len, .fn_name = type_name, .expected = 0 });
+        return error_catalog.raise(.ctor_unmatched, loc, .{ .class = td.fqcn orelse type_name });
     return error_catalog.raise(.symbol_unresolved, loc, .{ .sym = type_name });
 }
 
@@ -210,12 +215,27 @@ pub fn analyzeDot(
     // A `.-field` style leading-dash member reads a field only.
     const field_only = member_name.len >= 1 and member_name[0] == '-';
     const resolved_member = if (field_only) member_name[1..] else member_name;
-    // Static when the receiver is a symbol naming a class with this method.
-    if (recv.data == .symbol and recv.data.symbol.ns == null) {
-        if (resolveJavaSurface(rt, env, recv.data.symbol.name)) |td| {
-            if (td.lookupMethod(null, resolved_member) != null) {
-                return analyzeStaticMethodCall(arena, rt, env, scope, td, resolved_member, arg_forms, form, macro_table);
-            }
+    // Static access when the receiver is a (non-local) symbol naming a class:
+    // JVM `(. Class member)` / `(. Class (method args…))` is exactly the
+    // `(Class/member args…)` static form. Lower to that form so the one
+    // qualified-head path serves both spellings — static methods, zero-arg
+    // static field reads (`(. Math PI)`), and the AD-008 deferred rewrite for
+    // an unmodelled `clojure.lang.*` member (the ns still loads).
+    if (recv.data == .symbol and recv.data.symbol.ns == null and
+        !(scope != null and scope.?.lookup(recv.data.symbol.name) != null))
+    {
+        const cls = recv.data.symbol.name;
+        const static_hit = if (resolveJavaSurface(rt, env, cls)) |td|
+            (!field_only and td.lookupMethod(null, resolved_member) != null) or
+                (arg_forms.len == 0 and td.lookupStaticField(resolved_member) != null)
+        else
+            false;
+        if (static_hit or analyzer_mod.isDeferredHostNs(cls)) {
+            const call_items = try arena.alloc(Form, arg_forms.len + 1);
+            call_items[0] = .{ .data = .{ .symbol = .{ .ns = cls, .name = resolved_member } }, .location = member_form.location };
+            @memcpy(call_items[1..], arg_forms);
+            const call_form: Form = .{ .data = .{ .list = call_items }, .location = form.location };
+            return analyzer_mod.analyze(arena, rt, env, scope, call_form, macro_table);
         }
     }
     return analyzeInstanceMember(arena, rt, env, scope, resolved_member, recv, arg_forms, form, macro_table, field_only);
@@ -241,9 +261,11 @@ pub fn analyzeCtorCall(
     // lexically correct one. Eval-time resolution would consult the CALLER's
     // ns and miss it (hiccup.util's `(URI. s)` inside to-uri, called from
     // user code). Guarded on the FQCN actually resolving as a registered
-    // surface — a USER deftype registers in rt.types under its BARE name
-    // (its dotted FQCN is not a key), so it keeps the bare spelling and the
-    // eval-time path (which also allows forward refs to later deftypes).
+    // surface. A USER deftype keeps the bare spelling here and resolves on
+    // the eval-time path (which also allows forward refs to later deftypes);
+    // since ADR-0198 that path finds it by qualifying the bare name with the
+    // current ns inside `host_class_resolve.resolve`, rather than by the
+    // simple-name registry hit this comment used to describe.
     var resolved_name = type_name;
     if (std.mem.findScalar(u8, type_name, '.') == null) {
         if (env.current_ns) |cur_ns| {
@@ -460,78 +482,80 @@ pub fn analyzeDefmacro(
     placeholder_var.flags.macro_ = true;
 
     // D-187: lower docstring / attr-map / synthesized :arglists into
-    // Var.meta (mirrors defn's D-183(d), so `(:doc (meta #'m))` works);
-    // reader `^meta` on the name merges first. :arglists is always present.
-    {
-        var meta_items: std.ArrayList(Form) = .empty;
-        if (items[1].meta) |mf| try meta_items.appendSlice(arena, mf.data.map);
-        if (attr_form) |a| try meta_items.appendSlice(arena, a.data.map);
-        if (doc_form) |d| {
-            try meta_items.append(arena, .{ .data = .{ .keyword = .{ .name = "doc" } }, .location = form.location });
-            try meta_items.append(arena, d);
+    // Var.meta (mirrors defn's D-183(d), so `(:doc (meta #'m))` works).
+    // Layered as clj's defn (which defmacro expands to) layers them, each
+    // over the last: reader `^meta` on the name, then :arglists, then the
+    // docstring, then the attr-map, so an attr-map `{:doc …}` or
+    // `{:arglists …}` wins. :arglists is always present.
+    //
+    // :arglists is the list of param vectors: `([params])` for single
+    // arity, `([a] [a b] …)` for multi-arity (each clause's vector).
+    const arglists_inner = if (multi_arity) blk: {
+        const clauses = items[head..];
+        const av = try arena.alloc(Form, clauses.len);
+        for (clauses, 0..) |c, j| {
+            if (c.data != .list or c.data.list.len == 0 or c.data.list[0].data != .vector)
+                return error_catalog.raise(.defmacro_params_not_vector, c.location, .{});
+            av[j] = c.data.list[0];
         }
-        // :arglists is the list of param vectors: `([params])` for single
-        // arity, `([a] [a b] …)` for multi-arity (each clause's vector).
-        const arglists_inner = if (multi_arity) blk: {
-            const clauses = items[head..];
-            const av = try arena.alloc(Form, clauses.len);
-            for (clauses, 0..) |c, j| {
-                if (c.data != .list or c.data.list.len == 0 or c.data.list[0].data != .vector)
-                    return error_catalog.raise(.defmacro_params_not_vector, c.location, .{});
-                av[j] = c.data.list[0];
-            }
-            break :blk av;
-        } else blk: {
-            const av = try arena.alloc(Form, 1);
-            av[0] = items[head];
-            break :blk av;
-        };
-        try meta_items.append(arena, .{ .data = .{ .keyword = .{ .name = "arglists" } }, .location = form.location });
-        try meta_items.append(arena, .{ .data = .{ .list = arglists_inner }, .location = form.location });
-        const meta_map: Form = .{ .data = .{ .map = try arena.dupe(Form, meta_items.items) }, .location = form.location };
+        break :blk av;
+    } else blk: {
+        const av = try arena.alloc(Form, 1);
+        av[0] = items[head];
+        break :blk av;
+    };
+    const arglists_key: Form = .{ .data = .{ .keyword = .{ .name = "arglists" } }, .location = form.location };
+    const doc_key: Form = .{ .data = .{ .keyword = .{ .name = "doc" } }, .location = form.location };
+    {
+        var meta: form_mod.MapBuilder = .{};
+        // Guarded like analyzeDef: `.meta` is a Form, and reading `.data.map`
+        // off a non-map variant is illegal union access (a ReleaseSafe panic).
+        if (items[1].meta) |mf| {
+            if (mf.data == .map) try meta.merge(arena, mf.data.map);
+        }
+        try meta.put(arena, arglists_key, .{ .data = .{ .list = arglists_inner }, .location = form.location });
+        if (doc_form) |d| try meta.put(arena, doc_key, d);
+        if (attr_form) |a| try meta.merge(arena, a.data.map);
+        const meta_map = try meta.toForm(arena, form.location);
         placeholder_var.meta = try analyzer_mod.formToValue(rt, env, try unquoteMetaValues(arena, meta_map));
     }
     // D-563(b): the wire-riding meta EXPRESSION for macro Vars — the same
     // merged map plus the compiler-minted :line/:column/:file, wholesale-
     // quoted to one composite constant (mirrors analyzeDef's def_meta_expr;
-    // macro docstrings now survive AOT artifacts too).
+    // macro docstrings now survive AOT artifacts too). A locationless macro
+    // gets no location keys; its user meta and arglists still evaluate.
     const macro_meta_expr: ?*const Node = blk: {
         const src_loc = items[1].location;
-        if (src_loc.line == 0) break :blk null;
-        var meta_items: std.ArrayList(Form) = .empty;
-        if (items[1].meta) |mf| try meta_items.appendSlice(arena, mf.data.map);
-        if (attr_form) |a| try meta_items.appendSlice(arena, a.data.map);
-        if (doc_form) |d| {
-            try meta_items.append(arena, .{ .data = .{ .keyword = .{ .name = "doc" } }, .location = form.location });
-            try meta_items.append(arena, d);
+        var meta: form_mod.MapBuilder = .{};
+        // Guarded like analyzeDef: `.meta` is a Form, and reading `.data.map`
+        // off a non-map variant is illegal union access (a ReleaseSafe panic).
+        if (items[1].meta) |mf| {
+            if (mf.data == .map) try meta.merge(arena, mf.data.map);
         }
-        const arglists_inner2 = if (multi_arity) blk2: {
-            const clauses = items[head..];
-            const av = try arena.alloc(Form, clauses.len);
-            for (clauses, 0..) |c, j| av[j] = c.data.list[0];
-            break :blk2 av;
-        } else blk2: {
-            const av = try arena.alloc(Form, 1);
-            av[0] = items[head];
-            break :blk2 av;
-        };
-        try meta_items.append(arena, .{ .data = .{ .keyword = .{ .name = "arglists" } }, .location = form.location });
         // Synthesized arglists are DATA — quoted, like clj's defn/defmacro.
         const agq = try arena.alloc(Form, 2);
         agq[0] = macro_dispatch.makeSymbol("quote", form.location);
-        agq[1] = .{ .data = .{ .list = arglists_inner2 }, .location = form.location };
-        try meta_items.append(arena, .{ .data = .{ .list = agq }, .location = form.location });
-        const kws = [_]struct { name: []const u8, v: i64 }{
-            .{ .name = "line", .v = @intCast(src_loc.line) },
-            .{ .name = "column", .v = @intCast(src_loc.column) },
-        };
-        for (kws) |kv| {
-            try meta_items.append(arena, .{ .data = .{ .keyword = .{ .name = kv.name } }, .location = form.location });
-            try meta_items.append(arena, .{ .data = .{ .integer = kv.v }, .location = form.location });
+        agq[1] = .{ .data = .{ .list = arglists_inner }, .location = form.location };
+        try meta.put(arena, arglists_key, .{ .data = .{ .list = agq }, .location = form.location });
+        if (doc_form) |d| try meta.put(arena, doc_key, d);
+        if (attr_form) |a| try meta.merge(arena, a.data.map);
+        if (src_loc.line != 0) {
+            const kws = [_]struct { name: []const u8, v: i64 }{
+                .{ .name = "line", .v = @intCast(src_loc.line) },
+                .{ .name = "column", .v = @intCast(src_loc.column) },
+            };
+            for (kws) |kv| try meta.put(
+                arena,
+                .{ .data = .{ .keyword = .{ .name = kv.name } }, .location = form.location },
+                .{ .data = .{ .integer = kv.v }, .location = form.location },
+            );
+            try meta.put(
+                arena,
+                .{ .data = .{ .keyword = .{ .name = "file" } }, .location = form.location },
+                .{ .data = .{ .string = src_loc.file }, .location = form.location },
+            );
         }
-        try meta_items.append(arena, .{ .data = .{ .keyword = .{ .name = "file" } }, .location = form.location });
-        try meta_items.append(arena, .{ .data = .{ .string = src_loc.file }, .location = form.location });
-        const meta_map2: Form = .{ .data = .{ .map = try arena.dupe(Form, meta_items.items) }, .location = form.location };
+        const meta_map2 = try meta.toForm(arena, form.location);
         // Real-expression analysis, mirroring analyzeDef (D-316): quoted
         // arglists stay data, computed values evaluate, `:tag` symbols resolve
         // uniformly (a Class value or a name error — clj parity).
@@ -580,7 +604,7 @@ pub fn analyzeDefmacro(
 
     const n = try arena.create(Node);
     n.* = .{ .def_node = .{
-        .name = name_sym.name,
+        .var_ptr = placeholder_var,
         .value_expr = value_node,
         .is_macro = true,
         .is_private = is_private,
@@ -622,11 +646,9 @@ pub fn analyzeDef(
             break :blk 3;
         },
     };
-    // ADR-0038: pre-register the Var at analyze time so recursive
-    // defns + forward references inside `(do ...)` resolve. Var lands
-    // with placeholder nil; `evalDef` (tree_walk.zig:466) and the VM
-    // op_def arm re-intern with the actual value at runtime. env.intern
-    // is idempotent (env.zig:353-357 updates root in place).
+    // ADR-0038: declare and capture the Var before analyzing its initializer,
+    // so recursive definitions and forward references resolve. Both backends
+    // bind this exact Var even if the caller later changes namespaces.
     const ns = env.current_ns orelse
         return error_catalog.raiseInternal(form.location, "def: no current namespace");
     // ADR-0038 amendment (D-184): declare-if-absent — pre-register so
@@ -643,46 +665,48 @@ pub fn analyzeDef(
     // Combine the reader `^meta` map (if any) with an optional `:doc` from the
     // `(def name doc init)` form, then lift into Var.meta.
     if (items[1].meta != null or doc_form != null) {
-        var meta_items: std.ArrayList(Form) = .empty;
+        var meta: form_mod.MapBuilder = .{};
         if (items[1].meta) |mf| {
-            if (mf.data == .map) try meta_items.appendSlice(arena, mf.data.map);
+            if (mf.data == .map) try meta.merge(arena, mf.data.map);
         }
-        if (doc_form) |d| {
-            try meta_items.append(arena, .{ .data = .{ .keyword = .{ .name = "doc" } }, .location = form.location });
-            try meta_items.append(arena, d);
-        }
-        const meta_map: Form = .{ .data = .{ .map = try arena.dupe(Form, meta_items.items) }, .location = form.location };
+        if (doc_form) |d| try meta.put(arena, .{ .data = .{ .keyword = .{ .name = "doc" } }, .location = form.location }, d);
+        const meta_map = try meta.toForm(arena, form.location);
         var_ptr.meta = try analyzer_mod.formToValue(rt, env, try unquoteMetaValues(arena, meta_map));
     }
     // D-563(b): the full Var-meta EXPRESSION — user `^meta` + `:doc`, with the
-    // compiler-minted `:line`/`:column`/`:file` appended AFTER them (a map
-    // literal is last-key-wins, so the source location overrides a user
-    // `^{:line …}` — clj parity). Both backends evaluate it at def time and
-    // set `Var.meta`, so def meta rides the AOT wire (the analyze-time lift
-    // above only covers the pre-eval window). Skipped for locationless
-    // internal defs (line 0 = no real source position).
+    // compiler-minted `:line`/`:column`/`:file` merged OVER them (so the
+    // source location overrides a user `^{:line …}` — clj parity). Both
+    // backends evaluate it at def time and set `Var.meta`, so def meta rides
+    // the AOT wire (the analyze-time lift above only covers the pre-eval
+    // window). A locationless def (line 0: an internal def, or a form
+    // `eval`'d from a bootstrap-compiled caller such as `load-string`) gets no
+    // location keys, but its user meta is still evaluated; with neither there
+    // is nothing to evaluate.
     const def_meta_expr: ?*const Node = blk: {
         const src_loc = items[1].location;
-        if (src_loc.line == 0) break :blk null;
-        var meta_items: std.ArrayList(Form) = .empty;
+        var meta: form_mod.MapBuilder = .{};
         if (items[1].meta) |mf| {
-            if (mf.data == .map) try meta_items.appendSlice(arena, mf.data.map);
+            if (mf.data == .map) try meta.merge(arena, mf.data.map);
         }
-        if (doc_form) |d| {
-            try meta_items.append(arena, .{ .data = .{ .keyword = .{ .name = "doc" } }, .location = form.location });
-            try meta_items.append(arena, d);
+        if (doc_form) |d| try meta.put(arena, .{ .data = .{ .keyword = .{ .name = "doc" } }, .location = form.location }, d);
+        if (src_loc.line != 0) {
+            const kws = [_]struct { name: []const u8, v: i64 }{
+                .{ .name = "line", .v = @intCast(src_loc.line) },
+                .{ .name = "column", .v = @intCast(src_loc.column) },
+            };
+            for (kws) |kv| try meta.put(
+                arena,
+                .{ .data = .{ .keyword = .{ .name = kv.name } }, .location = form.location },
+                .{ .data = .{ .integer = kv.v }, .location = form.location },
+            );
+            try meta.put(
+                arena,
+                .{ .data = .{ .keyword = .{ .name = "file" } }, .location = form.location },
+                .{ .data = .{ .string = src_loc.file }, .location = form.location },
+            );
         }
-        const kws = [_]struct { name: []const u8, v: i64 }{
-            .{ .name = "line", .v = @intCast(src_loc.line) },
-            .{ .name = "column", .v = @intCast(src_loc.column) },
-        };
-        for (kws) |kv| {
-            try meta_items.append(arena, .{ .data = .{ .keyword = .{ .name = kv.name } }, .location = form.location });
-            try meta_items.append(arena, .{ .data = .{ .integer = kv.v }, .location = form.location });
-        }
-        try meta_items.append(arena, .{ .data = .{ .keyword = .{ .name = "file" } }, .location = form.location });
-        try meta_items.append(arena, .{ .data = .{ .string = src_loc.file }, .location = form.location });
-        const meta_map: Form = .{ .data = .{ .map = try arena.dupe(Form, meta_items.items) }, .location = form.location };
+        if (meta.entries.items.len == 0) break :blk null;
+        const meta_map = try meta.toForm(arena, form.location);
         // The map analyzes as a REAL EXPRESSION (D-316): quoted values stay
         // data (defn's synthesized `:arglists '([x])` — now quoted at the
         // generator), literals embed, and a COMPUTED value like
@@ -716,7 +740,7 @@ pub fn analyzeDef(
     }
     const n = try arena.create(Node);
     n.* = .{ .def_node = .{
-        .name = name_sym.name,
+        .var_ptr = var_ptr,
         .value_expr = value_node,
         .is_dynamic = is_dynamic,
         .is_private = is_private,

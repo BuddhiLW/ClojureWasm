@@ -10,7 +10,7 @@ body:
         namespaces, but not all of it, and some of it never will be — anything
         that requires the JVM class system (`gen-class`, `proxy` against real
         Java base classes, `bean`'s reflective variant) is permanently out of
-        scope, recorded in [`data/compat_tiers.yaml`](https://github.com/clojurewasm/ClojureWasm/blob/main/data/compat_tiers.yaml).
+        scope, recorded in [`data/compat_tiers.yaml`](https://github.com/BuddhiLW/ClojureWasm/blob/main/data/compat_tiers.yaml).
 
         Telling us *what you were trying to do* matters more than the var name
         — often there is a supported path, and if there is not, the use case is

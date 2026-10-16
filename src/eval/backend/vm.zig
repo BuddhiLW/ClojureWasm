@@ -24,10 +24,10 @@ const value_mod = @import("../../runtime/value/value.zig");
 const env_mod = @import("../../runtime/env.zig");
 const runtime_mod = @import("../../runtime/runtime.zig");
 const eval_budget_mod = @import("../../runtime/concurrency/eval_budget.zig");
+const runtime_thread = @import("../../runtime/concurrency/runtime_thread.zig");
 const string_mod = @import("../../runtime/collection/string.zig");
-const vector_mod = @import("../../runtime/collection/vector.zig");
 const map_mod = @import("../../runtime/collection/map.zig");
-const set_mod = @import("../../runtime/collection/set.zig");
+const literal = @import("../../runtime/collection/literal.zig");
 const dispatch = @import("../../runtime/dispatch.zig");
 const root_set = @import("../../runtime/gc/root_set.zig");
 const mark_sweep = @import("../../runtime/gc/mark_sweep.zig");
@@ -112,12 +112,19 @@ threadlocal var vm_arena: VmArena = .{};
 /// anchors to the shallowest (highest-address) `eval` entry seen on THIS thread
 /// (0 = uncaptured); `eval` raises a catchable stack_overflow once
 /// `stack_base - @frameAddress()` (bytes consumed below the anchor) exceeds the
-/// budget. 6 MiB is a one-sided, over-estimable margin safely under the 8 MiB
-/// main / ~16 MiB worker stacks (the std.Thread default) — measuring REAL bytes,
-/// it is immune to the per-frame-size / optimization-level / platform variance
-/// that makes a fixed frame-COUNT cap a cross-host SIGSEGV.
+/// budget. The budget and the stack it must fit are owned by
+/// `runtime_thread.zig` (ADR-0195), which asserts the margin at comptime.
+/// Measuring REAL bytes, the guard is immune to the per-frame-size /
+/// optimization-level / platform variance that makes a fixed frame-COUNT cap a
+/// cross-host SIGSEGV.
 threadlocal var stack_base: usize = 0;
-const STACK_BUDGET_BYTES: usize = 6 * 1024 * 1024;
+const STACK_BUDGET_BYTES = runtime_thread.STACK_BUDGET_BYTES;
+
+comptime {
+    // The threadlocal arena is static TLS, carved out of the runtime stack
+    // under glibc pthreads; it must fit the reserve the margin accounts for.
+    runtime_thread.assertTlsFits(@sizeOf(VmArena));
+}
 
 /// An in-VM call frame. A flattened `op_call` pushes one + continues
 /// the SAME eval loop (no host `eval` re-entry); `op_ret` pops it. Each carries
@@ -371,7 +378,7 @@ pub fn eval(
                 ar.local_top = cur.local_base;
                 ar.frame_top -= 1;
                 if (ar.op_top >= ar.stack.len)
-                    return raiseInternal("vm: operand stack overflow on ret");
+                    return operandOverflow(.{});
                 ar.stack[ar.op_top] = v;
                 ar.loc[ar.op_top] = .{};
                 ar.op_top += 1;
@@ -514,7 +521,7 @@ inline fn stepOnce(
             if (instr.operand >= chunk.constants.len)
                 return raiseInternal("vm: op_const constant index out of range");
             if (sp >= stack.len)
-                return raiseInternal("vm: operand stack overflow");
+                return operandOverflow(instr_loc);
             stack[sp] = chunk.constants[instr.operand];
             sp += 1;
         },
@@ -522,7 +529,7 @@ inline fn stepOnce(
             if (instr.operand >= locals.len)
                 return error_catalog.raise(.slot_out_of_range, .{}, .{ .form = "Local", .index = instr.operand, .max = locals.len });
             if (sp >= stack.len)
-                return raiseInternal("vm: operand stack overflow");
+                return operandOverflow(instr_loc);
             stack[sp] = locals[instr.operand];
             sp += 1;
         },
@@ -541,24 +548,25 @@ inline fn stepOnce(
             const count: u16 = instr.operand >> 8;
             tree_walk.patchLetfnClosures(locals, base, count);
         },
-        .op_def => {
-            if (sp == 0) return raiseInternal("vm: op_def on empty stack");
-            sp -= 1;
-            const value = stack[sp];
-            const name_idx = instr.operand & opcode_mod.DEF_NAME_IDX_MASK;
-            if (name_idx >= chunk.constants.len)
-                return raiseInternal("vm: op_def name index out of range");
-            const name_val = chunk.constants[name_idx];
-            if (!name_val.isString())
-                return raiseInternal("vm: op_def constant is not a String");
-            const ns = env.current_ns orelse
-                return error_catalog.raiseInternal(.{}, "def: no current namespace");
-            const var_ptr = try env.intern(ns, string_mod.asString(name_val), value, null);
+        .op_def, .op_def_unbound => {
+            const var_idx = instr.operand & opcode_mod.DEF_VAR_IDX_MASK;
+            if (var_idx >= chunk.constants.len)
+                return raiseInternal("vm: def Var index out of range");
+            const var_value = chunk.constants[var_idx];
+            if (var_value.tag() != .var_ref)
+                return raiseInternal("vm: def constant is not a Var");
+            const var_ptr = var_value.decodePtr(*Var);
+            if (instr.op() == .op_def) {
+                if (sp == 0) return raiseInternal("vm: op_def on empty stack");
+                sp -= 1;
+                var_ptr.root = stack[sp];
+                var_ptr.bound = true;
+            }
             var_ptr.flags.dynamic = (instr.operand & opcode_mod.DEF_FLAG_DYNAMIC) != 0;
             var_ptr.flags.macro_ = (instr.operand & opcode_mod.DEF_FLAG_MACRO) != 0;
             var_ptr.flags.private = (instr.operand & opcode_mod.DEF_FLAG_PRIVATE) != 0;
             if (sp >= stack.len)
-                return raiseInternal("vm: operand stack overflow");
+                return operandOverflow(instr_loc);
             stack[sp] = Value.encodeHeapPtr(.var_ref, var_ptr);
             sp += 1;
         },
@@ -575,33 +583,13 @@ inline fn stepOnce(
             const var_ptr = var_val.decodePtr(*env_mod.Var);
             var_ptr.meta = meta_val;
         },
-        .op_def_unbound => {
-            // No-init `(def x)`: intern an UNBOUND placeholder (no stack value,
-            // does not clobber an existing root, Var.bound stays false).
-            const name_idx = instr.operand & opcode_mod.DEF_NAME_IDX_MASK;
-            if (name_idx >= chunk.constants.len)
-                return raiseInternal("vm: op_def_unbound name index out of range");
-            const name_val = chunk.constants[name_idx];
-            if (!name_val.isString())
-                return raiseInternal("vm: op_def_unbound constant is not a String");
-            const ns = env.current_ns orelse
-                return error_catalog.raiseInternal(.{}, "def: no current namespace");
-            const var_ptr = try env.internDeclare(ns, string_mod.asString(name_val));
-            var_ptr.flags.dynamic = (instr.operand & opcode_mod.DEF_FLAG_DYNAMIC) != 0;
-            var_ptr.flags.macro_ = (instr.operand & opcode_mod.DEF_FLAG_MACRO) != 0;
-            var_ptr.flags.private = (instr.operand & opcode_mod.DEF_FLAG_PRIVATE) != 0;
-            if (sp >= stack.len)
-                return raiseInternal("vm: operand stack overflow");
-            stack[sp] = Value.encodeHeapPtr(.var_ref, var_ptr);
-            sp += 1;
-        },
         .op_get_var => {
             if (instr.operand >= chunk.constants.len)
                 return raiseInternal("vm: op_get_var constant index out of range");
             const var_value = chunk.constants[instr.operand];
             const var_ptr = var_value.decodePtr(*Var);
             if (sp >= stack.len)
-                return raiseInternal("vm: operand stack overflow");
+                return operandOverflow(instr_loc);
             stack[sp] = var_ptr.deref();
             sp += 1;
         },
@@ -615,7 +603,7 @@ inline fn stepOnce(
                 return error_catalog.raise(.current_namespace_missing, .{}, .{ .sym = imp.simple });
             try here.addImport(env.alloc, imp.simple, imp.fqcn);
             if (sp >= stack.len)
-                return raiseInternal("vm: operand stack overflow");
+                return operandOverflow(instr_loc);
             stack[sp] = Value.nil_val;
             sp += 1;
         },
@@ -730,7 +718,7 @@ inline fn stepOnce(
             defer _ = error_mod.swapArgSources(prev_arg_sources);
             const result = try vt.callFn(rt, env, callee, args, call_loc);
             if (sp >= stack.len)
-                return raiseInternal("vm: operand stack overflow");
+                return operandOverflow(instr_loc);
             // The result's own loc is the call form (this op pops below sp_entry,
             // so the post-switch sweep does not reach this slot).
             loc_stack[sp] = call_loc;
@@ -768,7 +756,7 @@ inline fn stepOnce(
                 break :blk try vt.callFn(rt, env, op_var.deref(), &two, instr_loc);
             };
             if (sp >= stack.len)
-                return raiseInternal("vm: operand stack overflow");
+                return operandOverflow(instr_loc);
             loc_stack[sp] = instr_loc;
             stack[sp] = result;
             sp += 1;
@@ -798,7 +786,7 @@ inline fn stepOnce(
                 break :blk try vt.callFn(rt, env, gv.deref(), &two, instr_loc);
             };
             if (sp >= stack.len)
-                return raiseInternal("vm: operand stack overflow");
+                return operandOverflow(instr_loc);
             loc_stack[sp] = instr_loc;
             stack[sp] = result;
             sp += 1;
@@ -828,7 +816,7 @@ inline fn stepOnce(
                 break :blk try vt.callFn(rt, env, nv.deref(), &three, instr_loc);
             };
             if (sp >= stack.len)
-                return raiseInternal("vm: operand stack overflow");
+                return operandOverflow(instr_loc);
             loc_stack[sp] = instr_loc;
             stack[sp] = result;
             sp += 1;
@@ -858,7 +846,7 @@ inline fn stepOnce(
                 break :blk try vt.callFn(rt, env, nv.deref(), &two, instr_loc);
             };
             if (sp >= stack.len)
-                return raiseInternal("vm: operand stack overflow");
+                return operandOverflow(instr_loc);
             loc_stack[sp] = instr_loc;
             stack[sp] = result;
             sp += 1;
@@ -892,7 +880,7 @@ inline fn stepOnce(
                 break :blk try vt.callFn(rt, env, op_var.deref(), &two, instr_loc);
             };
             if (sp >= stack.len)
-                return raiseInternal("vm: operand stack overflow");
+                return operandOverflow(instr_loc);
             loc_stack[sp] = instr_loc;
             stack[sp] = result;
             sp += 1;
@@ -923,7 +911,7 @@ inline fn stepOnce(
                 break :blk try vt.callFn(rt, env, op_var.deref(), &two, instr_loc);
             };
             if (sp >= stack.len)
-                return raiseInternal("vm: operand stack overflow");
+                return operandOverflow(instr_loc);
             loc_stack[sp] = instr_loc;
             stack[sp] = result;
             sp += 1;
@@ -1010,7 +998,7 @@ inline fn stepOnce(
         .op_dup => {
             if (sp == 0) return raiseInternal("vm: op_dup on empty stack");
             if (sp >= stack.len)
-                return raiseInternal("vm: operand stack overflow");
+                return operandOverflow(instr_loc);
             stack[sp] = stack[sp - 1];
             sp += 1;
         },
@@ -1039,7 +1027,7 @@ inline fn stepOnce(
             if (instr.operand >= chunk.constants.len)
                 return raiseInternal("vm: op_make_fn constant index out of range");
             if (sp >= stack.len)
-                return raiseInternal("vm: operand stack overflow");
+                return operandOverflow(instr_loc);
             const template_val = chunk.constants[instr.operand];
             const template = template_val.decodePtr(*const Function);
             if (template.slot_base == 0) {
@@ -1205,7 +1193,7 @@ inline fn stepOnce(
             const thrown = stack[sp - 1];
             const matches = matchExceptionClass(string_mod.asString(class_val), thrown);
             if (sp >= stack.len)
-                return raiseInternal("vm: operand stack overflow");
+                return operandOverflow(instr_loc);
             stack[sp] = if (matches) Value.true_val else Value.false_val;
             sp += 1;
         },
@@ -1218,7 +1206,7 @@ inline fn stepOnce(
             const thrown = stack[sp - 1];
             const matches = matchExceptionTypeKeyword(rt, kw_val, thrown);
             if (sp >= stack.len)
-                return raiseInternal("vm: operand stack overflow");
+                return operandOverflow(instr_loc);
             stack[sp] = if (matches) Value.true_val else Value.false_val;
             sp += 1;
         },
@@ -1236,7 +1224,7 @@ inline fn stepOnce(
             const target_ns = try env.findOrCreateNs(string_mod.asString(name_val));
             env.setCurrentNs(target_ns);
             if (sp >= stack.len)
-                return raiseInternal("vm: operand stack overflow");
+                return operandOverflow(instr_loc);
             // Return the namespace value, not nil (clj parity).
             stack[sp] = Env.nsValue(target_ns);
             sp += 1;
@@ -1256,7 +1244,7 @@ inline fn stepOnce(
                 try env.referAll(clojure_core_ns, env.current_ns.?);
             }
             if (sp >= stack.len)
-                return raiseInternal("vm: operand stack overflow");
+                return operandOverflow(instr_loc);
             stack[sp] = Value.nil_val;
             sp += 1;
         },
@@ -1283,7 +1271,7 @@ inline fn stepOnce(
                 }
             }
             if (sp >= stack.len)
-                return raiseInternal("vm: operand stack overflow");
+                return operandOverflow(instr_loc);
             stack[sp] = Value.nil_val;
             sp += 1;
         },
@@ -1300,7 +1288,7 @@ inline fn stepOnce(
             // instr_loc so a lib_not_found renders the caret (tree_walk parity).
             _ = try loader.loadOrFindNs(rt, env, ns_name, instr_loc);
             if (sp >= stack.len)
-                return raiseInternal("vm: operand stack overflow");
+                return operandOverflow(instr_loc);
             stack[sp] = Value.nil_val;
             sp += 1;
         },
@@ -1344,66 +1332,33 @@ inline fn stepOnce(
                 }
             }
             if (sp >= stack.len)
-                return raiseInternal("vm: operand stack overflow");
+                return operandOverflow(instr_loc);
             stack[sp] = Value.nil_val;
             sp += 1;
         },
-        .op_vector_literal => {
-            // Pop N values from top of stack, build a
-            // PersistentVector, push result.
+        // A collection literal with an evaluated element (an all-constant one
+        // is a single constant, folded by the analyzer). One build op over the
+        // N elements on the stack, which stay rooted there across the build;
+        // past `compiler.literal_step` elements the literal is built in steps,
+        // each `op_*_extend` appending one step to the collection below it, so
+        // the operand stack never holds more than one step (D-346).
+        inline .op_vector_literal, .op_map_literal, .op_set_literal => |op| {
             const n: u16 = instr.operand;
-            if (sp < n) return raiseInternal("vm: op_vector_literal underflows operand stack");
-            // PERF: one-shot bulk build (fromSlice) instead of empty + N×conj
-            // (which allocated N throwaway intermediate vectors). The elements
-            // stay rooted on the operand stack `stack[sp-n..sp]` across the
-            // build (op_top watermark). Mirrors O-026's VM-only map fast path.
-            // [refs: O-040]
-            const v = try vector_mod.fromSlice(rt, stack[sp - n .. sp]);
+            if (sp < n) return raiseInternal("vm: collection literal underflows operand stack");
+            if (op == .op_map_literal and n % 2 != 0) return raiseInternal("vm: odd map literal");
+            const coll = try literal.build(rt, comptime literalKind(op), stack[sp - n .. sp]);
             sp -= n;
-            stack[sp] = v;
+            stack[sp] = coll;
             sp += 1;
         },
-        .op_map_literal => {
-            // Pop N stack values (= 2 * pair_count),
-            // assoc k/v pairs in source order into an empty
-            // ArrayMap, push result.
+        inline .op_vector_extend, .op_map_extend, .op_set_extend => |op| {
+            // The collection under construction stays in its (rooted) stack
+            // slot while each append allocates.
             const n: u16 = instr.operand;
-            if (sp < n) return raiseInternal("vm: op_map_literal underflows operand stack");
-            const pairs = stack[sp - n .. sp];
-            // PERF: one-alloc array-map build for the common
-            // small-literal-with-simple-keys case (gc_stress: `{:a i :b … :c …}`
-            // ×100k), instead of an N-deep assoc fold that copies the ArrayMap each
-            // step. Guarded so the dedup keyEq is pure (no GC during the fill).
-            // Else (HAMT-size, or custom-= keys) the assoc fold. [refs: O-026]
-            if (n >= 2 and n <= 2 * map_mod.ARRAY_MAP_THRESHOLD and map_mod.allSimpleKeys(pairs)) {
-                const result = try map_mod.fromLiteralPairs(rt, pairs);
-                sp -= n;
-                stack[sp] = result;
-                sp += 1;
-            } else {
-                var m = map_mod.empty();
-                var i: u16 = sp - n;
-                while (i < sp) : (i += 2) {
-                    m = try map_mod.assoc(rt, m, stack[i], stack[i + 1]);
-                }
-                sp -= n;
-                stack[sp] = m;
-                sp += 1;
-            }
-        },
-        .op_set_literal => {
-            // Pop N values, conj-fold into an empty
-            // HashSet (duplicates collapse), push result.
-            const n: u16 = instr.operand;
-            if (sp < n) return raiseInternal("vm: op_set_literal underflows operand stack");
-            var s = set_mod.empty();
-            var i: u16 = sp - n;
-            while (i < sp) : (i += 1) {
-                s = try set_mod.conj(rt, s, stack[i]);
-            }
+            if (sp <= n) return raiseInternal("vm: collection extend underflows operand stack");
+            if (op == .op_map_extend and n % 2 != 0) return raiseInternal("vm: odd map literal step");
+            try literal.extend(rt, comptime literalKind(op), &stack[sp - n - 1], stack[sp - n .. sp]);
             sp -= n;
-            stack[sp] = s;
-            sp += 1;
         },
         .op_ctor_call => {
             // operand = index into the ctor_sites side-table (the
@@ -1562,6 +1517,24 @@ fn matchExceptionTypeKeyword(rt: *Runtime, kw_val: Value, thrown: Value) bool {
 
 fn raiseInternal(comptime detail: []const u8) anyerror {
     return error_catalog.raiseInternal(.{}, detail);
+}
+
+/// The shared operand arena is full: deep recursion, or a single call with
+/// more arguments than the arena holds. A catchable StackOverflowError, as in
+/// clj, never an internal error (D-346). A collection literal cannot get here
+/// however large: it builds in bounded steps (`op_*_extend`).
+fn operandOverflow(loc: SourceLocation) error_catalog.ClojureWasmError {
+    return error_catalog.raise(.stack_overflow, loc, .{ .max = ARENA_SLOTS });
+}
+
+/// The collection a literal-building opcode constructs.
+fn literalKind(comptime op: Opcode) literal.Kind {
+    return switch (op) {
+        .op_vector_literal, .op_vector_extend => .vector,
+        .op_map_literal, .op_map_extend => .map,
+        .op_set_literal, .op_set_extend => .set,
+        else => @compileError("not a collection-literal opcode: " ++ @tagName(op)),
+    };
 }
 
 fn templateMethodsHaveAnyMissingChunk(template: *const tree_walk.Function) bool {
@@ -1785,18 +1758,19 @@ test "op_jump_if_false falls through when popped value is truthy" {
     try testing.expectEqual(Value.true_val, try f.run(&chunk));
 }
 
-test "op_def interns the name into env.current_ns and pushes the Var" {
+test "op_def binds its captured Var and pushes it" {
     var f: Fixture = undefined;
     try Fixture.init(&f, testing.allocator);
     defer f.deinit();
 
-    const name_val = try string_mod.alloc(&f.rt, "answer");
+    const target = try f.env.internDeclare(f.env.current_ns.?, "answer");
+    const var_val = Value.encodeHeapPtr(.var_ref, target);
     const instrs = [_]WireInstr{
         .from(.op_const, 1),
         .from(.op_def, 0),
         .from(.op_ret, 0),
     };
-    const constants = [_]Value{ name_val, Value.true_val };
+    const constants = [_]Value{ var_val, Value.true_val };
     const chunk: BytecodeChunk = .{ .instructions = &instrs, .constants = &constants };
 
     const result = try f.run(&chunk);
@@ -1812,14 +1786,15 @@ test "op_def stamps dynamic / macro / private flags from the operand" {
     try Fixture.init(&f, testing.allocator);
     defer f.deinit();
 
-    const name_val = try string_mod.alloc(&f.rt, "foo");
+    const target = try f.env.internDeclare(f.env.current_ns.?, "foo");
+    const var_val = Value.encodeHeapPtr(.var_ref, target);
     const packed_operand: u16 = 0 | opcode_mod.DEF_FLAG_DYNAMIC | opcode_mod.DEF_FLAG_PRIVATE;
     const instrs = [_]WireInstr{
         .from(.op_const, 1),
         .from(.op_def, packed_operand),
         .from(.op_ret, 0),
     };
-    const constants = [_]Value{ name_val, Value.nil_val };
+    const constants = [_]Value{ var_val, Value.nil_val };
     const chunk: BytecodeChunk = .{ .instructions = &instrs, .constants = &constants };
 
     const result = try f.run(&chunk);

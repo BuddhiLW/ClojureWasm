@@ -30,8 +30,7 @@ cd "$(dirname "$0")/.."
 
 BIN="zig-out/bin/cljw"
 LEDGER="data/doc_coverage.txt"
-[ -x "$BIN" ] || { echo "check_doc_coverage: building cljw…" >&2; zig build -Dwasm -Doptimize="${CLJW_OPT:-ReleaseSafe}" >/dev/null; }
-
+[ -n "${CLJW_SKIP_BUILD:-}" ] || zig build -Dwasm -Doptimize="${CLJW_OPT:-ReleaseSafe}" >/dev/null
 # Every bundled namespace whose publics a user can reach. Kept here rather than
 # derived from `FILES` so that adding a namespace is a conscious decision about
 # whether its docs are gated.
@@ -40,7 +39,7 @@ read -r -d '' PROBE <<'CLJ' || true
             clojure.data clojure.math clojure.pprint clojure.test clojure.template
             clojure.stacktrace clojure.instant clojure.uuid clojure.java.io clojure.repl
             clojure.datafy clojure.core.protocols clojure.core.reducers clojure.data.json
-            clojure.data.csv clojure.tools.cli])
+            clojure.data.csv clojure.tools.cli clojure.java.shell])
 (doseq [n nses]
   (try (require n) (catch Throwable _ nil))
   (doseq [s (sort (map key (filter (fn [[_ v]] (not (:doc (meta v)))) (ns-publics n))))]

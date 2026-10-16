@@ -357,7 +357,12 @@ fn dissocArrayMap(rt: *Runtime, am: *const ArrayMap, original: Value, k: Value) 
         }
     }
     if (found_idx == null) return original;
-    if (am.count == 1) return empty(); // collapses to empty singleton
+    if (am.count == 1) {
+        // collapses to the empty singleton; clj keeps the meta
+        // (`PersistentArrayMap.without` → `EMPTY.withMeta(meta())`).
+        if (am.meta.isNil()) return empty();
+        return try withMeta(rt, empty(), am.meta);
+    }
 
     // Copy + shift entries after the removed slot down by one K/V pair.
     const new_am = try rt.gc.alloc(ArrayMap);
@@ -418,34 +423,52 @@ pub fn registerGcHooks() void {
     tag_ops.registerTrace(.hash_collision_map_node, &traceHamtMapNode); // same slot-walk
 }
 
-/// `(contains? m k)` — returns true when the key exists, false
-/// otherwise. Distinct from `get` only for distinguishing
-/// "key absent" vs "key maps to nil" (which `get` cannot do).
-pub fn contains(v: Value, k: Value) !bool {
+/// A key/value pair as STORED in a map: `key` is the map's own key object,
+/// not the probe that found it. clj's `Associative.entryAt` contract: the
+/// probe and the stored key are `=` but need not be identical (`1` finds
+/// `1N`, `-0.0` finds `0.0`), and `find` / `select-keys` / a set's `get`
+/// must answer the stored one.
+pub const Entry = struct { key: Value, val: Value };
+
+/// `entryAt`: the stored entry for `k`, or null when absent. The single
+/// lookup walk: `contains` and `get` are projections of it.
+pub fn entryAt(v: Value, k: Value) !?Entry {
     return switch (v.tag()) {
         .array_map => blk: {
             const am = v.decodePtr(*const ArrayMap);
-            if (k.tag() == .keyword) break :blk arrayMapKeywordSlot(am, k) != null;
+            // Keywords are interned, so the probe IS the stored key.
+            if (k.tag() == .keyword)
+                break :blk if (arrayMapKeywordSlot(am, k)) |i| Entry{ .key = k, .val = am.entries[2 * i + 1] } else null;
             var i: u32 = 0;
             while (i < am.count) : (i += 1) {
-                if (try keyEq(am.entries[2 * i], k)) break :blk true;
+                if (try keyEq(am.entries[2 * i], k)) break :blk Entry{ .key = am.entries[2 * i], .val = am.entries[2 * i + 1] };
             }
-            break :blk false;
+            break :blk null;
         },
         .hash_map => blk: {
             const phm = v.decodePtr(*const PersistentHashMap);
-            const root = phm.root orelse break :blk false;
-            break :blk try hamtContains(root, k, try keyHash(k), 0);
+            const root = phm.root orelse break :blk null;
+            break :blk try hamtEntry(root, k, try keyHash(k), 0);
         },
-        .nil => false,
-        else => false,
+        else => null,
     };
+}
+
+/// `(contains? m k)`: returns true when the key exists, false
+/// otherwise. Distinct from `get` only for distinguishing
+/// "key absent" vs "key maps to nil" (which `get` cannot do).
+pub fn contains(v: Value, k: Value) !bool {
+    return (try entryAt(v, k)) != null;
 }
 
 /// `(keys m)` — returns a list of keys in iteration order (empty
 /// list when `m` is empty per Clojure; returns nil here for empty
 /// to match `(seq m)` semantics).
 pub fn keys(rt: *Runtime, v: Value) !Value {
+    // ADR-0150: the list builders below hold the partial list in a Zig local
+    // across each consHeap alloc (pure Zig, no eval), so no collect may run.
+    rt.gc.enterFabrication();
+    defer rt.gc.exitFabrication();
     return switch (v.tag()) {
         .array_map => try keysArrayMap(rt, v.decodePtr(*const ArrayMap)),
         .hash_map => try keysHashMap(rt, v.decodePtr(*const PersistentHashMap)),
@@ -470,6 +493,9 @@ fn keysArrayMap(rt: *Runtime, am: *const ArrayMap) !Value {
 /// `(vals m)` — returns a list of values in iteration order
 /// (nil for empty, matching `(seq m)`).
 pub fn vals(rt: *Runtime, v: Value) !Value {
+    // ADR-0150: same unrooted partial-list window as `keys`.
+    rt.gc.enterFabrication();
+    defer rt.gc.exitFabrication();
     return switch (v.tag()) {
         .array_map => try valsArrayMap(rt, v.decodePtr(*const ArrayMap)),
         .hash_map => try valsHashMap(rt, v.decodePtr(*const PersistentHashMap)),
@@ -494,6 +520,13 @@ fn valsArrayMap(rt: *Runtime, am: *const ArrayMap) !Value {
 /// (D-209 / ADR-0078), so `(map-entry? (first {…}))` is true while the
 /// entry still behaves as `[k v]`.
 pub fn seq(rt: *Runtime, v: Value) !Value {
+    // ADR-0150: the builders hold the partial list AND each fresh MapEntry in
+    // Zig locals across the next alloc (pure Zig, no eval). Unbracketed, an
+    // alloc-boundary collect swept the list tail; the recycled cell made
+    // `(next (seq m))` loop back to the first entry (malli.core's -vmap over a
+    // map literal overran its object-array under alloc torture).
+    rt.gc.enterFabrication();
+    defer rt.gc.exitFabrication();
     return switch (v.tag()) {
         .array_map => try seqArrayMap(rt, v.decodePtr(*const ArrayMap)),
         .hash_map => try seqHashMap(rt, v.decodePtr(*const PersistentHashMap)),
@@ -520,25 +553,7 @@ fn seqArrayMap(rt: *Runtime, am: *const ArrayMap) !Value {
 /// Clojure 2-arg `get`; the 3-arg `(get m k not-found)` form lands
 /// at 5.5.d via the `contains?` path).
 pub fn get(v: Value, k: Value) !Value {
-    return switch (v.tag()) {
-        .array_map => blk: {
-            const am = v.decodePtr(*const ArrayMap);
-            if (k.tag() == .keyword)
-                break :blk if (arrayMapKeywordSlot(am, k)) |i| am.entries[2 * i + 1] else Value.nil_val;
-            var i: u32 = 0;
-            while (i < am.count) : (i += 1) {
-                if (try keyEq(am.entries[2 * i], k)) break :blk am.entries[2 * i + 1];
-            }
-            break :blk Value.nil_val;
-        },
-        .hash_map => blk: {
-            const phm = v.decodePtr(*const PersistentHashMap);
-            const root = phm.root orelse break :blk Value.nil_val;
-            break :blk try hamtGet(root, k, try keyHash(k), 0);
-        },
-        .nil => Value.nil_val,
-        else => Value.nil_val,
-    };
+    return if (try entryAt(v, k)) |e| e.val else Value.nil_val;
 }
 
 // --- Map-as-key content hash + equality (D-092) ----------------------
@@ -712,24 +727,15 @@ fn createCollisionNode(rt: *Runtime, k1: Value, v1: Value, k2: Value, v2: Value)
     return node;
 }
 
-fn bucketGet(node: *const HamtMapNode, key: Value) !Value {
+/// Collision-bucket entry lookup: the STORED key and its value, or null.
+fn bucketEntry(node: *const HamtMapNode, key: Value) !?Entry {
     const n: u32 = @popCount(node.data_map);
     var i: u32 = 0;
     while (i < n) : (i += 1) {
-        if (try keyEq(node.slots[2 * i], key)) return node.slots[2 * i + 1];
+        if (try keyEq(node.slots[2 * i], key)) return .{ .key = node.slots[2 * i], .val = node.slots[2 * i + 1] };
     }
-    if (node.node_map != 0) return bucketGet(node.slots[63].decodePtr(*const HamtMapNode), key);
-    return Value.nil_val;
-}
-
-fn bucketContains(node: *const HamtMapNode, key: Value) !bool {
-    const n: u32 = @popCount(node.data_map);
-    var i: u32 = 0;
-    while (i < n) : (i += 1) {
-        if (try keyEq(node.slots[2 * i], key)) return true;
-    }
-    if (node.node_map != 0) return bucketContains(node.slots[63].decodePtr(*const HamtMapNode), key);
-    return false;
+    if (node.node_map != 0) return bucketEntry(node.slots[63].decodePtr(*const HamtMapNode), key);
+    return null;
 }
 
 fn bucketAssoc(rt: *Runtime, node: *const HamtMapNode, key: Value, val: Value) !HamtAssocResult {
@@ -880,37 +886,23 @@ fn createTwoNode(
     return node;
 }
 
-fn hamtGet(node: *const HamtMapNode, key: Value, hash_val: u32, shift: u32) !Value {
+/// HAMT entry lookup: the STORED key and its value, or null. `get` and
+/// `contains` are both projections of this walk (see `entryAt`).
+fn hamtEntry(node: *const HamtMapNode, key: Value, hash_val: u32, shift: u32) !?Entry {
     const bit = hamtBit(hash_val, shift);
     if (node.data_map & bit != 0) {
         const di = sparseIndex(node.data_map, bit);
-        if (try keyEq(node.slots[2 * di], key)) return node.slots[2 * di + 1];
-        return Value.nil_val;
+        if (try keyEq(node.slots[2 * di], key)) return .{ .key = node.slots[2 * di], .val = node.slots[2 * di + 1] };
+        return null;
     }
     if (node.node_map & bit != 0) {
         const ni = sparseIndex(node.node_map, bit);
         const child_slot = node.slots[63 - ni];
         if (child_slot.tag() == .hash_collision_map_node)
-            return bucketGet(child_slot.decodePtr(*const HamtMapNode), key);
-        return hamtGet(child_slot.decodePtr(*const HamtMapNode), key, hash_val, shift + HAMT_SHIFT_STEP);
+            return bucketEntry(child_slot.decodePtr(*const HamtMapNode), key);
+        return hamtEntry(child_slot.decodePtr(*const HamtMapNode), key, hash_val, shift + HAMT_SHIFT_STEP);
     }
-    return Value.nil_val;
-}
-
-fn hamtContains(node: *const HamtMapNode, key: Value, hash_val: u32, shift: u32) !bool {
-    const bit = hamtBit(hash_val, shift);
-    if (node.data_map & bit != 0) {
-        const di = sparseIndex(node.data_map, bit);
-        return try keyEq(node.slots[2 * di], key);
-    }
-    if (node.node_map & bit != 0) {
-        const ni = sparseIndex(node.node_map, bit);
-        const child_slot = node.slots[63 - ni];
-        if (child_slot.tag() == .hash_collision_map_node)
-            return bucketContains(child_slot.decodePtr(*const HamtMapNode), key);
-        return hamtContains(child_slot.decodePtr(*const HamtMapNode), key, hash_val, shift + HAMT_SHIFT_STEP);
-    }
-    return false;
+    return null;
 }
 
 const HamtAssocResult = struct { node: *HamtMapNode, added: bool };
@@ -1687,13 +1679,13 @@ test "HAMT collision bucket: overflow chains past 31 same-hash pairs (fabricated
     }
     i = 0;
     while (i < N) : (i += 1) {
-        try testing.expectEqual(@as(i48, i + 1000), (try hamtGet(root, Value.initInteger(i), H, 0)).asInteger());
+        try testing.expectEqual(@as(i48, i + 1000), (try hamtEntry(root, Value.initInteger(i), H, 0)).?.val.asInteger());
     }
     // replace deep in the chain — not added
     const rep = try hamtAssoc(&fix.rt, root, Value.initInteger(35), Value.initInteger(-1), H, 0);
     try testing.expect(!rep.added);
     root = rep.node;
-    try testing.expectEqual(@as(i48, -1), (try hamtGet(root, Value.initInteger(35), H, 0)).asInteger());
+    try testing.expectEqual(@as(i48, -1), (try hamtEntry(root, Value.initInteger(35), H, 0)).?.val.asInteger());
     // dissoc every even key — odd survivors intact across the chain
     i = 0;
     while (i < N) : (i += 2) {
@@ -1704,9 +1696,9 @@ test "HAMT collision bucket: overflow chains past 31 same-hash pairs (fabricated
     i = 1;
     while (i < N) : (i += 2) {
         if (i == 35) continue;
-        try testing.expectEqual(@as(i48, i + 1000), (try hamtGet(root, Value.initInteger(i), H, 0)).asInteger());
+        try testing.expectEqual(@as(i48, i + 1000), (try hamtEntry(root, Value.initInteger(i), H, 0)).?.val.asInteger());
     }
-    try testing.expect((try hamtGet(root, Value.initInteger(2), H, 0)).tag() == .nil);
+    try testing.expect((try hamtEntry(root, Value.initInteger(2), H, 0)) == null);
     // dissoc an absent same-hash key: not found
     const miss = try hamtDissoc(&fix.rt, root, Value.initInteger(999), H, 0);
     try testing.expect(!miss.found);

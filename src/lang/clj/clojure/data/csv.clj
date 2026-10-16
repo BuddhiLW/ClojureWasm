@@ -28,3 +28,14 @@
   (fn [writer data & options]
     (.write writer (apply -write-csv-str data options))
     nil))
+
+;; `read-csv` is a Zig primitive (csv.zig), so its docs are attached here:
+;; `(:doc (meta v))` is the one place `clojure.repl/doc`, `find-doc` and the
+;; doc-coverage gate read.
+(alter-meta! (var read-csv) merge
+             {:doc "Reads CSV-data from the string s into a lazy sequence of vectors.
+
+  Valid options are
+    :separator (default \\,)
+    :quote (default \\\")"
+              :arglists (quote ([s] [s & options]))})

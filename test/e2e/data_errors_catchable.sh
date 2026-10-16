@@ -70,6 +70,13 @@ catchable eval_bad_destructure  "(eval '(let [{:bad 1} {}] 1))"
 catchable read_string_bad_cond  '(read-string "#?[")'
 catchable substring_oob         '(.substring "abc" 1 99)'
 
+# Multi-key dissoc on a non-map receiver folds over single-key `-without`, and the
+# first dispatch raises a catchable protocol-no-impl (clj: ClassCastException on the
+# String->IPersistentMap cast). Was the uncatchable `feature_not_supported` — the
+# process died straight through `(catch Throwable …)`.
+catchable dissoc_multikey_nonmap  '(dissoc "string" \s \t)'
+catchable dissoc_multikey_apply   '(apply dissoc "string" [\s \t])'
+
 # The counter-example: a genuinely unsupported feature stays UNCATCHABLE, so
 # `(catch Throwable …)` must NOT swallow it. Asserted by the inverse: the
 # process exits non-zero and the catch does not produce a value.
@@ -85,4 +92,4 @@ grep -qx ':caught' <<< "$got" \
     && fail "unsupported_stays_uncatchable: a catch swallowed an unsupported feature"
 echo "PASS unsupported_stays_uncatchable"
 
-echo "data_errors_catchable: 14/14 cases pass"
+echo "data_errors_catchable: 16/16 cases pass"

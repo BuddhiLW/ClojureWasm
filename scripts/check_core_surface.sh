@@ -23,14 +23,16 @@
 # Deliberately compares NAMES ONLY — not arities, not docstrings. It answers
 # "what is in clojure.core that upstream does not have", nothing finer.
 set -uo pipefail
+# `sort`/`comm` collate byte-wise, so the ledger's order is the same on every
+# machine and a regen under a different locale is not spurious drift.
+export LC_ALL=C
 cd "${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}"
 
 BIN="zig-out/bin/cljw"
 EXPECTED="data/core_surface_extras.txt"
 UPSTREAM="data/core_surface_upstream.txt"
 
-[ -x "$BIN" ] || { echo "check_core_surface: building cljw…" >&2; zig build -Dwasm -Doptimize="${CLJW_OPT:-ReleaseSafe}" >/dev/null; }
-
+[ -n "${CLJW_SKIP_BUILD:-}" ] || zig build -Dwasm -Doptimize="${CLJW_OPT:-ReleaseSafe}" >/dev/null
 for f in "$EXPECTED" "$UPSTREAM"; do
     [ -f "$f" ] || { echo "check_core_surface: missing $f" >&2; exit 1; }
 done

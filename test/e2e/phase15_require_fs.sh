@@ -34,4 +34,30 @@ printf '(ns cyc.b (:require [cyc.a]))\n' > "$CYC/cyc/b.clj"
 assert_eq 'cycle' "$("$BIN" -cp "$CYC" -e '(require (quote cyc.a))' 2>&1 | grep -c 'Cyclic load dependency')" '2'
 rm -rf "$CYC"
 
-echo "OK — phase15_require_fs (6 cases) green"
+# --- .cljw extension resolution (ADR-0189) ---
+EXT="$(mktemp -d)"; mkdir -p "$EXT/ext"
+# a lone .cljw lib resolves
+printf '(ns ext.only) (def who :from-cljw)\n' > "$EXT/ext/only.cljw"
+assert_eq 'cljw-only'  "$("$BIN" -cp "$EXT" -e '(require (quote ext.only)) ext.only/who' 2>&1 | tail -1)" ':from-cljw'
+# .cljw WINS over a sibling .clj and .cljc at the same root (probe order)
+printf '(ns ext.both) (def who :from-cljw)\n'  > "$EXT/ext/both.cljw"
+printf '(ns ext.both) (def who :from-clj)\n'   > "$EXT/ext/both.clj"
+printf '(ns ext.both) (def who :from-cljc)\n'  > "$EXT/ext/both.cljc"
+assert_eq 'cljw-wins'   "$("$BIN" -cp "$EXT" -e '(require (quote ext.both)) ext.both/who' 2>&1 | tail -1)" ':from-cljw'
+# .clj still wins over .cljc when no .cljw is present (no regression)
+printf '(ns ext.pair) (def who :from-clj)\n'   > "$EXT/ext/pair.clj"
+printf '(ns ext.pair) (def who :from-cljc)\n'  > "$EXT/ext/pair.cljc"
+assert_eq 'clj-over-cljc' "$("$BIN" -cp "$EXT" -e '(require (quote ext.pair)) ext.pair/who' 2>&1 | tail -1)" ':from-clj'
+# a .cljw lib can require a .clj lib and vice versa — the extension is not a barrier
+printf '(ns ext.mixed (:require [ext.pair :as p])) (def who p/who)\n' > "$EXT/ext/mixed.cljw"
+assert_eq 'cljw-requires-clj' "$("$BIN" -cp "$EXT" -e '(require (quote ext.mixed)) ext.mixed/who' 2>&1 | tail -1)" ':from-clj'
+# an EARLIER classpath root wins even when a later root holds the .cljw —
+# roots are searched outermost-first (JVM classpath semantics), extension
+# order applies WITHIN a root, never across them.
+EXT2="$(mktemp -d)"; mkdir -p "$EXT2/ext"
+printf '(ns ext.rooted) (def who :from-root2-cljw)\n' > "$EXT2/ext/rooted.cljw"
+printf '(ns ext.rooted) (def who :from-root1-clj)\n'  > "$EXT/ext/rooted.clj"
+assert_eq 'root-beats-ext' "$("$BIN" -cp "$EXT:$EXT2" -e '(require (quote ext.rooted)) ext.rooted/who' 2>&1 | tail -1)" ':from-root1-clj'
+rm -rf "$EXT" "$EXT2"
+
+echo "OK — phase15_require_fs (11 cases) green"

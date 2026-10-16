@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: EPL-2.0
 //! Heap-backed string Value.
 //!
 //! An immutable byte slice tagged `HeapTag.string`. The wrapper struct

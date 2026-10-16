@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: EPL-2.0
 //! Primitive registration entry point.
 //!
 //! `registerAll(env)` runs once at boot (from the runner's setup,
@@ -152,6 +153,10 @@ pub fn registerAll(env: *Env) !void {
     // D-420: `.numerator`/`.denominator` interop on the `.ratio` value
     // (clojure.lang.Ratio) — math.numeric-tower's floor/ceil/round/sqrt on ratios.
     try @import("../runtime/ratio_methods.zig").installNativeMethods(env.rt);
+    // java.lang.Number instance methods (.intValue/.longValue/.floatValue/
+    // .compareTo/.equals/.hashCode, Double .isNaN/.isInfinite) on the Long
+    // and Double values; BigInt and Ratio splice the same specs in above/below.
+    try @import("../runtime/number_methods.zig").installNativeMethods(env.rt);
     // java.math.BigInteger instance methods (abs/negate/signum/gcd/pow/mod/sqrt)
     // on the `.big_int` value — number-theory / crypto dot-form interop (D-514).
     try @import("../runtime/bigint_methods.zig").installNativeMethods(env.rt);
@@ -164,6 +169,12 @@ pub fn registerAll(env: *Env) !void {
     // `.char` instance methods (charValue / compareTo) — the
     // java.lang.Character instance surface.
     try @import("../runtime/java/lang/Character.zig").installNativeMethods(env.rt);
+    // java.util.concurrent.Future method NAMES (.get/.isDone/.isCancelled/
+    // .cancel) on the `.future` value — the semantics already existed as
+    // deref / realized? / future-cancelled? / future-cancel, so a library
+    // holding a `^Future` (hive-weave.pool, .guarded) reaches them by their
+    // Java spelling instead of only the Clojure one.
+    try @import("../runtime/java/util/concurrent/Future.zig").installNativeMethods(env.rt);
 
     // ADR-0171: `__`-prefixed kernel helpers leave clojure.core for
     // cljw.internal BEFORE the user refer + printer index, so neither

@@ -64,17 +64,9 @@
 ;; Pure-Clojure compositions over `str` + `subs` + the existing
 ;; case-fold leaves.
 
-;; capitalize: upper-case first codepoint + lower-case rest.
-;; JVM: (str (Character/toUpperCase (.charAt s 0)) (-lower-case (subs s 1)))
-;; cw v1: upper-case the 1-codepoint prefix to handle non-ASCII
-;; uniformly with the existing Zig case-fold (which is ASCII-only —
-;; D-057 tracks the Unicode lift).
-(def capitalize
-  (fn* [s]
-    (if (< (count s) 2)
-      (-upper-case s)
-      (str (-upper-case (subs s 0 1))
-           (-lower-case (subs s 1))))))
+;; capitalize: upper-case first codepoint + lower-case rest. Delegates to the
+;; `-capitalize` leaf, which already does exactly this over codepoints.
+(def capitalize (fn* [s] (-capitalize s)))
 
 ;; join: 1-arity (coll) = (apply str coll); 2-arity (sep coll) interposes the
 ;; separator and builds the result in one `apply str`. Variadic via `[& args]`

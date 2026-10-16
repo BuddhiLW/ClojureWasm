@@ -22,7 +22,7 @@
 //!   `Character`, `Keyword`, `Symbol`, `PersistentList`,
 //!   `PersistentVector`, `MapEntry`, `PersistentArrayMap`,
 //!   `PersistentHashMap`, `PersistentHashSet`, `PersistentQueue`,
-//!   `Pattern`, `UUID`, `BigInt`, `Ratio`, `BigDecimal`).
+//!   `LazySeq`, `Cons`, `Pattern`, `UUID`, `BigInt`, `Ratio`, `BigDecimal`).
 //! - **Interface-shaped classes** (multi-tag match): `IFn`, `Number`,
 //!   `IPersistentMap`, `IPersistentSet`, `IPersistentCollection`.
 //! - **Throwable hierarchy**: delegates to `host_class.matches`
@@ -76,10 +76,18 @@ const NATIVE_ENTRIES = [_]NativeEntry{
     .{ .name = "Symbol", .tag = .symbol },
     .{ .name = "PersistentList", .tag = .list },
     .{ .name = "PersistentVector", .tag = .vector },
+    // clj's `(class (subvec …))` is APersistentVector$SubVector; the simple name
+    // "SubVector" per AD-003 (ADR-0059 simple-name policy).
+    .{ .name = "SubVector", .tag = .sub_vector },
     .{ .name = "MapEntry", .tag = .map_entry },
     .{ .name = "PersistentArrayMap", .tag = .array_map },
     .{ .name = "PersistentHashMap", .tag = .hash_map },
     .{ .name = "PersistentHashSet", .tag = .hash_set },
+    // ADR-0194: these are real cljw value classes, not display-only labels.
+    // Making the name↔tag relation exact lets tools.reader dispatch on the
+    // clojure.lang interface spelling and makes instance? JVM-faithful.
+    .{ .name = "LazySeq", .tag = .lazy_seq },
+    .{ .name = "Cons", .tag = .cons },
     // ADR-0109: clj-faithful class names for sorted colls + Var (were raw
     // @tagName "sorted_map"/"sorted_set"/"var_ref" — fqcnForTag gap). Each maps
     // 1:1 to a clj class, so `(class (sorted-map …))` → "PersistentTreeMap" etc.
@@ -98,6 +106,12 @@ const NATIVE_ENTRIES = [_]NativeEntry{
     // instance-method surface (getName/…) already lives on
     // nativeDescriptor(.type_descriptor) via java/lang/Class.zig.
     .{ .name = "Class", .tag = .type_descriptor },
+    // clojure.lang.MultiFn — a multimethod IS a distinct native class (1 tag →
+    // 1 name), so it is an exact-tag `instance?` target (unlike the ambiguous
+    // `Fn`, whose 3 fn tags share one display name and stay in displayClassName).
+    // Lets `(instance? clojure.lang.MultiFn ct/report)` be true — the branch
+    // clojure.test.check.clojure-test guards its multimethod reporting on.
+    .{ .name = "MultiFn", .tag = .multi_fn },
 };
 
 /// FQCN → simple normalisation for native class names. Throwable
@@ -114,6 +128,7 @@ const FQCN_MAP = std.StaticStringMap([]const u8).initComptime(.{
     .{ "java.lang.Number", "Number" },
     .{ "java.util.regex.Pattern", "Pattern" },
     .{ "java.util.UUID", "UUID" },
+    .{ "clojure.lang.MultiFn", "MultiFn" },
     // java.util.Date is NOT here: Date values carry the canonical
     // rt.types["java.util.Date"] descriptor (ADR-0174 merge), whose fqcn IS
     // the FQCN — instance?/resolution match on it directly.
@@ -133,16 +148,24 @@ const FQCN_MAP = std.StaticStringMap([]const u8).initComptime(.{
     .{ "clojure.lang.PersistentArrayMap", "PersistentArrayMap" },
     .{ "clojure.lang.PersistentHashMap", "PersistentHashMap" },
     .{ "clojure.lang.PersistentHashSet", "PersistentHashSet" },
+    .{ "clojure.lang.LazySeq", "LazySeq" },
+    .{ "clojure.lang.Cons", "Cons" },
     .{ "clojure.lang.PersistentTreeMap", "PersistentTreeMap" },
     .{ "clojure.lang.PersistentTreeSet", "PersistentTreeSet" },
     .{ "clojure.lang.Var", "Var" },
     .{ "clojure.lang.PersistentQueue", "PersistentQueue" },
     .{ "clojure.lang.IFn", "IFn" },
+    .{ "clojure.lang.Fn", "Fn" },
     .{ "clojure.lang.IPersistentMap", "IPersistentMap" },
+    .{ "clojure.lang.IRecord", "IRecord" },
     .{ "clojure.lang.IPersistentSet", "IPersistentSet" },
     .{ "clojure.lang.IPersistentCollection", "IPersistentCollection" },
     .{ "clojure.lang.IEditableCollection", "IEditableCollection" },
     .{ "java.lang.Iterable", "Iterable" },
+    // java.lang.CharSequence: a String natively, else any value declaring it (a
+    // StringBuilder's host_supertypes, a deftype such as instaparse's Segment),
+    // which matchUserType finds under this simple name.
+    .{ "java.lang.CharSequence", "CharSequence" },
     .{ "clojure.lang.Seqable", "Seqable" },
     .{ "clojure.lang.Sequential", "Sequential" },
     .{ "clojure.lang.ISeq", "ISeq" },
@@ -228,9 +251,9 @@ pub fn fqcnForTag(tag: Tag) ?[]const u8 {
 pub fn displayClassName(tag: Tag) ?[]const u8 {
     return switch (tag) {
         .fn_val, .builtin_fn, .protocol_fn => "Fn",
-        .multi_fn => "MultiFn",
-        .lazy_seq => "LazySeq",
-        .cons => "Cons",
+        // `.multi_fn` is NOT here: it is a NATIVE_ENTRIES exact-tag class
+        // ("MultiFn"), resolved by `fqcnForTag` before this fallback, so a
+        // multimethod is an `instance?` target (see NATIVE_ENTRIES).
         .chunked_cons => "ChunkedSeq",
         .range => "LongRange",
         .string_seq => "StringSeq",
@@ -344,26 +367,15 @@ fn matchNativeExact(v: Value, simple: []const u8) bool {
     return false;
 }
 
-/// True iff `name` is a callable class — a member of `clojure.lang.IFn` for
-/// class-level `(isa? <class> IFn)` (ADR-0109). The cljw class names whose
-/// instances are `ifn?`: `Fn` / `MultiFn` (the `displayClassName` names for the
-/// callable tags), Keyword/Symbol/Var, and the persistent collections (all
-/// invocable as lookups). Mirrors `core.ifnQ`.
+/// True iff `name` is a callable class, a member of `clojure.lang.IFn` for
+/// class-level `(isa? <class> IFn)` (ADR-0109): `Fn`, the one display name the
+/// fn / builtin / protocol-fn tags share (D-337), or a native class whose tag
+/// is in IFn's `interface_membership` set, so `(isa? (class x) IFn)` and
+/// `(ifn? x)` cannot drift.
 pub fn isCallableClassName(name: []const u8) bool {
-    const CALLABLE = [_][]const u8{
-        // `Fn` / `MultiFn` are the `(class x)` names for the callable tags
-        // (fn_val / builtin_fn / protocol_fn / multi_fn) per `displayClassName`
-        // (D-337); `(isa? (class +) IFn)` resolves through these names, not the
-        // retired raw heap-tag names.
-        "Fn",                "MultiFn",           "Keyword",            "Symbol",
-        "Var",               "PersistentVector",  "PersistentArrayMap", "PersistentHashMap",
-        "PersistentHashSet", "PersistentTreeMap", "PersistentTreeSet",
-    };
     const simple = normalizeClassName(name);
-    inline for (CALLABLE) |c| {
-        if (std.mem.eql(u8, c, simple)) return true;
-    }
-    return false;
+    if (std.mem.eql(u8, simple, "Fn")) return true;
+    return isClassInterfaceMember(simple, "IFn");
 }
 
 /// Class-level interface membership (D-293): true iff instances of the NATIVE
@@ -375,21 +387,23 @@ pub fn isCallableClassName(name: []const u8) bool {
 /// or a non-interface `interface` name (so callers can probe unconditionally and
 /// fall through). Both args may be simple or FQCN.
 pub fn isClassInterfaceMember(child: []const u8, interface: []const u8) bool {
-    const tag = nativeTagFor(child) orelse seqDisplayTag(child) orelse return false;
+    const tag = nativeTagFor(child) orelse displayClassTag(child) orelse return false;
     return interface_membership.isMember(tag, normalizeClassName(interface));
 }
 
-/// Inverse of `displayClassName` for the SEQ-view class names — the names
-/// `(class x)` reports for lazy/range/cons/string-seq/array-seq/chunked values
-/// that are NOT `NATIVE_ENTRIES` exact-tag classes. Lets `isClassInterfaceMember`
-/// resolve e.g. `(isa? (class (range 3)) Seqable)` (a range IS seqable). Refs
-/// (Atom/Ref/…) are omitted — they implement no collection interface — and the
-/// ambiguous `Fn` is omitted (IFn membership is `isCallableClassName`).
-fn seqDisplayTag(name: []const u8) ?Tag {
+/// Inverse of `displayClassName` for the seq-view and transient class names,
+/// the names `(class x)` reports for values that are NOT `NATIVE_ENTRIES`
+/// exact-tag classes. Lets `isClassInterfaceMember` resolve e.g.
+/// `(isa? (class (range 3)) Seqable)` or `(isa? (class (transient [])) Counted)`.
+/// Refs (Atom/Ref/…) are omitted, as they implement no collection interface,
+/// and so is the ambiguous `Fn` (see `isCallableClassName`).
+fn displayClassTag(name: []const u8) ?Tag {
     const M = std.StaticStringMap(Tag).initComptime(.{
-        .{ "LazySeq", .lazy_seq },        .{ "LongRange", .range },
-        .{ "ChunkedSeq", .chunked_cons }, .{ "Cons", .cons },
-        .{ "StringSeq", .string_seq },    .{ "ArraySeq", .array_seq },
+        .{ "LazySeq", .lazy_seq },                 .{ "LongRange", .range },
+        .{ "ChunkedSeq", .chunked_cons },          .{ "Cons", .cons },
+        .{ "StringSeq", .string_seq },             .{ "ArraySeq", .array_seq },
+        .{ "TransientVector", .transient_vector }, .{ "TransientArrayMap", .transient_map },
+        .{ "TransientHashSet", .transient_set },
     });
     return M.get(name);
 }
@@ -434,30 +448,64 @@ fn matchUserType(v: Value, simple: []const u8) bool {
             if (std.mem.eql(u8, fqcn, simple)) return true;
             if (std.mem.eql(u8, normalizeClassName(fqcn), simple)) return true;
         }
-        // ADR-0116 Decision B (∪ arm): a user deftype/reify that EXTENDS a
-        // clojure.lang interface (e.g. IDeref) registers its method under the
-        // bare cljw protocol name; match that against the normalised interface
-        // name so `(instance? clojure.lang.IDeref user-inst)` is true. Mirrors
-        // protocol.satisfies' name comparison; native membership stays primary,
-        // this is the additive arm.
-        for (t.method_table) |entry| {
-            if (std.mem.eql(u8, entry.protocol_name, simple)) return true;
-        }
+        // The declared interfaces (ADR-0116 Decision B). `protocol_impls` holds
+        // what the type DECLARED; the method table is not consulted, because a
+        // protocol_remap method is installed under the cljw protocol that
+        // dispatches it (a Counted `count` under IPersistentCollection), which
+        // is not an interface the type implements.
         for (t.protocol_impls) |pn| {
-            if (std.mem.eql(u8, pn, simple)) return true;
-            // A protocol_remap declaration records the CANONICAL qualified name
-            // (`clojure.lang.IPersistentMap`); match its simple form too.
-            if (std.mem.eql(u8, normalizeClassName(pn), simple)) return true;
+            if (declaredNameIs(pn, simple)) return true;
+        }
+        if (t.kind == .defrecord) {
+            for (RECORD_INTERFACES) |n| {
+                if (declaredNameIs(n, simple)) return true;
+            }
         }
         // Host supertype markers (D-466): `(instance? java.util.Map hm)` for a
         // java.util.HashMap host_instance. Comptime-const list, instance?-only.
         for (t.host_supertypes) |sup| {
-            if (std.mem.eql(u8, sup, simple)) return true;
-            if (std.mem.eql(u8, normalizeClassName(sup), simple)) return true;
+            if (declaredNameIs(sup, simple)) return true;
         }
         cursor = t.parent;
     }
     return false;
+}
+
+/// The recognised interfaces every defrecord implements without naming them
+/// (clj's defrecord emits IRecord, IHashEq, IObj, ILookup, IKeywordLookup,
+/// IPersistentMap, java.util.Map and Serializable; IKeywordLookup is not a
+/// recognised name). IPersistentMap brings Counted, Associative and the
+/// rest of its closure, so `(counted? rec)` and `(coll? rec)` are true.
+const RECORD_INTERFACES = [_][]const u8{ "IRecord", "IPersistentMap", "IObj", "ILookup", "IHashEq", "Map", "Serializable" };
+
+/// True iff a declared name (a `protocol_impls` or `host_supertypes` entry)
+/// makes its type an instance of the class `simple`: it names that class, or an
+/// interface that extends it (clj's superinterface closure,
+/// `interface_membership.SUPERS`), so a type declaring `Indexed` is Counted.
+/// A protocol_remap declaration may record a qualified name
+/// (`clojure.lang.IPersistentMap`), so the simple form is matched too.
+fn declaredNameIs(declared: []const u8, simple: []const u8) bool {
+    if (std.mem.eql(u8, declared, simple)) return true;
+    const norm = normalizeClassName(declared);
+    if (std.mem.eql(u8, norm, simple)) return true;
+    return interface_membership.extendsInterface(norm, simple);
+}
+
+/// `(instance? <iface> v)` for a comptime-known interface: the form of the core
+/// predicates clj defines as instance checks (`seq?` = ISeq, `counted?` =
+/// Counted, `vector?` = IPersistentVector, ...). A native value answers from
+/// its tag (interface_membership, resolved at comptime, so the hot path is a
+/// tag compare); a deftype / reify / host object answers from its declared
+/// interfaces through the same `matchUserType` walk `instance?` uses, so for
+/// every recognised interface this IS `isInstance`, and the predicate and
+/// `instance?` cannot disagree.
+pub fn implementsInterface(v: Value, comptime iface: []const u8) bool {
+    const t = v.tag();
+    if (interface_membership.isNativeMember(t, iface)) return true;
+    return switch (t) {
+        .typed_instance, .reified_instance, .host_instance => matchUserType(v, iface),
+        else => false,
+    };
 }
 
 // --- tests ---
@@ -588,4 +636,43 @@ test "nativeTagFor: interface-shaped + unknown names do NOT resolve" {
     // Throwable hierarchy is not a NATIVE_ENTRIES exact-tag class.
     try testing.expectEqual(@as(?Tag, null), nativeTagFor("Throwable"));
     try testing.expectEqual(@as(?Tag, null), nativeTagFor("FooBarClass"));
+}
+
+test "MultiFn is an exact-tag native class (blocker 4: instance? clojure.lang.MultiFn)" {
+    // A multimethod resolves 1 tag → 1 name, so it is a real `instance?` target
+    // (test.check.clojure-test guards `(instance? clojure.lang.MultiFn ct/report)`).
+    try testing.expectEqual(@as(?Tag, .multi_fn), nativeTagFor("MultiFn"));
+    try testing.expectEqual(@as(?Tag, .multi_fn), nativeTagFor("clojure.lang.MultiFn"));
+    try testing.expectEqualStrings("MultiFn", fqcnForTag(.multi_fn).?);
+    try testing.expect(isKnown("MultiFn"));
+    try testing.expect(isKnown("clojure.lang.MultiFn"));
+    // Still a callable class so `(isa? (class my-multi) IFn)` holds.
+    try testing.expect(isCallableClassName("MultiFn"));
+    // `Fn` remains ambiguous (3 tags share it) and stays a NON-instance? name.
+    try testing.expectEqual(@as(?Tag, null), nativeTagFor("Fn"));
+}
+
+test "LazySeq and Cons are exact-tag native classes (ADR-0194)" {
+    try testing.expectEqual(@as(?Tag, .lazy_seq), nativeTagFor("LazySeq"));
+    try testing.expectEqual(@as(?Tag, .lazy_seq), nativeTagFor("clojure.lang.LazySeq"));
+    try testing.expectEqualStrings("LazySeq", fqcnForTag(.lazy_seq).?);
+    try testing.expectEqual(@as(?Tag, .cons), nativeTagFor("Cons"));
+    try testing.expectEqual(@as(?Tag, .cons), nativeTagFor("clojure.lang.Cons"));
+    try testing.expectEqualStrings("Cons", fqcnForTag(.cons).?);
+    try testing.expect(isKnown("clojure.lang.LazySeq"));
+    try testing.expect(isKnown("clojure.lang.Cons"));
+}
+
+test "isCallableClassName derives from the IFn tag set" {
+    try testing.expect(isCallableClassName("Fn"));
+    try testing.expect(isCallableClassName("clojure.lang.PersistentVector"));
+    try testing.expect(isCallableClassName("SubVector"));
+    try testing.expect(isCallableClassName("MapEntry"));
+    try testing.expect(isCallableClassName("TransientVector"));
+    try testing.expect(isCallableClassName("TransientHashSet"));
+    try testing.expect(!isCallableClassName("PersistentList"));
+    try testing.expect(!isCallableClassName("PersistentQueue"));
+    try testing.expect(!isCallableClassName("LazySeq"));
+    try testing.expect(isClassInterfaceMember("TransientArrayMap", "Counted"));
+    try testing.expect(!isClassInterfaceMember("Cons", "Counted"));
 }

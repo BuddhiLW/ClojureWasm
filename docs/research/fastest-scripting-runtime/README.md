@@ -214,7 +214,7 @@ Roughly **half the runtime is "turning instructions and calling functions"**
   (F-011).
 - **ADR-0184**: Function = variable-length GC cell (methods+bindings inline);
   **Alt 3 (template/closure split) is the named finished form**.
-- **ADR-0200 (zwasm side)**: zwasm is growing a JIT-backed engine; cljw's
+- **zwasm ADR-0200**: zwasm is growing a JIT-backed engine; cljw's
   north star = gap II (Wasm interop) × gap III (VM-perf fusion→JIT). SSOT:
   `.dev/zwasm_capabilities.md`.
 - **Binary budget**: ADR-0172, shipped ReleaseSafe ~7 MB with a ceiling gate;
@@ -1026,7 +1026,7 @@ with SCI-ADR and jank numbers as MEASURED-cited inputs]:
   D-567 / zwasm D-527) and a capture-buffer cap. **cljw's pin is v2.4.0
   (2026-08-03), so a user-gated pin bump alone resolves D-567**
   [MEASURED-cited, zwasm CHANGELOG/tag].
-- **ADR-0200 (JIT-backed embedding API)**: ACCEPTED, compute path DELIVERED
+- **zwasm ADR-0200 (JIT-backed embedding API)**: ACCEPTED, compute path DELIVERED
   2026-06-21. Enum knob `EngineKind{auto,jit,interp}`, per-instance
   selection, interp+JIT coexist in one binary (cljw's dual-engine diff-
   oracle requirement), `auto` = JIT where a backend exists, explicit `jit`
@@ -1213,7 +1213,7 @@ Premise [MEASURED-here]: rush-hour 12.3 s, interpreter structural cost
 - **Option A2 — borrow zwasm's JIT substrate as a direct cljw-bytecode
   codegen backend, bypassing wasm entirely.** No heap-separation problem;
   native code touches NaN-box values directly. Fact check: **this plan
-  exists in no document today** (ledger / ADR-0200 / zwasm ROADMAP
+  exists in no document today** (ledger / zwasm ADR-0200 / zwasm ROADMAP
   checked); cljw has ADR-0151's execution-verified ARM64 substrate, the
   call-ABI micro-lever rejected at 3–4.5%, broad-JIT user-fenced
   [MEASURED-here]. Assessment [INFERRED]: technically sounder than A1
@@ -1937,7 +1937,7 @@ finding has been applied in place in this document**:
   `.dev/debt.yaml` D-386/D-450; ADR-0131/0132/0151/0172/0184;
   `project_facts.md` F-004/F-005/F-006/F-011/F-012.
 - `~/Documents/MyProducts/zwasm`: README.md, CHANGELOG.md (v2.4.1,
-  2026-08-04), `.dev/decisions/0200_jit_backed_embedding_api.md`,
+  2026-08-04), ADR-0200,
   docs/benchmarks.md (M4 Pro, hyperfine, ReleaseFast).
 - `~/Documents/MyProducts/ClojureWit`: README.md, doc/roadmap.md,
   doc/status.md (2026-07-30), doc/design/0001–0030 (esp. 0002 S0

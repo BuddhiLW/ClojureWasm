@@ -248,6 +248,13 @@ assert_alloc 'rest_rest_range'   '(first (rest (rest (range 40))))'             
 assert_alloc 'lazywalk_range'    '(do (defn g [s] (lazy-seq (when (seq s) (cons (+ 1 (first s)) (g (rest s)))))) (pr-str (doall (g (range 3)))))' '"(1 2 3)"'
 assert_alloc 'for_range'         '(pr-str (doall (for [i (range 2)] (+ 1 i))))'          '"(1 2)"'
 
+# ADR-0197: assertions live in a native Clojure program. This process boundary
+# enables allocation torture, which skips registered nREPL workers.
+CLJW_GC_TORTURE=0 CLJW_GC_TORTURE_ALLOC=1 run_bounded 60 "$BIN" \
+    test/clj/torture/lazy_seqable.clj
+CLJW_GC_TORTURE=0 CLJW_GC_TORTURE_ALLOC=1 run_bounded 120 "$BIN" \
+    test/clj/torture/rooting_regressions.clj
+
 # D-418 fabrication-window guard (DETERMINISTIC — the discharge proof). The agent
 # enqueue path injects a STW collect into the exact send/await window under
 # alloc-torture (agent.zig `tortureCollectInWindow`), so an unrooted action vector
@@ -293,7 +300,7 @@ assert_eq 'analysis_const_root' "$("$BIN" -e '(defmacro m [x] x) (deftype T [] O
 # recursive mark descended the whole chain on the native stack. Runs WITHOUT
 # torture: the trigger is the NORMAL threshold collect, and per-back-edge
 # collects would make 1M realizations quadratic.
-assert_eq 'deep_chain_mark' "$(env -u CLJW_GC_TORTURE "$BIN" -e '(count (repeat 1000000 1))')" '1000000'
+assert_eq 'deep_chain_mark' "$(unset CLJW_GC_TORTURE; "$BIN" -e '(count (repeat 1000000 1))')" '1000000'
 
 # --- ADR-0184: Functions are collectable GC cells ---
 # (a) loop-created closures DIE; the live one survives + still runs. Before
@@ -310,6 +317,34 @@ assert_eq 'self_recursive_survives' "$("$BIN" -e '(let [a [7]] (letfn [(go [n] (
 # (CLJW_GC_TORTURE_ALLOC=1 = collect at every gc.alloc). The callee root must
 # be live BEFORE the binder runs, or the rest-cons alloc sweeps the executing
 # fn out from under its own binding.
-assert_eq 'variadic_callee_rooted_before_bind' "$(env CLJW_GC_TORTURE_ALLOC=1 "$BIN" -e '(reduce + (apply (fn [& xs] xs) [1 2 3 4 5]))')" '15'
+assert_eq 'variadic_callee_rooted_before_bind' "$(CLJW_GC_TORTURE_ALLOC=1 "$BIN" -e '(reduce + (apply (fn [& xs] xs) [1 2 3 4 5]))')" '15'
+
+# Host-call result builders (http client response, http server request map)
+# assoc into an unrooted local map; a collect between two assocs swept the
+# half-built map (`{:body "ok"}` with :status gone). Each side runs under
+# allocation torture against a plain peer in another process.
+# (1) client: one GET against a child cljw that answers `ok`.
+port_file="$(mktemp)"
+: > "$port_file"
+CLJW_GC_TORTURE=0 run_bounded 60 "$BIN" -e "(let [s (cljw.net/listen \"127.0.0.1\" 0)] (spit \"$port_file\" (str (.port s))) (let [c (.accept s)] (.read c (byte-array 4096)) (.write c (.getBytes \"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok\")) (.close c)))" >/dev/null 2>&1 &
+peer=$!
+for _ in $(seq 200); do [ -s "$port_file" ] && break; sleep 0.05; done
+port="$(cat "$port_file")"
+rm -f "$port_file"
+got="$(CLJW_GC_TORTURE=0 CLJW_GC_TORTURE_ALLOC=1 run_bounded 60 "$BIN" -e "(pr-str (cljw.http.client/get \"http://127.0.0.1:$port/\"))" 2>&1)"
+wait "$peer" || true
+assert_eq 'alloc/http_client_response' "$got" '"{:status 200, :body \"ok\"}"'
+# (2) server: a tortured server echoes the request map a plain client sends.
+port=$((20000 + RANDOM % 20000))
+CLJW_GC_TORTURE=0 CLJW_GC_TORTURE_ALLOC=1 run_bounded 60 "$BIN" -e "(cljw.http.server/run-server (fn [req] (pr-str (select-keys req [:request-method :uri :query-string :body]))) {:port $port})" >/dev/null 2>&1 &
+server=$!
+got=""
+for _ in $(seq 100); do
+    got="$(CLJW_GC_TORTURE=0 "$BIN" -e "(:body (cljw.http.client/post \"http://127.0.0.1:$port/p?q=1\" {:body \"hi\"}))" 2>/dev/null)" && [ -n "$got" ] && break
+    sleep 0.1
+done
+kill "$server" 2>/dev/null || true
+wait "$server" 2>/dev/null || true
+assert_eq 'alloc/http_server_request' "$got" '"{:request-method :post, :uri \"/p\", :query-string \"q=1\", :body \"hi\"}"'
 
 echo "ALL phase16_gc_torture PASS"

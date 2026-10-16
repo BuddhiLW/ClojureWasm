@@ -12,7 +12,8 @@ corner, and the only numbers it claims are its own measured ones.
 | **ClojureScript**  | JavaScript. Front-end and the Node ecosystem.                                     | JS host.                                |
 | **jank**           | LLVM / C++. Native code and seamless C++ interop.                                 | Native.                                 |
 | **ClojureDart**    | Dart / Flutter. Mobile and cross-platform UI.                                     | App bundles.                            |
-| **ClojureWasm**    | Zig. Embeds a Wasm engine so Clojure calls modules from Rust/Go/C (polyglot FFI). | ~7.5 MB native binary, starts in ~6 ms. |
+| **clojurust**      | Rust. Cranelift JIT, AOT to native, Rust libraries as `cdylib` plugins.           | Native binary.                          |
+| **ClojureWasm**    | Zig. Embeds a Wasm engine so Clojure calls modules from Rust/Go/C (polyglot FFI). | ~8.1 MB native binary, starts in ~6 ms. |
 
 The other rows are respectful summaries of what each runtime is known for, not
 evaluations. The ClojureWasm row lists only its own
@@ -39,7 +40,28 @@ Two things, which are easy to conflate — and only the first one is shipped:
    research, not a feature.
 
 Compiling *Clojure source* into a WebAssembly component is a separate project:
-[ClojureWit](https://github.com/clojurewasm/ClojureWit), in the same org.
+[ClojureWit](https://github.com/clojurewasm/ClojureWit), in the upstream org.
+
+## The sibling: clojurust (`cljrs`)
+
+[clojurust](https://github.com/BuddhiLW/clojurust) is a Rust-hosted Clojure
+dialect by the same maintainer, with a Cranelift JIT and native AOT. The two
+are not bridged (cljrs cannot host a component, cljw has no `dlopen`), but
+they share two things that matter more:
+
+- **The Clojure surface.** cljw reads `.cljc` under `{:cljw :clj :default}`
+  and cljrs under `{:rust}`, so a host-free `.cljc` runs unchanged on the JVM,
+  on cljw and on cljrs. Conditionals are needed only where a kernel touches a
+  host.
+- **The Rust library.** The same crate serves cljw as a zero-import Wasm
+  component and cljrs as a native `cdylib`. Measured on a Groth16 prover
+  (2026-09-12): identical 128-byte proofs and verdicts on both; cljrs ran it in
+  1.29 s (debug build) with 212 environment variables, the filesystem and the
+  clock in reach, cljw in 9.17 s with none of them. A program chooses speed or
+  confinement per deployment, without a rewrite; the per-runtime adapter
+  absorbs shape differences (a WIT `result` lifts to `[:ok v]` / `[:err e]`,
+  a trap reports as the capability answer it is) and the shared program keeps
+  the semantics.
 
 ## A note on respect
 
@@ -55,7 +77,8 @@ is exploring one more corner — not competing for the others' ground.
 - Runtime descriptions: each project's own README / site
   ([Clojure](https://clojure.org), [Babashka](https://babashka.org),
   [ClojureScript](https://clojurescript.org), [jank](https://jank-lang.org),
-  [ClojureDart](https://github.com/Tensegritics/ClojureDart)).
+  [ClojureDart](https://github.com/Tensegritics/ClojureDart),
+  [clojurust](https://github.com/BuddhiLW/clojurust)).
 - ClojureWasm figures: [`bench/RELEASE_METRICS.md`](../bench/RELEASE_METRICS.md)
   (reproduce with `bash bench/release_metrics.sh`).
 - ClojureWasm compatibility detail:

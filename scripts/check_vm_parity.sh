@@ -36,13 +36,14 @@
 
 set -uo pipefail
 cd "$(dirname "$0")/.."
+source "$(dirname "$0")/lib_build_lock.sh"
 
 # e2e basenames (minus .sh) that are DEFAULT-BACKEND-specific by design.
 SKIPS=(
     # (populated empirically; empty = the whole suite is backend-neutral)
 )
 
-restore() { zig build -Dwasm -Doptimize=ReleaseSafe >/dev/null 2>&1 || true; }
+restore() { with_build_lock zig build -Dwasm -Doptimize=ReleaseSafe >/dev/null 2>&1 || true; }
 trap restore EXIT
 
 # Portable bounded run: GNU `timeout`, else macOS coreutils `gtimeout`, else
@@ -59,13 +60,13 @@ run_bounded() {
 }
 
 echo "check_vm_parity: building -Dbackend=tree_walk -Doptimize=ReleaseSafe…"
-if ! zig build -Dwasm -Doptimize=ReleaseSafe -Dbackend=tree_walk >/tmp/vmp_build.txt 2>&1; then
+if ! with_build_lock zig build -Dwasm -Doptimize=ReleaseSafe -Dbackend=tree_walk >/tmp/vmp_build.txt 2>&1; then
     echo "check_vm_parity: tree-walk BUILD FAILED (see /tmp/vmp_build.txt)"; exit 1
 fi
 export CLJW_SKIP_BUILD=1
 
 fails=0
-if bash scripts/check_corpus_regression.sh >/tmp/vmp_corpus.txt 2>&1; then
+if bb scripts/corpus_regression.clj >/tmp/vmp_corpus.txt 2>&1; then
     echo "  corpus                    : ok  ($(tail -1 /tmp/vmp_corpus.txt))"
 else
     echo "  corpus                    : FAIL ($(tail -1 /tmp/vmp_corpus.txt))"; fails=$((fails + 1))

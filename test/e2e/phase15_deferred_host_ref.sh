@@ -19,7 +19,7 @@ echo "PASS defines_and_loads -> :ok"
 
 # raises_when_called: invoking the unsupported ref errors loudly at call time
 got2="$("$BIN" -e '(do (defn f [] (clojure.lang.RT/baseLoader)) (f))' 2>&1 || true)"
-printf '%s' "$got2" | grep -q 'clojure.lang.RT/baseLoader is not supported' || fail "raises_when_called: got '$got2'"
+grep -q 'clojure.lang.RT/baseLoader is not supported' <<<"$got2" || fail "raises_when_called: got '$got2'"
 echo "PASS raises_when_called -> feature_not_supported"
 
 # value-position (a static field read) defers identically
@@ -29,7 +29,7 @@ echo "PASS value_position_defines -> :defined"
 
 # typo_stays_loud: a non-clojure.lang.* unresolved ns is STILL a loud error
 got4="$("$BIN" -e '(myalias/foo 1)' 2>&1 || true)"
-printf '%s' "$got4" | grep -q "No namespace: 'myalias'" || fail "typo_stays_loud: got '$got4'"
+grep -q "No namespace: 'myalias'" <<<"$got4" || fail "typo_stays_loud: got '$got4'"
 echo "PASS typo_stays_loud -> No namespace: 'myalias'"
 
 echo "OK — phase15_deferred_host_ref (4 cases) green"

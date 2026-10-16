@@ -38,6 +38,7 @@ const SourceLocation = error_mod.SourceLocation;
 const dispatch = @import("../../runtime/dispatch.zig");
 const string_collection = @import("../../runtime/collection/string.zig");
 const vector_collection = @import("../../runtime/collection/vector.zig");
+const sub_vector = @import("../../runtime/collection/sub_vector.zig");
 const map_collection = @import("../../runtime/collection/map.zig");
 const sorted_collection = @import("../../runtime/collection/sorted.zig");
 const print = @import("../../runtime/print.zig");
@@ -242,25 +243,21 @@ fn cwToJson(v: Value, w: *std.Io.Writer, opts: WriteOpts) anyerror!void {
         // `N` suffix. `Managed.format` (`{f}`) renders just the digits
         // (printBigInt adds the `N` for pr-str; JSON must not). (D-182)
         .big_int => try w.print("{f}", .{big_int_mod.asManaged(v)}),
-        // JVM data.json writes a Ratio as its double value (1/2 → 0.5).
-        .ratio => {
-            const f = switch (ratio_mod.parts(v)) {
-                .small => |s| @as(f64, @floatFromInt(s.n)) / @as(f64, @floatFromInt(s.d)),
-                .big => |b| b.n.m.toFloat(f64, .nearest_even)[0] / b.d.m.toFloat(f64, .nearest_even)[0],
-            };
-            try print.printFloat(w, f);
-        },
+        // JVM data.json writes a Ratio as `(double x)`, its `Ratio.doubleValue`
+        // (1/2 → 0.5, 1/7 → 0.1428571428571429).
+        .ratio => try print.printFloat(w, try ratio_mod.toF64(v)),
         .string => try writeJsonString(w, string_collection.asString(v), opts),
         // Keywords serialise as their name string (JVM data.json
         // default: `:keyword-fn` keyword? → str).
         .keyword => try writeJsonString(w, keyword_mod.asKeyword(v).name, opts),
-        .vector => {
+        .vector, .sub_vector => {
             try w.writeAll("[");
-            const n = vector_collection.count(v);
+            const is_sub = v.tag() == .sub_vector;
+            const n = if (is_sub) sub_vector.count(v) else vector_collection.count(v);
             var i: u32 = 0;
             while (i < n) : (i += 1) {
                 if (i > 0) try w.writeAll(",");
-                try cwToJson(vector_collection.nth(v, i), w, opts);
+                try cwToJson(if (is_sub) sub_vector.nth(v, i) else vector_collection.nth(v, i), w, opts);
             }
             try w.writeAll("]");
         },

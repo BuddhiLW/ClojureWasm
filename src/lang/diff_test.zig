@@ -88,6 +88,29 @@ const Fixture = struct {
     }
 };
 
+test "diff: D-346 chunked collection literals preserve order and nested evaluation" {
+    var f: Fixture = undefined;
+    try Fixture.init(&f, testing.allocator);
+    defer f.deinit();
+    var source: std.Io.Writer.Allocating = .init(testing.allocator);
+    defer source.deinit();
+    // 600 elements crosses the compiler's literal step (512); include
+    // evaluated elements and a collection nested across the step boundary.
+    // The oracle compares value bits, so the result is one integer that
+    // reads the order and the nested element back:
+    // 600 + 7 + 599 + 606 + 600.
+    try source.writer.writeAll("(let* [x 7 v [");
+    for (0..600) |i| {
+        if (i == 511) try source.writer.writeAll("[x 8] ") else try source.writer.print("{d} ", .{i});
+    }
+    try source.writer.writeAll("]] (+ (count v) (get (get v 511) 0) (get v 599) (get {");
+    for (0..600) |i| try source.writer.print("{d} (+ x {d}) ", .{ i, i });
+    try source.writer.writeAll("} 599) (count #{");
+    for (0..600) |i| try source.writer.print("(+ x {d}) ", .{i});
+    try source.writer.writeAll("})))");
+    try f.check(source.written(), 2412);
+}
+
 test "diff: D-413 unresolved symbol → clean symbol_unresolved, not a panic" {
     // Regression for the dangling-`env.rt` fixture bug: analyzing an unresolved
     // symbol falls through var resolution into the host-class lookup
@@ -115,6 +138,63 @@ test "diff: arithmetic primitive" {
     try Fixture.init(&f, testing.allocator);
     defer f.deinit();
     try f.check("(+ 1 2 3)", 6);
+}
+
+test "diff: def in a function binds its analyzed Var across namespaces" {
+    var f: Fixture = undefined;
+    try Fixture.init(&f, testing.allocator);
+    defer f.deinit();
+    try f.check(
+        "(ns def.scope.origin) " ++
+            "(defn assign [] (def value 41)) " ++
+            "(in-ns 'user) (def value 99) " ++
+            "(def.scope.origin/assign) " ++
+            "(+ def.scope.origin/value value)",
+        140,
+    );
+}
+
+test "diff: no-init def returns its analyzed Var without binding a caller Var" {
+    var f: Fixture = undefined;
+    try Fixture.init(&f, testing.allocator);
+    defer f.deinit();
+    try f.check(
+        "(ns def.scope.origin) (defn declare-later [] (def unbound)) " ++
+            "(in-ns 'user) (let [v (def.scope.origin/declare-later)] " ++
+            "(if (and (identical? v #'def.scope.origin/unbound) " ++
+            "(not (bound? v)) (nil? (ns-resolve 'user 'unbound))) 1 0))",
+        1,
+    );
+}
+
+test "diff: def binds the captured identity even when a qualified name resolves elsewhere" {
+    // remove-ns is not a supported cljw primitive. Model two distinct Var
+    // identities with the same qualified name directly, without requiring
+    // namespace lifecycle support just to test def's capture contract.
+    const Node = @import("../eval/node.zig").Node;
+    for ([_]evaluator.BackendChoice{ .tree_walk, .vm }) |backend| {
+        var f: Fixture = undefined;
+        try Fixture.init(&f, testing.allocator);
+        defer f.deinit();
+        evaluator.installBackend(&f.rt, backend);
+        const caller = try f.env.intern(f.env.current_ns.?, "value", Value.initInteger(99), null);
+        var captured_ns: env_mod.Namespace = .{ .name = "user" };
+        var captured: env_mod.Var = .{ .ns = &captured_ns, .name = "value" };
+        const init: Node = .{ .constant = .{ .value = Value.initInteger(41) } };
+        const node: Node = .{ .def_node = .{ .var_ptr = &captured, .value_expr = &init } };
+        var locals: [256]Value = [_]Value{.nil_val} ** 256;
+        const result = switch (backend) {
+            .tree_walk => try tree_walk.eval(&f.rt, &f.env, &locals, &node),
+            .vm => blk: {
+                const chunk = try vm_compiler.compile(&f.rt, f.arena.allocator(), &node);
+                break :blk try vm.eval(&f.rt, &f.env, &locals, &chunk);
+            },
+        };
+        try testing.expectEqual(&captured, result.decodePtr(*env_mod.Var));
+        try testing.expectEqual(@as(i64, 41), captured.root.asInteger());
+        try testing.expect(captured.bound);
+        try testing.expectEqual(@as(i64, 99), caller.root.asInteger());
+    }
 }
 
 test "diff: op_add intrinsic (ADR-0130) — VM op_add ≡ builtin + (inline results)" {
@@ -332,7 +412,7 @@ test "diff: map/set/list keys by value (D-092) — keyEqValue/valueHash backend-
     try f.check("(get {#{1 2} 7} #{2 1})", 7); // set key (order-indep)
     try f.check("(get {'(1 2) 5} '(1 2))", 5); // list key
     try f.check("(get {[1 2] 9} '(1 2))", 9); // cross vec≡list
-    try f.check("(count #{{:a 1} {:a 1} {:a 2}})", 2); // set-literal dedup of map elems
+    try f.check("(count (conj #{{:a 1} {:a 2}} {:a 1}))", 2); // set literal of map elems, content dedup (a repeated literal elem is an IAE, ADR-0200)
     try f.check("(count (conj #{{:a 1}} {:a 1}))", 1); // set elem content dedup
 }
 
@@ -1457,6 +1537,37 @@ test "aot: deserialized bytecode fn dispatches via tree_walk vtable evalChunk" {
 
     const result = try tree_walk.callFunction(&f.rt, &f.env, fn_val, &.{Value.initInteger(5)}, .{});
     try testing.expectEqual(@as(i64, 6), result.asInteger());
+}
+
+test "aot: def inside a restored function retains its analyzed namespace" {
+    var f: Fixture = undefined;
+    try Fixture.init(&f, testing.allocator);
+    defer f.deinit();
+    driver.installVTable(&f.rt);
+    const user_ns = f.env.current_ns.?;
+    const caller_var = try f.env.intern(user_ns, "value", Value.initInteger(99), null);
+    const owner = try f.env.findOrCreateNs("aot.def.owner");
+    f.env.current_ns = owner;
+
+    const arena = f.arena.allocator();
+    var reader = Reader.init(arena, "(fn* [] (def value 41))");
+    const form = (try reader.read()).?;
+    var af: root_set.AnalysisFrame = undefined;
+    root_set.beginAnalysis(&af, f.rt.gc.infra);
+    defer root_set.endAnalysis(&af);
+    const node = try analyze(arena, &f.rt, &f.env, null, form, &f.table);
+    const chunk = try vm_compiler.compile(&f.rt, arena, node);
+    const bytes = try serialize.serializeChunk(testing.allocator, chunk, 0, null);
+    defer testing.allocator.free(bytes);
+
+    f.env.current_ns = user_ns;
+    const restored = try serialize.deserializeChunk(arena, &f.rt, &f.env, bytes, null, false);
+    var locals: [256]Value = [_]Value{.nil_val} ** 256;
+    const fn_val = try vm.eval(&f.rt, &f.env, &locals, &restored);
+    const result = try tree_walk.callFunction(&f.rt, &f.env, fn_val, &.{}, .{});
+    try testing.expectEqual(owner.mappings.get("value").?, result.decodePtr(*env_mod.Var));
+    try testing.expectEqual(@as(i64, 41), owner.mappings.get("value").?.root.asInteger());
+    try testing.expectEqual(@as(i64, 99), caller_var.root.asInteger());
 }
 
 // The arg-precise caret column must be IDENTICAL on both

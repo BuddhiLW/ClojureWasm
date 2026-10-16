@@ -247,6 +247,21 @@ the ADR); debt D-036 (Phase 16 inline-vs-Pod decision); ROADMAP
   - Earlier entries in this history keep their original wording: they record
     where the tag was pushed and how the two repos related **at the time**, which
     remains true of those dates.
+- **2026-09-05 (user chat — the pin MOVES; "v2.5.0 is FINAL" is retired).**
+  **Verbatim**: "unpin from v2.5.0 - use latest". The 2026-08-12 entry's
+  substance (cljw embeds zwasm v2 through the `build.zig.zon` tag pin, the
+  co-development protocol is over) is unchanged; what changes is the reading
+  that v2.5.0 would be this fork's last pin. The pin now **tracks zwasm's
+  latest stable release on user direction**: a bump is a user act recorded
+  here, never taken by the loop on its own. First such bump: **v2.6.0**
+  (`3831e68b`), 2026-09-05. Per bump the loop re-verifies the embedding
+  surface (ReleaseSafe `-Dwasm` build, all `phase16_wasm_*` e2e, the full
+  gate), adapts any embedding-API delta in `src/runtime/cljw/wasm/` (here:
+  zwasm #257's `StdinSource`), and appends a § History entry to
+  `.dev/zwasm_capabilities.md`, whose FROZEN status is replaced by a pin-record
+  status. The 2026-06-05 finding-handling rule stands in its 2026-08-12 form:
+  a zwasm-side issue is an ordinary upstream report, never worked around by
+  editing zwasm; a cljw-side issue gets a real fix.
 
 ---
 
@@ -401,7 +416,7 @@ the Devil's-advocate subagent):
 - **Group D — Numeric + wasm + extension** (16 slots):
   big_int / ratio / big_decimal / array (Java-array compat) +
   wasm_module / wasm_fn / wasm_funcref (inline) /
-  wasm_externref (inline) + matcher / tuple / box +
+  wasm_externref (inline) + matcher / tuple / sub_vector +
   5 reserved.
 
 **Cross-references**: debt D-027 (the surgery row); D-029
@@ -433,6 +448,31 @@ the smallest-diff landing, not the finished form).
   records the considered-and-deferred expansion, not an amendment.
   Detail: `private/notes/layout-gc-decisions-2026-06-05.md`; debt
   D-247.
+
+- **2026-08-20 (user chat — Group D `box` slot repurposed to
+  `sub_vector`)**: the `box` slot was named in this fact from day one
+  and never referenced by any production code. Measured before asking:
+  53 of the 64 slots are live, 2 are heap-only, and **9 are
+  named-but-unreferenced** (`reader_conditional`, `class`,
+  `array_chunk`, `matcher`, `tuple`, `box`, `wasm_fn`,
+  `wasm_funcref`, `wasm_externref`). Of those, `box` and `tuple` are
+  the only two carrying no stated rationale anywhere in this fact's
+  text — the wasm family and `reader_conditional` have live or
+  deferred intent behind them.
+
+  User selected **`box`** when asked, so Group D slot 59 becomes
+  `sub_vector`, backing a real `subvec` VIEW (`{start, end, parent,
+  meta}`, JVM `APersistentVector$SubVector` semantics) in place of
+  today's eager copy — measured 7480x slower than the JVM. This is a
+  **slot repurpose, not a layout amendment**: the 4×16 = 64 shape and
+  the 44-bit pointer are unchanged, so the 2026-06-05 entry above
+  still stands in full.
+
+  Recorded here because F-004 names the slot, and per CLAUDE.md's
+  priority chain the loop may not amend an F-NNN on its own — this
+  entry exists because the user gave the direction in chat, not
+  because the loop judged it correct. Design + blast radius:
+  `private/notes/subvec-seqview-design.md`; debt D-583.
 
 ---
 
@@ -899,9 +939,11 @@ hunting session).
    (<Class>)…` — but the exception CLASS and the VALUE must match).
    The loop runs `clj -M -e '<expr>'` to derive the expected output
    when probing, rather than guessing. See
-   `.dev/reference_clones.md` (oracle entry) +
-   `.dev/lessons/structural_defect_hunting.md` (oracle in the probe
-   sweep) — both wired so a fresh session picks the oracle up.
+   `.dev/reference_clones.md` (oracle entry) + hive memory
+   `20260909232627-30b24197` (the oracle's role in the probe sweep;
+   was `.dev/lessons/structural_defect_hunting.md` before the
+   2026-09-09 migration to memory), both wired so a fresh session
+   picks the oracle up.
 4. **Optimization prefers a shared mechanism; cw v0 is an
    inspiration-seed, not a copy.** Perf work (D-163 interpreter
    per-element overhead, future JIT/fusion) should land as a common
@@ -923,9 +965,8 @@ surface compat — the behavioural-equivalence precedent F-011
 generalises) · F-009 (feature neutrality — shared impl home) ·
 `no_copy_from_v1.md` (v0 as seed not copy) · `no_jvm_specific_assumption.md`
 (internals diverge) · D-163 (perf: shared mechanism over ad-hoc) ·
-`.dev/reference_clones.md` + `.dev/lessons/structural_defect_hunting.md`
-(clj oracle wiring) · `private/notes/phaseA26-clj-differential-oracle.md`
-(the running oracle log).
+`.dev/reference_clones.md` + hive memory `20260909232627-30b24197`
+(clj oracle wiring).
 
 ### Revision history
 
