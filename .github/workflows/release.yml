@@ -272,9 +272,17 @@ jobs:
   #
   # Auth is a deploy key on BuddhiLW/homebrew-tap (secret TAP_DEPLOY_KEY), not a
   # PAT: write access reaches that one repository and nothing else in the account.
+  #
+  # Only the repository the formula downloads from may bump it. The formula's
+  # urls name BuddhiLW/ClojureWasm releases, and an upstream mirror
+  # (clojurewasm/ClojureWasm) that carries this workflow cuts its own build of
+  # the same tag with different checksums: pushing those would break
+  # `brew install`. The mirror also has no TAP_DEPLOY_KEY, so the job failed
+  # there with a 403 on every release (v1.15.1, 8621cd0b).
   tap:
     name: bump homebrew tap
     needs: [preflight, build]
+    if: github.repository == 'BuddhiLW/ClojureWasm'
     runs-on: ubuntu-22.04
     timeout-minutes: 10
     steps:
