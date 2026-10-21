@@ -682,9 +682,12 @@ pub const LibspecEntry = struct {
 /// here (not packed into the operand) so it carries full width — the old
 /// `(name_idx << 8) | arg_count` packing truncated name_idx to 8 bits and
 /// corrupted ctor calls in chunks with > 255 constants. `type_name` is
-/// analyzer-arena-owned, chunk lifetime.
+/// analyzer-arena-owned, chunk lifetime. `definer_ns` is the namespace the
+/// form was analyzed in (empty when none), which qualifies a bare user-type
+/// name at run time, where the current namespace is the caller's.
 pub const CtorEntry = struct {
     type_name: []const u8,
+    definer_ns: []const u8 = "",
     arg_count: u16,
 };
 

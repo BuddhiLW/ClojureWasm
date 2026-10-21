@@ -31,6 +31,25 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 - **A shorter README** led by calling C from Clojure, with the architecture,
   size and startup charts kept.
 
+### Fixed
+
+- **Redefining a deftype or defrecord is safe, and a user class is matched by
+  identity, not by name.** Re-registering a type no longer frees a descriptor
+  live instances still use (the `thread panic: integer overflow` on printing
+  an old instance is gone). `aaa.Point` and `bbb.Point` are two classes, and
+  `instance?`, `.isInstance`, class `isa?` and multimethod dispatch agree with
+  `(= (class x) C)` for a redefined record, a namesake in another namespace
+  and a reify class. A bare `(Point. x y)` or `->Point` builds the class of the
+  namespace the form was written in, even after another namespace registered a
+  namesake of a different shape. Compiled chunks move to format v13.
+
+- **The VM reports errors at their form.** `set!` on an unbound var, an
+  unresolved or unsupported `.member` call, a static method call, a
+  constructor arity failure, `import` and `require`/`refer` failures raised on
+  the VM with no source position (`0:0`) while TreeWalk reported line and
+  column. Both backends now report the same position, and the dual-backend
+  test oracle checks it for every failing case.
+
 ## [1.15.0] - 2026-10-13
 
 ### Added

@@ -2444,6 +2444,27 @@ test "ctor call (Foo. ...) analyses into interop_call_node .constructor" {
     try testing.expect(n.interop_call_node.kind == .constructor);
     try testing.expectEqualStrings("Foo", n.interop_call_node.type_name);
     try testing.expectEqual(@as(usize, 2), n.interop_call_node.args.len);
+    // [CLJW-CTOR-ANALYZE-TIME]: a bare type name carries the namespace it was
+    // analyzed in, so eval-time lookup qualifies it lexically.
+    try testing.expectEqualStrings(fix.env.current_ns.?.name, n.interop_call_node.definer_ns);
+}
+
+test "constructInstance resolves <definer_ns>.<Name> before the last-wins simple name" {
+    const td_mod = @import("../../runtime/type_descriptor.zig");
+    var fix: TestFixture = undefined;
+    try fix.init(testing.allocator);
+    defer fix.deinit();
+    // aaa.Point has two fields; bbb.Point, registered later, has one, so a
+    // simple-name lookup would pick bbb's and reject two arguments.
+    const aaa = try td_mod.registerType(&fix.rt, "Point", "aaa", &.{ "x", "y" }, &.{}, .defrecord);
+    const bbb = try td_mod.registerType(&fix.rt, "Point", "bbb", &.{"q"}, &.{}, .defrecord);
+    const two = [_]Value{ Value.initInteger(1), Value.initInteger(2) };
+    const a = try special_forms.constructInstance(&fix.rt, &fix.env, "Point", "aaa", &two, .{});
+    try testing.expect(a.tag() == .typed_instance);
+    try testing.expect(a.decodePtr(*const td_mod.TypedInstance).descriptor == aaa);
+    const one = [_]Value{Value.initInteger(9)};
+    const b = try special_forms.constructInstance(&fix.rt, &fix.env, "Point", "bbb", &one, .{});
+    try testing.expect(b.decodePtr(*const td_mod.TypedInstance).descriptor == bbb);
 }
 
 test "member access (.x inst) analyses into interop_call_node .instance_member" {
