@@ -777,6 +777,9 @@ fn evalInstanceMember(rt: *Runtime, env: *Env, locals: []Value, n: node_mod.Inte
     }
 
     const me = td.lookupMethod(null, n.name) orelse {
+        // ADR-0203: a core wasm module handle answers `(.export h …)` through
+        // wasm/call's path (hook installed only under -Dwasm).
+        if (receiver.tag() == .wasm_module) if (rt.wasm_member_call) |call| return call(rt, receiver, n.name, args_buf[1..], n.loc);
         // Universal java.lang.Object method fallback (D-207): str/=/hash/class.
         if (try object_method.tryObjectMethod(rt, env, receiver, td, n.name, args_buf[1..])) |r| return r;
         // clojure.lang read/op methods on a NATIVE collection (D-371): `.valAt`/
