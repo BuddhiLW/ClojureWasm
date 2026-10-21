@@ -7,6 +7,15 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 
 ## [Unreleased]
 
+### Fixed
+
+- **The release workflow bumps the Homebrew tap only from
+  BuddhiLW/ClojureWasm.** An upstream mirror carrying the workflow cut its own
+  build of v1.15.1 and tried to write that build's checksums into
+  `Formula/cljw.rb`, whose urls name this repository's release assets. The push
+  failed with a 403; had it succeeded, `brew install` would have rejected the
+  download. The `tap` job is now skipped in any other repository.
+
 ## [1.15.1] - 2026-10-21
 
 ### Added
