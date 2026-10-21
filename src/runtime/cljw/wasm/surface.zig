@@ -12,7 +12,7 @@
 //!
 //! Backend: impl-only
 //! Impl deps: none
-//! Clojure peer: wasm/load, wasm/call, wasm/engine, wasm/mem-size, wasm/mem-read, wasm/mem-write!
+//! Clojure peer: wasm/load, wasm/call, wasm/exports, wasm/engine, wasm/mem-size, wasm/mem-read, wasm/mem-write!
 const std = @import("std");
 const engine = @import("engine.zig");
 const run_cache = @import("run_cache.zig");
@@ -138,10 +138,19 @@ pub fn wasmCallFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocat
     if (!args[1].isString())
         return error_catalog.raise(.wasm_export_name_invalid, loc, .{});
 
-    const loaded = wasm_handle.unwrap(args[0]);
-    const name = string_mod.asString(args[1]);
-    const call_args = args[2..];
+    return callExport(rt, wasm_handle.unwrap(args[0]), string_mod.asString(args[1]), args[2..], loc);
+}
 
+/// `(.export h args…)` on a `.wasm_module` receiver (ADR-0203 decision 2):
+/// the method name is the export name verbatim, and the call is `wasm/call`'s
+/// own path. Installed on `rt.wasm_member_call` by `register`.
+fn memberCallFn(rt: *Runtime, receiver: Value, name: []const u8, args: []const Value, loc: SourceLocation) anyerror!Value {
+    return callExport(rt, wasm_handle.unwrap(receiver), name, args, loc);
+}
+
+/// The one export-invoke path shared by `wasm/call` and dot-interop: signature
+/// probe, arity check, marshalling, fuel and trap mapping.
+fn callExport(rt: *Runtime, loaded: *engine.Loaded, name: []const u8, call_args: []const Value, loc: SourceLocation) anyerror!Value {
     const sig = loaded.exportSig(name) orelse
         return error_catalog.raise(.wasm_export_not_found, loc, .{ .name = name });
     if (call_args.len != sig.params.len)
@@ -600,10 +609,13 @@ pub fn register(env: *Env) !void {
     // Register the `.wasm_module` GC finaliser so a swept `(wasm/load …)` handle
     // tears down its zwasm triple instead of leaking (D-259 (b)).
     wasm_handle.registerGcHooks();
+    // ADR-0203: `.member` dispatch on a handle routes to `callExport`.
+    env.rt.wasm_member_call = &memberCallFn;
     const ns = try env.findOrCreateNs("wasm");
     _ = try env.intern(ns, "load", Value.initBuiltinFn(&wasmLoadFn), null);
     _ = try env.intern(ns, "call", Value.initBuiltinFn(&wasmCallFn), null);
     _ = try env.intern(ns, "engine", Value.initBuiltinFn(&wasmEngineFn), null);
+    _ = try env.intern(ns, "exports", Value.initBuiltinFn(&@import("exports.zig").wasmExportsFn), null);
     _ = try env.intern(ns, "run", Value.initBuiltinFn(&wasmRunFn), null);
     _ = try env.intern(ns, "clear-cache!", Value.initBuiltinFn(&wasmClearCacheFn), null);
     // ADR-0192: the (ptr,len) half of the FFI — `wasm/call` passes the pointer,

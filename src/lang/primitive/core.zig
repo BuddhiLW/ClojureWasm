@@ -51,36 +51,38 @@ const big_int = @import("../../runtime/numeric/big_int.zig");
 /// `(map (partial instance? C) …)`, works exactly as in clj). Returns true iff
 /// `x` is an instance of `c`.
 ///
-/// `runtime/class_name.zig::isInstance` is the COMPLETE membership oracle
-/// (native exact / interface multi-tag / Throwable hierarchy / Object-universal /
-/// user TypeDescriptor walk; an opaque collapsed class — Integer / BigInteger —
-/// is in no table so it returns false, clj-faithful). So this primitive is just
-/// `fqcn → isInstance` with no opaque/Object/Number special-case (those dissolved
-/// into the oracle per ADR-0128). A non-class `c` raises (clj: ClassCastException).
+/// `runtime/class_name.zig` is the COMPLETE membership oracle (native exact /
+/// interface multi-tag / Throwable hierarchy / Object-universal / descriptor
+/// identity for a user class; an opaque collapsed class, Integer / BigInteger,
+/// is in no table so it returns false, clj-faithful). So this primitive only
+/// picks the entry point, with no opaque/Object/Number special-case (those
+/// dissolved into the oracle per ADR-0128). A non-class `c` raises (clj:
+/// ClassCastException).
 pub fn instanceOf(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
     _ = rt;
     _ = env;
     try error_catalog.checkArity("instance?", args, 2, loc);
-    // The class arg is either a class VALUE (`.type_descriptor` — String / Number /
-    // Object / a user deftype / an exception class / `clojure.lang.IFn` FQCN) OR a
-    // cljw interface-marker PROTOCOL (`.protocol` — bare `IFn`/`ISeq`/`IPersistentMap`/
-    // `IDeref`/… resolve to the defprotocol Var, the cljw representation of the clj
-    // interface). Both name a class in the membership oracle, so dispatch by fqcn.
-    const fqcn = switch (args[0].tag()) {
-        .type_descriptor => td_mod.asTypeDescriptorRef(args[0]).fqcn orelse return .false_val,
-        .protocol => protocol_mod.asProtocol(args[0]).fqcn(),
+    // The class arg is either a class VALUE (`.type_descriptor`: String / Number /
+    // Object / a user deftype / an exception class / a `clojure.lang.IFn` FQCN),
+    // answered through its descriptor so a user class is matched by identity
+    // (ADR-0201), OR a cljw interface-marker PROTOCOL (`.protocol`: bare `IFn` /
+    // `ISeq` / `IPersistentMap` / `IDeref` resolve to the defprotocol Var, the
+    // cljw representation of the clj interface), which names an interface.
+    const member = switch (args[0].tag()) {
+        .type_descriptor => class_name.isInstanceOfClass(args[1], td_mod.asTypeDescriptorRef(args[0])),
+        .protocol => class_name.isInstance(args[1], protocol_mod.asProtocol(args[0]).fqcn()),
         else => return error_catalog.raise(.type_arg_invalid, loc, .{
             .fn_name = "instance?",
             .expected = "class",
             .actual = @tagName(args[0].tag()),
         }),
     };
-    return if (class_name.isInstance(args[1], fqcn)) .true_val else .false_val;
+    return Value.initBoolean(member);
 }
 
 /// `(-class-isa? child parent)` — true iff both args are class values
 /// (TypeDescriptor) and `child`'s class is `parent` or a subclass of it, via the
-/// shared `class_name.classIsa` (Object/Number/IFn + interface markers + the host
+/// shared `class_name.classIsaOf` (Object/Number/IFn + interface markers + the host
 /// exception/parent hierarchy — shared with multimethod dispatch so the two
 /// cannot drift, D-464). The class-hierarchy arm of `isa?` (clj's
 /// `Class.isAssignableFrom` step); equality + the ad-hoc `derive` hierarchy stay
@@ -91,13 +93,16 @@ pub fn classIsaPrim(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLoc
     try error_catalog.checkArity("__class-isa?", args, 2, loc);
     if (args[0].tag() != .type_descriptor or args[1].tag() != .type_descriptor)
         return .false_val;
-    const child = td_mod.asTypeDescriptorRef(args[0]).fqcn orelse return .false_val;
-    const parent = td_mod.asTypeDescriptorRef(args[1]).fqcn orelse return .false_val;
-    // The class-vs-class hierarchy step (ADR-0109 Object/Number/IFn + D-293
-    // interface markers + the exception/parent hierarchy) lives in the shared
-    // `class_name.classIsa` so `isa?` and multimethod dispatch cannot drift
-    // (D-464). The ad-hoc `derive` hierarchy + equality stay in the `.clj` isa?.
-    return if (class_name.classIsa(child, parent)) .true_val else .false_val;
+    // The class-vs-class hierarchy step lives in the shared
+    // `class_name.classIsaOf` so `isa?` and multimethod dispatch cannot drift
+    // (D-464): a user class by descriptor identity and by what it declares,
+    // never by its name (ADR-0201); a native class by name (ADR-0109
+    // Object/Number/IFn, D-293 interface markers, the exception/parent
+    // hierarchy). The ad-hoc `derive` hierarchy + equality stay in the `.clj`
+    // isa?.
+    const child = td_mod.asTypeDescriptorRef(args[0]);
+    const parent = td_mod.asTypeDescriptorRef(args[1]);
+    return Value.initBoolean(class_name.classIsaOf(child, parent));
 }
 
 /// Java String's immediate interfaces plus Object. JVM's `Class.getInterfaces`

@@ -14,7 +14,15 @@
         // zwasm v2 embedding API (F-001 / D-037). `lazy` so the DEFAULT build +
         // gate never resolve it — only `-Dwasm` (b.lazyDependency) does.
         //
-        // PINNED to the `cljw` branch of THIS FORK, BuddhiLW/zwasm
+        // 2026-10-21: PINNED to `main` of THIS FORK, BuddhiLW/zwasm, at
+        // d74e63b4 (fork main fast-forwarded to upstream zwasm/zwasm main,
+        // version string still 2.7.0, no newer tag). Upstream now carries all
+        // three cljw fixes listed below (851cd0e7 component re-export,
+        // f3067d03 metadata-hash, 767b808a PreparedWasi), so the `cljw`
+        // branch's patches are no longer needed. The pin returns to a
+        // zwasm/zwasm tag when the next one is cut.
+        //
+        // Before 2026-10-21: PINNED to the `cljw` branch of THIS FORK, BuddhiLW/zwasm
         // (2026-09-14, user direction: "use our zwasm for now"). That branch
         // is upstream v2.7.0 (d09d9248) plus two fixes found from cljw that
         // upstream does not carry yet: every exported interface of a
@@ -60,8 +68,8 @@
         // moment anything else claims that name. The `.hash` is
         // content-addressed, so the host of the URL never changes it.
         .zwasm = .{
-            .url = "git+https://github.com/BuddhiLW/zwasm.git?ref=cljw#70c8b7ee60e66115e3bf1030e1d657f772e7b99f",
-            .hash = "zwasm-2.7.0-FT1FvzKOnADpIAKlkOhKgEpJcG6LFoKrWsUAjd-jSCid",
+            .url = "git+https://github.com/BuddhiLW/zwasm.git?ref=main#d74e63b4aac1c7d392fc7e562467232945788dfe",
+            .hash = "zwasm-2.7.0-FT1Fv-zingBTL0it1Jtud_E9LvRZ6jkeZWH66zgwYpsw",
             .lazy = true,
         },
     },

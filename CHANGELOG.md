@@ -7,6 +7,49 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 
 ## [Unreleased]
 
+### Added
+
+- **`wasm/exports` lists a core module's exports.** `(wasm/exports m)` returns
+  a vector in export order: a function as `{:name "sum_f64" :kind :func
+  :params [:i32 :i32] :results [:f64]}`, a memory, global or table as
+  `{:name "memory" :kind :memory}`. Signatures come from the same runtime probe
+  `wasm/call` uses (ADR-0203).
+
+- **Dot interop on a Wasm module handle.** `(.sum_f64 m buf 4)`,
+  `(. m sum_f64 buf 4)` and `(. m (sum_f64 buf 4))` call the export named by
+  the method symbol, verbatim, through `wasm/call`'s own path, so results,
+  fuel and errors are identical. A C function compiled to Wasm is called like a
+  host method (ADR-0203).
+
+### Changed
+
+- **zwasm pinned to the fork's `main` (d74e63b4, upstream main of
+  2026-10-21).** Upstream now carries the component re-export, wasip2
+  `metadata-hash` and `PreparedWasi` fixes the fork's `cljw` branch existed
+  for.
+
+- **A shorter README** led by calling C from Clojure, with the architecture,
+  size and startup charts kept.
+
+### Fixed
+
+- **Redefining a deftype or defrecord is safe, and a user class is matched by
+  identity, not by name.** Re-registering a type no longer frees a descriptor
+  live instances still use (the `thread panic: integer overflow` on printing
+  an old instance is gone). `aaa.Point` and `bbb.Point` are two classes, and
+  `instance?`, `.isInstance`, class `isa?` and multimethod dispatch agree with
+  `(= (class x) C)` for a redefined record, a namesake in another namespace
+  and a reify class. A bare `(Point. x y)` or `->Point` builds the class of the
+  namespace the form was written in, even after another namespace registered a
+  namesake of a different shape. Compiled chunks move to format v13.
+
+- **The VM reports errors at their form.** `set!` on an unbound var, an
+  unresolved or unsupported `.member` call, a static method call, a
+  constructor arity failure, `import` and `require`/`refer` failures raised on
+  the VM with no source position (`0:0`) while TreeWalk reported line and
+  column. Both backends now report the same position, and the dual-backend
+  test oracle checks it for every failing case.
+
 ## [1.15.0] - 2026-10-13
 
 ### Added
