@@ -24,8 +24,8 @@
 schema_version: "2.0"
 summary:
   namespaces_required: 36
-  total: 1455
-  zig: 423
+  total: 1456
+  zig: 424
   clj: 806
   value: 220
   unbound: 6
@@ -1478,6 +1478,7 @@ vars:
   "wasm/component-exports": { impl: zig, flags: "-" }
   "wasm/component-invoke": { impl: zig, flags: "-" }
   "wasm/engine": { impl: zig, flags: "-" }
+  "wasm/exports": { impl: zig, flags: "-" }
   "wasm/load": { impl: zig, flags: "-" }
   "wasm/load-component": { impl: zig, flags: "-" }
   "wasm/mem-read": { impl: zig, flags: "-" }
