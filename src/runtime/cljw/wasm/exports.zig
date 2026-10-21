@@ -37,6 +37,11 @@ pub fn wasmExportsFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLo
     const params_kw = try keyword_mod.intern(rt, null, "params");
     const results_kw = try keyword_mod.intern(rt, null, "results");
 
+    // The partial `out` vector and each `m` live only in Zig locals until
+    // return, so no collection may run while they are built.
+    rt.gc.enterFabrication();
+    defer rt.gc.exitFabrication();
+
     var out = vector_mod.empty();
     for (loaded.export_list.items) |item| {
         var m = map_mod.empty();
