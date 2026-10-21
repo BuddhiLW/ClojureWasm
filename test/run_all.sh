@@ -730,6 +730,8 @@ run_step "e2e_phase16_wasm_component_budget" "bash test/e2e/phase16_wasm_compone
 # as committed AND rebuilt from their source headers (each toolchain on PATH),
 # plus hosts.cljc on every Clojure host present. A README claim with a gate.
 run_step "e2e_phase16_wasm_polyglot"        "bash test/e2e/phase16_wasm_polyglot.sh"
+# ADR-0203: `(.export h …)` on a core module handle is wasm/call's path.
+run_step "e2e_phase16_wasm_dot_interop"     "bash test/e2e/phase16_wasm_dot_interop.sh"
 # The reswap coverage moved to suites/wasm-require-component-reswap-test: it
 # asserts values, not the process boundary, so it runs in-process now.
 run_step "e2e_phase15_ns_import"            "bash test/e2e/phase15_ns_import.sh"

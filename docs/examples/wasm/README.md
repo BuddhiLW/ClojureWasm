@@ -14,6 +14,22 @@ sandboxed `.wasm` and invokes its exports.
 name, marshalling arguments and results from the export's signature
 (`i32`/`i64`/`f32`/`f64` today).
 
+A module handle also answers Clojure's host-interop method syntax (ADR-0203):
+the method name is the export name, verbatim, and the call is `wasm/call`'s
+own path, so results, fuel limits and traps behave the same.
+
+```clojure
+(.add m 40 2)       ;=> 42
+(. m add 40 2)      ;=> 42
+(. m (add 40 2))    ;=> 42
+
+;; A C kernel (../polyglot/c/kernel.c): C names work as written.
+(def k (wasm/load "docs/examples/polyglot/c/kernel.wasm"))
+(def buf (.buf_addr k))
+(wasm/mem-write! k :f64 buf [1.0 2.0 3.0 4.0])
+(.sum_f64 k buf 4)  ;=> 10.0
+```
+
 ## Run it
 
 The **released binaries** (GitHub releases, `brew install
