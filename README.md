@@ -23,12 +23,50 @@ WebAssembly engine so a `.wasm` compiled from Rust, Go, C or Zig can be
 required like a namespace and called like a function, inside a sandbox whose
 fuel and memory the caller sets.
 
-This is the maintained continuation of the project
-[@chaploud](https://github.com/chaploud) started and released through v1.10.1.
-The `1.x` line continues here; install and version pins point at this repo.
-[Issues](https://github.com/BuddhiLW/ClojureWasm/issues) and PRs are open, and
-the most useful report is Clojure code that behaves differently here than on
-the JVM (there is an issue template for it).
+[Install](#install) · [Quickstart](#quickstart) · [News](#news) ·
+[Where it shines](#where-it-shines) · [How it is put together](#how-it-is-put-together) ·
+[Wasm FFI](#the-wasm-ffi-in-one-screen) · [Numbers](#numbers) ·
+[What runs](#what-runs) · [Documentation](#documentation) ·
+[License](#license-and-credit)
+
+## Install
+
+```sh
+brew install buddhilw/tap/cljw        # macOS arm64, Linux x86_64
+```
+
+Binaries are also on the [Releases](https://github.com/BuddhiLW/ClojureWasm/releases)
+page. The binary is not code-signed; if macOS blocks it once, clear the
+quarantine flag: `xattr -d com.apple.quarantine "$(which cljw)"`.
+
+From source (Zig 0.16; `direnv allow` or `nix develop` provides it):
+
+```sh
+zig build -Dwasm -Doptimize=ReleaseSafe   # → ./zig-out/bin/cljw
+```
+
+## Quickstart
+
+```sh
+cljw -e '(->> (range) (filter even?) (take 5))'                            # (0 2 4 6 8)
+cljw -e '(wasm/call (wasm/load "docs/examples/wasm/add.wasm") "add" 40 2)'  # 42
+cljw -e '(.add (wasm/load "docs/examples/wasm/add.wasm") 40 2)'             # 42, next release
+cljw script.clj                    # run a file
+cljw                               # REPL
+cljw nrepl --port 7888             # nREPL, CIDER-compatible
+cljw build script.clj -o app       # one self-contained native binary
+```
+
+## News
+
+**2026-10:** [@chaploud](https://github.com/chaploud) handed the project to
+[@BuddhiLW](https://github.com/BuddhiLW); the fork's work is merged back into
+[clojurewasm/ClojureWasm](https://github.com/clojurewasm/ClojureWasm), releases
+and the Homebrew tap still publish from
+[BuddhiLW/ClojureWasm](https://github.com/BuddhiLW/ClojureWasm), and install
+commands and version pins are unchanged.
+[Issues](https://github.com/BuddhiLW/ClojureWasm/issues) and PRs are open; the
+most useful report is Clojure code that behaves differently here than on the JVM.
 
 ## Where it shines
 
@@ -40,9 +78,10 @@ runs in-process: plugin systems, MCP tool servers, request handlers that
 evaluate user code.
 
 ```clojure
-(def zk (wasm/load-component "zk_groth16.wasm" {:fuel 5000000 :max-memory-pages 64}))
-(wasm/component-call zk "verify" proof 35)      ;=> [:ok true]
-(wasm/component-call zk "spin")                 ; throws: exhausted its fuel budget
+(def k (wasm/load "docs/examples/polyglot/c/kernel.wasm" {:fuel 1000000 :max-memory-pages 16}))
+(wasm/call k "buf_cap")                                          ;=> 256
+(try (wasm/call (wasm/load "docs/examples/wasm/trap.wasm") "boom")
+     (catch Exception e (re-find #"trapped" (ex-message e))))    ;=> "trapped"
 ```
 
 **Other languages' libraries, from Clojure.** JVM Clojure calls Java;
@@ -59,6 +98,9 @@ vectors, `result<T, E>` as `[:ok v]` / `[:err e]`.
 (:arglists (meta #'tp/process))               ;; => ([input])
 ```
 
+A string path in `:require` is cljw-only; in a `.cljc`, write it as
+`#?(:cljw ["./typed_payload.wasm" :as tp])`.
+
 Each guest language has a natural shape, and cljw has an entry point for each:
 
 | guest | built with | crosses the boundary as | entry point |
@@ -73,30 +115,26 @@ All five run in [`docs/examples/polyglot`](./docs/examples/polyglot/README.md),
 sources and build lines included; CI rebuilds them from source and runs them on
 every push.
 
-**Native tools, unchanged.** When the tool already exists as a native binary,
-nothing needs recompiling to Wasm and nothing needs bindings: its seam is its
-command line. `clojure.java.shell/sh` runs any program by argv (never through a
-shell) and returns `{:exit :out :err}`, with a non-zero exit as data. The same
-call runs on the JVM and on clojurust, so the client that wraps the tool is one
-`.cljc`.
+**Native tools, unchanged.** A tool that already exists as a native binary
+needs no Wasm build and no bindings. `clojure.java.shell/sh`, the same API the
+JVM and babashka ship, runs it by argv (never through a shell) and returns
+`{:exit :out :err}`, with a non-zero exit as data.
 
 ```clojure
 (require '[clojure.java.shell :refer [sh]])
-(sh "autopdf" "build" "invoice.tex" "invoice.json" "clean" :dir "examples")
-;; => {:exit 0, :out "...", :err "..."}   ; a Go binary, driven as is
+(sh "echo" "hi")   ;=> {:exit 0, :out "hi\n", :err ""}
 ```
 
 [AutoPDF's Clojure client](https://github.com/BuddhiLW/AutoPDF/tree/main/clients/clojure)
-drives the unmodified Go `autopdf` CLI this way and renders the same PDF,
-byte for byte, on cljw, clojurust and the JVM. A child process escapes every
-in-process containment, so `sh` is refused under a filesystem root
-(`CLJW_FS_ROOT`) or inside `cljw.eval/with-budget`: pick Wasm when the guest
-must be confined, the process seam when the tool is trusted.
+drives the unmodified Go `autopdf` CLI this way and renders the same PDF on
+cljw, clojurust and the JVM. A child process escapes in-process containment, so
+`sh` is refused under a filesystem root (`CLJW_FS_ROOT`) or inside
+`cljw.eval/with-budget`.
 
-**Short-lived processes.** 8.1 MB on disk, about 6 ms from process start to
-first eval, and `cljw build app.clj -o app` produces a self-contained
-executable. CLI tools, serverless handlers, scripts that run a thousand times
-a day.
+**Short-lived processes.** One 8.1 MB binary that starts in milliseconds
+([Numbers](#numbers)), and `cljw build app.clj -o app` produces a
+self-contained executable. CLI tools, serverless handlers, scripts that run a
+thousand times a day.
 
 **One program, two runtimes.** `cljw` reads `.cljc` under the feature set
 `{:cljw :clj :default}`, and its sibling [clojurust](https://github.com/BuddhiLW/clojurust)
@@ -127,9 +165,6 @@ crate and feature set on both sides):
 | file read | granted | denied |
 | wall clock | granted | trap |
 
-Same proof bytes; the only thing that differs is how much authority the prover
-holds while it runs.
-
 ## How it is put together
 
 ```mermaid
@@ -149,54 +184,42 @@ from-scratch runtime keeps Clojure semantics honest without a reference
 implementation in the process. [`docs/architecture.md`](./docs/architecture.md)
 has the map.
 
-## Install
-
-```sh
-brew install buddhilw/tap/cljw        # macOS arm64, Linux x86_64
-```
-
-Binaries are also on the [Releases](https://github.com/BuddhiLW/ClojureWasm/releases)
-page. The binary is not code-signed; if macOS blocks it once, clear the
-quarantine flag: `xattr -d com.apple.quarantine "$(which cljw)"`.
-
-From source (Zig 0.16; `direnv allow` or `nix develop` provides it):
-
-```sh
-zig build -Dwasm -Doptimize=ReleaseSafe   # → ./zig-out/bin/cljw
-```
-
-## Quickstart
-
-```sh
-cljw -e '(->> (range) (filter even?) (take 5))'                            # (0 2 4 6 8)
-cljw -e '(wasm/call (wasm/load "docs/examples/wasm/add.wasm") "add" 40 2)'  # 42
-cljw script.clj                    # run a file
-cljw                               # REPL
-cljw nrepl --port 7888             # nREPL, CIDER-compatible
-cljw build script.clj -o app       # one self-contained native binary
-```
-
 ## The Wasm FFI in one screen
 
 ```clojure
 ;; A core module (docs/examples/polyglot/c/kernel.c): numbers in, numbers
 ;; out, arrays in a buffer the guest owns and hands out by address.
 (def m (wasm/load "docs/examples/polyglot/c/kernel.wasm" {:fuel 1000000 :max-memory-pages 16}))
+
+;; Next release: list the exports before calling any.
+(mapv (juxt :name :kind) (wasm/exports m))
+;=> [["memory" :memory] ["buf_addr" :func] ["buf_cap" :func] ["sum_f64" :func] ["scale_f64" :func]]
+
 (def buf (wasm/call m "buf_addr"))
 (wasm/mem-write! m :f64 buf [1.0 2.0 3.0 4.0])
 (wasm/call m "sum_f64" buf 4)               ;=> 10.0
+(.sum_f64 m buf 4)                          ;=> 10.0, next release
 (wasm/mem-read m :f64 buf 4)                ;=> [1.0 2.0 3.0 4.0]
 
 ;; A WIT component: typed, so arguments and results are plain Clojure data.
 (def g "test/e2e/fixtures/wasm/greet_component.wasm")
-(wasm/component-exports g)                  ;=> ({:name "greet", ...})
+(wasm/component-exports g)                  ;=> [{:name "greet", :params [["name" "string"]], :result "string"}]
 (def c (wasm/load-component g {:fuel 100000}))
 (wasm/component-call c "greet" "zwasm")     ;=> "Hello, zwasm!"
 
 ;; A fault in the guest is a catchable Clojure exception, never a host crash.
 (try (wasm/call (wasm/load "docs/examples/wasm/trap.wasm") "boom")
-     (catch Exception e (ex-message e)))    ;=> "wasm/call: 'boom' ... trapped ..."
+     (catch Exception e (ex-message e)))
+;=> "wasm/call: 'boom' () -> (i32) trapped on the auto (JIT-first) engine
+;    (divide-by-zero, out-of-bounds, unreachable, or a call shape the engine
+;    cannot dispatch)"
 ```
+
+Dot interop (ADR-0203, next release): on a module handle, `(.sum_f64 m buf 4)`,
+`(. m sum_f64 buf 4)` and `(. m (sum_f64 buf 4))` are `wasm/call` with the
+method name as the export name, verbatim, so results, fuel and errors are the
+same. It is cljw-only (use a `:cljw` reader conditional in a `.cljc`), and an
+export whose name is not a valid symbol still goes through `wasm/call`.
 
 Budgets: a missing axis keeps the engine's finite default (1e9 fuel, 4096
 pages), `0` removes a cap for a trusted guest, and fuel is per instance, so an
@@ -252,32 +275,26 @@ multimethods, `deftype` / `reify`, the full numeric tower (`Ratio`, `BigInt`,
 coordinates, and a CIDER-compatible nREPL.
 
 Real libraries that load and run today (medley, tools.cli, data.json,
-core.cache, malli, hiccup, honeysql, test.check, ...) are tracked in
+core.cache, malli, hiccup, honeysql, test.check and more) are tracked in
 [`docs/works/ladder.md`](./docs/works/ladder.md).
 
-Maven `:mvn/version` coordinates resolve Clojure source entries in cached JARs
-from `$M2_REPO` (default `~/.m2/repository`). Missing artifacts are downloaded
-from Clojars, then Maven Central via HTTPS (`curl`); extracted source roots are
-cached under `$CLJW_HOME/mvn` (default `~/.cljw/mvn`). Compile/runtime POM
-coordinates are traversed; `org.clojure/clojure` and JARs with no Clojure
-sources are omitted. Remote JARs and POMs must match their repository's SHA-1
-sidecar before installation; a missing or mismatched checksum fails closed.
-`CLJW_MVN_REPOS` overrides the ordered repository bases as comma-separated URLs
-(default Clojars, then Maven Central; `file://` is useful for hermetic tests).
-Artifacts already in `$M2_REPO` are trusted. `curl` and `unzip` are required on the host. POM traversal
-supports direct compile/runtime dependencies with literal versions or local
-properties; it does not implement BOM imports, inherited dependencyManagement,
-classifiers, exclusions, or Maven version mediation. JVM-only jars provide no
-source path (native Java classes remain unavailable). For example:
+`:mvn/version` coordinates load Clojure sources from JARs in
+`~/.m2/repository`, fetching missing ones from Clojars, then Maven Central;
+every fetched JAR and POM must match its SHA-1 sidecar or the load fails
+closed. `curl` and `unzip` must be on the host, and the
+[CHANGELOG](./CHANGELOG.md) entry for 1.15.0 lists the limits.
 
 ```clojure
 {:deps {metosin/malli {:mvn/version "0.20.2"}}}
 ```
 
-What does not: `core.async` is not bundled, and JVM
-interop that exists only to reach the JVM (`gen-class`, `proxy` over arbitrary
-classes, reflection, `import` of arbitrary Java classes) is out of scope by
-design. The full picture, including the intentional divergences, is
+What does not: `core.async` is not bundled, `java.time.format` is not
+implemented, and `clojure.edn/read-string` reuses the permissive Clojure
+reader, so some EDN-invalid input (such as `#(inc %)`) is accepted.
+`(clojure-version)` reports `"1.12.0"`, the semantics target. JVM interop that
+exists only to reach the JVM (`gen-class`, `proxy` over arbitrary classes,
+reflection, `import` of arbitrary Java classes) is out of scope by design. The
+full picture, including the intentional divergences, is
 [`docs/clojure_vs_clojurewasm.md`](./docs/clojure_vs_clojurewasm.md).
 
 ## Documentation
@@ -303,5 +320,10 @@ Eclipse Public License 2.0, see [LICENSE](./LICENSE) and
 
 ClojureWasm was created by [Shota Kudo (@chaploud)](https://github.com/chaploud),
 who took it from nothing to a working JVM-free Clojure runtime with a Wasm FFI
-through v1.10. Everything this fork ships is built on that work. The embedded
-engine is [zwasm](https://github.com/zwasm/zwasm).
+through v1.10.1, and in 2026-10 handed the
+[clojurewasm](https://github.com/clojurewasm) organization over to
+[@BuddhiLW](https://github.com/BuddhiLW). The fork's work (v1.11 through
+v1.15.0) is merged back into
+[clojurewasm/ClojureWasm](https://github.com/clojurewasm/ClojureWasm), so the
+original repository is active again. Everything shipped since is built on
+that work. The embedded engine is [zwasm](https://github.com/zwasm/zwasm).

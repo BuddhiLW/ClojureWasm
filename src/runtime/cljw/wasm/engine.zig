@@ -25,6 +25,8 @@ pub const Value = zwasm.Value;
 pub const FuncType = zwasm.ir.zir.FuncType;
 pub const ValType = zwasm.ir.zir.ValType;
 pub const Memory = zwasm.Memory;
+/// Owned export-descriptor list (zwasm `Module.exports`), ADR-0203.
+pub const ModuleExports = @typeInfo(@typeInfo(@TypeOf(zwasm.Module.exports)).@"fn".return_type.?).error_union.payload;
 
 /// Per-axis runtime budget for a loaded module (re-exported from zwasm's
 /// `Module.Budget`, ADR-0179). `.unmetered` lifts the cap (trusted modules
@@ -80,6 +82,10 @@ pub const Loaded = struct {
     /// Keys are owned copies; values are slices into the instance's own
     /// signature storage, valid for the instance's lifetime.
     sig_cache: std.StringHashMapUnmanaged(FuncType),
+    /// Export descriptors (name + kind, export order) decoded at `load`, while
+    /// the module bytes are still alive: zwasm's native section view borrows
+    /// them, so a later `Module.exports` would decode freed memory (ADR-0203).
+    export_list: ModuleExports,
 
     /// Runtime signature of an exported function (`null` if absent / not a
     /// func). Drives the marshal: caller sizes its `[]Value` buffers from
@@ -120,6 +126,7 @@ pub const Loaded = struct {
         var keys = self.sig_cache.keyIterator();
         while (keys.next()) |k| self.alloc.free(k.*);
         self.sig_cache.deinit(self.alloc);
+        self.export_list.deinit();
         self.instance.deinit();
         self.module.deinit();
         self.engine.deinit();
@@ -295,6 +302,8 @@ pub fn load(alloc: std.mem.Allocator, bytes: []const u8, opts: LoadOpts) !*Loade
     if (opts.fuel) |b| inst_opts.fuel = b;
     if (opts.max_memory_pages) |b| inst_opts.max_memory_pages = b;
     inst_opts.engine = opts.engine;
+    self.export_list = try self.module.exports(alloc);
+    errdefer self.export_list.deinit();
     self.instance = try self.module.instantiate(inst_opts);
     self.engine_kind = opts.engine;
     self.alloc = alloc;

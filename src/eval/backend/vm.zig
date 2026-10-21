@@ -1435,6 +1435,13 @@ inline fn stepOnce(
                     sp -= arg_count;
                     stack[sp] = result;
                     sp += 1;
+                } else if (receiver.tag() == .wasm_module and rt.wasm_member_call != null) {
+                    // ADR-0203: `(.export h …)` on a core wasm module handle is
+                    // wasm/call's path — mirrors TreeWalk's evalInstanceMember.
+                    const result = try rt.wasm_member_call.?(rt, receiver, cs_entry.method_name, stack[sp - arg_count + 1 .. sp], instr_loc);
+                    sp -= arg_count;
+                    stack[sp] = result;
+                    sp += 1;
                 } else if (try object_method.tryObjectMethod(rt, env, receiver, td, cs_entry.method_name, stack[sp - arg_count + 1 .. sp])) |r| {
                     // Universal java.lang.Object method fallback:
                     // str/=/hash/class — mirrors TreeWalk's evalInstanceMember.
