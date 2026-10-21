@@ -393,6 +393,13 @@ pub const Runtime = struct {
     /// the zone direction legal (lang installs into runtime).
     source_resolver: ?*const fn (*Runtime, []const u8) ?SourceContext = null,
 
+    /// ADR-0203 decision 2: `(.export h args…)` on a `.wasm_module` receiver.
+    /// Both backends' `.member` dispatch call this on a method-table miss; the
+    /// wasm surface (`runtime/cljw/wasm/surface.zig`) installs it at `register`,
+    /// so it is set only under `-Dwasm` (F-001) and the eval zone never imports
+    /// a surface. `args` EXCLUDES the receiver; `name` is the export, verbatim.
+    wasm_member_call: ?*const fn (rt: *Runtime, receiver: @import("value/value.zig").Value, name: []const u8, args: []const @import("value/value.zig").Value, loc: @import("error/info.zig").SourceLocation) anyerror!@import("value/value.zig").Value = null,
+
     /// Swappable resolver fn for `require`. ADR-0035 D8. `null` at
     /// `init`; bootstrap installs the embedded resolver. Phase 12+
     /// can swap for classpath / build-artifact resolvers; Phase 16+
