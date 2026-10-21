@@ -7,6 +7,8 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 
 ## [Unreleased]
 
+## [1.15.1] - 2026-10-21
+
 ### Added
 
 - **`wasm/exports` lists a core module's exports.** `(wasm/exports m)` returns
