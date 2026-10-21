@@ -125,7 +125,7 @@ the interpreter.
 Shipped through the tag the release badge points at; `CHANGELOG.md` is the
 record. Releases are cut by the release workflow on a push to `main` and ship
 as single binaries for macOS arm64 and Linux x86_64 plus the Homebrew tap
-(`brew install buddhilw/tap/cljw`).
+(`brew install clojurewasm/tap/cljw`).
 
 Built and exercised end to end: the reader, analyzer, both backends, the
 error system, persistent collections and the GC; the numeric tower (`Long`
