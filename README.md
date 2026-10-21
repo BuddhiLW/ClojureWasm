@@ -1,5 +1,7 @@
 <p align="center">
-  <img src="docs/assets/clojurewasm_logo.png" alt="ClojureWasm" width="180" />
+  <img src="docs/assets/clojurewasm_logo.png" alt="ClojureWasm" height="160" />
+  &nbsp;&nbsp;&nbsp;
+  <a href="https://github.com/BuddhiLW"><img src="docs/assets/buddhilw_logo.png" alt="BuddhiLW" height="160" /></a>
 </p>
 
 <h1 align="center">ClojureWasm</h1>
@@ -79,8 +81,8 @@ zig cc -target wasm32-freestanding -O2 -nostdlib \
 (.sum_f64 k buf 4)                 ;=> 10.0
 ```
 
-`wasm/exports` and the dot form arrive in the next release; on the current
-one, write `(wasm/call k "sum_f64" buf 4)`. A guest fault is a catchable
+`wasm/exports` and the dot form need v1.15.1 or later; `(wasm/call k "sum_f64"
+buf 4)` works on every version. A guest fault is a catchable
 exception, never a host crash, and a guest that runs out of fuel stops with an
 error while your process keeps going.
 
