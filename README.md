@@ -191,6 +191,9 @@ cljw build script.clj -o app       # one self-contained native binary
 ;; A core module (docs/examples/polyglot/c/kernel.c): numbers in, numbers
 ;; out, arrays in a buffer the guest owns and hands out by address.
 (def m (wasm/load "docs/examples/polyglot/c/kernel.wasm" {:fuel 1000000 :max-memory-pages 16}))
+(wasm/exports m)                            ;=> [{:name "memory", :kind :memory}
+                                            ;    {:name "buf_addr", :kind :func, :params [], :results [:i32]}
+                                            ;    ... {:name "sum_f64", :kind :func, :params [:i32 :i32], :results [:f64]} ...]
 (def buf (wasm/call m "buf_addr"))
 (wasm/mem-write! m :f64 buf [1.0 2.0 3.0 4.0])
 (wasm/call m "sum_f64" buf 4)               ;=> 10.0

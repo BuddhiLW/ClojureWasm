@@ -12,7 +12,7 @@
 //!
 //! Backend: impl-only
 //! Impl deps: none
-//! Clojure peer: wasm/load, wasm/call, wasm/engine, wasm/mem-size, wasm/mem-read, wasm/mem-write!
+//! Clojure peer: wasm/load, wasm/call, wasm/exports, wasm/engine, wasm/mem-size, wasm/mem-read, wasm/mem-write!
 const std = @import("std");
 const engine = @import("engine.zig");
 const run_cache = @import("run_cache.zig");
@@ -604,6 +604,7 @@ pub fn register(env: *Env) !void {
     _ = try env.intern(ns, "load", Value.initBuiltinFn(&wasmLoadFn), null);
     _ = try env.intern(ns, "call", Value.initBuiltinFn(&wasmCallFn), null);
     _ = try env.intern(ns, "engine", Value.initBuiltinFn(&wasmEngineFn), null);
+    _ = try env.intern(ns, "exports", Value.initBuiltinFn(&@import("exports.zig").wasmExportsFn), null);
     _ = try env.intern(ns, "run", Value.initBuiltinFn(&wasmRunFn), null);
     _ = try env.intern(ns, "clear-cache!", Value.initBuiltinFn(&wasmClearCacheFn), null);
     // ADR-0192: the (ptr,len) half of the FFI — `wasm/call` passes the pointer,
