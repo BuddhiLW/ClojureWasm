@@ -11,9 +11,12 @@
 (defn- committed [] (.totalMemory (Runtime/getRuntime)))
 
 (defn- burst
-  "Allocate a ~8.5 MB vector trie (1M elements) and drop it."
+  "Allocate a ~34 MB vector trie (4M elements) and drop it. It must be much
+  larger than the free space earlier suites leave in partly used pages of the
+  shared run_suites image, or it lands in already-committed pages and the
+  growth is invisible (#80's macOS gate: base 208 MB, burst +0.8 MB)."
   []
-  (count (vec (range 1000000))))
+  (count (vec (range 4000000))))
 
 (deftest requested-collect-returns-empty-pages
   (System/gc)
@@ -23,9 +26,9 @@
         _ (System/gc)
         after (committed)]
     (testing "the burst grew the committed heap"
-      (is (> grown (+ base (* 4 mb)))))
+      (is (> grown (+ base (* 16 mb)))))
     (testing "System/gc gave the dropped burst's pages back"
-      (is (< after (- grown (* 4 mb))))
+      (is (< after (- grown (* 16 mb))))
       (is (<= after (+ base (* 2 mb)))))))
 
 (deftest freed-pages-are-reused-by-the-next-burst
