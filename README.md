@@ -20,6 +20,7 @@
 
 <p align="center">
   <a href="#install">Install</a> ·
+  <a href="#try-it-online">Demos</a> ·
   <a href="#call-c-from-clojure">Call C from Clojure</a> ·
   <a href="#how-it-works">How it works</a> ·
   <a href="#numbers">Numbers</a> ·
@@ -58,6 +59,16 @@ cljw                                               # REPL
 cljw nrepl --port 7888                             # nREPL, CIDER-compatible
 cljw build script.clj -o app                       # self-contained native binary
 ```
+
+## Try it online
+
+Both demos are a `cljw` server and a ClojureScript page, one container each,
+tracking the latest release.
+
+| Demo | What it shows | Source |
+|---|---|---|
+| [Playground](https://cljw.buddhilw.com/playground/) | Evaluate Clojure under a step, time and heap budget; call Rust and Go Wasm modules | [cw-playground](https://github.com/clojurewasm/cw-playground) |
+| [Bookshelf](https://cljw.buddhilw.com/bookshelf/) | SQLite compiled to Wasm as the store, a Rust module for cover colours | [cw-serverless-demo](https://github.com/clojurewasm/cw-serverless-demo) |
 
 ## Call C from Clojure
 
