@@ -1621,7 +1621,9 @@ pub fn selectMethod(f: *const Function, n: usize) ?*const FunctionMethod {
     return null;
 }
 
-fn raiseArityNotMatched(f: *const Function, got: usize, loc: SourceLocation) anyerror {
+// `noinline`: its 256-byte message buffer must not land in callMethodImpl's
+// frame, which every native eval re-entry pays (ADR-0195 budget).
+noinline fn raiseArityNotMatched(f: *const Function, got: usize, loc: SourceLocation) anyerror {
     // For single-arity fixed fns, preserve the existing
     // arity_not_expected / arity_below_min diagnostics so existing
     // user-visible error text stays stable.
