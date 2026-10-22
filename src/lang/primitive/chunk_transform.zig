@@ -29,6 +29,7 @@ const SourceLocation = error_mod.SourceLocation;
 const chunked_cons = @import("../../runtime/collection/chunked_cons.zig");
 const root_set = @import("../../runtime/gc/root_set.zig");
 const invokeCallable = @import("higher_order.zig").invokeCallable;
+const seqable = @import("../../runtime/seqable.zig");
 
 /// PERF: in-Zig chunk-map drain — `f` over all of `s`'s current chunk → a filled
 /// ChunkBuffer (the `.clj` arm does `(chunk-cons <buf> (-map-lazy f (chunk-rest
@@ -62,6 +63,34 @@ pub fn chunkMapStepFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceL
         _ = chunked_cons.chunkAppend(buf, mapped);
     }
     return buf;
+}
+
+/// `(__dorun coll)`: the 1-arity `dorun` walk, `(loop [s (seq coll)] (when s
+/// (recur (next s))))`, in Zig. A chunked_cons skips its whole current chunk
+/// in one step (`chunk-rest`, the elements are already realized), which is
+/// what clj's `next` on a ChunkedCons amounts to for a forcing walk. Every
+/// other seq is stepped with `seqable.next`, so lazy realization (and any side
+/// effect it carries) runs exactly once per element, in order. Returns nil.
+/// PERF: the `.clj` loop paid an interpreted `next` call per element (bench
+/// vs_bb string_ops `doall (map …)`). [refs: O-077]
+pub fn dorunFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anyerror!Value {
+    try error_catalog.checkArity("__dorun", args, 1, loc);
+    // GC-ROOT: frame [cursor]; `next` may realize a lazy cell (re-enters eval).
+    var gc_roots: [1]Value = .{.nil_val};
+    var gc_sp: u16 = 1;
+    var gc_frame: root_set.EvalFrame = .{ .stack = &gc_roots, .sp = &gc_sp, .locals = &.{}, .parent = root_set.eval_frame_head };
+    root_set.eval_frame_head = &gc_frame;
+    defer root_set.eval_frame_head = gc_frame.parent;
+
+    gc_roots[0] = try seqable.seq(rt, env, args[0], loc);
+    while (gc_roots[0].tag() != .nil) {
+        if (gc_roots[0].tag() == .chunked_cons and chunked_cons.currentChunkCount(gc_roots[0]) > 0) {
+            gc_roots[0] = try seqable.seq(rt, env, chunked_cons.chunkRest(gc_roots[0]), loc);
+        } else {
+            gc_roots[0] = try seqable.next(rt, env, gc_roots[0], loc);
+        }
+    }
+    return .nil_val;
 }
 
 /// PERF: in-Zig chunk-filter drain — `pred` over all of `s`'s current chunk →
