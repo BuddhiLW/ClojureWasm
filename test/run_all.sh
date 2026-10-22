@@ -659,7 +659,6 @@ run_step "e2e_macro_throw_catchable"        "bash test/e2e/macro_throw_catchable
 run_step "e2e_temporal_hash_eq"          "bash test/e2e/temporal_hash_eq.sh"
 run_step "e2e_phase15_require_fs"           "bash test/e2e/phase15_require_fs.sh"
 run_step "e2e_phase15_system_property"      "bash test/e2e/phase15_system_property.sh"
-run_step "e2e_phase15_stm_dosync"           "bash test/e2e/phase15_stm_dosync.sh"
 run_step "e2e_phase16_locking"              "bash test/e2e/phase16_locking.sh"
 run_step "e2e_phase16_agent"                "bash test/e2e/phase16_agent.sh"
 run_step "e2e_phase16_concurrency_stress"   "bash test/e2e/phase16_concurrency_stress.sh"

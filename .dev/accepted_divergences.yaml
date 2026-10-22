@@ -184,7 +184,7 @@ accepted:
       the internal algorithm divergence ADR-0090 reserved, with a pin asserting
       the observable serializability contract the retry-only engine upholds.
     derives_from: "ADR-0090 §3 (MVCC retry-only LockingTransaction) + §4 (no-barge)"
-    pin: "test/e2e/phase15_stm_dosync.sh — `dosync_concurrent_serializable` locks 4 threads × 100 `(dosync (alter c inc))` => exactly 400 (the serializable, no-lost-update result the retry-only engine produces under contention)"
+    pin: "test/clj/suites/concurrency_host_test.clj — `dosync_concurrent_serializable` locks 4 threads × 100 `(dosync (alter c inc))` => exactly 400 (the serializable, no-lost-update result the retry-only engine produces under contention)"
   - id: "AD-015"
     summary: "An ESCAPED `with-local-vars` local var, deref'd AFTER its dynamic extent, returns `nil` in cljw, where JVM returns an unreproducible `#object[clojure.lang.Var$Unbound 0x…]` opaque."
     example: '(var-get (with-local-vars [x 5] x)) => cljw nil / clj #object[Var$Unbound 0x…]'
@@ -610,7 +610,7 @@ accepted:
       `testing` context line, `Testing <ns>`, and the summary — matches clj
       byte-for-line.
     derives_from: "ADR-0059 (no-JVM: no JVM stack / class-file source positions) + F-011 (behavioural equivalence — pass/fail/error outcomes + counts match; only the unreproducible location/trace text differs)."
-    pin: "test/clj/suites/test_reporters_test.clj (suffix present, deftest-var-sourced) + test/e2e/phase15_var_source_meta.sh (the Var meta channel + AOT round-trip)."
+    pin: "test/clj/suites/test_reporters_test.clj (suffix present, deftest-var-sourced) + test/clj/suites/concurrency_host_test.clj (the Var meta channel) + test/e2e/phase15_var_source_meta.sh (AOT round-trip)."
   - id: "AD-042"
     summary: "`(pr-str v)` / `(str v)` print the bare ISO toString for a `java.time.*` value (Instant, Duration, …), where clj's `pr` emits the opaque `#object[java.time.X 0x.. \"ISO\"]` identity form. cljw makes both str and pr the toString; the value's `(str …)`, method results, and `=` all match clj."
     example: "(pr-str (java.time.Instant/ofEpochSecond 0)) => cljw \"1970-01-01T00:00:00Z\" / clj \"#object[java.time.Instant 0x5d3411d \\\"1970-01-01T00:00:00Z\\\"]\". (str (java.time.Duration/ofSeconds 90)) => both \"PT1M30S\"."
