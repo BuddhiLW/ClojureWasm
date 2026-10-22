@@ -14,6 +14,11 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
   it now reads the export table built at compile. A trivial export of a 47 KB
   module went from about 5.9 us to 0.8 us a call, the same as a tiny module.
   `bench/wasm_percall.clj` gains `big-*` cells that measure it.
+- **A wasm handle called from a `future` no longer traps on the interpreter.**
+  zwasm's interpreter cached the first calling thread's native-stack limit on
+  the instance, so a handle warmed on the runtime thread and then called from
+  another thread whose stack lay below that limit trapped
+  `CallStackExhausted`. The limit is now per calling thread (zwasm 79f3d63a).
 
 ## [1.15.3] - 2026-10-22
 
