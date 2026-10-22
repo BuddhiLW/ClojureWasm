@@ -70,3 +70,23 @@
     (is (= 2485 (reduce + (map inc v))))                      ; vec_reduce_map
     (is (= (range 1 71) (map inc v)))                         ; vec_map_eq
     (is (= (filter odd? (range 70)) (filter odd? v)))))       ; vec_filter_eq
+
+;; Multi-coll map is UNCHUNKED in clj: one f call per realized node, even over
+;; chunked sources, stopping at the shortest source (ADR-0205, O-062). Values
+;; measured on bb.
+(deftest multi-coll-map-is-unchunked
+  (let [log (atom 0)
+        m (map (fn* [a b] (swap! log inc) (+ a b)) (vec (range 70)) (range 100 170))]
+    (is (= 100 (first m)))
+    (is (= 1 @log))                                           ; map2_first_one_call
+    (is (= '(100 102 104) (take 3 m)))
+    (is (= 11830 (reduce + m)))
+    (is (= 70 @log)))                                         ; map2_each_once
+  (let [log (atom 0)
+        m (map (fn* [a b c] (swap! log inc) [a b c]) [1 2 3] [4 5] (range))]
+    (is (= '([1 4 0] [2 5 1]) (doall m)))
+    (is (= 2 @log)))                                          ; map3_shortest
+  (is (= '() (map + [1 2] nil)))                              ; map2_nil_source
+  (is (= '(4 10 18) (map * [1 2 3] [4 5 6 7])))
+  (is (= '(10 12 14) (take 3 (map + (range) (iterate inc 10)))))
+  (is (thrown? Exception (doall (map (fn* [a b] (throw (ex-info "boom" {}))) [1] [2])))))

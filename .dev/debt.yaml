@@ -1619,6 +1619,13 @@ active:
     barrier: |-
       tractable now; M-sized survey-first. Value rises with D-528 (real deps.edn corpus).
     last_reviewed: "2026-07-02"
+  - id: "D-588"
+    status: |-
+      open (2026-10-22, ADR-0205 DA fork point 4). clj exposes chunk-first (returns the current chunk as an IChunk, counted and indexable) and chunk-next; cljw has chunked-seq?, chunk-rest, chunk-buffer, chunk-append, chunk-cons but no chunk-first / chunk-next, so library code written against the IChunkedSeq API (chunked doseq/for expansions in user macros) fails to resolve. The boundary they would read now exists (runtime/collection/chunked_seq.zig).
+    category: clj-parity
+    barrier: |-
+      tractable now; needs a chunk value shape (an ArrayChunk view over the current chunk: count, nth, drop-first, reduce) for chunk-first to return.
+    last_reviewed: "2026-10-22"
 standing:
   - id: "D-549"
     status: |-
