@@ -14,12 +14,15 @@
         // zwasm v2 embedding API (F-001 / D-037). `lazy` so the DEFAULT build +
         // gate never resolve it — only `-Dwasm` (b.lazyDependency) does.
         //
-        // 2026-10-22: PINNED to `fix/interp-thread-trap` of THIS FORK at
-        // 79f3d63a (one commit on d74e63b4): the interp's native-stack limit
-        // is the calling thread's, cached per thread, not on the Runtime, so a
-        // handle warmed on one thread no longer traps when called from a
-        // future (cljw card CLJW-WASM-INTERP-THREAD-TRAP). PR-ready for
-        // upstream; the pin returns to `main` once main carries it.
+        // 2026-10-22: the fork's `main` is cljw's zwasm integration line:
+        // upstream zwasm/zwasm `main` plus patches found and proven here, each
+        // listed with its evidence in the fork's FORK.md and upstreamed once a
+        // cljw release has carried it. Pin a commit of fork `main`, never a
+        // fix branch. Now at 6d38dfcd (fork PR #2 on d74e63b4): the interp's
+        // native-stack limit is the calling thread's, not the Runtime's, so a
+        // handle used on one thread no longer traps when called from a future
+        // (cljw card CLJW-WASM-INTERP-THREAD-TRAP). Same tree as the fix
+        // commit 79f3d63a, so the `.hash` did not change.
         //
         // 2026-10-21: PINNED to `main` of THIS FORK, BuddhiLW/zwasm, at
         // d74e63b4 (fork main fast-forwarded to upstream zwasm/zwasm main,
@@ -75,7 +78,7 @@
         // moment anything else claims that name. The `.hash` is
         // content-addressed, so the host of the URL never changes it.
         .zwasm = .{
-            .url = "git+https://github.com/BuddhiLW/zwasm.git?ref=fix/interp-thread-trap#79f3d63afcb9c4fbaeb609f92f723804d5d52385",
+            .url = "git+https://github.com/BuddhiLW/zwasm.git?ref=main#6d38dfcddc120c3f0a22305d50462923b88ef578",
             .hash = "zwasm-2.7.0-FT1Fv5zqngAGQ7CfqwShi1Dbt32Mn7jQ9RJ_qZZPdLol",
             .lazy = true,
         },
