@@ -155,6 +155,7 @@ pub fn isKind(v: Value, k: Kind) bool {
 pub fn make(rt: *Runtime, kind: Kind, len: u32) !Value {
     const buf = (try allocData(rt.gc.infra, len * kind.size()))[0 .. len * kind.size()];
     errdefer freeData(rt.gc.infra, buf);
+    rt.gc.noteOwnedAlloc(buf.len);
     if (kind == .object) {
         const vals: [*]Value = @ptrCast(buf.ptr);
         @memset(vals[0..len], .nil_val);

@@ -9,6 +9,11 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 
 ### Fixed
 
+- **A `wasm/call` on the JIT no longer costs time proportional to the
+  module.** zwasm resolved the export by re-parsing the module on every call;
+  it now reads the export table built at compile. A trivial export of a 47 KB
+  module went from about 5.9 us to 0.8 us a call, the same as a tiny module.
+  `bench/wasm_percall.clj` gains `big-*` cells that measure it.
 - **A wasm handle called from a `future` no longer traps on the interpreter.**
   zwasm's interpreter cached the first calling thread's native-stack limit on
   the instance, so a handle warmed on the runtime thread and then called from
