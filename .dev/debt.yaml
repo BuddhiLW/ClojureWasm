@@ -1626,6 +1626,11 @@ active:
     barrier: |-
       tractable now; M-sized. (3) and the region-zone half of ZoneId also depend on the tz-database decision recorded on the ZonedDateTime compat_tiers row (user-owned).
     last_reviewed: "2026-10-22"
+  - id: D-610
+    status: 'open (2026-10-22). After O-090, `cljw -e nil` runs 61.6M user instructions against bb 16.2M (taskset -c 2, perf stat -r 10); cljw kernel work fell 29.3M -> 12.3M and is now below bb (26.8M). Remaining attributed cost (perf, -Dprofile, 30 runs): the TLS segment is 1.17 MB, glibc memsets it for the main thread (dl_main, ~5%) and again for the eval thread (allocate_stack, ~4%); 868 KB of it is eval.backend.vm.vm_arena (threadlocal) and 256 KB std Thread.maybeAttachSignalStack. referAllImpl ~15% inclusive (every eager `(ns ...)` refers all of clojure.core); a getOrPut + reserve rewrite of it was drafted but not measured (build-lock contention), so it is not landed. readCollection ~9%, lazy loadRegionNamespace during the eager replay ~5%.'
+    category: perf
+    barrier: vm_arena out of TLS needs an edit in src/eval/backend/vm.zig (out of scope for CLJW-PERF-STARTUP); the refer cost needs a shared refer table (one clojure.core refer map per ns instead of a copy), an env design change.
+    last_reviewed: "2026-10-22"
 standing:
   - id: "D-549"
     status: |-
