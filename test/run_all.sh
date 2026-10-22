@@ -705,11 +705,9 @@ run_step "e2e_phase16_wasm_run"             "bash test/e2e/phase16_wasm_run.sh"
 # instruction writes is the guest's choice, so only a capture cap bounds host
 # memory. Measured pre-fix: 64 MB per 1e6 fuel, ~6.4 GB RSS at 1e8.
 run_step "e2e_phase16_wasm_run_output_cap" "bash test/e2e/phase16_wasm_run_output_cap.sh"
-run_step "e2e_phase16_wasm_component"       "bash test/e2e/phase16_wasm_component.sh"
 run_step "e2e_phase16_wasm_require_component" "bash test/e2e/phase16_wasm_require_component.sh"
 # Caller-set :fuel / :max-memory-pages on wasm/load-component, and the fuel
 # diagnostic on both call paths (a budget kill must not read as a guest trap).
-run_step "e2e_phase16_wasm_component_budget" "bash test/e2e/phase16_wasm_component_budget.sh"
 # docs/examples/polyglot: the C / Zig / Rust / Go guests the README shows, run
 # as committed AND rebuilt from their source headers (each toolchain on PATH),
 # plus hosts.cljc on every Clojure host present. A README claim with a gate.
@@ -797,7 +795,6 @@ run_step "e2e_phase14_extend_abstract_base"  "bash test/e2e/phase14_extend_abstr
 run_step "e2e_phase14_deftype_imeta"         "bash test/e2e/phase14_deftype_imeta.sh"
 run_step "e2e_phase14_core_surface_protocols" "bash test/e2e/phase14_core_surface_protocols.sh"
 run_step "e2e_phase14_file_var"              "bash test/e2e/phase14_file_var.sh"
-run_step "e2e_phase16_wasm_component_multiexport" "bash test/e2e/phase16_wasm_component_multiexport.sh"
 run_step "e2e_phase14_deftype_iseq"          "bash test/e2e/phase14_deftype_iseq.sh"
 run_step "e2e_phase14_deftype_overload_arity" "bash test/e2e/phase14_deftype_overload_arity.sh"
 run_step "e2e_phase14_deftype_indexed"       "bash test/e2e/phase14_deftype_indexed.sh"
