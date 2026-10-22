@@ -15,6 +15,7 @@
 //! (D-040, discharged).
 
 const std = @import("std");
+const builtin = @import("builtin");
 const TypeDescriptor = @import("../type_descriptor.zig").TypeDescriptor;
 const Value = @import("../value/value.zig").Value;
 
@@ -119,7 +120,7 @@ pub const DispatchCache = extern struct {
         if (s1 & 1 != 0) return null;
         const addr = @atomicLoad(usize, &self.td_addr, .acquire);
         const gen = @atomicLoad(u32, &self.generation, .acquire);
-        const val = @atomicLoad(Value, &self.method_val, .acquire);
+        const val = loadMethodVal(&self.method_val);
         if (@atomicLoad(u32, &self.seq, .acquire) != s1) return null;
         if (addr != @intFromPtr(td) or gen != generation) return null;
         return val;
@@ -131,10 +132,26 @@ pub const DispatchCache = extern struct {
         if (@cmpxchgStrong(u32, &self.seq, s0, s0 +% 1, .acquire, .monotonic) != null) return;
         @atomicStore(usize, &self.td_addr, @intFromPtr(td), .release);
         @atomicStore(u32, &self.generation, generation, .release);
-        @atomicStore(Value, &self.method_val, method_val, .release);
+        storeMethodVal(&self.method_val, method_val);
         @atomicStore(u32, &self.seq, s0 +% 2, .release);
     }
 };
+
+/// A `Value` is 64 bits wide, and 32-bit wasm has no 64-bit atomics. The
+/// single-threaded targets (wasm32-wasi, ADR-0193) have no concurrent reader,
+/// so a plain access is the whole seqlock there.
+inline fn loadMethodVal(p: *const Value) Value {
+    if (comptime builtin.single_threaded) return p.*;
+    return @atomicLoad(Value, p, .acquire);
+}
+
+inline fn storeMethodVal(p: *Value, v: Value) void {
+    if (comptime builtin.single_threaded) {
+        p.* = v;
+        return;
+    }
+    @atomicStore(Value, p, v, .release);
+}
 
 // --- tests ---
 
