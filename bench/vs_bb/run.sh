@@ -161,9 +161,9 @@ ratio() { # a b -> a/b with 2 decimals, or "-"
 
 version_of() {
     case "$1" in
-        cljw) "$CLJW" --version 2>&1 | head -1 ;;
-        bb) bb --version 2>&1 | head -1 ;;
-        jvm) echo "clojure $CLJ_VERSION on $(java -version 2>&1 | head -1)" ;;
+        cljw) "$CLJW" --version 2>&1 | sed -n 1p ;;
+        bb) bb --version 2>&1 | sed -n 1p ;;
+        jvm) echo "clojure $CLJ_VERSION on $(java -version 2>&1 | sed -n 1p)" ;;
     esac
 }
 
