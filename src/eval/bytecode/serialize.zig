@@ -608,10 +608,10 @@ fn readValue(ctx: *ReadCtx, r: *ByteReader) DeserializeError!Value {
             // `()` for a quoted empty list baked into the AOT blob.
             if (n == 0) return list_mod.emptyList(rt) catch return DeserializeError.OutOfMemory;
             // Read forward into a scratch buffer, then cons-fold back to
-            // preserve the head-first source order. PERF (O-090): the buffer
-            // comes from the reader's allocator, as `readCollection`'s does;
-            // `page_allocator` here cost one mmap + munmap + page fault per
-            // quoted list, 927 of them on every cold start.
+            // preserve the head-first source order.
+            // PERF: scratch from the reader's allocator, as `readCollection`'s
+            // is; `page_allocator` cost one mmap + munmap + page fault per
+            // quoted list, 927 of them on every cold start [refs: O-090].
             if (n > r.bytes.len - r.pos) return DeserializeError.BytecodeTruncated;
             const buf = ctx.allocator.alloc(Value, n) catch return DeserializeError.OutOfMemory;
             defer ctx.allocator.free(buf);

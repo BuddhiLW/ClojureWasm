@@ -1,5 +1,7 @@
 # CLJW-PERF-STARTUP resume (card 20261022150542-05d73990)
-State: merged origin/staging. WIP commit swaps page_allocator for ctx.allocator in serialize.zig quoted-list decode (927 mmap+munmap pairs per cold start). Not yet built or measured with this change.
-Baseline (load ~13, min of 20 interleaved): cljw -e nil 37.0 ms vs bb 41.0; hello 35.9 vs 39.8. perf stat task-clock: cljw 33.4 ms vs bb 25.8. CLJW_PROFILE_STARTUP: runEnvelope 23.2 ms of 24.6 setupCoreAot.
-perf (/tmp/ps, -Dprofile): 40% kernel (mmap/munmap from serialize readValue list buf, page faults); readCollection alloc 0xAA memset (ReleaseSafe) ~15%; referAllImpl ~10% (re-refer core per ns); loadRegionNamespace (a lazy ns required during the eager replay) ~5%.
-Next: build with the fix (prof2 build at /tmp/ps/prof2 is running), measure, then cut the readCollection memset/alloc, referAll dupes, and the lazy require during eager replay. Ledger O-090+, debt D-610+.
+State: O-090 (serialize.zig quoted-list scratch from ctx.allocator) built, measured, ledgered; D-610 records the residual. Commit pending on a green smoke (/tmp/ps_smoke.log).
+Measured (perf stat -r 20, load 10-45 so task-clock not wall): cljw -e nil task-clock 38.8 -> 27.3 ms (bb 29.1), faults 2741 -> 1792 (bb 4868). Pinned taskset -c 2: kernel instr 29.3M -> 12.3M (bb 26.8M); user 61.6M unchanged (bb 16.2M).
+CLJW_PROFILE_STARTUP: prefix 1-7 ms (noisy), runEnvelope 13-24 ms.
+Drafted, NOT measured (build-lock wait), reverted: referAllImpl getOrPut+reserve. Worth a real A/B.
+Next levers (D-610): vm_arena 868 KB threadlocal makes TLS 1.17 MB, memset twice (vm.zig, out of scope); shared clojure.core refer table; readCollection; lazy ns replay during eager.
+Binaries: /tmp/ps/cljw-base (before), /tmp/ps/cljw-o091 (after), /tmp/ps/prof2 (-Dprofile).
