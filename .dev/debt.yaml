@@ -1626,6 +1626,11 @@ active:
     barrier: |-
       tractable now; M-sized. (3) and the region-zone half of ZoneId also depend on the tz-database decision recorded on the ZonedDateTime compat_tiers row (user-owned).
     last_reviewed: "2026-10-22"
+  - id: D-600
+    status: open (2026-10-22, ADR-0206 DA review). The ProtocolFn dispatch cache (O-081) keys on rt.protocol_generation, a plain u32 bumped with +%= 1 by every protocol writer. Two extends racing on different threads can lose a bump, and a filler that resolved between them could then serve a stale method forever (F-015). Make the counter an atomic u64 (fetchAdd .release, load .acquire). The cache slot is also monomorphic and one per ProtocolFn, so polymorphic protocol calls thrash it and every miss writes a shared cache line. The finished form named by the DA is a small per-call-site polymorphic inline cache in VM bytecode, or a per-descriptor itable keyed by ProtocolFn id. Generation is also global (any extend flushes every protocol), unlike clj per-protocol -reset-methods.
+    category: performance
+    barrier: tractable now; S for the atomic counter, M for the polymorphic IC (touches vm.zig, coordinate with the VM call-path owner).
+    last_reviewed: "2026-10-22"
 standing:
   - id: "D-549"
     status: |-

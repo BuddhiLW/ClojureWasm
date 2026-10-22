@@ -92,6 +92,15 @@ pub const CallSite = struct {
 /// replaces a row, and a redefined record (a NEW descriptor address) all miss.
 /// Descriptors are never freed while the runtime lives (D-587 retirement), so
 /// a stale `td` address cannot be reused by another type (no ABA).
+/// Host-surface `init`s (`appendMethodEntries`, ADR-0174) write rows with
+/// `protocol_name = ""` and no bump: interop members that a protocol lookup
+/// never matches, so they cannot stale a memo. A failed resolution raises and
+/// is never filled, so a `class_descriptors` insert (no bump) cannot either.
+/// The cached `method_val` is not traced: its row roots it, and a replaced row
+/// bumps the generation, so it is only returned while still rooted (a reify
+/// descriptor's row lives until process exit, `trackHeap`).
+/// Known gap (D-600): `protocol_generation` is a plain `+%= 1`, so two extends
+/// racing on different threads can lose a bump.
 ///
 /// Unlike `CallSite` (analyzer-arena, one owner), a `ProtocolFn` is shared by
 /// every thread that calls it, so the slot is a seqlock: a reader that
