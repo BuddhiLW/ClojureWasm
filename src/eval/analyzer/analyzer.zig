@@ -1434,7 +1434,18 @@ const try_form = @import("try_form.zig");
 /// the first error in the text is the one raised. Every other lift (quote,
 /// macro arguments, metadata) is `.lenient`: code was already checked as it
 /// was read.
-const LiftChecks = enum { lenient, strict };
+/// `.edn` is `.strict` for `clojure.edn` reads (ADR-0200 Layer B): a
+/// `#ns.Record{...}` tag is NOT a record constructor there, clj's EdnReader
+/// resolves every tag through `:readers` / `:default` only.
+const LiftChecks = enum {
+    lenient,
+    strict,
+    edn,
+
+    fn checksDuplicates(self: LiftChecks) bool {
+        return self != .lenient;
+    }
+};
 
 /// Form atom → Value lift. Handles nil / bool / int / float / char /
 /// string / keyword / symbol and the collection literals, interning
@@ -1449,6 +1460,13 @@ pub fn formToValue(rt: *Runtime, env: *Env, form: Form) AnalyzeError!Value {
 /// it also raises on a duplicate map key or set element, in source order.
 pub fn formToValueStrict(rt: *Runtime, env: *Env, form: Form) AnalyzeError!Value {
     return lift(rt, env, form, .strict);
+}
+
+/// `formToValueStrict` for a `clojure.edn` read: additionally, a
+/// `#ns.Name{...}` tag is resolved only through `*data-readers*` /
+/// `*default-data-reader-fn*`, never as a record literal (clj EdnReader).
+pub fn formToValueEdn(rt: *Runtime, env: *Env, form: Form) AnalyzeError!Value {
+    return lift(rt, env, form, .edn);
 }
 
 /// D-186: honour a reader `^meta` map on a literal. The reader (readMeta)
@@ -1563,7 +1581,7 @@ fn liftTagged(rt: *Runtime, env: *Env, t: TaggedForm, loc: SourceLocation, check
     // by simple name and then re-check `defining_ns`, which silently
     // rejected a legitimate `#aaa.Point{…}` as soon as some other namespace
     // defined a record also called `Point` and displaced the entry.
-    if (t.tag.ns == null) {
+    if (t.tag.ns == null and checks != .edn) {
         if (std.mem.findScalar(u8, t.tag.name, '.') != null) {
             if (rt.types.get(t.tag.name)) |td| {
                 const map_arg = inner.tag() == .array_map or inner.tag() == .hash_map;
@@ -1660,7 +1678,7 @@ fn mapFormToValue(rt: *Runtime, env: *Env, entries: []const Form, loc: SourceLoc
             else => |e| return e,
         };
         roots[0] = out;
-        if (checks == .strict and duplicate == null) {
+        if (checks.checksDuplicates() and duplicate == null) {
             if (map_collection.count(out) == before) {
                 duplicate = entries[i];
             } else if (repeatedReaderConstantNan(entries[0..i], entries[i], 2)) {
@@ -1695,7 +1713,7 @@ fn setFormToValue(rt: *Runtime, env: *Env, items: []const Form, checks: LiftChec
             else => |e| return e,
         };
         roots[0] = out;
-        if (checks == .strict and duplicate == null) {
+        if (checks.checksDuplicates() and duplicate == null) {
             if (set_collection.count(out) == before) {
                 duplicate = item;
             } else if (repeatedReaderConstantNan(items[0..idx], item, 1)) {
@@ -1742,7 +1760,7 @@ fn listFormToValue(rt: *Runtime, env: *Env, items: []const Form, checks: LiftChe
     // The chain is consed from the end. A strict (data) lift must still
     // LIFT left to right, so the first error in the text is the one raised,
     // as clj reads it: it lifts into a vector first.
-    const lifted: ?Value = if (checks == .strict) try vectorFormToValue(rt, env, items, checks) else null;
+    const lifted: ?Value = if (checks.checksDuplicates()) try vectorFormToValue(rt, env, items, checks) else null;
     if (lifted) |v| roots[2] = v;
     while (i > 0) {
         i -= 1;
