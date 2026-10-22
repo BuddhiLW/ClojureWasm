@@ -171,7 +171,7 @@
 ;; PERF: O-062 internal lazy body for 2/3-coll `map`: one lazy node per element
 ;; (clj's multi-coll map is unchunked), whose body is the Zig `__map-step`
 ;; (seq all, f on the firsts, recur on the rests). Passes itself as `self`.
-(def -map-n-lazy
+(def ^:private -map-n-lazy
   (fn* ([f c1 c2] (lazy-seq (cljw.internal/__map-step f -map-n-lazy c1 c2)))
        ([f c1 c2 c3] (lazy-seq (cljw.internal/__map-step f -map-n-lazy c1 c2 c3)))))
 ;; Forward-declared so map's n-ary arm resolves it at def time (D-446).
