@@ -513,8 +513,9 @@
 ;; bootstrap-order-safe. The lazy-seq realization utilities (clojure.core).
 (def dorun
   (fn* ([coll]
-        (loop* [s (seq coll)]
-          (if s (recur (next s)) nil)))
+        ;; PERF: the seq/next walk runs natively, a chunk at a time over a
+        ;; chunked seq. [refs: O-077]
+        (cljw.internal/__dorun coll))
        ([n coll]
         (loop* [i n s (seq coll)]
           (if (if (pos? i) s nil) (recur (dec i) (next s)) nil)))))
@@ -728,9 +729,8 @@
 ;; defaults to (count v)) as a vector. For a vector this is JVM's O(1)
 ;; shared-structure VIEW (the `.sub_vector` tag; D-583); a non-vector
 ;; seqable falls back to the eager take/drop build.
-(def subvec
-  (fn* ([v start] (subvec v start (count v)))
-       ([v start end]
+(def ^:private -subvec-slow
+  (fn* ([v start end]
         (when (nil? v)
           (throw (NullPointerException. "subvec: nil vector")))
         (when-not (vector? v)
@@ -759,6 +759,15 @@
                      (str "subvec index out of bounds: start=" start ", end=" end ", count=" c))))
           ;; O(1) shared-structure view, preserving numeric coercion and bounds.
           (cljw.internal/__subvec v start end)))))
+
+(def subvec
+  (fn* ([v start] (subvec v start (count v)))
+       ([v start end]
+        ;; PERF: in-bounds integer indices over a vector are answered by one
+        ;; native step; nil means "not that shape", so everything below is the
+        ;; coercing / throwing path. [refs: O-073]
+        (or (cljw.internal/__subvec-fast v start end)
+            (-subvec-slow v start end)))))
 
 ;; `(bounded-count n coll)` — for a `counted?` coll return its FULL count (clj:
 ;; `(bounded-count 3 (range 100))` → 100, range is O(1) counted); otherwise walk
