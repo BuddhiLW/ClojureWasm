@@ -7,6 +7,14 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 
 ## [Unreleased]
 
+### Fixed
+
+- **A `wasm/call` on the JIT no longer costs time proportional to the
+  module.** zwasm resolved the export by re-parsing the module on every call;
+  it now reads the export table built at compile. A trivial export of a 47 KB
+  module went from about 5.9 us to 0.8 us a call, the same as a tiny module.
+  `bench/wasm_percall.clj` gains `big-*` cells that measure it.
+
 ## [1.15.3] - 2026-10-22
 
 ### Added

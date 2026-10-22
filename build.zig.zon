@@ -14,6 +14,12 @@
         // zwasm v2 embedding API (F-001 / D-037). `lazy` so the DEFAULT build +
         // gate never resolve it — only `-Dwasm` (b.lazyDependency) does.
         //
+        // 2026-10-22: PINNED to `fix/jit-percall` of THIS FORK at 22a99bb1, one
+        // commit on top of d74e63b4: a by-name JIT invoke resolves the export
+        // from `CompiledWasm.exports` instead of re-parsing the module per call
+        // (zwasm/D-585, zwasm#208, cljw card CLJW-WASM-JIT-PERCALL-SCALES).
+        // PR-ready for upstream; the pin returns to fork `main` once it lands.
+        //
         // 2026-10-21: PINNED to `main` of THIS FORK, BuddhiLW/zwasm, at
         // d74e63b4 (fork main fast-forwarded to upstream zwasm/zwasm main,
         // version string still 2.7.0, no newer tag). Upstream now carries all
@@ -46,8 +52,8 @@
         // embedding-API delta is additive (five engine hooks,
         // `Instance.engine()`, two appended trap kinds); one behaviour change,
         // `.auto` no longer retries the interpreter on a JIT validity verdict.
-        // The per-call JIT cost (zwasm/D-584 / D-585,
-        // `.dev/wasm_percall_findings.md`) is still open.
+        // The per-call JIT cost: zwasm/D-585 is fixed by the 2026-10-22 pin,
+        // zwasm/D-584 is avoided by ADR-0195 (`.dev/wasm_percall_findings.md`).
         //
         // Bumping: `zig fetch` rejects the annotated TAG object (NotACommit);
         // peel it with `git rev-parse 'vX.Y.Z^{}'` to get the commit sha. A
@@ -68,8 +74,8 @@
         // moment anything else claims that name. The `.hash` is
         // content-addressed, so the host of the URL never changes it.
         .zwasm = .{
-            .url = "git+https://github.com/BuddhiLW/zwasm.git?ref=main#d74e63b4aac1c7d392fc7e562467232945788dfe",
-            .hash = "zwasm-2.7.0-FT1Fv-zingBTL0it1Jtud_E9LvRZ6jkeZWH66zgwYpsw",
+            .url = "git+https://github.com/BuddhiLW/zwasm.git?ref=fix/jit-percall#22a99bb16df843dfe2b5e5777af84caabd1f0260",
+            .hash = "zwasm-2.7.0-FT1Fv7_wngDJu7wdmgvFu8b-ylZRJqbWn8gXpjHGjfLS",
             .lazy = true,
         },
     },

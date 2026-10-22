@@ -13,7 +13,10 @@
   (`-worker`, via `future`), plus `fn-call`: a plain Clojure function call in
   the same process. That last row is the platform constant, kept in its own
   datum key so a regression in cljw's call path is distinguishable from one in
-  the engine. Copies the discipline of zwasm's own bench/latency runner.
+  the engine. `big-auto | big-jit | big-interp` call a trivial export of a
+  47 KB module: a per-call cost that grows with module size shows up as the
+  gap between `big-jit` and `jit-main` ([CLJW-WASM-JIT-PERCALL-SCALES],
+  zwasm/D-585). Copies the discipline of zwasm's own bench/latency runner.
 
   Run (needs a -Dwasm ReleaseSafe binary):
     ./zig-out/bin/cljw -cp bench -m wasm-percall [--n=20000] [--trials=7] [--yaml=FILE]
@@ -23,6 +26,10 @@
   (:require [clojure.string :as str]))
 
 (def add-wasm "bench/wasm/ffi/add.wasm")
+
+;; 47 KB, built from bench/wasm/percall/zigcool.zig with
+;;   zig build-exe -target wasm32-freestanding -fno-entry -rdynamic -O ReleaseSmall zigcool.zig
+(def big-wasm "bench/wasm/percall/zigcool.wasm")
 
 (defn parse-args [args]
   (reduce (fn [opts arg]
@@ -38,6 +45,9 @@
 
 (defn burn-wasm [m n]
   (loop [i 0] (when (< i n) (wasm/call m "add" i 1) (recur (inc i)))))
+
+(defn burn-big [m n]
+  (loop [i 0] (when (< i n) (wasm/call m "popcount" i) (recur (inc i)))))
 
 (defn burn-fn [n]
   (loop [i 0] (when (< i n) (plain-add i 1) (recur (inc i)))))
@@ -55,6 +65,9 @@
   (let [auto   (wasm/load add-wasm {:fuel 0})
         jit    (wasm/load add-wasm {:engine :jit :fuel 0})
         interp (wasm/load add-wasm {:engine :interp :fuel 0})
+        big-auto   (wasm/load big-wasm {:fuel 0})
+        big-jit    (wasm/load big-wasm {:engine :jit :fuel 0})
+        big-interp (wasm/load big-wasm {:engine :interp :fuel 0})
         on-worker (fn [f] #(deref (future (f))))]
     [["auto-main"     #(burn-wasm auto n)]
      ["auto-worker"   (on-worker #(burn-wasm auto n))]
@@ -62,6 +75,9 @@
      ["jit-worker"    (on-worker #(burn-wasm jit n))]
      ["interp-main"   #(burn-wasm interp n)]
      ["interp-worker" (on-worker #(burn-wasm interp n))]
+     ["big-auto"      #(burn-big big-auto n)]
+     ["big-jit"       #(burn-big big-jit n)]
+     ["big-interp"    #(burn-big big-interp n)]
      ["fn-call"       #(burn-fn n)]]))
 
 (defn stats
