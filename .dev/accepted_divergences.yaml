@@ -1018,10 +1018,10 @@ accepted:
     summary: |-
       `(.totalMemory r)` / `(.freeMemory r)` / `(.maxMemory r)` answer from
       cljw's own mark-sweep accounting, not from a JVM heap that does not
-      exist. `totalMemory` is the live set or the adaptive collect threshold,
-      whichever is larger (cljw keeps no reserved-but-unused pool, so the
-      threshold is the honest analogue of committed heap); `freeMemory` is the
-      headroom between them; `maxMemory` is the per-eval ceiling
+      exist. `totalMemory` is the committed cell heap (mapped GC pages plus
+      live large cells), which grows with the heap and shrinks when a collect
+      returns empty pages to the OS (CLJW-GC-HEAP-RETURN); `freeMemory` is
+      that minus the live cells; `maxMemory` is the per-eval ceiling
       `CLJW_EVAL_MAX_HEAP_MB` sets (ADR-0125), or `Long/MAX_VALUE` when the
       heap is unmetered.
       The consequence worth stating: on an unmetered cljw a used/max heap-
@@ -1032,7 +1032,7 @@ accepted:
       that mean nothing.
     example: 'CLJW_EVAL_MAX_HEAP_MB unset: (.maxMemory (Runtime/getRuntime)) => 9223372036854775807 (no ceiling) / with CLJW_EVAL_MAX_HEAP_MB=64 => 67108864, and the pressure ratio becomes real.'
     derives_from: "ADR-0028 (mark-sweep + adaptive threshold) + ADR-0125 / D-352 (per-eval heap ceiling) + ADR-0059 (no JVM)."
-    pin: "test/e2e/concurrent_atomics.sh — runtime_memory_is_coherent + runtime_maxmemory_unmetered_is_exact_long."
+    pin: "test/e2e/concurrent_atomics.sh — runtime_memory_is_coherent + runtime_maxmemory_unmetered_is_exact_long; test/clj/suites/gc_heap_return_test.clj."
   - id: "AD-064"
     area: "concurrency"
     summary: |-
