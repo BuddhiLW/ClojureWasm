@@ -566,7 +566,7 @@ run_step "e2e_phase10_pprint"                "bash test/e2e/phase10_pprint.sh"
 run_step "e2e_phase14_pprint_dispatch"       "bash test/e2e/phase14_pprint_dispatch.sh"
 run_step "e2e_phase10_exit_smoke"            "bash test/e2e/phase10_exit_smoke.sh"
 # phase11_clojure_test retired: the D-099-era minimal `is`/`run-tests` surface it
-# tested was replaced by the real clojure.test (D-227) — see e2e_phase15_clojure_test.
+# tested was replaced by the real clojure.test (D-227) — see test/clj/suites/test_reporters_test.clj.
 run_step "test_clj_tier_a"                   "bash test/clj/run_tier_a.sh"
 # Layer 5b — cljw-NATIVE clojure.test suites, ALL of test/clj/suites/ in ONE
 # cljw process (auto-discovered; see test/clj/run_suites.clj's header for the
@@ -653,15 +653,9 @@ run_step "e2e_phase14_alter_var_root"       "bash test/e2e/phase14_alter_var_roo
 run_step "e2e_phase14_syntax_quote"         "bash test/e2e/phase14_syntax_quote.sh"
 run_step "e2e_phase14_with_redefs"          "bash test/e2e/phase14_with_redefs.sh"
 run_step "e2e_phase15_watch_recursion"      "bash test/e2e/phase15_watch_recursion.sh"
-run_step "e2e_phase15_clojure_test"         "bash test/e2e/phase15_clojure_test.sh"
-run_step "e2e_phase15_clojure_test_output"  "bash test/e2e/phase15_clojure_test_output.sh"
 run_step "e2e_clojure_test_model"           "bash test/e2e/clojure_test_model.sh"
 run_step "e2e_cljw_test_runner"             "bash test/e2e/cljw_test_runner.sh"
 run_step "e2e_macro_throw_catchable"        "bash test/e2e/macro_throw_catchable.sh"
-run_step "e2e_phase15_test_junit"           "bash test/e2e/phase15_test_junit.sh"
-run_step "e2e_phase15_repl_discovery"       "bash test/e2e/phase15_repl_discovery.sh"
-run_step "e2e_phase15_spec"                 "bash test/e2e/phase15_spec.sh"
-run_step "e2e_phase15_tap"                  "bash test/e2e/phase15_tap.sh"
 run_step "e2e_temporal_hash_eq"          "bash test/e2e/temporal_hash_eq.sh"
 run_step "e2e_phase15_require_fs"           "bash test/e2e/phase15_require_fs.sh"
 run_step "e2e_phase15_system_property"      "bash test/e2e/phase15_system_property.sh"
@@ -716,8 +710,6 @@ run_step "e2e_phase16_zig_native"           "bash test/e2e/phase16_zig_native.sh
 # The reswap coverage moved to suites/wasm-require-component-reswap-test: it
 # asserts values, not the process boundary, so it runs in-process now.
 run_step "e2e_phase15_deferred_host_ref"    "bash test/e2e/phase15_deferred_host_ref.sh"
-run_step "e2e_phase15_clojure_stacktrace"   "bash test/e2e/phase15_clojure_stacktrace.sh"
-run_step "e2e_phase15_clojure_test_tap"     "bash test/e2e/phase15_clojure_test_tap.sh"
 run_step "e2e_phase16_vm_error_loc_sidecar" "bash test/e2e/phase16_vm_error_loc_sidecar.sh"
 run_step "e2e_phase16_gc_torture"           "bash test/e2e/phase16_gc_torture.sh"
 run_step "e2e_phase16_load_file_source"     "bash test/e2e/phase16_load_file_source.sh"

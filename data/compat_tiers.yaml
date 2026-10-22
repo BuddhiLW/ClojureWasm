@@ -805,7 +805,7 @@ tiers:
       # directory (verified)" claim is stale and superseded. Tier letter stays
       # B (a status-truth fix, not a tier change — tier_classification.md).
       clojure.math: {status: "implemented (clojure/math.clj; loaded by bootstrap.zig; corpus clojure_math.txt + math_doc_claims.txt)"}
-      clojure.spec.alpha: {status: "implemented (clojure/spec/alpha.clj, 2019-line port; loaded by bootstrap.zig; e2e phase15_spec.sh + corpus spec.txt; D-475). Generative subset (s/gen, s/exercise) throws at call time — clojure.test.check not bundled"}
+      clojure.spec.alpha: {status: "implemented (clojure/spec/alpha.clj, 2019-line port; loaded by bootstrap.zig; e2e test/clj/suites/test_reporters_test.clj + corpus spec.txt; D-475). Generative subset (s/gen, s/exercise) throws at call time — clojure.test.check not bundled"}
       clojure.spec.gen.alpha: {status: "implemented (clojure/spec/gen/alpha.clj; loaded by bootstrap.zig). Combinators/prims dynaload clojure.test.check.* at call time; unbundled so they throw when forced"}
   C:
     description: "Thin reflective implementation via TypeDescriptor walk."
