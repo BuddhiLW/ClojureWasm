@@ -30,7 +30,7 @@ header and runs it again.
 | build | `zig build-exe -target wasm32-freestanding` | `zig build-lib -dynamic` |
 | artifact | `kernel.wasm`, 47 KB, any OS | `libkernel.so` / `.dylib`, per platform |
 | safety | sandboxed: fuel, memory cap, a fault is an exception | none: a bad pointer crashes the process |
-| data | the guest owns its buffers (`f64_addr`, `byte_addr`), the host fills them with `wasm/mem-write!` | `:string` and `:bytes` arguments are copied in; `:pointer` for memory the host owns |
+| data | the guest owns its buffers (`f64_addr`, `byte_addr`), the host fills them with `wasm/mem-write!` (a `double-array` is one memcpy) | `:string` and `:bytes` arguments are copied in; `:pointer` takes a primitive array's storage (no copy) or an address the host owns |
 | signatures | `wasm/exports` reads them back | written by hand: `[:double :double] :double` |
 | platforms | everywhere cljw runs | x86_64 and aarch64, Linux and macOS |
 
@@ -67,6 +67,6 @@ more than the whole computation.
   as a lossy `Double` and larger arguments are rejected
   (CLJW-WASM-I64-FULL-RANGE). The native route carries all 64 bits.
 - `:jit` call overhead grows with module size (CLJW-WASM-JIT-PERCALL-SCALES).
-- Primitive arrays and native buffers that skip the per-call copy are in
-  progress (CLJW-FFI-PRIM-ARRAY-BYTES, CLJW-FFI-NATIVE-BUFFER); this example
-  moves to them when they land.
+- Primitive arrays are contiguous native storage (ADR-0204): pass a
+  `double-array` as `:pointer` instead of packing `:bytes`. Native buffers
+  that outlive one call are CLJW-FFI-NATIVE-BUFFER.

@@ -24,9 +24,9 @@
 schema_version: "2.0"
 summary:
   namespaces_required: 36
-  total: 1456
-  zig: 424
-  clj: 806
+  total: 1459
+  zig: 428
+  clj: 805
   value: 220
   unbound: 6
 vars:
@@ -69,6 +69,9 @@ vars:
   "cljw.internal/__agent-await": { impl: zig, flags: "-" }
   "cljw.internal/__agent-fail-mode?": { impl: zig, flags: "-" }
   "cljw.internal/__agent-set-fail-mode": { impl: zig, flags: "-" }
+  "cljw.internal/__array-fill": { impl: zig, flags: "-" }
+  "cljw.internal/__array-from": { impl: zig, flags: "-" }
+  "cljw.internal/__array-kind": { impl: zig, flags: "-" }
   "cljw.internal/__array-make": { impl: zig, flags: "-" }
   "cljw.internal/__assertion-error": { impl: zig, flags: "-" }
   "cljw.internal/__chunk-count": { impl: zig, flags: "-" }
@@ -239,6 +242,7 @@ vars:
   "clojure.core/->>": { impl: value, flags: "macro" }
   "clojure.core/->Eduction": { impl: clj, flags: "-" }
   "clojure.core/-apply-to": { impl: value, flags: "-" }
+  "clojure.core/-array-elems": { impl: clj, flags: "private" }
   "clojure.core/-array-from": { impl: clj, flags: "private" }
   "clojure.core/-array-from2": { impl: clj, flags: "private" }
   "clojure.core/-as-transient": { impl: value, flags: "-" }
@@ -311,8 +315,6 @@ vars:
   "clojure.core/-spread": { impl: clj, flags: "-" }
   "clojure.core/-sub-sequence": { impl: value, flags: "-" }
   "clojure.core/-take-eager": { impl: zig, flags: "private,zig-leaf" }
-  "clojure.core/-to-byte": { impl: clj, flags: "private" }
-  "clojure.core/-to-short": { impl: clj, flags: "private" }
   "clojure.core/-tset-contains?": { impl: value, flags: "-" }
   "clojure.core/-tx-seq-pump": { impl: clj, flags: "-" }
   "clojure.core/-tx-seq-run": { impl: clj, flags: "-" }
@@ -1482,6 +1484,7 @@ vars:
   "wasm/load": { impl: zig, flags: "-" }
   "wasm/load-component": { impl: zig, flags: "-" }
   "wasm/mem-read": { impl: zig, flags: "-" }
+  "wasm/mem-read-array": { impl: zig, flags: "-" }
   "wasm/mem-size": { impl: zig, flags: "-" }
   "wasm/mem-write!": { impl: zig, flags: "-" }
   "wasm/resource-drop": { impl: zig, flags: "-" }

@@ -194,7 +194,7 @@ const Cursor = union(enum) {
             },
             .aseq => |*s| {
                 if (s.i >= s.n) return null;
-                const e = array_seq.nth(s.v, s.i);
+                const e = try array_seq.nth(rt, s.v, s.i);
                 s.i += 1;
                 return e;
             },
@@ -1103,7 +1103,12 @@ const SeqKeyCursor = struct {
             },
             .aseq => |*s| {
                 if (s.i >= s.n) return null;
-                const e = array_seq.nth(s.v, s.i);
+                const e = array_seq.peekNth(s.v, s.i) orelse {
+                    // A primitive long that needs a heap box: not realizable
+                    // rt-free, so the key falls back to identity.
+                    self.truncated = true;
+                    return null;
+                };
                 s.i += 1;
                 return e;
             },
