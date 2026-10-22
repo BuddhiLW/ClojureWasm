@@ -185,11 +185,18 @@ fn callExport(rt: *Runtime, loaded: *engine.Loaded, name: []const u8, call_args:
     };
 
     if (out.len == 0) return Value.nil_val;
-    if (out.len == 1) return marshal.fromWasm(out[0], loc);
+    if (out.len == 1) return marshal.fromWasm(rt, out[0], loc);
 
     const items = try rt.gpa.alloc(Value, out.len);
     defer rt.gpa.free(items);
-    for (out, 0..) |r, i| items[i] = try marshal.fromWasm(r, loc);
+
+    // GC-ROOT: `items` is a gpa slice the collector does NOT trace, and an i64
+    // result outside the i48 immediate window is a HEAP Long, so a collect
+    // during a later result's alloc would sweep the ones already lifted. Same
+    // bracket as `wasmMemReadFn`. [ref: .dev/gc_rooting.md]
+    rt.gc.enterFabrication();
+    defer rt.gc.exitFabrication();
+    for (out, 0..) |r, i| items[i] = try marshal.fromWasm(rt, r, loc);
     return vector_mod.fromSlice(rt, items);
 }
 
