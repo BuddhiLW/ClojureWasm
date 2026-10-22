@@ -35,8 +35,9 @@
 //! under `safepoint.blocking`, so a `future` waiting on a quiet peer does not
 //! stall a collection another thread requests.
 //!
-//! Byte arrays are Value-erased (F-004 / F-005), so transfers convert
-//! element-wise between the cljw array and a gpa scratch `[]u8`.
+//! A byte array is raw `i8` storage (ADR-0204): a read lands in it with one
+//! memcpy, a write copies it to a gpa scratch first so the blocking write
+//! never reads storage the program can still `aset`.
 const std = @import("std");
 const Runtime = @import("../../runtime.zig").Runtime;
 const Env = @import("../../env.zig").Env;
@@ -132,7 +133,7 @@ fn writeMethod(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation
     _ = env;
     try error_catalog.checkArityRange("cljw.net write", args, 2, 3, loc);
     const box = try expectSocket(args[0], loc);
-    if (!java_array.isArray(args[1])) return error_catalog.raise(.net_arg_invalid, loc, .{ .detail = "the buffer must be a byte array" });
+    if (!java_array.isKind(args[1], .byte)) return error_catalog.raise(.net_arg_invalid, loc, .{ .detail = "the buffer must be a byte array" });
 
     const avail = java_array.alength(args[1]);
     const n: u32 = if (args.len == 3) blk: {
@@ -141,12 +142,9 @@ fn writeMethod(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation
         break :blk @intCast(want);
     } else avail;
 
-    const scratch = try rt.gpa.alloc(u8, n);
+    // A copy: the array stays mutable while the blocking write runs.
+    const scratch = try rt.gpa.dupe(u8, java_array.asArray(args[1]).bytes()[0..n]);
     defer rt.gpa.free(scratch);
-    for (0..n) |i| {
-        const v = try java_array.aget(args[1], @intCast(i), "cljw.net write", loc);
-        scratch[i] = @truncate(@as(u64, @bitCast(@as(i64, v.asInteger()))));
-    }
 
     safepoint.blocking(std.Io.Writer.writeAll, .{ &box.writer.interface, scratch }) catch
         return error_catalog.raise(.net_io_failed, loc, .{ .op = "write" });
@@ -162,7 +160,7 @@ fn readMethod(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation)
     _ = env;
     try error_catalog.checkArity("cljw.net read", args, 2, loc);
     const box = try expectSocket(args[0], loc);
-    if (!java_array.isArray(args[1])) return error_catalog.raise(.net_arg_invalid, loc, .{ .detail = "the buffer must be a byte array" });
+    if (!java_array.isKind(args[1], .byte)) return error_catalog.raise(.net_arg_invalid, loc, .{ .detail = "the buffer must be a byte array" });
 
     const cap = java_array.alength(args[1]);
     if (cap == 0) return Value.initInteger(0);
@@ -178,9 +176,7 @@ fn readMethod(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation)
     if (bytes.len == 0) return Value.initInteger(-1);
 
     const n: u32 = @intCast(@min(bytes.len, cap));
-    for (0..n) |i| {
-        _ = try java_array.aset(args[1], @intCast(i), Value.initInteger(bytes[i]), "cljw.net read", loc);
-    }
+    @memcpy(java_array.asArray(args[1]).bytes()[0..n], bytes[0..n]);
     r.toss(n);
     return Value.initInteger(@intCast(n));
 }

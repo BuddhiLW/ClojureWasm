@@ -74,6 +74,20 @@ const gc_heap_mod = @import("../../runtime/gc/gc_heap.zig");
 /// frame-size known at analyse time.
 pub const MAX_LOCALS: u16 = 256;
 
+/// A stack scratch array the caller writes before it reads. Plain `undefined`
+/// costs a 0xAA memset in ReleaseSafe, not only in Debug: for a
+/// `[MAX_LOCALS]Value` window that is 2 KB written on EVERY fn call, measured
+/// at 19% of all instructions in `(reduce + (map * xs xs))`. Each user reads
+/// only a prefix it has just written (a frame's `locals[0..fs]`, a published
+/// args prefix), so the poison catches nothing there. Debug keeps it: safety
+/// is switched off outside Debug and only inside this fn, so the caller's own
+/// checks are untouched.
+// PERF: skip the safe-mode 0xAA fill of the per-call frame/arg windows [refs: O-064]
+pub fn uninitScratch(comptime T: type) T {
+    @setRuntimeSafety(@import("builtin").mode == .Debug);
+    return undefined;
+}
+
 /// TreeWalk error surface. Aliases `error_mod.ClojureWasmError` so
 /// calls to `error_catalog.raise(.code, loc, args)` type-check; the
 /// backend still only **emits** `error.TypeError` (non-callable
@@ -711,7 +725,7 @@ fn evalConstructorCall(rt: *Runtime, env: *Env, locals: []Value, n: node_mod.Int
     // (special_forms.constructInstance) so TreeWalk + VM construct
     // identically — incl. the java-surface `<init>` path `(java.io.File.
     // "path")` rides (ADR-0036 dual-backend parity; D-196 blocker 3).
-    var buf: [MAX_LOCALS]Value = undefined;
+    var buf = uninitScratch([MAX_LOCALS]Value);
     if (n.args.len > MAX_LOCALS)
         return error_catalog.raise(.call_args_exceed_max_locals, n.loc, .{ .got = n.args.len, .max = MAX_LOCALS });
     // GC-ROOT: A6b — progressive arg publication (see ArgsFrame).
@@ -1036,7 +1050,7 @@ fn evalRecur(rt: *Runtime, env: *Env, locals: []Value, n: node_mod.RecurNode) an
     //
     // GC-ROOT: A6b — already-evaluated recur values are reachable only
     // through this buffer while a LATER arg's eval allocates (D-556).
-    var local_buf: [MAX_LOCALS]Value = undefined;
+    var local_buf = uninitScratch([MAX_LOCALS]Value);
     var af: ArgsFrame = undefined;
     af.push(&local_buf);
     defer af.pop();
@@ -1176,7 +1190,7 @@ const ArgsFrame = struct {
 fn evalCall(rt: *Runtime, env: *Env, locals: []Value, n: node_mod.CallNode) !Value {
     const callee = try eval(rt, env, locals, n.callee);
     // Slot 0 carries the callee; args fill 1..; the frame publishes each.
-    var args_buf: [MAX_LOCALS + 1]Value = undefined;
+    var args_buf = uninitScratch([MAX_LOCALS + 1]Value);
     if (n.args.len > MAX_LOCALS)
         return error_catalog.raise(.call_args_exceed_max_locals, n.loc, .{ .got = n.args.len, .max = MAX_LOCALS });
     args_buf[0] = callee;
@@ -1184,7 +1198,7 @@ fn evalCall(rt: *Runtime, env: *Env, locals: []Value, n: node_mod.CallNode) !Val
     af.push(&args_buf);
     defer af.pop();
     af.publish(1);
-    var arg_locs: [MAX_LOCALS]SourceLocation = undefined;
+    var arg_locs = uninitScratch([MAX_LOCALS]SourceLocation);
     for (n.args, 0..) |*a, i| {
         args_buf[1 + i] = try eval(rt, env, locals, a);
         af.publish(2 + i);
@@ -1438,13 +1452,10 @@ pub fn bindCallFrame(
 }
 
 fn callMethodImpl(rt: *Runtime, env: *Env, fn_val: Value, args: []const Value, loc: SourceLocation, rest_mode: RestMode) !Value {
-    // PERF: safety off ONLY in this wrapper so the `undefined` 2 KB locals
-    // buffer is not 0xaa-filled on every call in ReleaseSafe (it was 52% of
-    // protocol_dispatch's cycles; the fill silently undid O-015's exact-count
-    // init). Naive form: the buffer declared inside `callMethodBody`, which
-    // keeps safety on for all of its own code [refs: O-080]
-    @setRuntimeSafety(false);
-    var locals: [MAX_LOCALS]Value = undefined;
+    // PERF: the 2 KB locals buffer is not 0xaa-filled in ReleaseSafe (it was
+    // 52% of protocol_dispatch's cycles): O-064's uninitScratch, the one
+    // mechanism for per-call scratch windows [refs: O-064, O-080]
+    var locals = uninitScratch([MAX_LOCALS]Value);
     return callMethodBody(rt, env, fn_val, args, loc, rest_mode, &locals);
 }
 
