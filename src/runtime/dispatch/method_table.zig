@@ -81,6 +81,52 @@ pub const CallSite = struct {
     }
 };
 
+/// Per-protocol-method resolution cache, embedded in every `ProtocolFn`
+/// (ADR-0206). Maps the receiver's TypeDescriptor to the FINAL resolved
+/// method Value of the whole `dispatch.resolveProtocolMethod` chain
+/// (per-type impl, then the ADR-0187 protocol-target, IRecord and Object
+/// fallbacks), all of which are a pure function of `(td, protocol_generation)`.
+/// Every mutation of a method table or of the fallback side tables bumps
+/// `protocol_generation`, so a generation mismatch is the whole
+/// invalidation story: extend-type, extend-protocol, extend, a re-extend that
+/// replaces a row, and a redefined record (a NEW descriptor address) all miss.
+/// Descriptors are never freed while the runtime lives (D-587 retirement), so
+/// a stale `td` address cannot be reused by another type (no ABA).
+///
+/// Unlike `CallSite` (analyzer-arena, one owner), a `ProtocolFn` is shared by
+/// every thread that calls it, so the slot is a seqlock: a reader that
+/// observes an odd or changed `seq` treats the read as a miss, and a writer
+/// that loses the even-to-odd race simply skips the fill. A torn
+/// `(td, val)` pair therefore never dispatches.
+pub const DispatchCache = extern struct {
+    seq: u32 = 0,
+    generation: u32 = 0,
+    /// `@intFromPtr` of the cached receiver descriptor; 0 = empty.
+    td_addr: usize = 0,
+    method_val: Value = .nil_val,
+
+    pub fn lookup(self: *const DispatchCache, td: *const TypeDescriptor, generation: u32) ?Value {
+        const s1 = @atomicLoad(u32, &self.seq, .acquire);
+        if (s1 & 1 != 0) return null;
+        const addr = @atomicLoad(usize, &self.td_addr, .acquire);
+        const gen = @atomicLoad(u32, &self.generation, .acquire);
+        const val = @atomicLoad(Value, &self.method_val, .acquire);
+        if (@atomicLoad(u32, &self.seq, .acquire) != s1) return null;
+        if (addr != @intFromPtr(td) or gen != generation) return null;
+        return val;
+    }
+
+    pub fn fill(self: *DispatchCache, td: *const TypeDescriptor, generation: u32, method_val: Value) void {
+        const s0 = @atomicLoad(u32, &self.seq, .monotonic);
+        if (s0 & 1 != 0) return;
+        if (@cmpxchgStrong(u32, &self.seq, s0, s0 +% 1, .acquire, .monotonic) != null) return;
+        @atomicStore(usize, &self.td_addr, @intFromPtr(td), .release);
+        @atomicStore(u32, &self.generation, generation, .release);
+        @atomicStore(Value, &self.method_val, method_val, .release);
+        @atomicStore(u32, &self.seq, s0 +% 2, .release);
+    }
+};
+
 // --- tests ---
 
 const testing = std.testing;
@@ -196,4 +242,19 @@ test "CallSite cache slots accept TypeDescriptor + MethodEntry pointers" {
     const cs: CallSite = .{ .last_type = &td, .last_method = &me };
     try testing.expect(cs.last_type.? == &td);
     try testing.expectEqualStrings("first", cs.last_method.?.method_name);
+}
+
+test "DispatchCache: hit on same (td, generation), miss on generation bump or another td" {
+    const td_a: TypeDescriptor = .{ .fqcn = "A", .kind = .deftype, .field_layout = null, .protocol_impls = &.{}, .method_table = &.{}, .parent = null, .meta = Value.nil_val };
+    const td_b: TypeDescriptor = .{ .fqcn = "B", .kind = .deftype, .field_layout = null, .protocol_impls = &.{}, .method_table = &.{}, .parent = null, .meta = Value.nil_val };
+    var c: DispatchCache = .{};
+    try testing.expect(c.lookup(&td_a, 0) == null);
+    c.fill(&td_a, 3, Value.initInteger(7));
+    try testing.expectEqual(Value.initInteger(7), c.lookup(&td_a, 3).?);
+    try testing.expect(c.lookup(&td_a, 4) == null);
+    try testing.expect(c.lookup(&td_b, 3) == null);
+    c.fill(&td_b, 4, Value.initInteger(9));
+    try testing.expectEqual(Value.initInteger(9), c.lookup(&td_b, 4).?);
+    try testing.expect(c.lookup(&td_a, 3) == null);
+    try testing.expectEqual(@as(u32, 4), c.seq);
 }
