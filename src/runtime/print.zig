@@ -1600,7 +1600,14 @@ pub fn printArraySeq(ports: ?Ports, w: *Writer, v: Value) anyerror!void {
     while (i < n) : (i += 1) {
         if (try lengthTruncated(w, @intCast(i), " ")) break;
         if (i > 0) try w.writeByte(' ');
-        try printValue(ports, w, array_seq_collection.nth(v, i));
+        if (array_seq_collection.peekNth(v, i)) |e| {
+            try printValue(ports, w, e);
+        } else {
+            // A primitive long beyond the immediate range: its digits, which
+            // is how its heap box prints.
+            const a = array_seq_collection.primitiveBacking(v).?;
+            try w.print("{d}", .{a.slice(.long)[array_seq_collection.indexOf(v) + i]});
+        }
     }
     try w.writeByte(')');
 }
