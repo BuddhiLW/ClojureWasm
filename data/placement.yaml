@@ -24,9 +24,9 @@
 schema_version: "2.0"
 summary:
   namespaces_required: 36
-  total: 1456
-  zig: 424
-  clj: 806
+  total: 1458
+  zig: 425
+  clj: 807
   value: 220
   unbound: 6
 vars:
@@ -128,6 +128,7 @@ vars:
   "cljw.internal/__string-reader": { impl: zig, flags: "-" }
   "cljw.internal/__string-writer": { impl: zig, flags: "-" }
   "cljw.internal/__subvec": { impl: zig, flags: "-" }
+  "cljw.internal/__subvec-fast": { impl: zig, flags: "-" }
   "cljw.internal/__unsupported-host-ref": { impl: zig, flags: "-" }
   "cljw.internal/__update-in": { impl: zig, flags: "-" }
   "cljw.internal/__vector-pop": { impl: zig, flags: "-" }
@@ -310,6 +311,7 @@ vars:
   "clojure.core/-sorted-seq-from": { impl: value, flags: "-" }
   "clojure.core/-spread": { impl: clj, flags: "-" }
   "clojure.core/-sub-sequence": { impl: value, flags: "-" }
+  "clojure.core/-subvec-slow": { impl: clj, flags: "private" }
   "clojure.core/-take-eager": { impl: zig, flags: "private,zig-leaf" }
   "clojure.core/-to-byte": { impl: clj, flags: "private" }
   "clojure.core/-to-short": { impl: clj, flags: "private" }
