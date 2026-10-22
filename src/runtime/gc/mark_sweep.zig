@@ -13,12 +13,13 @@
 //!   - `sweep(gc)` — walks the live list. For every object with
 //!     `mark == 0`: call per-tag finaliser via
 //!     `tag_ops.tag_finaliser_table` (no-alloc invariant per ADR-0028
-//!     §4), push onto the matching free pool (rawFree fallback),
+//!     §4), free the cell (`GcHeap.cellFree`: its page, or infra),
 //!     swap-remove from the live list. For every object with
 //!     `mark == 1`: clear the bit and keep.
 //!   - `collect(gc, ctx)` — enumerates roots via `root_set.enumerate`,
 //!     shades each gray, drains the worklist (blacken), sweeps, then
-//!     recomputes the adaptive `threshold_bytes` per ADR-0028 §1.
+//!     recomputes the adaptive `threshold_bytes` per ADR-0028 §1, then
+//!     releases empty pages beyond the retention budget to the OS.
 //!
 //! `clearMarks(gc)` resets every live object's mark bit (used by tests
 //! and reserved for an explicit clear pass). All four are landed.
@@ -31,9 +32,9 @@ const gc_time_target_percent = @import("gc_heap.zig").gc_time_target_percent;
 const testing = std.testing;
 
 const gc_heap_mod = @import("gc_heap.zig");
+const page_heap_mod = @import("page_heap.zig");
 const heap_header = @import("../value/heap_header.zig");
 const tag_ops = @import("tag_ops.zig");
-const free_pool_mod = @import("free_pool.zig");
 const root_set_mod = @import("root_set.zig");
 const io_default = @import("../concurrency/io_default.zig");
 const safepoint = @import("../concurrency/safepoint.zig");
@@ -136,8 +137,7 @@ pub fn clearMarks(gc: *GcHeap) void {
 /// swap-remove indices stay valid). For each record:
 ///   - mark bit 0 == 0 (dead): call per-tag finaliser via
 ///     `tag_ops.tag_finaliser_table` (no-alloc invariant per
-///     ADR-0028 §4), push the backing memory onto the matching free
-///     pool (`FreePoolMap.push`; rawFree fallback on push failure),
+///     ADR-0028 §4), free the backing memory (`GcHeap.cellFree`),
 ///     swap-remove from allocations, bump `bytes_freed` + `sweep_count`.
 ///   - mark bit 0 == 1 (live): clear the bit, sum into
 ///     `last_live_bytes` for the next adaptive-threshold cycle.
@@ -158,14 +158,9 @@ pub fn sweep(gc: *GcHeap) void {
             if (tag_ops.tag_finaliser_table[rec.header.tag]) |finaliser| {
                 finaliser(@ptrCast(gc), rec.header);
             }
-            const mem: [*]u8 = @ptrCast(rec.header);
-            const key = free_pool_mod.FreePoolKey{ .size = rec.size, .alignment = rec.alignment };
-            // Push onto the matching free pool for reuse; fall through
-            // to direct rawFree only if push fails (e.g. infra OOM
-            // during HashMap getOrPut for a never-before-seen key).
-            gc.free_pools.push(key, mem) catch {
-                gc.infra.rawFree(mem[0..rec.size], rec.alignment, @returnAddress());
-            };
+            // Back to its page (small) or to infra (large). Never fails:
+            // a page free is a list push into memory the page already owns.
+            gc.cellFree(@ptrCast(rec.header), rec.size, rec.alignment);
             gc.stats.bytes_freed += rec.size;
             _ = gc.allocations.swapRemove(i);
         } else {
@@ -209,10 +204,10 @@ pub fn sweep(gc: *GcHeap) void {
 /// Full mark-sweep collection cycle: enumerate every root via
 /// `root_set.enumerate(ctx)`, mark each transitively (per-tag trace
 /// dispatch handles outgoing pointers), sweep the live list
-/// (per-tag finaliser → push onto free pool / direct rawFree
-/// fallback), then update the adaptive threshold per ADR-0028 §1
-/// (`threshold_bytes = max(default, last_live_bytes * 2)`) and
-/// reset `bytes_since_last_gc`.
+/// (per-tag finaliser, then `GcHeap.cellFree`), then update the
+/// adaptive threshold per ADR-0028 §1
+/// (`threshold_bytes = max(default, last_live_bytes * 2)`), reset the
+/// pressure counters, and release empty pages past the retention budget.
 ///
 /// Callers invoke this directly rather than through a method on
 /// `GcHeap` because the cycle traverses `root_set.zig` which itself
@@ -338,7 +333,13 @@ pub fn collect(gc: *GcHeap, ctx: root_set_mod.WalkContext) void {
         gc.stats.last_live_bytes *| 2,
     );
     gc.bytes_since_last_gc = 0;
+    gc.owned_since_last_gc.store(0, .monotonic);
     gc.stats.collect_count += 1;
+    // CLJW-GC-HEAP-RETURN: hand empty pages back to the OS, keeping the
+    // hysteresis budget (`retainBytesAfterCollect`) mapped. After the
+    // threshold recompute, because the budget is one threshold's worth.
+    _ = gc.pages.release(gc.retainBytesAfterCollect(gc.release_requested));
+    gc.release_requested = false;
 }
 
 /// D-556: conservatively scan the collecting thread's native stack for live
@@ -683,6 +684,50 @@ test "collect: adaptive threshold = max(default, last_live_bytes * 2)" {
     collect(&gc, .{ .envs = &.{}, .gc = &gc });
     try testing.expectEqual(@as(usize, @sizeOf(Cell)), gc.stats.last_live_bytes);
     try testing.expectEqual(gc_heap_mod.default_gc_threshold_bytes, gc.threshold_bytes);
+}
+
+test "collect: dead cells' pages go back to the OS past the retention budget (CLJW-GC-HEAP-RETURN)" {
+    var gc = GcHeap.init(testing.allocator);
+    defer gc.deinit();
+    // 200k unrooted 16-byte cells: ~49 pages, past the 16-page minimum budget.
+    var i: usize = 0;
+    while (i < 200_000) : (i += 1) {
+        const c = try gc.alloc(Cell);
+        c.* = .{ .header = HeapHeader.init(.symbol) };
+    }
+    const mapped = gc.pages.page_count;
+    try testing.expect(mapped * page_heap_mod.page_bytes > gc_heap_mod.min_retained_bytes);
+    try testing.expect(gc.committedBytes() >= 200_000 * @sizeOf(Cell));
+
+    // An automatic collect keeps one threshold's worth of empty pages warm.
+    collect(&gc, .{ .envs = &.{}, .gc = &gc });
+    try testing.expectEqual(@as(usize, 0), gc.allocations.items.len);
+    try testing.expect(gc.pages.mappedBytes() <= @max(gc.threshold_bytes, gc_heap_mod.min_retained_bytes));
+
+    // A requested collect gives back all but the minimum.
+    gc.release_requested = true;
+    collect(&gc, .{ .envs = &.{}, .gc = &gc });
+    try testing.expect(!gc.release_requested);
+    try testing.expect(gc.pages.mappedBytes() <= gc_heap_mod.min_retained_bytes);
+    try testing.expect(gc.pages.pages_released_total >= mapped - gc_heap_mod.min_retained_bytes / page_heap_mod.page_bytes);
+
+    // The retained pages serve the next allocations without mapping more.
+    const kept = gc.pages.page_count;
+    const c = try gc.alloc(Cell);
+    c.* = .{ .header = HeapHeader.init(.symbol) };
+    try testing.expectEqual(kept, gc.pages.page_count);
+}
+
+test "collect trigger counts charged payload bytes, and collect resets them" {
+    var gc = GcHeap.init(testing.allocator);
+    defer gc.deinit();
+    try testing.expectEqual(@as(usize, 0), gc.pressureBytes());
+    gc.noteOwnedAlloc(gc.threshold_bytes + 1);
+    try testing.expect(gc.pressureBytes() > gc.threshold_bytes);
+    try gc.chargeInfraBytes(8);
+    try testing.expectEqual(gc.threshold_bytes + 9, gc.pressureBytes());
+    collect(&gc, .{ .envs = &.{}, .gc = &gc });
+    try testing.expectEqual(@as(usize, 0), gc.pressureBytes());
 }
 
 test "sweep iterating backward keeps swap-remove indices valid" {

@@ -7,8 +7,9 @@
 //!     + size + alignment); see the `GcHeap` docstring for why a
 //!     side-table beats an intrusive next-pointer.
 //!   - `permanent_roots` — embedder-pinned root Values (`pin` / `unpin`).
-//!   - `free_pools` — per-(size, alignment) free pool head map, owned
-//!     by `runtime/gc/free_pool.zig`.
+//!   - `pages` — the size-classed page heap small cells live in, owned by
+//!     `runtime/gc/page_heap.zig` (empty pages go back to the OS after a
+//!     collect, see `retainBytesAfterCollect`).
 //!   - `stats` — bytes_allocated / bytes_freed / alloc/collect/sweep
 //!     counts + last_live_bytes.
 //!   - `infra` — backing GPA allocator (per F-006 §2 layer 1) for the
@@ -16,7 +17,7 @@
 //!   - `bytes_since_last_gc` + `threshold_bytes` — drive the adaptive
 //!     `collect()` trigger per ADR-0028 §1.
 //!
-//! `alloc` (free-pool fast path → infra slow path), `pin` / `unpin`,
+//! `alloc` (page heap for small cells, infra for large ones), `pin` / `unpin`,
 //! and `deinit` (per-tag finaliser → rawFree drain) are all landed.
 //! The `collect()` orchestrator lives in `mark_sweep.zig` to keep the
 //! import graph acyclic (it reaches `root_set.zig`, which imports this
@@ -36,7 +37,7 @@ const std = @import("std");
 const testing = std.testing;
 
 const heap_header = @import("../value/heap_header.zig");
-const free_pool_mod = @import("free_pool.zig");
+const page_heap_mod = @import("page_heap.zig");
 const value_mod = @import("../value/value.zig");
 const io_default = @import("../concurrency/io_default.zig");
 const safepoint = @import("../concurrency/safepoint.zig");
@@ -56,7 +57,7 @@ threadlocal var in_alloc_torture: bool = false;
 // the alloc-torture gate, and `maybeAutoCollect`.
 
 const HeapHeader = heap_header.HeapHeader;
-const FreePoolMap = free_pool_mod.FreePoolMap;
+const PageHeap = page_heap_mod.PageHeap;
 const Value = value_mod.Value;
 
 /// Default GC trigger threshold (bytes since last collection), and the default
@@ -94,6 +95,11 @@ pub const max_threshold_floor_bytes: usize = 64 * 1024 * 1024;
 /// 17.9 s collecting, because the 4 MB floor fired 755 times and each collect
 /// re-marked the same live graph.
 pub const gc_time_target_percent: u64 = 10;
+
+/// Empty pages a collect always keeps mapped (CLJW-GC-HEAP-RETURN): 1 MiB, 16
+/// pages, so a program that allocates a little after every `System/gc` does
+/// not map and unmap the same pages each time.
+pub const min_retained_bytes: usize = 1024 * 1024;
 
 /// Minimum allocation size (bytes) per ADR-0028 §3: the freed payload
 /// must host the FreeNode overlay at offset 8 (8 bytes header +
@@ -145,10 +151,10 @@ pub const Stats = struct {
     collect_count: u64 = 0,
     sweep_count: u64 = 0,
     last_live_bytes: usize = 0,
-    /// Diagnostic (gc_alloc_rate lever, D-450): allocs served by reusing a freed
-    /// block from the free pool (vs a fresh `rawAlloc`/malloc). pool_hits/alloc_count
-    /// = the reuse rate — a low rate means same-size churn is re-malloc'ing.
-    pool_hits: u64 = 0,
+    /// Diagnostic (gc_alloc_rate lever, D-450): allocs served from the page
+    /// heap (vs a large cell's `infra.rawAlloc`). small_allocs/alloc_count = the
+    /// share of the allocation stream the page heap carries.
+    small_allocs: u64 = 0,
     /// D-573: nanoseconds spent inside `collectStopTheWorld`, and the wall clock
     /// at the first collection. Their ratio is the GC time fraction the floor
     /// is steered by — the same quantity the JVM exposes as `-XX:GCTimeRatio`.
@@ -219,10 +225,24 @@ pub const GcHeap = struct {
     /// Total bytes registered with the persistent marks (D-573): part of every
     /// collection's marking cost, so part of `last_live_bytes`.
     persistent_bytes: usize = 0,
-    /// Per-(size, alignment) free pool heads. Sweep pushes freed blocks
-    /// here (intrusive FreeNode at offset 8); `alloc` pops them as its
-    /// fast path before falling back to `infra`.
-    free_pools: FreePoolMap = .empty,
+    /// Size-classed pages small cells live in (`page_heap.zig`). Sweep frees
+    /// a dead small cell onto its page; after sweep, `collect` hands empty
+    /// pages beyond `retainBytesAfterCollect` back to the OS.
+    pages: PageHeap = .{},
+    /// Bytes of live cells too large (or too aligned) for the page heap, held
+    /// on `infra`. With `pages.mappedBytes()` this is the committed cell heap.
+    large_live_bytes: usize = 0,
+    /// Bytes of non-cell payload (a String's bytes, an array's elements, a
+    /// transient vector's buffer) allocated on `infra` since the last collect,
+    /// charged through `noteOwnedAlloc`. Counts toward the collect trigger
+    /// beside `bytes_since_last_gc`: a 24 MB buffer behind a 40-byte cell is
+    /// 24 MB of pressure, and a trigger that saw only the cell let several such
+    /// buffers pile up as garbage before anything collected them. Atomic
+    /// because a payload is allocated outside `gc_mutex`.
+    owned_since_last_gc: std.atomic.Value(usize) = .init(0),
+    /// Set by `requestCollect` (`System/gc`) so the collect it runs releases
+    /// empty pages down to `min_retained_bytes`. `collect` clears it.
+    release_requested: bool = false,
     /// Gray worklist for the mark phase (ADR-0028 amendment 3): `mark()`
     /// pushes newly-bitted non-leaf headers here instead of descending
     /// recursively, so an arbitrarily deep object graph (a 1M-long cons
@@ -245,8 +265,8 @@ pub const GcHeap = struct {
     /// between this and `max_threshold_floor_bytes`.
     base_threshold_floor_bytes: usize = default_gc_threshold_bytes,
 
-    /// Bytes allocated since the last `collect()` invocation. Trips
-    /// collection when it exceeds `threshold_bytes`.
+    /// Cell bytes allocated since the last `collect()` invocation. With
+    /// `owned_since_last_gc`, trips collection past `threshold_bytes`.
     bytes_since_last_gc: usize = 0,
     /// True iff this heap is the `gc` field embedded in a `Runtime` — set by
     /// `Runtime.init`. `collect()` then reaches the Runtime via
@@ -285,7 +305,6 @@ pub const GcHeap = struct {
         const owner = root_set_mod.currentThreadId();
         root_set_mod.noteHeapOwner(owner);
         var g = GcHeap{ .infra = infra, .owner_thread_id = owner };
-        g.free_pools.initMap(infra);
         // D-519 (ADR-0164): CLJW_GC_THRESHOLD_MB tunes the auto-collect floor — the
         // wall-clock GO gate raises it until every won fastest-script bench holds.
         // Invalid / unset / 0 → the 4MB default. Process env is published at startup
@@ -309,32 +328,35 @@ pub const GcHeap = struct {
         // under host load. Off by default = one null-check.
         if (@import("../process_env.zig").get("CLJW_GC_STATS") != null) {
             const s = self.stats;
-            std.debug.print("[gc-stats] allocs={d} pool_hits={d} mallocs={d} reuse={d}% collects={d} sweeps={d} bytes_alloc={d} last_live={d} floor_mb={d} gc_ms={d}\n", .{
-                s.alloc_count,                                                   s.pool_hits,       s.alloc_count - s.pool_hits,
-                if (s.alloc_count > 0) s.pool_hits * 100 / s.alloc_count else 0, s.collect_count,   s.sweep_count,
-                s.bytes_allocated,                                               s.last_live_bytes, self.threshold_floor_bytes / (1024 * 1024),
-                s.gc_ns_total / std.time.ns_per_ms,
+            std.debug.print("[gc-stats] allocs={d} small={d} large={d} collects={d} sweeps={d} bytes_alloc={d} last_live={d} floor_mb={d} gc_ms={d}\n", .{
+                s.alloc_count,     s.small_allocs,                             s.alloc_count - s.small_allocs,
+                s.collect_count,   s.sweep_count,                              s.bytes_allocated,
+                s.last_live_bytes, self.threshold_floor_bytes / (1024 * 1024), s.gc_ns_total / std.time.ns_per_ms,
             });
+            std.debug.print("[gc-stats] pages_now={d} pages_mapped={d} pages_released={d} large_live={d}\n", .{ self.pages.page_count, self.pages.pages_mapped_total, self.pages.pages_released_total, self.large_live_bytes });
             std.debug.print("[gc-stats] persistent_marks={d} persistent_bytes={d}\n", .{ self.persistent_marks.items.len, self.persistent_bytes });
         }
-        // Drain every live allocation back to infra. Calls the per-tag
-        // finaliser before rawFree so types that own non-GC resources
+        // Finalise every live allocation, then give its memory back. Calls
+        // the per-tag finaliser first so types that own non-GC resources
         // (String.bytes / BigInt limbs / wasm_module references) get
         // their cleanup chance — matches the sweep contract per
-        // ADR-0028 §4.
+        // ADR-0028 §4. Small cells need no per-cell free: their pages go
+        // back whole in `pages.deinit`.
         const tag_ops = @import("tag_ops.zig");
         for (self.allocations.items) |rec| {
             if (tag_ops.tag_finaliser_table[rec.header.tag]) |finaliser| {
                 finaliser(@ptrCast(self), rec.header);
             }
-            const mem = @as([*]u8, @ptrCast(rec.header))[0..rec.size];
-            self.infra.rawFree(mem, rec.alignment, @returnAddress());
+            if (!page_heap_mod.isSmall(rec.size, rec.alignment)) {
+                const mem = @as([*]u8, @ptrCast(rec.header))[0..rec.size];
+                self.infra.rawFree(mem, rec.alignment, @returnAddress());
+            }
         }
         self.allocations.deinit(self.infra);
         self.permanent_roots.deinit(self.infra);
         self.persisted_analysis_roots.deinit(self.infra);
         self.persistent_marks.deinit(self.infra);
-        self.free_pools.deinit(self.infra);
+        self.pages.deinit();
         self.mark_worklist.deinit(self.infra);
     }
 
@@ -537,17 +559,8 @@ pub const GcHeap = struct {
             }
         }
 
-        const key = free_pool_mod.FreePoolKey{ .size = effective_size, .alignment = align_t };
-
-        const raw: [*]u8 = if (self.free_pools.pop(key)) |reused| reuse: {
-            self.stats.pool_hits += 1; // diagnostic: served from the free pool (no malloc)
-            break :reuse reused;
-        } else blk: {
-            const fresh = self.infra.rawAlloc(effective_size, align_t, @returnAddress()) orelse
-                return error.OutOfMemory;
-            break :blk fresh;
-        };
-        errdefer self.infra.rawFree(raw[0..effective_size], align_t, @returnAddress());
+        const raw = try self.cellAlloc(effective_size, align_t);
+        errdefer self.cellFree(raw, effective_size, align_t);
 
         const obj: *T = @ptrCast(@alignCast(raw));
         const hdr: *HeapHeader = @ptrCast(@alignCast(raw));
@@ -560,6 +573,64 @@ pub const GcHeap = struct {
         self.stats.alloc_count += 1;
         self.bytes_since_last_gc += effective_size;
         return obj;
+    }
+
+    /// Backing memory for one cell: a page-heap slot when the cell is small,
+    /// an `infra` block otherwise. Caller holds `gc_mutex`.
+    fn cellAlloc(self: *GcHeap, size: usize, alignment: std.mem.Alignment) error{OutOfMemory}![*]u8 {
+        if (page_heap_mod.isSmall(size, alignment)) {
+            self.stats.small_allocs += 1;
+            return self.pages.alloc(size) orelse error.OutOfMemory;
+        }
+        const mem = self.infra.rawAlloc(size, alignment, @returnAddress()) orelse return error.OutOfMemory;
+        self.large_live_bytes += size;
+        return mem;
+    }
+
+    /// Give one dead cell's memory back: to its page, or to `infra`. Called by
+    /// sweep (inside the stop-the-world collect) and by `allocSized`'s errdefer.
+    pub fn cellFree(self: *GcHeap, mem: [*]u8, size: usize, alignment: std.mem.Alignment) void {
+        if (page_heap_mod.isSmall(size, alignment)) {
+            self.pages.free(mem);
+        } else {
+            self.large_live_bytes -= size;
+            self.infra.rawFree(mem[0..size], alignment, @returnAddress());
+        }
+    }
+
+    /// Charge `n` bytes of a cell's payload, allocated on `infra` outside the
+    /// cell, to the collect trigger (see `owned_since_last_gc`). An owner whose
+    /// payload can be large calls this where it allocates the payload. One
+    /// relaxed atomic add, no lock.
+    pub fn noteOwnedAlloc(self: *GcHeap, n: usize) void {
+        _ = self.owned_since_last_gc.fetchAdd(n, .monotonic);
+    }
+
+    /// Allocation pressure since the last collect: cell bytes plus charged
+    /// payload bytes. The quantity the trigger compares to `threshold_bytes`.
+    pub fn pressureBytes(self: *const GcHeap) usize {
+        return self.bytes_since_last_gc +| self.owned_since_last_gc.load(.monotonic);
+    }
+
+    /// The committed cell heap: mapped pages (live cells, free slots and
+    /// retained empty pages) plus live large cells. `(.totalMemory r)` reports
+    /// it; it shrinks when a collect releases pages.
+    pub fn committedBytes(self: *const GcHeap) usize {
+        return self.pages.mappedBytes() + self.large_live_bytes;
+    }
+
+    /// Empty-page budget a collect keeps mapped after its sweep, the
+    /// hysteresis against map/unmap thrash. An automatic collect keeps up to
+    /// one threshold's worth: the next cycle allocates at most
+    /// `threshold_bytes` before it collects again, so that is the most fresh
+    /// space it can use, and a page beyond it would sit idle until the next
+    /// release anyway. A steady-state burst therefore refills its
+    /// predecessor's pages instead of faulting in new ones. A requested
+    /// collect (`System/gc`) keeps only `min_retained_bytes`: the program
+    /// asked for the memory back.
+    pub fn retainBytesAfterCollect(self: *const GcHeap, requested: bool) usize {
+        if (requested) return min_retained_bytes;
+        return @max(min_retained_bytes, self.threshold_bytes);
     }
 
     /// D-519 (ADR-0164): threshold-driven auto-collect during eval. Run a STW
@@ -575,7 +646,7 @@ pub const GcHeap = struct {
     /// a torture period; torture stays in the gate as the stronger frequent rooting
     /// probe (this 4MB cadence can step over a 2-alloc unrooted window for years).
     pub fn maybeAutoCollect(self: *GcHeap) void {
-        if (self.bytes_since_last_gc <= self.threshold_bytes) return;
+        if (self.pressureBytes() <= self.threshold_bytes) return;
         // A multi-alloc builder's intermediate node is live-but-unrooted here; defer
         // the collect to just after the builder (the gate the torture path uses).
         if (root_set_mod.fabrication_depth > 0) return;
@@ -603,6 +674,10 @@ pub const GcHeap = struct {
         const mark_sweep = @import("mark_sweep.zig");
         in_alloc_torture = true;
         defer in_alloc_torture = false;
+        // A requested collect also returns the empty pages an automatic one
+        // would keep warm (`retainBytesAfterCollect`). `collect` consumes the
+        // flag.
+        self.release_requested = true;
         mark_sweep.collectStopTheWorld(self, .{ .envs = &.{e}, .gc = self }, false);
     }
 
@@ -616,7 +691,8 @@ pub const GcHeap = struct {
     /// this BEFORE allocating `infra_bytes`; it refuses (hook + OutOfMemory)
     /// when that plus the current live gc bytes would exceed the cap. No-op when
     /// unmetered. (Per-eval is single-threaded, so the read needs no gc_mutex.)
-    pub fn checkInfraCap(self: *GcHeap, infra_bytes: usize) error{OutOfMemory}!void {
+    /// Admitted bytes are charged to the collect trigger (`noteOwnedAlloc`).
+    pub fn chargeInfraBytes(self: *GcHeap, infra_bytes: usize) error{OutOfMemory}!void {
         if (self.heap_ceiling) |cap| {
             const live = self.stats.bytes_allocated - self.stats.bytes_freed;
             if (live + infra_bytes > cap) {
@@ -624,6 +700,7 @@ pub const GcHeap = struct {
                 return error.OutOfMemory;
             }
         }
+        self.noteOwnedAlloc(infra_bytes);
     }
 
     // The `collect()` orchestrator lives in `mark_sweep.zig` — it

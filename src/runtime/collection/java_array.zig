@@ -60,6 +60,7 @@ pub fn isArray(v: Value) bool {
 pub fn make(rt: *Runtime, len: u32, init_val: Value) !Value {
     const buf = try rt.gc.infra.alloc(Value, len);
     errdefer rt.gc.infra.free(buf);
+    rt.gc.noteOwnedAlloc(buf.len * @sizeOf(Value));
     @memset(buf, init_val);
     const arr = try rt.gc.alloc(JavaArray);
     arr.* = .{
@@ -76,6 +77,7 @@ pub fn make(rt: *Runtime, len: u32, init_val: Value) !Value {
 pub fn fromSlice(rt: *Runtime, src: []const Value) !Value {
     const buf = try rt.gc.infra.alloc(Value, src.len);
     errdefer rt.gc.infra.free(buf);
+    rt.gc.noteOwnedAlloc(buf.len * @sizeOf(Value));
     std.mem.copyForwards(Value, buf, src);
     const arr = try rt.gc.alloc(JavaArray);
     arr.* = .{

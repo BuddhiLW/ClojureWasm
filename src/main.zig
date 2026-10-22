@@ -105,7 +105,7 @@ test {
     _ = @import("runtime/gc/tag_ops.zig");
     _ = @import("runtime/gc/gc_heap.zig");
     _ = @import("runtime/gc/mark_sweep.zig");
-    _ = @import("runtime/gc/free_pool.zig");
+    _ = @import("runtime/gc/page_heap.zig");
     _ = @import("runtime/gc/root_set.zig");
     _ = @import("runtime/gc/gc_torture.zig");
     _ = @import("runtime/concurrency/io_default.zig");
