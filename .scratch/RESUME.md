@@ -5,3 +5,4 @@ CLJW_PROFILE_STARTUP: prefix 1-7 ms (noisy), runEnvelope 13-24 ms.
 Drafted, NOT measured (build-lock wait), reverted: referAllImpl getOrPut+reserve. Worth a real A/B.
 Next levers (D-610): vm_arena 868 KB threadlocal makes TLS 1.17 MB, memset twice (vm.zig, out of scope); shared clojure.core refer table; readCollection; lazy ns replay during eager.
 Binaries: /tmp/ps/cljw-base (before), /tmp/ps/cljw-o091 (after), /tmp/ps/prof2 (-Dprofile).
+PR: https://github.com/BuddhiLW/ClojureWasm/pull/87 (opened 2026-10-22). Pending: confirm the final smoke (/tmp/ps_smoke.log) and note the result on the PR.
