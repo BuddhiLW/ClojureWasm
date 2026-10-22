@@ -1,8 +1,11 @@
-# CLJW-PERF-STARTUP resume (card 20261022150542-05d73990)
-State: O-090 (serialize.zig quoted-list scratch from ctx.allocator) built, measured, ledgered; D-610 records the residual. Commit pending on a green smoke (/tmp/ps_smoke.log).
-Measured (perf stat -r 20, load 10-45 so task-clock not wall): cljw -e nil task-clock 38.8 -> 27.3 ms (bb 29.1), faults 2741 -> 1792 (bb 4868). Pinned taskset -c 2: kernel instr 29.3M -> 12.3M (bb 26.8M); user 61.6M unchanged (bb 16.2M).
-CLJW_PROFILE_STARTUP: prefix 1-7 ms (noisy), runEnvelope 13-24 ms.
-Drafted, NOT measured (build-lock wait), reverted: referAllImpl getOrPut+reserve. Worth a real A/B.
-Next levers (D-610): vm_arena 868 KB threadlocal makes TLS 1.17 MB, memset twice (vm.zig, out of scope); shared clojure.core refer table; readCollection; lazy ns replay during eager.
-Binaries: /tmp/ps/cljw-base (before), /tmp/ps/cljw-o091 (after), /tmp/ps/prof2 (-Dprofile).
-PR: https://github.com/BuddhiLW/ClojureWasm/pull/87 (opened 2026-10-22). Pending: confirm the final smoke (/tmp/ps_smoke.log) and note the result on the PR.
+# CLJW-E2E-SWEEP phase16 resume (card 20260909231443-121d741e, branch swarm/e2e-phase16)
+
+Commit 1: 17 phase16 scripts migrated (agent, locking, concurrency_stress, java-io family,
+reducers / repl / json_fs / tokenizer, extend_via_metadata, bfs_queue_gc) into the suites
+agent_test, locking_test, java_io_family_test, core_libs_phase16_test, gc_heap_return_test.
+Baseline 322 -> 305. Smoke test_clj_suites green (881 tests, 156 suites).
+
+Remaining phase16 (19): eval_budget gc_torture http_client http_server load_file_source
+repl_classpath stdin_read_line vm_error_loc_sidecar wasm_* (12), zig_native (already marked).
+Next: merge origin/staging; classify each remaining script as in-process (migrate) or
+process-boundary (mark with `# e2e-process-boundary: <reason>`).
