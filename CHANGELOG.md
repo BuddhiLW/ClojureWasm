@@ -7,6 +7,21 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 
 ## [Unreleased]
 
+### Added
+
+- **Release binaries carry signed build provenance and a `SHA256SUMS` file.**
+  Each tarball gets a Sigstore attestation from the release workflow, so
+  `gh attestation verify cljw-linux-x86_64.tar.gz -R BuddhiLW/ClojureWasm`
+  proves it was built by that workflow from a given commit. `SHA256SUMS`
+  collects the per-asset sums for `sha256sum -c`.
+
+### Changed
+
+- **`brew install clojurewasm/tap/cljw` is the advertised install.** Each
+  repository's release now bumps its own owner's tap from its own build:
+  BuddhiLW/ClojureWasm keeps `buddhilw/tap`, clojurewasm/ClojureWasm drives
+  `clojurewasm/tap`. A fork without a `TAP_DEPLOY_KEY` skips the tap job.
+
 ## [1.15.2] - 2026-10-21
 
 ### Fixed

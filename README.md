@@ -13,7 +13,7 @@
 <p align="center">
   <a href="https://github.com/BuddhiLW/ClojureWasm/releases/latest"><img src="https://img.shields.io/github/v/release/BuddhiLW/ClojureWasm?sort=semver&display_name=tag&label=release&color=success" alt="Latest release" /></a>
   <a href="https://github.com/BuddhiLW/ClojureWasm/actions/workflows/ci.yml"><img src="https://github.com/BuddhiLW/ClojureWasm/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
-  <a href="https://github.com/BuddhiLW/homebrew-tap"><img src="https://img.shields.io/badge/brew-buddhilw%2Ftap%2Fcljw-F9A03C?logo=homebrew&logoColor=white" alt="Homebrew tap" /></a>
+  <a href="https://github.com/clojurewasm/homebrew-tap"><img src="https://img.shields.io/badge/brew-clojurewasm%2Ftap%2Fcljw-F9A03C?logo=homebrew&logoColor=white" alt="Homebrew tap" /></a>
   <a href="https://ziglang.org/"><img src="https://img.shields.io/badge/Zig-0.16.0-f7a41d?logo=zig&logoColor=white" alt="Zig 0.16.0" /></a>
   <a href="./LICENSE"><img src="https://img.shields.io/badge/License-EPL_2.0-blue.svg" alt="License: EPL 2.0" /></a>
 </p>
@@ -36,12 +36,19 @@ you set.
 ## Install
 
 ```sh
-brew install buddhilw/tap/cljw                # macOS arm64, Linux x86_64
+brew install clojurewasm/tap/cljw             # macOS arm64, Linux x86_64
 zig build -Dwasm -Doptimize=ReleaseSafe       # or from source (Zig 0.16)
 ```
 
-Prebuilt binaries are on [Releases](https://github.com/BuddhiLW/ClojureWasm/releases).
-They are not code-signed; on macOS, `xattr -d com.apple.quarantine "$(which cljw)"`
+Prebuilt binaries are on [Releases](https://github.com/BuddhiLW/ClojureWasm/releases),
+each with a `SHA256SUMS` file and a signed build attestation. To check that a
+tarball was built by this repository's release workflow:
+
+```sh
+gh attestation verify cljw-linux-x86_64.tar.gz -R BuddhiLW/ClojureWasm
+```
+
+The binaries are not code-signed; on macOS, `xattr -d com.apple.quarantine "$(which cljw)"`
 once.
 
 ```sh
@@ -215,7 +222,8 @@ Created by [Shota Kudo (@chaploud)](https://github.com/chaploud), who built it
 from nothing to a working JVM-free Clojure with a Wasm FFI through v1.10.1. In
 2026-10 the project passed to [@BuddhiLW](https://github.com/BuddhiLW); the
 fork's work (v1.11 to v1.15.0) is merged back into
-[clojurewasm/ClojureWasm](https://github.com/clojurewasm/ClojureWasm), while
-releases and the Homebrew tap publish from
-[BuddhiLW/ClojureWasm](https://github.com/BuddhiLW/ClojureWasm). The engine is
+[clojurewasm/ClojureWasm](https://github.com/clojurewasm/ClojureWasm). Releases
+are cut on [BuddhiLW/ClojureWasm](https://github.com/BuddhiLW/ClojureWasm) and
+again when they reach clojurewasm/ClojureWasm; each repository bumps its own
+owner's Homebrew tap from its own build. The engine is
 [zwasm](https://github.com/zwasm/zwasm).
