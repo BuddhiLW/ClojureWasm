@@ -505,9 +505,9 @@ pub fn getFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) 
         .array => blk: {
             if (k.tag() != .integer) break :blk default;
             const idx = k.asInteger();
-            const items = java_array.asArray(coll).items();
-            if (idx < 0 or idx >= items.len) break :blk default;
-            break :blk items[@intCast(idx)];
+            const arr = java_array.asArray(coll);
+            if (idx < 0 or idx >= arr.len) break :blk default;
+            break :blk try java_array.get(rt, arr, @intCast(idx));
         },
         // A String is index-gettable (clj `(get "abc" 1)` → \b): return the
         // codepoint char, else default (OOR / non-integer key). D-217.
@@ -652,7 +652,7 @@ pub fn nthFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) 
                 if (has_default) break :blk default;
                 break :blk error_catalog.raise(.index_out_of_range, loc, .{ .fn_name = "nth" });
             }
-            break :blk array_seq.nth(coll, @intCast(idx));
+            break :blk try array_seq.nth(rt, coll, @intCast(idx));
         },
         // `nth` into UTF-8 is a forward walk by nature, so this arm is O(idx)
         // rather than the vector view's O(1). The bounds check rides on that
@@ -688,7 +688,7 @@ pub fn nthFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) 
                 if (has_default) break :blk default;
                 break :blk error_catalog.raise(.index_out_of_range, loc, .{ .fn_name = "nth" });
             }
-            break :blk try java_array.aget(coll, idx, "nth", loc);
+            break :blk try java_array.aget(rt, coll, idx, "nth", loc);
         },
         // A live transient vector is Indexed (clj parity, D-199) — same
         // index discipline as a persistent vector.

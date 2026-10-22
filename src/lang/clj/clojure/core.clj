@@ -2753,109 +2753,96 @@
       (throw (IllegalArgumentException. (str "Not a qualified symbol: " sym))))))
 
 
-;; --- Java arrays (ADR-0105 / D-287) ---
-;; Type-erased uniform []Value over the cljw.internal/__array-make + aget/aset/alength/
-;; aclone host primitives. Per-constructor init defaults + byte/short/char wrap
-;; give clj-faithful VALUES (F-011); the element type itself is erased (AD-019),
-;; so int/long/double/float arrays do not coerce non-byte elements. Arrays use
-;; identity equality.
+;; --- Java arrays (ADR-0105 / D-287, ADR-0204) ---
+;; An array has an element kind: `object-array` / `to-array` / `into-array` /
+;; `make-array` hold any value, the typed constructors hold native elements
+;; (byte i8 ... double f64). The cljw.internal/__array-make / __array-from /
+;; __array-fill constructors are native, so an n-element array is one call.
+;; Constructors convert like clj's RT.longArray and friends (wrap, truncate);
+;; `aset` is strict (clj's "argument type mismatch"). Arrays use identity
+;; equality.
+
+(defn- -array-elems
+  "A vector or array holding `x`'s elements, the input of `__array-from`."
+  [x] (if (or (vector? x) (array? x)) x (vec x)))
 
 (defn- -array-from
-  "size-or-seq → array. A number makes n slots of `default`; otherwise the
-  seqable is materialised and each element passed through `coerce`."
-  [size-or-seq default coerce]
+  "size-or-seq → array of `kind`. A number makes n default slots; otherwise
+  each element of the seqable is converted to the kind."
+  [kind size-or-seq]
   (if (number? size-or-seq)
-    (cljw.internal/__array-make size-or-seq default)
-    (let [s (vec size-or-seq)
-          n (count s)
-          a (cljw.internal/__array-make n default)]
-      (dotimes [i n] (aset a i (coerce (nth s i))))
-      a)))
+    (cljw.internal/__array-make kind (long size-or-seq))
+    (cljw.internal/__array-from kind (-array-elems size-or-seq) nil)))
 
 (defn- -array-from2
-  "size + init-val-or-seq → array (the 2-arg ctor form). A `sequential?` init is
-  copied (`size` slots, the rest left at `default`); any other init fills every
-  slot with `(coerce init)`. Uniform across element types — cljw arrays are
-  type-erased (AD-019), so unlike clj there is no per-type Number/Character
-  overload accident: `(byte-array 3 65)` / `(char-array 3 65)` fill here but
-  throw on the JVM (AD-036)."
-  [size init default coerce]
-  (let [a (cljw.internal/__array-make size default)]
-    (if (sequential? init)
-      (let [s (vec init)
-            n (min size (count s))]
-        (dotimes [i n] (aset a i (coerce (nth s i)))))
-      (dotimes [i size] (aset a i (coerce init))))
-    a))
-
-(defn- -to-byte [v]
-  (let [b (bit-and v 255)] (if (>= b 128) (- b 256) b)))
-(defn- -to-short [v]
-  (let [s (bit-and v 65535)] (if (>= s 32768) (- s 65536) s)))
+  "size + init-val-or-seq → array of `kind` (the 2-arg ctor form). A
+  `sequential?` init is copied (`size` slots, the rest left at the default);
+  any other init fills every slot. Uniform across kinds, so unlike clj there
+  is no per-type Number/Character overload accident: `(byte-array 3 65)` /
+  `(char-array 3 65)` fill here but throw on the JVM (AD-036)."
+  [kind size init]
+  (if (sequential? init)
+    (cljw.internal/__array-from kind (-array-elems init) (long size))
+    (cljw.internal/__array-fill (cljw.internal/__array-make kind (long size)) init)))
 
 ;; object-array has NO clj 2-arg form (clj throws an arity error) — stays 1-arg.
-(defn object-array  [x] (-array-from x nil    identity))
+(defn object-array  [x] (-array-from :object x))
 ;; The typed ctors take `([size-or-seq] [size init-val-or-seq])` (clj parity).
-(defn int-array     ([x] (-array-from x 0 identity))     ([n init] (-array-from2 n init 0 identity)))
-(defn long-array    ([x] (-array-from x 0 identity))     ([n init] (-array-from2 n init 0 identity)))
-(defn double-array  ([x] (-array-from x 0.0 identity))   ([n init] (-array-from2 n init 0.0 identity)))
-(defn float-array   ([x] (-array-from x 0.0 identity))   ([n init] (-array-from2 n init 0.0 identity)))
-(defn short-array   ([x] (-array-from x 0 -to-short))    ([n init] (-array-from2 n init 0 -to-short)))
-(defn byte-array    ([x] (-array-from x 0 -to-byte))     ([n init] (-array-from2 n init 0 -to-byte)))
-(defn char-array    ([x] (-array-from x \space char))    ([n init] (-array-from2 n init \space char)))
-(defn boolean-array ([x] (-array-from x false boolean))  ([n init] (-array-from2 n init false boolean)))
+(defn int-array     ([x] (-array-from :int x))     ([n init] (-array-from2 :int n init)))
+(defn long-array    ([x] (-array-from :long x))    ([n init] (-array-from2 :long n init)))
+(defn double-array  ([x] (-array-from :double x))  ([n init] (-array-from2 :double n init)))
+(defn float-array   ([x] (-array-from :float x))   ([n init] (-array-from2 :float n init)))
+(defn short-array   ([x] (-array-from :short x))   ([n init] (-array-from2 :short n init)))
+(defn byte-array    ([x] (-array-from :byte x))    ([n init] (-array-from2 :byte n init)))
+(defn char-array    ([x] (-array-from :char x))    ([n init] (-array-from2 :char n init)))
+(defn boolean-array ([x] (-array-from :boolean x)) ([n init] (-array-from2 :boolean n init)))
 
 (defn make-array
-  "Allocate an array. The `type` arg is accepted but ignored (cljw arrays are
-  type-erased, AD-019). Multi-dim builds nested arrays."
-  ([type len] (cljw.internal/__array-make len nil))
+  "Allocate an object array. The `type` arg is accepted but ignored: cljw has
+  no Class objects, and `(make-array Long n)` is a `Long[]` on the JVM too.
+  Multi-dim builds nested arrays."
+  ([type len] (cljw.internal/__array-make :object len))
   ([type d & more]
-   (let [a (cljw.internal/__array-make d nil)]
+   (let [a (cljw.internal/__array-make :object d)]
      (dotimes [i d] (aset a i (apply make-array type more)))
      a)))
 
 (defn to-array
-  "coll → an array of its elements (clj returns Object[])."
-  [coll] (-array-from (vec coll) nil identity))
+  "coll → an object array of its elements (clj returns Object[])."
+  [coll] (-array-from :object (-array-elems coll)))
 
 (defn bytes?
-  "Returns true if x is a cljw array. JVM Clojure's `bytes?` is true only for a
-  `byte[]`, but cljw arrays are type-erased (AD-019): `byte-array`/`int-array`/
-  `object-array` share one runtime shape, so a byte-array is indistinguishable
-  from any other array. cljw therefore answers true for any array (AD-051) — the
-  common positive guard `(bytes? (byte-array n))` matches clj; non-byte arrays
-  diverge (clj false, cljw true). A byte-array IS usable as bytes in cljw
-  (`(String. (byte-array ...))` works), so the over-broad positive is consistent
-  with cljw's uniform-array model rather than a silent lie."
-  [x] (array? x))
+  "Returns true if x is a byte array."
+  [x] (and (array? x) (= :byte (cljw.internal/__array-kind x))))
 
 (defn into-array
-  "coll → array; the optional leading `type` is accepted and ignored."
+  "coll → an object array; the optional leading `type` is accepted and
+  ignored (a boxed `Long[]` on the JVM is an object array here too)."
   ([coll] (to-array coll))
   ([type coll] (to-array coll)))
 
-;; aset-* typed setters. clj coerces the value to the element type; cljw applies
-;; only the value-changing modular wraps (byte/short/char), the rest are aset.
+;; aset-* typed setters: the value is coerced as clj's `(int v)` / `(byte v)`
+;; ... do (a range check, not a wrap), then stored.
 (defn aset-int
-  ([a i v] (aset a i v))
+  ([a i v] (aset a i (int v)))
   ([a i j & more] (apply aset-int (aget a i) j more)))
 (defn aset-long
-  ([a i v] (aset a i v))
+  ([a i v] (aset a i (long v)))
   ([a i j & more] (apply aset-long (aget a i) j more)))
 (defn aset-float
-  ([a i v] (aset a i v))
+  ([a i v] (aset a i (float v)))
   ([a i j & more] (apply aset-float (aget a i) j more)))
 (defn aset-double
-  ([a i v] (aset a i v))
+  ([a i v] (aset a i (double v)))
   ([a i j & more] (apply aset-double (aget a i) j more)))
 (defn aset-boolean
   ([a i v] (aset a i (boolean v)))
   ([a i j & more] (apply aset-boolean (aget a i) j more)))
 (defn aset-byte
-  ([a i v] (aset a i (-to-byte v)))
+  ([a i v] (aset a i (byte v)))
   ([a i j & more] (apply aset-byte (aget a i) j more)))
 (defn aset-short
-  ([a i v] (aset a i (-to-short v)))
+  ([a i v] (aset a i (short v)))
   ([a i j & more] (apply aset-short (aget a i) j more)))
 (defn aset-char
   ([a i v] (aset a i (char v)))
