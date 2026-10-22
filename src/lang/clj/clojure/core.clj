@@ -516,8 +516,9 @@
 ;; bootstrap-order-safe. The lazy-seq realization utilities (clojure.core).
 (def dorun
   (fn* ([coll]
-        (loop* [s (seq coll)]
-          (if s (recur (next s)) nil)))
+        ;; PERF: the seq/next walk runs natively, a chunk at a time over a
+        ;; chunked seq. [refs: O-077]
+        (cljw.internal/__dorun coll))
        ([n coll]
         (loop* [i n s (seq coll)]
           (if (if (pos? i) s nil) (recur (dec i) (next s)) nil)))))

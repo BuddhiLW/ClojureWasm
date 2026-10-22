@@ -24,8 +24,8 @@
 schema_version: "2.0"
 summary:
   namespaces_required: 36
-  total: 1458
-  zig: 425
+  total: 1459
+  zig: 426
   clj: 807
   value: 220
   unbound: 6
@@ -83,6 +83,7 @@ vars:
   "cljw.internal/__defrecord!": { impl: zig, flags: "-" }
   "cljw.internal/__deftype!": { impl: zig, flags: "-" }
   "cljw.internal/__delay-create": { impl: zig, flags: "-" }
+  "cljw.internal/__dorun": { impl: zig, flags: "-" }
   "cljw.internal/__dump-host-classes": { impl: zig, flags: "-" }
   "cljw.internal/__dump-placement": { impl: zig, flags: "-" }
   "cljw.internal/__entry-at": { impl: zig, flags: "-" }

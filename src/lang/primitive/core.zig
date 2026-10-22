@@ -945,6 +945,28 @@ pub fn strFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) 
         const s = std.fmt.bufPrint(&dbuf, "{d}", .{args[0].asInteger()}) catch unreachable;
         return try string_mod.alloc(rt, s);
     }
+    // PERF: when every arg is a string / immediate integer / nil, render into
+    // a stack buffer: no heap writer alloc+free, no per-arg writeStrValue
+    // switch. Output is byte-identical to writeStrValue for those tags (bare
+    // string, decimal int, nil → ""). Anything else, or an overflow of the
+    // buffer, takes the general path below. [refs: O-075]
+    simple: {
+        var sbuf: [256]u8 = undefined;
+        var len: usize = 0;
+        for (args) |arg| {
+            if (arg.tag() == .string) {
+                const s = string_mod.asString(arg);
+                if (s.len > sbuf.len - len) break :simple;
+                @memcpy(sbuf[len..][0..s.len], s);
+                len += s.len;
+            } else if (arg.isInt()) {
+                if (sbuf.len - len < 24) break :simple;
+                const s = std.fmt.bufPrint(sbuf[len..], "{d}", .{arg.asInteger()}) catch unreachable;
+                len += s.len;
+            } else if (arg.tag() != .nil) break :simple;
+        }
+        return try string_mod.alloc(rt, sbuf[0..len]);
+    }
     var aw: std.Io.Writer.Allocating = .init(rt.gpa);
     defer aw.deinit();
     // Per-value str rendering lives in `print.writeStrValue` — the single
