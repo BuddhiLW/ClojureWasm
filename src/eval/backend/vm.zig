@@ -727,7 +727,7 @@ inline fn stepOnce(
         },
         .op_add, .op_sub, .op_mul, .op_lt, .op_le, .op_gt, .op_ge, .op_eq, .op_mod, .op_rem, .op_quot, .op_ne => {
             // Binary arith/comparison intrinsic (ADR-0130 cache/deopt contract).
-            // Fixnum fast path skips
+            // Fixnum/float fast path skips
             // var-resolve + BuiltinFn dispatch; any other case (incl. errors)
             // defers to the cached builtin Var for full parity. `pristine` is
             // cleared by alter-var-root on a cached op (deopt → always builtin).
@@ -737,7 +737,7 @@ inline fn stepOnce(
             const b = stack[sp + 1];
             const aop = intrinsic.fromOpcode(instr_op).?;
             const fast: ?Value = if (rt.core_arith_pristine)
-                try intrinsic.fastBinaryFixnum(rt, aop, a, b)
+                try intrinsic.fastBinaryNumber(rt, aop, a, b)
             else
                 null;
             const result = fast orelse blk: {
@@ -867,7 +867,7 @@ inline fn stepOnce(
             const b = chunk.constants[cidx];
             const aop = intrinsic.fromLocalConstOpcode(instr_op).?;
             const fast: ?Value = if (rt.core_arith_pristine)
-                try intrinsic.fastBinaryFixnum(rt, aop, a, b)
+                try intrinsic.fastBinaryNumber(rt, aop, a, b)
             else
                 null;
             const result = fast orelse blk: {
@@ -898,7 +898,7 @@ inline fn stepOnce(
             const b = locals[sb];
             const aop = intrinsic.fromLocalsOpcode(instr_op).?;
             const fast: ?Value = if (rt.core_arith_pristine)
-                try intrinsic.fastBinaryFixnum(rt, aop, a, b)
+                try intrinsic.fastBinaryNumber(rt, aop, a, b)
             else
                 null;
             const result = fast orelse blk: {
@@ -943,7 +943,7 @@ inline fn stepOnce(
                 break :bblk locals[sb];
             };
             const fast: ?Value = if (rt.core_arith_pristine)
-                try intrinsic.fastBinaryFixnum(rt, info.cmp, a, b)
+                try intrinsic.fastBinaryNumber(rt, info.cmp, a, b)
             else
                 null;
             const cmp_result = fast orelse blk: {

@@ -271,6 +271,30 @@ test "diff: arith intrinsic family (ADR-0130 am1) — sub/mul/comparisons/= (inl
     try f.checkEqual("(let* [< -] (< 10 3))");
 }
 
+test "diff: float arith/compare intrinsic (O-065) — VM inline f64 ≡ builtin" {
+    var f: Fixture = undefined;
+    try Fixture.init(&f, testing.allocator);
+    defer f.deinit();
+    // A double on either side takes the VM's f64 arm; TreeWalk always runs the
+    // builtin, so each pair below checks the inline arm against the tower.
+    try f.checkEqual("(+ 1.5 2)");
+    try f.checkEqual("(+ 2 1.5)");
+    try f.checkEqual("(- 1.5 3)");
+    try f.checkEqual("(* 1.5 1.5)");
+    try f.checkEqual("(+ 1.5 1.5)"); // integral double stays a double
+    try f.checkEqual("(* 0.1 3)");
+    try f.checkEqual("(< 1.5 2)");
+    try f.checkEqual("(<= 2 2.0)");
+    try f.checkEqual("(> 2.0 2)");
+    try f.checkEqual("(>= 1.5 2)");
+    try f.checkEqual("(< ##NaN 1)"); // NaN orders false
+    try f.checkEqual("(>= 1 ##NaN)");
+    try f.checkEqual("(= 2 2.0)"); // = still defers: false across categories
+    try f.checkEqual("(let* [x 1.5] (* x 2))"); // (local, const) → op_mul_local_const
+    try f.checkEqual("(let* [x 1.5 y 4] (< x y))"); // (local, local) → op_lt_locals
+    try f.checkEqual("(loop* [i 0 acc 0.0] (if (< i 10) (recur (+ i 1) (+ acc (* 1.5 i))) acc))");
+}
+
 test "diff: mod/rem/quot intrinsic (O-030) — VM op_mod/rem/quot ≡ builtin" {
     var f: Fixture = undefined;
     try Fixture.init(&f, testing.allocator);
@@ -295,7 +319,7 @@ test "diff: mod/rem/quot intrinsic (O-030) — VM op_mod/rem/quot ≡ builtin" {
 // only the Zig builtins + macros (no core.clj), and `not=` is a `.clj`-defined fn
 // (core.clj), so it is unresolved in this fixture and op_ne never fires here.
 // op_ne's fixnum fast path is unit-tested directly (intrinsic.zig
-// "fastBinaryFixnum comparisons are exact"); its end-to-end clj-parity is locked by
+// "fastBinaryNumber comparisons are exact"); its end-to-end clj-parity is locked by
 // the `not_equal` clj corpus (test/diff/clj_corpus/) on the real (core-loaded)
 // binary. The VM≡TreeWalk parity is structural: op_ne mirrors op_eq (diff-tested
 // above), and the non-fixnum path defers to the same .clj `not=` on both backends.
