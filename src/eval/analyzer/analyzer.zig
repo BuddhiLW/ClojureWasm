@@ -435,9 +435,13 @@ fn staticFieldValue(rt: *Runtime, sf: *const @import("../../runtime/type_descrip
             .time_local_date_epoch => @import("../../runtime/time/local_date_value.zig").make(rt, 0) catch |e| return coerceConstErr(e),
             .time_local_date_time_min => @import("../../runtime/time/local_date_time_value.zig").make(rt, MIN_EPOCH_DAY, 0) catch |e| return coerceConstErr(e),
             .time_local_date_time_max => @import("../../runtime/time/local_date_time_value.zig").make(rt, MAX_EPOCH_DAY, 86_399_999_999_999) catch |e| return coerceConstErr(e),
+            .time_zone_offset_utc => @import("../../runtime/time/zone_offset.zig").make(rt, .{ .seconds = 0 }) catch |e| return coerceConstErr(e),
+            .time_zone_offset_min => @import("../../runtime/time/zone_offset.zig").make(rt, .{ .seconds = -18 * 3600 }) catch |e| return coerceConstErr(e),
+            .time_zone_offset_max => @import("../../runtime/time/zone_offset.zig").make(rt, .{ .seconds = 18 * 3600 }) catch |e| return coerceConstErr(e),
         },
         .host_enum => |he| try @import("../../runtime/host_enum.zig").singleton(rt, @enumFromInt(he.enum_idx), he.ordinal),
         .math_context => |which| try @import("../../runtime/math_context.zig").singleton(rt, which),
+        .date_time_formatter => |idx| @import("../../runtime/time/date_time_formatter_value.zig").isoConstant(rt, idx) catch |e| return coerceConstErr(e),
         // BigDecimal ZERO/ONE/TWO/TEN (ADR-0174 D7): a scale-0 BigDecimal
         // lifted via the constructor at analyze time.
         .big_decimal => |i| @import("../../runtime/numeric/big_decimal.zig").allocFromI64Scale(rt, i, 0) catch |e| return coerceConstErr(e),
