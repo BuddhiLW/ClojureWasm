@@ -730,6 +730,9 @@ run_step "e2e_phase16_wasm_component_budget" "bash test/e2e/phase16_wasm_compone
 # as committed AND rebuilt from their source headers (each toolchain on PATH),
 # plus hosts.cljc on every Clojure host present. A README claim with a gate.
 run_step "e2e_phase16_wasm_polyglot"        "bash test/e2e/phase16_wasm_polyglot.sh"
+# docs/examples/zig-native: one Zig source as a wasm guest and as a native
+# library through cljw.ffi, committed wasm AND rebuilt from the header recipe.
+run_step "e2e_phase16_zig_native"           "bash test/e2e/phase16_zig_native.sh"
 # The reswap coverage moved to suites/wasm-require-component-reswap-test: it
 # asserts values, not the process boundary, so it runs in-process now.
 run_step "e2e_phase15_ns_import"            "bash test/e2e/phase15_ns_import.sh"
