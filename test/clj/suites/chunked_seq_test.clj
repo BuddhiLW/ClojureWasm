@@ -48,3 +48,25 @@
   (is (= "(0 1 2)" (str (seq (range 3)))))                  ; print_chunked_cons
   (is (= "(1 2 3 4)" (str (rest (range 5)))))               ; print_cc_rest
   (is (= "[(0 1 2)]" (pr-str [(seq (range 3))]))))          ; print_cc_nested
+
+;; The seq of a vector is IChunkedSeq, as clj's PersistentVector$ChunkedSeq:
+;; its chunk is the 32-element leaf holding the cursor, so map/filter over a
+;; vector realize a leaf at a time. Values measured on clj/bb (ADR-0205): the
+;; first element of (map f v) runs f over the whole first leaf; a cursor at 5
+;; exposes the rest of that leaf (27). subvec and empty seqs are not chunked.
+(deftest a-vector-seq-is-chunked-by-leaf
+  (let [v (vec (range 70))
+        log (atom 0)
+        m (map (fn* [x] (swap! log inc) x) v)]
+    (is (= 0 (first m)))
+    (is (= 32 @log))                                          ; vec_map_first_realizes_leaf
+    (reset! log 0)
+    (is (= 5 (first (map (fn* [x] (swap! log inc) x) (drop 5 v)))))
+    (is (= 27 @log))                                          ; vec_map_mid_leaf
+    (is (true? (chunked-seq? (seq v))))                       ; vec_seq_chunked
+    (is (false? (chunked-seq? (seq (subvec v 1 5)))))         ; subvec_not_chunked
+    (is (= 38 (count (chunk-rest (seq v)))))                  ; vec_chunk_rest
+    (is (= 38 (count (chunk-rest (next (seq v))))))           ; vec_chunk_rest_mid
+    (is (= 2485 (reduce + (map inc v))))                      ; vec_reduce_map
+    (is (= (range 1 71) (map inc v)))                         ; vec_map_eq
+    (is (= (filter odd? (range 70)) (filter odd? v)))))       ; vec_filter_eq
