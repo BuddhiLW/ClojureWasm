@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# test/e2e/phase16_zig_native.sh — docs/examples/zig-native is a gated claim.
+# e2e-process-boundary: runs the zig toolchain to rebuild the example's wasm and shared library, which cljw cannot spawn
+# test/e2e/phase16_zig_native.sh: docs/examples/zig-native is a gated claim.
 # Two legs:
 #
 #   1. The COMMITTED kernel.wasm: zig_native.clj must print PASS zig-wasm and,
