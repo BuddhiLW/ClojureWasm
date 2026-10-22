@@ -1221,6 +1221,10 @@ pub fn formatFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocatio
                 defer stmp.deinit();
                 if (args[src].tag() == .nil) {
                     try stmp.writer.writeAll("null");
+                } else if (args[src].tag() == .big_int or args[src].tag() == .big_decimal) {
+                    // JVM `%s` calls `.toString`: plain digits, no `N`/`M`
+                    // reader suffix (`(format "%s" 1N)` → "1").
+                    try print_mod.writeStrValue(rt, env, &stmp.writer, args[src]);
                 } else {
                     try writeArgsSpaced(rt, env, &stmp.writer, args[src .. src + 1], false);
                 }
