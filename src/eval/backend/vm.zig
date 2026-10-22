@@ -264,7 +264,7 @@ pub fn eval(
     if (ar.frame_top >= FRAMES_MAX)
         return error_catalog.raise(.stack_overflow, .{}, .{ .max = FRAMES_MAX });
 
-    var handlers: [HANDLER_STACK_MAX]Handler = undefined;
+    var handlers = tree_walk.uninitScratch([HANDLER_STACK_MAX]Handler);
     var handler_count: u16 = 0;
 
     // The base frame: caller-owned locals + the base chunk. Its gc_frame roots
