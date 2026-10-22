@@ -612,13 +612,14 @@ fn readValue(ctx: *ReadCtx, r: *ByteReader) DeserializeError!Value {
             // nil (D-164) — fold-from-nil would otherwise lose the distinct
             // `()` for a quoted empty list baked into the AOT blob.
             if (n == 0) return list_mod.emptyList(rt) catch return DeserializeError.OutOfMemory;
-            // Read forward into a stack-allocated buffer, then cons-fold
-            // back to preserve the head-first source order. Caps at a
-            // bounded stack alloc; very-large quoted lists are rare in
-            // the constant pool — long sequences come through `list`
-            // primitive at runtime.
-            const buf = std.heap.page_allocator.alloc(Value, n) catch return DeserializeError.OutOfMemory;
-            defer std.heap.page_allocator.free(buf);
+            // Read forward into a scratch buffer, then cons-fold back to
+            // preserve the head-first source order.
+            // PERF: scratch from the reader's allocator, as `readCollection`'s
+            // is; `page_allocator` cost one mmap + munmap + page fault per
+            // quoted list, 927 of them on every cold start [refs: O-090].
+            if (n > r.bytes.len - r.pos) return DeserializeError.BytecodeTruncated;
+            const buf = ctx.allocator.alloc(Value, n) catch return DeserializeError.OutOfMemory;
+            defer ctx.allocator.free(buf);
             // Fabrication region: `buf` elements + the growing `lst` are Zig
             // locals across the nested readValue/cons allocs — a collect in
             // the window would sweep the in-progress structure (the D-563b
