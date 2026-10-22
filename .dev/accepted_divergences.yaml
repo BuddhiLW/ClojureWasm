@@ -316,7 +316,7 @@ accepted:
       provably-JVM-internal prefixes defer. F-011: explicit error preserved, only
       its timing diverges.
     derives_from: "ADR-0113 (deferred host-class refs) + ADR-0059 (no JVM class) + provisional_marker.md (explicit runtime error OK, silent no-op forbidden)"
-    pin: "test/e2e/phase15_deferred_host_ref.sh — defines_and_loads + raises_when_called + typo_stays_loud"
+    pin: "test/clj/suites/forms_and_literals_test.clj (p15-deferred-host-ref: defines_and_loads + typo_stays_loud) + test/e2e/phase15_deferred_host_ref.sh (raises_when_called, the uncatchable call-time raise)"
   - id: "AD-023"
     summary: "Extending a protocol TO a host_inert java interface (`(extend-protocol P java.util.Map …)`) is a LOAD-ONLY no-op in cljw: the section loads but never dispatches, because no cljw value has a java.util.Map host type (cljw maps are native PersistentArrayMap/HashMap, not java.util.Map). A map receiver falls to the protocol's Object default (or raises if none)."
     example: '(do (defprotocol P (m [x])) (extend-protocol P java.util.Map (m [x] :map) Object (m [x] :obj)) (m {:a 1})) => cljw :obj (Map impl inert, falls to Object); clj => :map (a Clojure map IS a java.util.Map).'
