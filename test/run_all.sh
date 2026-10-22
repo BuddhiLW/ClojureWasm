@@ -716,6 +716,9 @@ run_step "e2e_bulk_literal"                 "bash test/e2e/bulk_literal.sh"
 run_step "e2e_phase16_wasm_ffi"             "bash test/e2e/phase16_wasm_ffi.sh"
 run_step "e2e_phase16_wasm_memory"          "bash test/e2e/phase16_wasm_memory.sh"
 run_step "e2e_phase16_wasm_engine_select"   "bash test/e2e/phase16_wasm_engine_select.sh"
+# CLJW-WASM-INTERP-THREAD-TRAP: a handle warmed on the runtime thread, then
+# called from a future, on every engine.
+run_step "e2e_phase16_wasm_thread_hop"      "bash test/e2e/phase16_wasm_thread_hop.sh"
 run_step "e2e_phase16_wasm_run"             "bash test/e2e/phase16_wasm_run.sh"
 # D-349: the third budget axis. Fuel bounds instructions; how many bytes an
 # instruction writes is the guest's choice, so only a capture cap bounds host
