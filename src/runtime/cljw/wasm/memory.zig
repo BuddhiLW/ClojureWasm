@@ -22,6 +22,7 @@ const Runtime = @import("../../runtime.zig").Runtime;
 const value_mod = @import("../../value/value.zig");
 const Value = value_mod.Value;
 const promote = @import("../../numeric/promote.zig");
+const big_int = @import("../../numeric/big_int.zig");
 const vector_mod = @import("../../collection/vector.zig");
 const sub_vector_mod = @import("../../collection/sub_vector.zig");
 
@@ -147,20 +148,22 @@ fn exactInt(v: Value) ElemError!i64 {
         .float => blk: {
             const f = v.asFloat();
             if (@floor(f) != f) return error.NotAnInteger;
-            if (f < @as(f64, @floatFromInt(std.math.minInt(i64))) or
-                f > @as(f64, @floatFromInt(std.math.maxInt(i64)))) return error.OutOfRange;
+            // Half-open at the top: maxInt(i64) as an f64 rounds to 2^63, so a
+            // `> maxInt` test let 2^63 through to a ReleaseSafe panic.
+            if (!(f >= -0x1p63 and f < 0x1p63)) return error.OutOfRange;
             break :blk @intFromFloat(f);
         },
         else => error.NotANumber,
     };
 }
 
-/// Read `v` as an f64. An integer widens; a float passes through. Matches
-/// `marshal.zig::toWasm`'s float arms, which accept exactly `isNumber()`.
+/// Read `v` as an f64. An integer widens (a heap Long or BigInt to its nearest
+/// double); a float passes through. Matches `marshal.zig::toWasm`'s float arms.
 fn floatOf(v: Value) ElemError!f64 {
     return switch (v.tag()) {
         .float => v.asFloat(),
         .integer => @floatFromInt(@as(i64, v.asInteger())),
+        .big_int => big_int.asManaged(v).toFloat(f64, .nearest_even)[0],
         else => error.NotANumber,
     };
 }
