@@ -152,7 +152,7 @@ accepted:
       `(name (ns-name *ns*))` are clj-faithful ("user"); only the readable
       `#object[…]` form (pr / prn / print / println) diverges.
     derives_from: "ADR-0059 (no-JVM: no class FQN); AD-002 (opaque-ref identity-hash not reproducible); ADR-0083"
-    pin: "test/e2e/phase15_namespace.sh — `(str *ns*)` => user + `(pr-str *ns*)` => #object[Namespace \"user\"] (the cljw form locked)"
+    pin: "test/clj/suites/vars_namespaces_test.clj — `(str *ns*)` => user + `(pr-str *ns*)` => #object[Namespace \"user\"] (the cljw form locked)"
   - id: "AD-012"
     summary: "A PersistentQueue prints as a readable `#queue (…)` (cljw) instead of clj's opaque `#object[clojure.lang.PersistentQueue 0x… \"…@hash\"]`"
     example: '(pr-str (conj clojure.lang.PersistentQueue/EMPTY 1 2 3)) => cljw "#queue (1 2 3)" / clj "#object[clojure.lang.PersistentQueue 0x… \"clojure.lang.PersistentQueue@…\"]"'
@@ -203,7 +203,7 @@ accepted:
       local var is meaningless after its extent in both runtimes; cljw returns a safe
       `nil` instead of an unreproducible opaque.
     derives_from: "F-006 (Vars gpa-owned + GC-membrane-filtered; no Unbound sentinel) + ADR-0097 (anon local Var lifetime) + the opaque-ref non-reproducibility class"
-    pin: "test/e2e/phase15_with_local_vars.sh — `escape-nil` asserts `(var-get (with-local-vars [x 5] x))` => nil (cljw's safe divergent value, not JVM's Var$Unbound opaque)"
+    pin: "test/clj/suites/vars_namespaces_test.clj — `escape-nil` asserts `(var-get (with-local-vars [x 5] x))` => nil (cljw's safe divergent value, not JVM's Var$Unbound opaque)"
   - id: "AD-016"
     summary: "`(biginteger x)` yields cljw's BigInt — prints `5N` (clj `5`) and `(class (biginteger 5))` is `BigInt` (clj `java.math.BigInteger`). cljw has no separate BigInteger type."
     example: '(biginteger 5) => cljw 5N / clj 5 ; (class (biginteger 5)) => cljw BigInt / clj java.math.BigInteger'
@@ -801,7 +801,7 @@ accepted:
       the namespace's existence; no mainline code enumerates (all-ns) expecting
       a closed set.
     derives_from: "ADR-0171 (rt merge — internals need a public qualified home for macro expansions) + ADR-0059 no-JVM (cljw owns the cljw.* namespace surface) + F-011 (every public var's home ns now MATCHES clj; only the extra internal ns is cljw-specific)."
-    pin: "test/e2e/phase15_namespace.sh — `ad053-internal-ns` locks (find-ns 'cljw.internal) present, `ad053-rt-gone` locks the old `rt` ns absent, `ad053-no-leak` locks __-internals out of clojure.core's publics."
+    pin: "test/clj/suites/vars_namespaces_test.clj — `ad053-internal-ns` locks (find-ns 'cljw.internal) present, `ad053-rt-gone` locks the old `rt` ns absent, `ad053-no-leak` locks __-internals out of clojure.core's publics."
   - id: "AD-054"
     summary: "Class-name completion (nREPL `completions` on an uppercase / dotted prefix) offers cljw's CLOSED class universe — the `rt.types` registry (host surfaces, deftypes, the java.lang/java.math default imports) — where mainline scans the whole JVM classpath and leaks internal classes (`java.lang.CharacterData00`, `sun.nio.cs.ext.Big5`, …)."
     example: "prefix \"Character\" => cljw [Character, java.lang.Character] / mainline additionally java.lang.CharacterData00…, com.sun.… (26 candidates). Every cljw candidate resolves; the mainline extras are not even loadable classes for user code."

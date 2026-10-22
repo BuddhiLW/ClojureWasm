@@ -23,7 +23,7 @@
 # bash 3.2 compatible (the macOS host runs the system bash).
 set -uo pipefail
 
-BASELINE=310
+BASELINE=295
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 E2E_DIR="${E2E_DIR:-$SCRIPT_DIR/../test/e2e}"
