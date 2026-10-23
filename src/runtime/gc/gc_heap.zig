@@ -150,6 +150,7 @@ pub const GcHeap = struct {
     pub const retainBytesAfterCollect = trigger.retainBytesAfterCollect;
     pub const maybeAutoCollect = trigger.maybeAutoCollect;
     pub const requestCollect = trigger.requestCollect;
+    pub const collectBeforeIdle = trigger.collectBeforeIdle;
 
     pub fn init(infra: std.mem.Allocator) GcHeap {
         const owner = root_set_mod.currentThreadId();

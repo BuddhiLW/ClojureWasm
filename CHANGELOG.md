@@ -9,6 +9,16 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 
 ### Fixed
 
+- **A long-running server that reads stdin now gives memory back.** The
+  `*in*` and `System/in` readers kept every byte they had ever read; they now
+  drop what has been consumed. While the main thread waits on stdin, each idle
+  second runs a collect (when at least 1 MiB was allocated since the last one)
+  and returns freed memory to the OS, so garbage left by `future`s and worker
+  threads no longer waits for the next request. Socket and `StringBuilder`
+  buffers now count toward the collect trigger. A bb-mcp-shaped probe (20
+  `future`s each building 4 MB of JSON, then idle) settles at 129 MB instead
+  of holding 955 MB.
+
 - **A `wasm/call` on the JIT no longer costs time proportional to the
   module.** zwasm resolved the export by re-parsing the module on every call;
   it now reads the export table built at compile. A trivial export of a 47 KB
