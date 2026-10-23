@@ -1348,15 +1348,14 @@ pub fn callProtocolFn(rt: *Runtime, env: *Env, callee: Value, args: []const Valu
     const receiver = args[0];
     // D-314 / ADR-0144: `:extend-via-metadata true` protocols dispatch via the
     // receiver's metadata (per-VALUE) ahead of the per-type impl. It MUST run
-    // before `dispatch.dispatch` (which owns the per-TYPE CallSite cache), so a
+    // before `dispatch.dispatchCached` (which owns the per-TYPE ProtocolFn cache), so a
     // meta hit never poisons the type cache. Gated on the flag → other protocols
     // pay nothing. Both backends share this entry (VM wires callFn=treeWalkCall).
     if (try meta_mod.metaDispatch(rt, env, pfn.descriptor, receiver, pfn.methodName(), args, loc)) |v| return v;
-    var cs: method_table.CallSite = .{};
-    return dispatch.dispatch(
+    return dispatch.dispatchCached(
         rt,
         env,
-        &cs,
+        pfn.cache(),
         receiver,
         pfn.descriptor.fqcn(),
         pfn.methodName(),
@@ -1453,6 +1452,14 @@ pub fn bindCallFrame(
 }
 
 fn callMethodImpl(rt: *Runtime, env: *Env, fn_val: Value, args: []const Value, loc: SourceLocation, rest_mode: RestMode) !Value {
+    // PERF: the 2 KB locals buffer is not 0xaa-filled in ReleaseSafe (it was
+    // 52% of protocol_dispatch's cycles): O-064's uninitScratch, the one
+    // mechanism for per-call scratch windows [refs: O-064, O-080]
+    var locals = uninitScratch([MAX_LOCALS]Value);
+    return callMethodBody(rt, env, fn_val, args, loc, rest_mode, &locals);
+}
+
+fn callMethodBody(rt: *Runtime, env: *Env, fn_val: Value, args: []const Value, loc: SourceLocation, rest_mode: RestMode, locals: *[MAX_LOCALS]Value) !Value {
     const f = fn_val.decodePtr(*Function);
     // Row 7.8 cycle 1 (ADR-0041): linear scan over `methods`, fixed-
     // arity wins on exact match; fall through to `variadic` when
@@ -1476,7 +1483,6 @@ fn callMethodImpl(rt: *Runtime, env: *Env, fn_val: Value, args: []const Value, l
     // a raw `*Function` (ADR-0184 A, DA gap 1) — the callee slot must
     // already be live then; the locals window starts empty and is widened
     // to the bound slots after the binder returns. [ref: .dev/gc_rooting.md §A]
-    var locals = uninitScratch([MAX_LOCALS]Value);
     var gc_stack: [1]Value = .{.nil_val};
     var gc_sp: u16 = 0;
     var gc_frame: root_set.EvalFrame = .{
@@ -1489,7 +1495,7 @@ fn callMethodImpl(rt: *Runtime, env: *Env, fn_val: Value, args: []const Value, l
     root_set.eval_frame_head = &gc_frame;
     defer root_set.eval_frame_head = gc_frame.parent;
 
-    const fs = try bindCallFrame(rt, f, m, args, &locals, rest_mode, loc);
+    const fs = try bindCallFrame(rt, f, m, args, locals, rest_mode, loc);
     gc_frame.locals = locals[0..fs];
     // VM backend hook: when this method carries compiled bytecode and
     // the vtable has the `evalChunk` slot wired (vm.installVTable), run

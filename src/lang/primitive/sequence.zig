@@ -594,6 +594,7 @@ const ENTRIES = [_]Entry{
     // O-032: in-Zig chunk-map/filter drain (chunk_transform.zig) — the
     // producer-side analogue of reduceFn's O-004 chunk drain.
     .{ .name = "__chunk-map-step", .f = &chunk_transform.chunkMapStepFn },
+    .{ .name = "__dorun", .f = &chunk_transform.dorunFn },
     .{ .name = "__chunk-filter-step", .f = &chunk_transform.chunkFilterStepFn },
 };
 
