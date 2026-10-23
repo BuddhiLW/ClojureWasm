@@ -64,6 +64,7 @@ const map_collection = @import("../../runtime/collection/map.zig");
 const set_collection = @import("../../runtime/collection/set.zig");
 const literal = @import("../../runtime/collection/literal.zig");
 const big_int = @import("../../runtime/numeric/big_int.zig");
+const decimal_text = @import("../../runtime/numeric/decimal_text.zig");
 const promote = @import("../../runtime/numeric/promote.zig");
 const big_decimal = @import("../../runtime/numeric/big_decimal.zig");
 const ratio_mod = @import("../../runtime/numeric/ratio.zig");
@@ -435,9 +436,13 @@ fn staticFieldValue(rt: *Runtime, sf: *const @import("../../runtime/type_descrip
             .time_local_date_epoch => @import("../../runtime/time/local_date_value.zig").make(rt, 0) catch |e| return coerceConstErr(e),
             .time_local_date_time_min => @import("../../runtime/time/local_date_time_value.zig").make(rt, MIN_EPOCH_DAY, 0) catch |e| return coerceConstErr(e),
             .time_local_date_time_max => @import("../../runtime/time/local_date_time_value.zig").make(rt, MAX_EPOCH_DAY, 86_399_999_999_999) catch |e| return coerceConstErr(e),
+            .time_zone_offset_utc => @import("../../runtime/time/zone_offset.zig").make(rt, .{ .seconds = 0 }) catch |e| return coerceConstErr(e),
+            .time_zone_offset_min => @import("../../runtime/time/zone_offset.zig").make(rt, .{ .seconds = -18 * 3600 }) catch |e| return coerceConstErr(e),
+            .time_zone_offset_max => @import("../../runtime/time/zone_offset.zig").make(rt, .{ .seconds = 18 * 3600 }) catch |e| return coerceConstErr(e),
         },
         .host_enum => |he| try @import("../../runtime/host_enum.zig").singleton(rt, @enumFromInt(he.enum_idx), he.ordinal),
         .math_context => |which| try @import("../../runtime/math_context.zig").singleton(rt, which),
+        .date_time_formatter => |idx| @import("../../runtime/time/date_time_formatter_value.zig").isoConstant(rt, idx) catch |e| return coerceConstErr(e),
         // BigDecimal ZERO/ONE/TWO/TEN (ADR-0174 D7): a scale-0 BigDecimal
         // lifted via the constructor at analyze time.
         .big_decimal => |i| @import("../../runtime/numeric/big_decimal.zig").allocFromI64Scale(rt, i, 0) catch |e| return coerceConstErr(e),
@@ -1818,7 +1823,7 @@ pub fn valueToForm(
         .ratio => blk: {
             const lit = switch (ratio_mod.parts(v)) {
                 .small => |s| try std.fmt.allocPrint(arena, "{d}/{d}", .{ s.n, s.d }),
-                .big => |b| try std.fmt.allocPrint(arena, "{f}/{f}", .{ b.n.m, b.d.m }),
+                .big => |b| try decimal_text.fractionAlloc(arena, b.n.m, b.d.m),
             };
             break :blk .{ .data = .{ .ratio_literal = lit }, .location = call_loc };
         },
@@ -1828,9 +1833,9 @@ pub fn valueToForm(
         // back as a BigInt literal and break downstream i64-only ops
         // (unsigned-bit-shift-right et al.).
         .big_int => if (big_int.originOf(v) == .long) blk: {
-            const n = promote.exactI64(v) catch break :blk Form{ .data = .{ .big_int_literal = try std.fmt.allocPrint(arena, "{f}", .{big_int.asManaged(v)}) }, .location = call_loc };
+            const n = promote.exactI64(v) catch break :blk Form{ .data = .{ .big_int_literal = try decimal_text.decimalAlloc(arena, big_int.asManaged(v)) }, .location = call_loc };
             break :blk Form{ .data = .{ .integer = n }, .location = call_loc };
-        } else .{ .data = .{ .big_int_literal = try std.fmt.allocPrint(arena, "{f}", .{big_int.asManaged(v)}) }, .location = call_loc },
+        } else .{ .data = .{ .big_int_literal = try decimal_text.decimalAlloc(arena, big_int.asManaged(v)) }, .location = call_loc },
         .big_decimal => blk: {
             var aw: std.Io.Writer.Allocating = .init(arena);
             print_mod.writeBigDecimalDigits(&aw.writer, v) catch return error.OutOfMemory;
