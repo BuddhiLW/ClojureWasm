@@ -11,9 +11,12 @@
 (defn- committed [] (.totalMemory (Runtime/getRuntime)))
 
 (defn- burst
-  "Allocate a ~8.5 MB vector trie (1M elements) and drop it."
+  "Allocate a ~34 MB vector trie (4M elements) and drop it. Larger than any
+  free cell space the suites loaded before this one leave behind: an 8.5 MB
+  burst was absorbed by those holes in the full suite image, so the heap never
+  grew and the test measured nothing."
   []
-  (count (vec (range 1000000))))
+  (count (vec (range 4000000))))
 
 (deftest requested-collect-returns-empty-pages
   (System/gc)
