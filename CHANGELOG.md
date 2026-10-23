@@ -7,6 +7,8 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 
 ## [Unreleased]
 
+## [1.15.4] - 2026-10-23
+
 ### Added
 
 - **`java.time.format`: `DateTimeFormatter`, `DateTimeFormatterBuilder`,
