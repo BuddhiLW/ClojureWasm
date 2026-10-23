@@ -14,6 +14,17 @@
         // zwasm v2 embedding API (F-001 / D-037). `lazy` so the DEFAULT build +
         // gate never resolve it — only `-Dwasm` (b.lazyDependency) does.
         //
+        // 2026-10-23: pinned to d77568a0, the head of fork PR #7
+        // (fix/wasi-p2-adapter-imports, one commit on fork `main` e9d74934):
+        // a component built with the wasi_snapshot_preview1 adapter
+        // (`wasm-tools component new --adapt`, any preview1 guest) links.
+        // The adapter's `env::memory` re-export now resolves, and three 0.2
+        // rows are served (filesystem-error-code, wall-clock/monotonic-clock
+        // `resolution`). Upstream: zwasm/zwasm#634. This pins a fix branch
+        // only because the fork's Actions are disabled, so #7 cannot merge
+        // with CI green. Its merge commit has the same tree, so the `.hash`
+        // stays valid: re-point `?ref=main#<merge sha>` once #7 lands.
+        //
         // 2026-10-22: the fork's `main` is cljw's zwasm integration line:
         // upstream zwasm/zwasm `main` plus patches found and proven here, each
         // listed with its evidence in the fork's FORK.md and upstreamed once a
@@ -80,8 +91,8 @@
         // moment anything else claims that name. The `.hash` is
         // content-addressed, so the host of the URL never changes it.
         .zwasm = .{
-            .url = "git+https://github.com/BuddhiLW/zwasm.git?ref=main#e9d74934ec3212e502b101feab7673bf11c910ba",
-            .hash = "zwasm-2.7.0-FT1Fv3v5ngAavfQgV-JntjzckyYqMLUUCfYssfSrFN9S",
+            .url = "git+https://github.com/BuddhiLW/zwasm.git?ref=fix/wasi-p2-adapter-imports#d77568a0fb25663896beaebbd6e738aed0f04d92",
+            .hash = "zwasm-2.7.0-FT1FvxgznwA-KsQhDxkCOpB9xz0RCYigMGg4YiAOLMBh",
             .lazy = true,
         },
     },
