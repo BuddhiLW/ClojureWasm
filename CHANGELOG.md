@@ -7,6 +7,13 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 
 ## [Unreleased]
 
+### Changed
+
+- **Double arithmetic and comparison stay inline in the VM (O-065).** A double
+  paired with a double or a long computes `+ - * < <= > >=` in f64 without the
+  builtin var call. Instruction counts: dot product over 1k doubles -12%,
+  over 100k -11%, a float `loop`/`recur` -26%.
+
 ## [1.15.4] - 2026-10-23
 
 ### Added
