@@ -17,6 +17,7 @@
 //! so callers write `rt.gc.noteOwnedAlloc(n)`.
 
 const std = @import("std");
+const builtin = @import("builtin");
 const gc_heap_mod = @import("gc_heap.zig");
 const root_set_mod = @import("root_set.zig");
 
@@ -130,6 +131,28 @@ pub fn requestCollect(gc: *GcHeap) void {
     if (!collectSafeHere()) return;
     gc.release_requested = true;
     collectIfSafe(gc);
+}
+
+/// Allocation pressure below which `collectBeforeIdle` does nothing, so an
+/// idle loop that allocates little pays no mark.
+pub const idle_collect_min_bytes: usize = 1024 * 1024;
+
+/// Collect while the mutator waits for input (a server between requests),
+/// then hand freed malloc memory back to the OS. A no-op below
+/// `idle_collect_min_bytes` of pressure. Same safety gates and page
+/// release as `requestCollect`.
+pub fn collectBeforeIdle(gc: *GcHeap) void {
+    if (pressureBytes(gc) < idle_collect_min_bytes) return;
+    requestCollect(gc);
+    trimProcessHeap();
+}
+
+extern "c" fn malloc_trim(pad: usize) c_int;
+
+/// Return glibc's free arena memory to the OS. Other allocators unmap large
+/// frees themselves, so this is a no-op off glibc.
+fn trimProcessHeap() void {
+    if (comptime builtin.link_libc and builtin.target.abi.isGnu()) _ = malloc_trim(0);
 }
 
 /// True iff a stop-the-world collect may run on this thread right now: no
