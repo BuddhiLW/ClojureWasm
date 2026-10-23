@@ -165,7 +165,10 @@ fn collectSafeHere() bool {
     return root_set_mod.active_env != null;
 }
 
-fn collectIfSafe(gc: *GcHeap) void {
+// `noinline`: maybeAutoCollect is inlined into the VM's per-op loop, and an
+// inlined collect would put its whole frame on every `eval` re-entry's native
+// stack (ADR-0195 budget). The call happens only past the threshold.
+noinline fn collectIfSafe(gc: *GcHeap) void {
     if (!collectSafeHere()) return;
     const e = root_set_mod.active_env.?;
     const mark_sweep = @import("mark_sweep.zig");

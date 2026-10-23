@@ -168,6 +168,12 @@
             (chunk-cons (cljw.internal/__chunk-map-step f s) (-map-lazy f (chunk-rest s)))
             (cons (f (first s)) (-map-lazy f (rest s))))
           nil)))))
+;; PERF: O-062 internal lazy body for 2/3-coll `map`: one lazy node per element
+;; (clj's multi-coll map is unchunked), whose body is the Zig `__map-step`
+;; (seq all, f on the firsts, recur on the rests). Passes itself as `self`.
+(def ^:private -map-n-lazy
+  (fn* ([f c1 c2] (lazy-seq (cljw.internal/__map-step f -map-n-lazy c1 c2)))
+       ([f c1 c2 c3] (lazy-seq (cljw.internal/__map-step f -map-n-lazy c1 c2 c3)))))
 ;; Forward-declared so map's n-ary arm resolves it at def time (D-446).
 (declare -map-n-step)
 (def map
@@ -186,19 +192,10 @@
         ;; PERF: O-023 stamp the fusion descriptor on the outer node so `reduce`
         ;; fuses; the lazy body (`-map-lazy`) is unchanged → seq ops identical.
         (-lazy-set-fuse (-map-lazy f coll) (-fuse-descriptor (map f) coll)))
-       ([f c1 c2]
-        (lazy-seq
-          (let [s1 (seq c1) s2 (seq c2)]
-            (if (and s1 s2)
-              (cons (f (first s1) (first s2)) (map f (rest s1) (rest s2)))
-              nil))))
-       ([f c1 c2 c3]
-        (lazy-seq
-          (let [s1 (seq c1) s2 (seq c2) s3 (seq c3)]
-            (if (and s1 s2 s3)
-              (cons (f (first s1) (first s2) (first s3))
-                    (map f (rest s1) (rest s2) (rest s3)))
-              nil))))
+       ;; PERF: O-062 the 2/3-coll step body runs in Zig (`__map-step`): same
+       ;; unchunked one-f-per-node shape as clj, the lazy node stays here.
+       ([f c1 c2] (-map-n-lazy f c1 c2))
+       ([f c1 c2 c3] (-map-n-lazy f c1 c2 c3))
        ;; n-ary: zip 4+ colls, stopping at the shortest (clj parity).
        ([f c1 c2 c3 & colls]
         (map (fn* [args] (apply f args)) (-map-n-step (conj colls c3 c2 c1))))))
@@ -1029,7 +1026,8 @@
 
 ;; `(mapv f coll)` — eager `map` returning a vector. Single-coll form.
 (def mapv
-  (fn* ([f coll] (reduce (fn* [acc x] (conj acc (f x))) [] coll))
+  ;; PERF: single-coll form builds through a transient, clj's own shape (O(n) persistent! over a flat buffer vs N persistent conjs) [refs: O-003, D-180]
+  (fn* ([f coll] (persistent! (reduce (fn* [v o] (conj! v (f o))) (transient []) coll)))
        ([f c1 c2] (vec (map f c1 c2)))
        ([f c1 c2 c3] (vec (map f c1 c2 c3)))
        ([f c1 c2 c3 & colls] (vec (apply map f c1 c2 c3 colls)))))

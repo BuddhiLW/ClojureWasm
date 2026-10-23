@@ -24,9 +24,9 @@
 schema_version: "2.0"
 summary:
   namespaces_required: 36
-  total: 1462
-  zig: 430
-  clj: 806
+  total: 1464
+  zig: 431
+  clj: 807
   value: 220
   unbound: 6
 vars:
@@ -105,6 +105,7 @@ vars:
   "cljw.internal/__make-protocol!": { impl: zig, flags: "-" }
   "cljw.internal/__make-protocol-fn!": { impl: zig, flags: "-" }
   "cljw.internal/__map->record": { impl: zig, flags: "-" }
+  "cljw.internal/__map-step": { impl: zig, flags: "-" }
   "cljw.internal/__methods": { impl: zig, flags: "-" }
   "cljw.internal/__native-type": { impl: zig, flags: "-" }
   "cljw.internal/__open-input-stream": { impl: zig, flags: "-" }
@@ -291,6 +292,7 @@ vars:
   "clojure.core/-lookup": { impl: value, flags: "-" }
   "clojure.core/-map-indexed-lazy": { impl: clj, flags: "private" }
   "clojure.core/-map-lazy": { impl: clj, flags: "-" }
+  "clojure.core/-map-n-lazy": { impl: clj, flags: "private" }
   "clojure.core/-map-n-step": { impl: clj, flags: "-" }
   "clojure.core/-merge-sorted": { impl: clj, flags: "-" }
   "clojure.core/-meta": { impl: value, flags: "-" }
