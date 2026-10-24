@@ -14,6 +14,11 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
   builtin var call. Instruction counts: dot product over 1k doubles -12%,
   over 100k -11%, a float `loop`/`recur` -26%.
 
+- **Lazy `map`, `filter`, `take` and `iterate` realize their nodes natively
+  (O-110).** A lazy chain no longer re-enters the evaluator per element to
+  step a `lazy-seq` thunk. `bench/vs_bb` lazy_chain went from 13.75x bb to
+  2.28x bb (1315 ms vs bb 576 ms in-process), with peak RSS 117 MB vs bb 198.
+
 ## [1.15.4] - 2026-10-23
 
 ### Added
