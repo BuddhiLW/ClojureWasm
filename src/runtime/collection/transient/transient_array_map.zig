@@ -101,7 +101,7 @@ pub fn fromMap(rt: *Runtime, source: Value) !Value {
             tm.count = am.count;
             var i: u32 = 0;
             while (i < 2 * am.count) : (i += 1) {
-                tm.entries[i] = am.entries[i];
+                tm.entries[i] = am.entries()[i];
             }
             tm.meta = am.meta;
         },
