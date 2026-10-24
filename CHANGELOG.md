@@ -19,6 +19,14 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
   step a `lazy-seq` thunk. `bench/vs_bb` lazy_chain went from 13.75x bb to
   2.28x bb (1315 ms vs bb 576 ms in-process), with peak RSS 117 MB vs bb 198.
 
+- **The collect trigger grows the heap by one live set, not two
+  (CLJW-PERF-GC-RETAIN).** The threshold is now `max(floor, last_live)`
+  instead of `max(floor, 2 * last_live)`; peak heap is about live plus one
+  threshold, so a large live set no longer peaks near 3x itself. Peak RSS:
+  1M retained maps plus churn 1729 MB to 1153 MB (-33%), `bench/vs_bb`
+  gc_churn 352 MB to 242 MB (-31%), for +1.8% instructions on gc_churn and
+  +4.5% on the large-live probe; a small-live high-churn loop is unchanged.
+
 ## [1.15.4] - 2026-10-23
 
 ### Added
