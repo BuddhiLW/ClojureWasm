@@ -7,6 +7,13 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 
 ## [Unreleased]
 
+### Fixed
+
+- The non-blocking bench-vs-bb CI job no longer fails on a restored
+  `.zig-cache` whose WriteFiles output is missing (`file_hash FileNotFound`
+  on `bootstrap_sources_stub.zig`). The job only reads the cache, so on a
+  failed build it drops `.zig-cache` and builds cold once.
+
 ### Changed
 
 - A string of up to about 4 KB now keeps its bytes inside its own GC cell
