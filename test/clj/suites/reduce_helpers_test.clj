@@ -28,4 +28,7 @@
   (let [calls (atom 0)]
     (is (= 9 (reduce-kv (fn [acc i x] (swap! calls inc) (reduced (+ acc i x))) 5 [4 10 20])))
     (is (= 1 @calls)))
-  (is (= 3 (reduce-kv (fn [acc _ v] (+ acc v)) 0 {:a 1 :b 2}))))
+  (is (= 3 (reduce-kv (fn [acc _ v] (+ acc v)) 0 {:a 1 :b 2})))
+  ;; A MapEntry is `vector?` but not a vector cell: indexed as [k v].
+  (is (= [[0 :a] [1 1]] (reduce-kv (fn [acc i x] (conj acc [i x])) [] (first {:a 1}))))
+  (is (= :a (reduce-kv (fn [_ _ x] (reduced x)) nil (first {:a 1}))) "mapentry_reduced"))
