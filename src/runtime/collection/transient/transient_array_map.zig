@@ -114,6 +114,7 @@ pub fn fromMap(rt: *Runtime, source: Value) !Value {
             const src = source.decodePtr(*const map_mod.PersistentHashMap);
             const copy = try rt.gc.alloc(map_mod.PersistentHashMap);
             copy.* = src.*;
+            copy.header = HeapHeader.init(.hash_map);
             tm.overflow = Value.encodeHeapPtr(.hash_map, copy);
             tm.count = src.count;
             tm.meta = src.meta;

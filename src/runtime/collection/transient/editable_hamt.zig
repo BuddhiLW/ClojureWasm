@@ -49,6 +49,9 @@ fn editable(rt: *Runtime, node: *Node, owner: usize) !*Node {
     if (node.edit_owner == owner) return node;
     const copy = try rt.gc.alloc(Node);
     copy.* = node.*;
+    // A fresh header, as `map.copyHamtNode` does: never inherit the source
+    // cell's GC mark, frozen flag or lock bits.
+    copy.header = HeapHeader.init(@enumFromInt(node.header.tag));
     copy.edit_owner = owner;
     return copy;
 }
