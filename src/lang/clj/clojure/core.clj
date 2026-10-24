@@ -1139,11 +1139,9 @@
 (def reduce-kv
   (fn* [f init m]
     (if (vector? m)
-      (loop* [i 0 acc init]
-        (if (< i (count m))
-          (let* [r (f acc i (nth m i))]
-            (if (reduced? r) (deref r) (recur (inc i) r)))
-          acc))
+      ;; The indexed collection can drive the reduction directly in Zig;
+      ;; no interpreted loop/recur, seq walk, or pair allocation per item.
+      (cljw.internal/__reduce-kv-vector f init m)
       ;; IKVReduce first (a deftype declaring `kvreduce`, D-400 — clj
       ;; consults the interface before any fallback); the sentinel keyword
       ;; is interned, so `identical?` detects "no impl" exactly.
