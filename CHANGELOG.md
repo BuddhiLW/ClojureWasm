@@ -7,6 +7,14 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 
 ## [Unreleased]
 
+### Changed
+
+- Transient maps and sets now edit owned HAMT paths in place during `into`,
+  cloning only shared nodes; `persistent!` freezes ownership so later transients
+  cannot mutate published maps. The `into_collections` workload drops from
+  18.215B to 17.111B user instructions (-6.1%); isolated 20k-entry map `into`
+  drops from 2.599B to 2.016B (-22.4%) on one pinned core.
+
 ### Fixed
 
 - The non-blocking bench-vs-bb CI job no longer fails on a restored
