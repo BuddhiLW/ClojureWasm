@@ -41,6 +41,15 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
   user instructions per iteration, down from 1585 (pinned core,
   `instructions:u`); `(loop [i 0] (if (< i n) (recur (inc i)) i))` 601, down
   from 1307. Bytecode format v15 (v14 artifacts are rejected).
+
+- `reduce-kv` on vectors and subvecs now indexes in Zig instead of interpreting
+  the per-element loop, preserving reduced early termination and the original
+  indexed keys. On staging with the newer VM and allocator, a pinned-core
+  40-pass, 100k-element vector probe falls from 16.01B to 4.54B user
+  instructions (-71.7%). The `reduce_map` lazy-map shortcut was rejected
+  because it skipped observable lazy realization/memoization; its parity-safe
+  path stays at 29.29B instructions, and `transduce` stays at 28.82B.
+
 - A string of up to about 4 KB now keeps its bytes inside its own GC cell
   instead of in a separate malloc block freed by a finaliser: one allocation
   per string instead of two. Measured on a pinned core (user instructions, a

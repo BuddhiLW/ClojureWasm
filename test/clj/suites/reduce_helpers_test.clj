@@ -20,3 +20,15 @@
   (is (= "(1 2 3)" (pr-str (flatten [1 [2] 3]))) "flatten_seq")
   (is (= "true" (pr-str (seq? (flatten [1 2])))) "flatten_isseq")
   (is (= "[0 1 3 6]" (pr-str (into [] (reductions + 0 [1 2 3])))) "reductions"))
+
+(deftest reduce-kv-indexed-cases
+  (is (= 46 (reduce-kv (fn [acc i x] (+ acc (* i x))) 0 [4 5 7 9])))
+  (is (= 9 (reduce-kv (fn [acc i x] (+ acc i x)) 0 (subvec [50 1 2 3 100] 1 4))))
+  (is (= 42 (reduce-kv (fn [acc _ _] (throw (Exception. "unreachable"))) 42 [])))
+  (let [calls (atom 0)]
+    (is (= 9 (reduce-kv (fn [acc i x] (swap! calls inc) (reduced (+ acc i x))) 5 [4 10 20])))
+    (is (= 1 @calls)))
+  (is (= 3 (reduce-kv (fn [acc _ v] (+ acc v)) 0 {:a 1 :b 2})))
+  ;; A MapEntry is `vector?` but not a vector cell: indexed as [k v].
+  (is (= [[0 :a] [1 1]] (reduce-kv (fn [acc i x] (conj acc [i x])) [] (first {:a 1}))))
+  (is (= :a (reduce-kv (fn [_ _ x] (reduced x)) nil (first {:a 1}))) "mapentry_reduced"))
