@@ -321,7 +321,9 @@ pub fn fastNth2(coll: Value, i_val: Value) ?Value {
 /// Binary arith/comparison fast path. Returns `null` unless the operands are
 /// two inline fixnums or a float with a float/fixnum, so the caller defers
 /// every other case (incl. all error cases) to the builtin.
-pub fn fastBinaryNumber(_: *Runtime, op: ArithOp, a: Value, b: Value) !?Value {
+// PERF: inline so the fixnum test and op switch fold into each VM arm; an
+// out-of-line call (frame, canary, ?Value via memory) was ~20% of a loop [refs: O-101]
+pub inline fn fastBinaryNumber(_: *Runtime, op: ArithOp, a: Value, b: Value) !?Value {
     if (a.tag() != .integer or b.tag() != .integer) return fastNonFixnum(op, a, b);
     return fastFixnum(op, a.asInteger(), b.asInteger());
 }
