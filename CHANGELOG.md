@@ -16,6 +16,13 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 
 ### Changed
 
+- Allocating a small GC cell is cheaper: the page heap's free-slot and bump
+  path is now inlined into each typed allocation site, with the size class
+  and the small/large choice folded at compile time, and the live-list
+  record is stored in place when the list has room. On a pinned core (user
+  instructions): lazy_chain 9.07 G to 8.27 G (-8.8 %), gc_churn 8.05 G to
+  7.75 G (-3.7 %), about 85 fewer instructions per allocation. Peak RSS is
+  unchanged.
 - `(inc x)` and `(dec x)` on canonical `clojure.core/inc`/`dec` now compile to
   VM intrinsics (`op_inc` / `op_dec`) instead of a generic call into the
   builtin. Fixnums and floats are computed inline; any other operand, an i48
@@ -26,7 +33,6 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
   user instructions per iteration, down from 1585 (pinned core,
   `instructions:u`); `(loop [i 0] (if (< i n) (recur (inc i)) i))` 601, down
   from 1307. Bytecode format v15 (v14 artifacts are rejected).
-
 - A string of up to about 4 KB now keeps its bytes inside its own GC cell
   instead of in a separate malloc block freed by a finaliser: one allocation
   per string instead of two. Measured on a pinned core (user instructions, a
