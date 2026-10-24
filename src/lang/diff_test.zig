@@ -250,6 +250,29 @@ test "diff: op_add deopt on alter-var-root of + (ADR-0130 F-011 hole)" {
     try f.check("(do (alter-var-root (var +) (fn* [_] (fn* [a b] 999))) (+ 1 2))", 999);
 }
 
+test "diff: inc/dec intrinsics (O-102) — VM op_inc/op_dec ≡ builtin (inline)" {
+    var f: Fixture = undefined;
+    try Fixture.init(&f, testing.allocator);
+    defer f.deinit();
+    try f.check("(inc 41)", 42);
+    try f.check("(dec 43)", 42);
+    try f.check("(let* [x 9] (inc x))", 10);
+    try f.check("(let* [x 9] (dec x))", 8);
+    try f.check("(let* [x -1] (inc (inc x)))", 1);
+    try f.checkEqual("(inc 0.5)");
+    try f.checkEqual("(let* [x 1.5] (dec x))");
+    try f.check("(loop* [i 0] (if (< i 10) (recur (inc i)) i))", 10);
+    // Non-number: both backends raise through the builtin.
+    try f.checkEqual("(try (inc nil) (catch Exception _ :caught))");
+}
+
+test "diff: inc deopt on alter-var-root of inc (O-102)" {
+    var f: Fixture = undefined;
+    try Fixture.init(&f, testing.allocator);
+    defer f.deinit();
+    try f.check("(do (alter-var-root (var inc) (fn* [_] (fn* [a] 777))) (let* [x 1] (inc x)))", 777);
+}
+
 test "diff: arith intrinsic family (ADR-0130 am1) — sub/mul/comparisons/= (inline)" {
     var f: Fixture = undefined;
     try Fixture.init(&f, testing.allocator);

@@ -874,6 +874,30 @@ inline fn stepOnce(
             stack[sp] = result;
             sp += 1;
         },
+        .op_inc, .op_dec => {
+            // PERF: unary inc/dec intrinsic; replaces its operand in place.
+            // Fixnum/float fast path, else the cached (maybe redefined) Var,
+            // same deopt contract as the binary family. [refs: O-102]
+            const uop = @call(.always_inline, intrinsic.fromUnaryOpcode, .{instr_op}).?;
+            if (sp < 1) return raiseInternal("vm: unary intrinsic underflow");
+            sp -= 1;
+            const a = stack[sp];
+            const fast: ?Value = if (rt.core_arith_pristine) intrinsic.fastUnary(uop, a) else null;
+            const result = fast orelse blk: {
+                const vt = rt.vtable orelse
+                    return error_catalog.raiseInternal(.{}, "Runtime vtable not installed; cannot dispatch unary intrinsic");
+                const pv = rt.unary_vars[@intFromEnum(uop)] orelse
+                    return raiseInternal("vm: unary intrinsic emitted without a cached Var");
+                const op_var: *const env_mod.Var = @ptrCast(@alignCast(pv));
+                const one = [1]Value{a};
+                const prev_arg_sources = error_mod.swapArgSources(loc_stack[sp .. sp + 1]);
+                defer _ = error_mod.swapArgSources(prev_arg_sources);
+                break :blk try vt.callFn(rt, env, op_var.deref(), &one, instr_loc);
+            };
+            loc_stack[sp] = instr_loc;
+            stack[sp] = result;
+            sp += 1;
+        },
         .op_add_local_const, .op_sub_local_const, .op_mul_local_const, .op_lt_local_const, .op_le_local_const, .op_gt_local_const, .op_ge_local_const, .op_eq_local_const, .op_mod_local_const, .op_rem_local_const, .op_quot_local_const, .op_ne_local_const => {
             // PERF: local-const arith superinstruction — operands come
             // from `locals[slot]` + `constants[idx]` (packed in the operand), NOT the
