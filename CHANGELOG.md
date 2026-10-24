@@ -7,6 +7,17 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 
 ## [Unreleased]
 
+### Changed
+
+- A string of up to about 4 KB now keeps its bytes inside its own GC cell
+  instead of in a separate malloc block freed by a finaliser: one allocation
+  per string instead of two. Measured on a pinned core (user instructions, a
+  noisy host made wall time unreliable): `(count (str i))` in a loop costs 2300
+  instructions per iteration over the empty loop, down from 2790; bench/vs_bb
+  string_ops 5959M -> 5219M (-12%), gc_churn 8369M -> 8011M (-4%). Wall time
+  at load ~40: string_ops 2.02x -> 1.49x bb, probe str_ms 321-439 -> 245-439
+  ms (bb 71-122).
+
 ## [1.15.4] - 2026-10-23
 
 ### Added
