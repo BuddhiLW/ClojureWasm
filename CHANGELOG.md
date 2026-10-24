@@ -9,6 +9,12 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 
 ### Changed
 
+- A small vector's tail and an array map's entries are now sized to their
+  element count inside one GC cell, not a fixed 32-slot tail (272 bytes) and
+  a fixed 16-slot entry array (152 bytes). 200k retained `{:id i :v [i (inc i)]}`
+  hold 29.6 MB live instead of 97.2 MB (148 bytes per entry, was 486), and
+  `bench/vs_bb/workloads/gc_churn.clj` allocates 175 MB instead of 497 MB.
+
 - **Double arithmetic and comparison stay inline in the VM (O-065).** A double
   paired with a double or a long computes `+ - * < <= > >=` in f64 without the
   builtin var call. Instruction counts: dot product over 1k doubles -12%,
