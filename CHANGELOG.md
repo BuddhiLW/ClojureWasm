@@ -9,6 +9,13 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 
 ### Changed
 
+- Allocating a small GC cell is cheaper: the page heap's free-slot and bump
+  path is now inlined into each typed allocation site, with the size class
+  and the small/large choice folded at compile time, and the live-list
+  record is stored in place when the list has room. On a pinned core (user
+  instructions): lazy_chain 9.07 G to 8.27 G (-8.8 %), gc_churn 8.05 G to
+  7.75 G (-3.7 %), about 85 fewer instructions per allocation. Peak RSS is
+  unchanged.
 - A string of up to about 4 KB now keeps its bytes inside its own GC cell
   instead of in a separate malloc block freed by a finaliser: one allocation
   per string instead of two. Measured on a pinned core (user instructions, a
