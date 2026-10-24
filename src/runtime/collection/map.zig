@@ -102,6 +102,9 @@ pub const HamtMapNode = extern struct {
     _pad: [2]u8 = .{ 0, 0 },
     data_map: u32 = 0,
     node_map: u32 = 0,
+    // Zero on persistent nodes; a transient's identity on editable nodes.
+    // A new transient clones any node whose owner differs, preserving sharing.
+    edit_owner: usize = 0,
     slots: [64]Value = @splat(Value.nil_val),
 
     comptime {
