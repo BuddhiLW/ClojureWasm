@@ -9,6 +9,21 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 
 ### Changed
 
+- A string of up to about 4 KB now keeps its bytes inside its own GC cell
+  instead of in a separate malloc block freed by a finaliser: one allocation
+  per string instead of two. Measured on a pinned core (user instructions, a
+  noisy host made wall time unreliable): `(count (str i))` in a loop costs 2300
+  instructions per iteration over the empty loop, down from 2790; bench/vs_bb
+  string_ops 5959M -> 5219M (-12%), gc_churn 8369M -> 8011M (-4%). Wall time
+  at load ~40: string_ops 2.02x -> 1.49x bb, probe str_ms 321-439 -> 245-439
+  ms (bb 71-122).
+
+- A small vector's tail and an array map's entries are now sized to their
+  element count inside one GC cell, not a fixed 32-slot tail (272 bytes) and
+  a fixed 16-slot entry array (152 bytes). 200k retained `{:id i :v [i (inc i)]}`
+  hold 29.6 MB live instead of 97.2 MB (148 bytes per entry, was 486), and
+  `bench/vs_bb/workloads/gc_churn.clj` allocates 175 MB instead of 497 MB.
+
 - **Double arithmetic and comparison stay inline in the VM (O-065).** A double
   paired with a double or a long computes `+ - * < <= > >=` in f64 without the
   builtin var call. Instruction counts: dot product over 1k doubles -12%,
