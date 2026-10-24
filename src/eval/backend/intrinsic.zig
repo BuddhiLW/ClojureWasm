@@ -228,6 +228,56 @@ pub fn recognize(rt: *const Runtime, var_ptr: *const env_mod.Var) ?Opcode {
     return null;
 }
 
+// --- Unary inc/dec intrinsics (O-102) ---
+//
+// `(inc x)` / `(dec x)` were a generic op_get_var + op_call into the `inc`
+// builtin, which re-enters `plus` with a 2-element slice: ~600 instructions
+// per call against ~0 for the fused `(+ x 1)`. op_inc / op_dec run
+// `fastUnary`; anything it declines defers to the cached Var, so the numeric
+// tower, overflow promotion and errors stay the builtin's. Gated on
+// `core_arith_pristine` like the binary family.
+
+/// Index order MUST match `Runtime.unary_vars` (0=inc, 1=dec).
+pub const UnaryOp = enum { inc, dec };
+
+pub fn unaryCoreName(op: UnaryOp) []const u8 {
+    return switch (op) {
+        .inc => "inc",
+        .dec => "dec",
+    };
+}
+
+/// Compile-time recogniser for `inc`/`dec` (canonical Var pointer identity).
+pub fn recognizeUnary(rt: *const Runtime, var_ptr: *const env_mod.Var) ?UnaryOp {
+    for (rt.unary_vars, 0..) |cached, i| {
+        const pv = cached orelse continue;
+        if (@intFromPtr(pv) == @intFromPtr(var_ptr)) return @enumFromInt(i);
+    }
+    return null;
+}
+
+pub fn fromUnaryOpcode(op: Opcode) ?UnaryOp {
+    return switch (op) {
+        .op_inc => .inc,
+        .op_dec => .dec,
+        else => null,
+    };
+}
+
+/// `(inc x)` / `(dec x)` fast path: an inline fixnum whose result stays in the
+/// i48 window, or a float. `null` for everything else (heap Long, BigInt,
+/// Ratio, BigDecimal, non-numbers, i48 edge) so the builtin handles it.
+pub inline fn fastUnary(op: UnaryOp, a: Value) ?Value {
+    const d: i64 = if (op == .inc) 1 else -1;
+    if (a.tag() == .integer) {
+        const res = @as(i64, a.asInteger()) + d;
+        if (res < nb.NB_I48_MIN or res > nb.NB_I48_MAX) return null;
+        return Value.initInteger(res);
+    }
+    if (a.tag() == .float) return Value.initFloat(a.asFloat() + @as(f64, @floatFromInt(d)));
+    return null;
+}
+
 // --- Collection-accessor intrinsics (ADR-0130 extended; O-043) ---
 //
 // `op_get` (2-arg `(get coll k)`) and `op_nth` (3-arg `(nth coll i default)`)
@@ -321,7 +371,9 @@ pub fn fastNth2(coll: Value, i_val: Value) ?Value {
 /// Binary arith/comparison fast path. Returns `null` unless the operands are
 /// two inline fixnums or a float with a float/fixnum, so the caller defers
 /// every other case (incl. all error cases) to the builtin.
-pub fn fastBinaryNumber(_: *Runtime, op: ArithOp, a: Value, b: Value) !?Value {
+// PERF: inline so the fixnum test and op switch fold into each VM arm; an
+// out-of-line call (frame, canary, ?Value via memory) was ~20% of a loop [refs: O-101]
+pub inline fn fastBinaryNumber(_: *Runtime, op: ArithOp, a: Value, b: Value) !?Value {
     if (a.tag() != .integer or b.tag() != .integer) return fastNonFixnum(op, a, b);
     return fastFixnum(op, a.asInteger(), b.asInteger());
 }

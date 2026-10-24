@@ -369,6 +369,13 @@ pub const Opcode = enum(u8) {
     op_map_extend = 0x58,
     op_set_extend = 0x59,
 
+    /// O-102: unary `(inc x)` / `(dec x)` intrinsics for canonical
+    /// `clojure.core/inc`/`dec` (Var pointer identity, `core_arith_pristine`
+    /// deopt). Pop x, push the result (net 0). `intrinsic.fastUnary` handles
+    /// an i48 fixnum or a float; anything else calls the cached Var.
+    op_inc = 0x5A,
+    op_dec = 0x5B,
+
     /// True when this opcode carries a **signed-i16 instruction-position
     /// offset** in `operand`, relative to the instruction after itself
     /// (vm.zig:188-201 + :317 `applyJump`). Peephole's IP-remap pass
@@ -465,6 +472,8 @@ pub const Opcode = enum(u8) {
             .op_get,
             .op_nth,
             .op_nth2,
+            .op_inc,
+            .op_dec,
             => false,
         };
     }
@@ -567,6 +576,8 @@ pub const Opcode = enum(u8) {
             .op_get,
             .op_nth,
             .op_nth2,
+            .op_inc,
+            .op_dec,
             => false,
         };
     }
