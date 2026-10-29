@@ -14,6 +14,7 @@
 //!
 //! Backend: impl-only
 //! Impl deps: none
+//! Clojure peer: wasm/component-call
 
 const std = @import("std");
 const zwasm = @import("zwasm");
