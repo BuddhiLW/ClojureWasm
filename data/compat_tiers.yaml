@@ -83,7 +83,8 @@ tiers:
       clojure.zip:
         # Comprehensively implemented (src/lang/clj/clojure/zip.clj, 37
         # defs incl. private helpers; ~28 JVM-public-surface vars) +
-        # e2e-tested (test/e2e/phase7_zip_cycle1-4 + exit_smoke). Stays
+        # Suite-tested (test/clj/suites/phase7_zip_test.clj +
+        # phase7_protocols_test.clj, including the former exit_smoke). Stays
         # Tier A: cw v1's A/B split is comprehensive-impl (A) vs
         # minimum-surface (B); zip is comprehensive, so down-tiering to B
         # would mis-signal "minimum surface". Count is JVM-public-surface.
