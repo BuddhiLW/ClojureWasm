@@ -1,0 +1,48 @@
+package hive:zk-groth16@0.1.0;
+
+/// A Groth16 zkSNARK over BN254, exposed as a hive IAddon.
+///
+/// The statement is the canonical one: the prover knows a secret `x` such that
+/// `x^3 + x + 5 == y`, and the proof reveals `y` alone.
+///
+/// Every function here is pure compute. The guest holds NO ambient authority,
+/// which is why `seed` is a parameter rather than something the guest samples:
+/// a zero-import component cannot reach an RNG, a clock, or the filesystem, so
+/// the host supplies the entropy the trusted setup needs. `probe-ambient`
+/// reports that boundary rather than asserting it.
+interface tools {
+  /// `y = x^3 + x + 5`. The public half of the statement, so a caller can build
+  /// the expected `y` without knowing how the circuit is wired.
+  compute: func(x: u64) -> u64;
+
+  /// Prove knowledge of `x`. Returns the compressed Groth16 proof bytes.
+  /// `seed` drives the deterministic trusted setup AND the proof randomness,
+  /// so the same (x, seed) yields the same proof.
+  prove: func(x: u64, seed: list<u8>) -> result<list<u8>, string>;
+
+  /// Verify `proof` against the public input `y`. `seed` must be the one the
+  /// proving key was derived from, since it regenerates the verifying key.
+  verify: func(proof: list<u8>, y: u64, seed: list<u8>) -> result<bool, string>;
+
+  /// Report the ambient host authorities that fail SOFTLY (env, filesystem).
+  probe-ambient: func() -> result<list<string>, string>;
+
+  /// CONTROL for `probe-ambient`: the identical return type with a constant
+  /// body and no `std` call whatsoever. If this traps too, the fault is in the
+  /// host's lifting of `result<list<string>, string>`, not in the guest.
+  echo-list: func() -> result<list<string>, string>;
+
+  /// Run ONE ambient probe by index, so a caller can find which authority
+  /// aborts the guest rather than losing the whole batch to the first one.
+  ///   0 env-vars  1 env-args  2 fs-read  3 fs-list-root  4 fs-write  5 clock
+  probe-one: func(which: u32) -> string;
+
+  /// Reach for the wall clock, which TRAPS on this target. Exported so the
+  /// absence of clock authority can be demonstrated instead of asserted.
+  probe-clock: func() -> u64;
+}
+
+world zk-groth16 {
+  include hive:addon/addon@0.1.0;
+  export tools;
+}

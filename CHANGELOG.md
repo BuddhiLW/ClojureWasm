@@ -7,6 +7,12 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 
 ## [Unreleased]
 
+### Added
+
+- `docs/examples/zk-groth16/`: an arkworks Groth16 BN254 component with zero
+  host function imports, a committed fixture, and native cljw tests for proof
+  verification, rejection of a false public input and guest-trap isolation.
+
 ## [1.15.8] - 2026-11-11
 
 ### Added
