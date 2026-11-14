@@ -32,6 +32,8 @@ const gc_heap_mod = @import("../gc/gc_heap.zig");
 const mark_sweep = @import("../gc/mark_sweep.zig");
 const big_int_mod = @import("big_int.zig");
 const BigInt = big_int_mod.BigInt;
+const decimal_alignment = @import("decimal_alignment.zig");
+const digitCount = @import("decimal_text.zig").digitCount;
 
 /// GC-managed BigDecimal. Wraps a `*BigInt` significand and an i32
 /// decimal-point offset. `unscaled` itself is GC-managed; this
@@ -109,6 +111,10 @@ pub fn allocFromManagedScale(
     unscaled: *const std.math.big.int.Managed,
     scale: i32,
 ) !Value {
+    // The two significands are private until the decimal publishes them.
+    // No collection may reclaim one while the next cell is being built.
+    rt.gc.enterFabrication();
+    defer rt.gc.exitFabrication();
     const unscaled_val = try big_int_mod.allocFromManaged(rt, unscaled, .bigint);
     const norm = try buildNormalized(rt, unscaled, scale);
 
@@ -372,14 +378,6 @@ pub fn allocQuotient(rt: *Runtime, a: Value, b: Value) !Value {
         q.swap(&prod);
     }
     return allocFromManagedScale(rt, &q, scale);
-}
-
-/// Decimal-digit count of a non-negative Managed (`0` counts as 1 digit).
-fn digitCount(infra: std.mem.Allocator, m: *const std.math.big.int.Managed) !usize {
-    if (m.eqlZero()) return 1;
-    const s = try m.toConst().toStringAlloc(infra, 10, .lower);
-    defer infra.free(s);
-    return if (s.len > 0 and s[0] == '-') s.len - 1 else s.len;
 }
 
 /// q = trunc(n·10^s / d), r = remainder, for n,d > 0. `s` may be negative (then
@@ -913,28 +911,22 @@ pub fn allocRoundPrecision(rt: *Runtime, v: Value, precision: u32, mode: i64) !V
     return allocFromManagedScale(rt, &q, vd.scale - @as(i32, @intCast(drop)));
 }
 
-const AddOrSub = enum { add, sub };
+const AddOrSub = decimal_alignment.Operation;
 
 fn alignedCombine(rt: *Runtime, a: Value, b: Value, op: AddOrSub) !Value {
-    std.debug.assert(a.tag() == .big_decimal and b.tag() == .big_decimal);
+    return allocCombinePrecision(rt, a, b, op, 0, round_down);
+}
+
+/// Add/subtract with bounded scale alignment before MathContext rounding.
+pub fn allocCombinePrecision(rt: *Runtime, a: Value, b: Value, op: AddOrSub, precision: u32, mode: i64) !Value {
     const ad = a.decodePtr(*const BigDecimal);
     const bd = b.decodePtr(*const BigDecimal);
-
-    var aligned_a: std.math.big.int.Managed = undefined;
-    var aligned_b: std.math.big.int.Managed = undefined;
-    try alignScales(rt, a, b, &aligned_a, &aligned_b);
-    defer aligned_a.deinit();
-    defer aligned_b.deinit();
-
-    var r = try std.math.big.int.Managed.init(rt.gc.infra);
-    defer r.deinit();
-    switch (op) {
-        .add => try r.add(&aligned_a, &aligned_b),
-        .sub => try r.sub(&aligned_a, &aligned_b),
-    }
-
-    const result_scale = @max(ad.scale, bd.scale);
-    return try allocFromManagedScale(rt, &r, result_scale);
+    var result = try decimal_alignment.combine(rt.gc.infra, .{ .unscaled = ad.unscaled.m, .scale = ad.scale }, .{ .unscaled = bd.unscaled.m, .scale = bd.scale }, op, precision);
+    defer result.unscaled.deinit();
+    const combined = try allocFromManagedScale(rt, &result.unscaled, result.scale);
+    try rt.gc.pin(combined);
+    defer _ = rt.gc.unpin(combined);
+    return allocRoundPrecision(rt, combined, precision, mode);
 }
 
 /// Initialise `aligned_a` / `aligned_b` such that both represent
@@ -951,35 +943,9 @@ fn alignScales(
     const bd = b.decodePtr(*const BigDecimal);
     const target_scale = @max(ad.scale, bd.scale);
 
-    aligned_a.* = try cloneAndScale(rt, ad.unscaled.m, target_scale - ad.scale);
+    aligned_a.* = try decimal_alignment.cloneAndScale(rt.gc.infra, ad.unscaled.m, @intCast(@as(i64, target_scale) - ad.scale));
     errdefer aligned_a.deinit();
-    aligned_b.* = try cloneAndScale(rt, bd.unscaled.m, target_scale - bd.scale);
-}
-
-/// Clone `src` and multiply by 10^extra_scale (extra_scale >= 0).
-fn cloneAndScale(rt: *Runtime, src: *const std.math.big.int.Managed, extra_scale: i32) !std.math.big.int.Managed {
-    var out = try src.cloneWithDifferentAllocator(rt.gc.infra);
-    errdefer out.deinit();
-    if (extra_scale > 0) {
-        var ten = try std.math.big.int.Managed.init(rt.gc.infra);
-        defer ten.deinit();
-        try ten.set(10);
-        var multiplier = try std.math.big.int.Managed.init(rt.gc.infra);
-        defer multiplier.deinit();
-        try multiplier.set(1);
-        var i: i32 = 0;
-        while (i < extra_scale) : (i += 1) {
-            var tmp = try std.math.big.int.Managed.init(rt.gc.infra);
-            defer tmp.deinit();
-            try tmp.mul(&multiplier, &ten);
-            multiplier.swap(&tmp);
-        }
-        var product = try std.math.big.int.Managed.init(rt.gc.infra);
-        defer product.deinit();
-        try product.mul(&out, &multiplier);
-        out.swap(&product);
-    }
-    return out;
+    aligned_b.* = try decimal_alignment.cloneAndScale(rt.gc.infra, bd.unscaled.m, @intCast(@as(i64, target_scale) - bd.scale));
 }
 
 // --- tests ---
