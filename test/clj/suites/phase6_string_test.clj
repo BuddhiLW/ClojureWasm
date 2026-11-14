@@ -1,0 +1,75 @@
+;; clojure.string case, trim, predicates, indexing, replacement, escape and
+;; reverse. Migrated from the phase6 string, shim and exit-smoke shells.
+(ns suites.phase6-string-test
+  (:require [clojure.test :refer [deftest is]]
+            [clojure.string :as str]))
+
+(deftest p6-string-case-and-blank
+  (is (= "HI" (str/upper-case "hi")) "upper_case_ascii")
+  (is (= "hi" (str/lower-case "HI")) "lower_case_ascii")
+  (is (= "HELLO WORLD" (str/upper-case "Hello World")) "upper_case_mixed")
+  (is (true? (str/blank? "")) "blank_empty")
+  (is (true? (str/blank? "   ")) "blank_ascii_ws")
+  (is (false? (str/blank? "hi")) "blank_non_blank")
+  (is (true? (str/blank? nil)) "blank_nil")
+  (is (true? (str/blank? "\t\n")) "blank_tab_newline"))
+
+(deftest p6-string-trim-and-predicates
+  (is (= "hello" (str/trim "  hello  ")) "trim_ascii_both")
+  (is (= "hello" (str/trim "hello")) "trim_no_op")
+  (is (= "" (str/trim "   ")) "trim_all_ws")
+  (is (= "hi" (str/trim "　hi　")) "trim_ideographic")
+  (is (= "hello  " (str/triml "  hello  ")) "triml_left_only")
+  (is (= "  hello" (str/trimr "  hello  ")) "trimr_right_only")
+  (is (= "line" (str/trim-newline "line\n")) "trim_newline_lf")
+  (is (= "  hi  " (str/trim-newline "  hi  ")) "trim_newline_keeps_spaces")
+  (is (true? (str/starts-with? "hello" "he")) "starts_with_true")
+  (is (false? (str/starts-with? "hello" "lo")) "starts_with_false")
+  (is (true? (str/starts-with? "hello" "")) "starts_with_empty_prefix")
+  (is (true? (str/ends-with? "hello" "lo")) "ends_with_true")
+  (is (false? (str/ends-with? "hello" "he")) "ends_with_false")
+  (is (true? (str/includes? "hello world" "lo wo")) "includes_true")
+  (is (false? (str/includes? "hello" "world")) "includes_false")
+  (is (true? (str/includes? "あいうえお" "うえ")) "includes_utf8"))
+
+(deftest p6-string-index-replace-escape-reverse
+  (is (= 6 (str/index-of "hello world" "world")) "index_of_hit")
+  (is (nil? (str/index-of "hello" "x")) "index_of_miss_returns_nil")
+  (is (= 2 (str/index-of "あbいc" "い")) "index_of_codepoint_jp")
+  (is (= 6 (str/last-index-of "hello hello" "hello")) "last_index_of_hit")
+  (is (nil? (str/last-index-of "hello" "x")) "last_index_of_miss")
+  (is (= "heLLo worLd" (str/replace "hello world" "l" "L")) "replace_string_all")
+  (is (= "hi" (str/replace "hi" "x" "Y")) "replace_no_match")
+  (is (= "heLlo world" (str/replace-first "hello world" "l" "L")) "replace_first")
+  (is (= "" (str/replace "" "x" "y")) "replace_empty_haystack")
+  (is (= "abc" (str/escape "abc" (fn* [c] nil))) "escape_fn_nil_passthrough")
+  (is (= "XXX" (str/escape "abc" (fn* [c] "X"))) "escape_fn_constant")
+  (is (= "a&amp;b&lt;c" (str/escape "a&b<c" {\& "&amp;" \< "&lt;"}))
+      "escape_html_entities")
+  (is (= "xy" (str/escape "xy" {})) "escape_empty_map_passthrough")
+  (is (= "olleh" (str/reverse "hello")) "reverse_ascii")
+  (is (= "" (str/reverse "")) "reverse_empty")
+  (is (= "ういあ" (str/reverse "あいう")) "reverse_codepoint_jp"))
+
+(deftest p6-string-pattern-b2-shims
+  (is (= "HI" (str/upper-case "hi")) "upper_case_via_shim")
+  (is (= "bye" (str/lower-case "BYE")) "lower_case_via_shim")
+  (is (= "hi" (str/trim "  hi  ")) "trim_via_shim")
+  (is (= "hi" (str/triml "  hi")) "triml_via_shim")
+  (is (= "hi" (str/trimr "hi  ")) "trimr_via_shim")
+  (is (= "hi" (str/trim-newline "hi\n")) "trim_newline_via_shim")
+  (is (true? (str/starts-with? "hello" "he")) "starts_with_via_shim")
+  (is (true? (str/ends-with? "hello" "lo")) "ends_with_via_shim")
+  (is (true? (str/includes? "hello" "ell")) "includes_via_shim")
+  (is (= 2 (str/index-of "hello" "l")) "index_of_via_shim")
+  (is (= 3 (str/last-index-of "hello" "l")) "last_index_of_via_shim")
+  (is (= "cba" (str/reverse "abc")) "reverse_via_shim"))
+
+(deftest p6-exit-smoke-strings
+  (is (= "HI" (str/upper-case "hi")) "string_upper")
+  (is (= "bye" (str/lower-case "BYE")) "string_lower")
+  (is (= "hi" (str/trim "  hi  ")) "string_trim")
+  (is (= "Hello world" (str/capitalize "hello world")) "string_capitalize")
+  (is (= "a,b,c" (str/join "," ["a" "b" "c"])) "string_join")
+  (is (true? (str/blank? "  ")) "string_blank")
+  (is (= "HI" (str/upper-case "hi")) "baseline_string_upper"))
