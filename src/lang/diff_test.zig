@@ -1477,7 +1477,7 @@ test "diff: ADR-0060 internal error no-match inner re-raises to outer" {
     , 6);
 }
 
-// `instance?` parity coverage lives in e2e (test/e2e/phase7_instance_q.sh,
+// `instance?` coverage lives in test/clj/suites/phase7_protocols_test.clj,
 // full runtime): `instance?` is a clj fn over a class VALUE
 // (`(def instance? (fn* [c x] (cljw.internal/__instance-of? c x)))`), so it requires the class
 // symbol to resolve to a class value — which needs the full class-value surface
