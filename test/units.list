@@ -36,6 +36,7 @@ wasm_gate|2|no|config|bash scripts/run_wasm_gate.sh
 
 # --- layer 5: conformance ---------------------------------------------------
 tier_a|5|yes|slow|bash test/clj/run_tier_a.sh
+zk_examples|5|yes|slow,via-gate,native-clojure|zig-out/bin/cljw test/clj/zk_examples_test.clj
 verify_projects|5|no|network,failfast|bash scripts/verify_projects.sh
 
 # --- layer 6: golden snapshots ----------------------------------------------

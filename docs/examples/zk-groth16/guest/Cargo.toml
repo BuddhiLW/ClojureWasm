@@ -1,0 +1,36 @@
+[package]
+name = "zk-groth16"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+wit-bindgen = "0.62"
+
+# `default-features = false` throughout is load-bearing, not tidiness: the
+# arkworks default feature is `parallel`, which pulls rayon and therefore
+# threads. wasm32-unknown-unknown has no threads, so the default build does not
+# link. The guest uses the target's std without host I/O imports.
+ark-bn254 = { version = "0.5", default-features = false, features = ["curve"] }
+ark-groth16 = { version = "0.5", default-features = false }
+ark-relations = { version = "0.5", default-features = false }
+ark-ff = { version = "0.5", default-features = false }
+ark-ec = { version = "0.5", default-features = false }
+ark-serialize = { version = "0.5", default-features = false }
+ark-snark = { version = "0.5", default-features = false }
+ark-std = { version = "0.5", default-features = false }
+
+# ChaCha seeded explicitly, never from entropy. `getrandom` is deliberately NOT
+# a dependency: on wasm32-unknown-unknown it has no backend, and pulling it in
+# is what would force this component to ask the host for an import.
+rand_chacha = { version = "0.3", default-features = false }
+rand = { version = "0.8", default-features = false }
+
+[profile.release]
+opt-level = "s"
+lto = true
+strip = true
+codegen-units = 1

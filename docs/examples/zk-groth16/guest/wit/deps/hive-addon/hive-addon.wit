@@ -1,0 +1,22 @@
+package hive:addon@0.1.0;
+
+/// PLACEHOLDER for the projection [MALLI-WIT] will emit from hive-addon's malli
+/// IAddon schema. Hand-written only until that emitter exists.
+///
+/// A guest includes this world and adds exactly ONE exported interface named
+/// `tools`; each function in it is one MCP tool.
+///
+/// The meta functions are top-level rather than an interface because zwasm
+/// 2.6.0 cannot resolve a second exported instance (instance-sort exports mint
+/// `.local` origins that `localInstanceDef` counts as definitions).
+world addon {
+  record tool-doc {
+    name: string,
+    description: string,
+  }
+
+  export addon-id: func() -> string;
+  export capabilities: func() -> list<string>;
+  export tool-docs: func() -> list<tool-doc>;
+  export health: func() -> result<string, string>;
+}

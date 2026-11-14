@@ -1,0 +1,50 @@
+# Standalone: this crate is NOT a member of the clojurust workspace, it only
+# path-depends into it. The empty table stops Cargo walking up and adopting
+# some unrelated parent workspace.
+[workspace]
+
+[package]
+name = "cljrs-zk"
+version = "0.1.0"
+# 2024 to match the cljrs crates: `#[unsafe(no_mangle)]` is edition-2024 syntax.
+edition = "2024"
+license = "MIT"
+
+[lib]
+# cdylib is what `cljrs build-native` loads at runtime; rlib keeps the crate
+# usable as an ordinary Rust library.
+crate-type = ["cdylib", "rlib"]
+
+# MUST mirror the host cljrs binary's feature selection. Rust has no stable
+# ABI, and `regex-full` vs `small-regex` selects a different regex engine
+# INSIDE `Value`, which changes the enum's size. A plugin built with different
+# features hands the host a `Value` of the wrong shape and the first field read
+# lands at the wrong offset: the observed symptom was
+# "memory allocation of 123483678441088 bytes failed" from `(zk/compute 3)`,
+# a function that allocates nothing at all. Copied from cljrs-blake3.
+[features]
+default = ["regex-full", "deps"]
+regex-full  = ["cljrs-value/regex-full", "cljrs-interop/regex-full"]
+small-regex = ["cljrs-value/small-regex", "cljrs-interop/small-regex"]
+deps = ["cljrs-interop/deps"]
+
+[dependencies]
+cljrs-interop = { path = "../../../../../clojurust/crates/cljrs-interop", default-features = false }
+cljrs-value   = { path = "../../../../../clojurust/crates/cljrs-value", default-features = false }
+cljrs-gc      = { path = "../../../../../clojurust/crates/cljrs-gc" }
+
+# The identical arkworks stack the Wasm guest uses. Native has threads, so
+# `parallel` would be allowed here, but it stays OFF so that a difference in
+# output between the two runtimes can never be blamed on a different feature
+# set. Same crates, same features, two compilation targets.
+ark-bn254     = { version = "0.5", default-features = false, features = ["curve"] }
+ark-groth16   = { version = "0.5", default-features = false }
+ark-relations = { version = "0.5", default-features = false }
+ark-ff        = { version = "0.5", default-features = false }
+ark-ec        = { version = "0.5", default-features = false }
+ark-serialize = { version = "0.5", default-features = false }
+ark-snark     = { version = "0.5", default-features = false }
+ark-std       = { version = "0.5", default-features = false }
+
+rand_chacha = { version = "0.3", default-features = false }
+rand        = { version = "0.8", default-features = false }

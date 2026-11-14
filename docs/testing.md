@@ -99,6 +99,27 @@ it clones over the network, and it stops at the FIRST blocking site with a
 `file:line` so each fix reveals exactly one more. That one-answer-per-run
 property is why it is tagged `failfast` rather than aggregated with the rest.
 
+### Slow native Clojure checks
+
+Fast native `clojure.test` suites under `test/clj/suites/` run in the smoke
+core (`test_clj_suites`). Compute-heavy checks stay outside that shared
+process so every smoke run does not pay their cost.
+
+`test/clj/zk_examples_test.clj` exercises the committed Groth16 component
+through real proof generation and verification, then runs the shared
+`docs/examples/zk-dual-runtime/src/demo.cljc` program with exact true/false
+assertions. It is tagged `slow` as the
+`zk_examples` unit in `test/units.list` and runs in the full-only
+`test_clj_zk` step of `test/run_all.sh`. It asserts correctness, not timing.
+Select it explicitly when changing the cryptographic examples:
+
+```sh
+zig build -Dwasm -Doptimize=ReleaseSafe
+./zig-out/bin/cljw test/clj/zk_examples_test.clj
+bash test/run_all.sh --smoke test_clj_zk
+bash test/cljw-test --only zk_examples
+```
+
 ### Which layer does my test go in?
 
 Ask in order and stop at the first yes:

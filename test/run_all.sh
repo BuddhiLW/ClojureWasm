@@ -577,6 +577,9 @@ run_step "test_clj_tier_a"                   "bash test/clj/run_tier_a.sh"
 # measured 8.5x over the per-assertion process spawns the bash e2e tier pays).
 # In SMOKE_CORE: at tens of ms it belongs in every per-commit loop.
 run_step "test_clj_suites"                   "zig-out/bin/cljw -cp test/clj:scripts test/clj/run_suites.clj"
+# Real Groth16 setup/proving is compute-heavy. Native assertions, full gate
+# only by default; opt in with --smoke test_clj_zk when changing the examples.
+run_step "test_clj_zk"                       "zig-out/bin/cljw test/clj/zk_examples_test.clj"
 run_step "e2e_phase11_exit_smoke"            "bash test/e2e/phase11_exit_smoke.sh"
 run_step "e2e_phase13_exit_smoke"            "bash test/e2e/phase13_exit_smoke.sh"
 run_step "e2e_phase14_catch_keyword"         "bash test/e2e/phase14_catch_keyword.sh"
