@@ -106,7 +106,9 @@ core (`test_clj_suites`). Compute-heavy checks stay outside that shared
 process so every smoke run does not pay their cost.
 
 `test/clj/zk_examples_test.clj` exercises the committed Groth16 component
-through real proof generation and verification. It is tagged `slow` as the
+through real proof generation and verification, then runs the shared
+`docs/examples/zk-dual-runtime/src/demo.cljc` program with exact true/false
+assertions. It is tagged `slow` as the
 `zk_examples` unit in `test/units.list` and runs in the full-only
 `test_clj_zk` step of `test/run_all.sh`. It asserts correctness, not timing.
 Select it explicitly when changing the cryptographic examples:

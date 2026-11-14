@@ -1,0 +1,14 @@
+;; cljrs.edn: a simple Clojure project whose zk functions come from a Rust
+;; crate, loaded natively by cljrs.
+;;
+;; The SAME arkworks Groth16 code also runs on cljw, there as a zero-import
+;; Wasm component. That is the point of this project: one Rust library, one
+;; Clojure surface, two runtimes with opposite trade-offs.
+;;
+;;   cljrs : native dylib, full speed, full ambient authority
+;;   cljw  : wasm component, sandboxed, ZERO host imports
+{:name    "zk-dual-runtime"
+ :version "0.1.0"
+ :paths   ["src"]
+ :rust    {:crate "native/target/plugin"
+           :init  "cljrs_zk::cljrs_init"}}

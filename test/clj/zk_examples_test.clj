@@ -34,5 +34,20 @@
       (is (= [:ok ["alpha" "beta"]] (call "echo-list"))
           "allocation and typed lifting still work after the trap"))))
 
+(deftest shared-demo-on-cljw
+  (let [out (with-out-str
+              (load-file "docs/examples/zk-dual-runtime/cljw/run.clj"))]
+    ;; The shared .cljc also asserts proof size and exact true/false results.
+    (is (str/includes? out "public statement : x^3 + x + 5 == 35"))
+    (is (str/includes? out "proof            : 128 bytes"))
+    (is (str/includes? out "verify true  y = 35 -> true"))
+    (is (str/includes? out "verify false y = 36 -> false"))
+    (is (or (str/includes? out "env-vars=0")
+            (str/includes? out "env-vars=TRAP (0 host variables exposed)")))
+    (is (str/includes? out "fs-read=denied"))
+    (is (str/includes? out "wall-clock=TRAP"))
+    (is (not (str/includes? out "GRANTED"))
+        "the Wasm guest holds no ambient host authority")))
+
 (let [{:keys [fail error]} (run-tests 'zk-examples-test)]
   (System/exit (if (zero? (+ fail error)) 0 1)))

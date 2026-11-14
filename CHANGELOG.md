@@ -12,6 +12,9 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 - `docs/examples/zk-groth16/`: an arkworks Groth16 BN254 component with zero
   host function imports, a committed fixture, and native cljw tests for proof
   verification, rejection of a false public input and guest-trap isolation.
+- `docs/examples/zk-dual-runtime/`: one shared Clojure program for cljrs native
+  and cljw Wasm, with a portable DEBUG plugin build helper, preserved native
+  lockfile, a cljw correctness check and measured capability comparison.
 
 ## [1.15.8] - 2026-11-11
 
