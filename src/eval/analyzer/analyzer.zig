@@ -2517,7 +2517,7 @@ test "field-only access (.-x inst) sets field_only" {
 // `defrecord`/`reify`/`definterface` are retired from the
 // staged-unsupported wedge — each lowers via a Layer-2 macro
 // (expandDefrecord / expandReify / expandDefinterface→defprotocol). The wedge is
-// empty and removed. definterface lowering is covered by `test/e2e/phase7_definterface.sh`
+// empty and removed. definterface lowering is covered by `test/clj/suites/phase7_protocols_test.clj`
 // (the analyzer TestFixture cannot register Layer-2 macros without an upward
 // zone import — see `.claude/rules/zone_deps.md`).
 
