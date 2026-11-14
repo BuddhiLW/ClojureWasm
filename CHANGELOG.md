@@ -7,6 +7,14 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 
 ## [Unreleased]
 
+### Changed
+
+- GC allocation records use 16 rather than 24 bytes on 64-bit hosts, reducing
+  the allocation side table and its copying traffic without changing the
+  collector or its trigger policy. Retained-heap churn used about 17 MiB less
+  peak RSS in repeated A/B measurements. Throughput remains above babashka;
+  see `bench/vs_bb/gc_records.md` for the partial result and regression checks.
+
 ## [1.15.8] - 2026-11-11
 
 ### Added

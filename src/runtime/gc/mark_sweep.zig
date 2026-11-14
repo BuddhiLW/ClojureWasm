@@ -123,12 +123,12 @@ pub fn sweep(gc: *GcHeap) void {
             }
             // Never fails: a page free is a list push into memory the page
             // already owns.
-            gc.cellFree(@ptrCast(rec.header), rec.size, rec.alignment);
-            gc.stats.bytes_freed += rec.size;
+            gc.cellFree(@ptrCast(rec.header), rec.allocation.size, rec.allocation.alignment);
+            gc.stats.bytes_freed += rec.allocation.size;
             _ = gc.allocations.swapRemove(i);
         } else {
             rec.header.gc_and_lock.gc_mark &= ~@as(u30, 1);
-            live_bytes += rec.size;
+            live_bytes += rec.allocation.size;
             // D-573: count what the object OWNS (a String's bytes, a BigInt's
             // limbs, an array's elements), not just its record block.
             if (tag_ops.tag_owned_bytes_table[rec.header.tag]) |owned| {

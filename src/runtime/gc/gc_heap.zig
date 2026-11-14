@@ -193,9 +193,9 @@ pub const GcHeap = struct {
             if (tag_ops.tag_finaliser_table[rec.header.tag]) |finaliser| {
                 finaliser(@ptrCast(self), rec.header);
             }
-            if (!page_heap_mod.isSmall(rec.size, rec.alignment)) {
-                const mem = @as([*]u8, @ptrCast(rec.header))[0..rec.size];
-                self.infra.rawFree(mem, rec.alignment, @returnAddress());
+            if (!page_heap_mod.isSmall(rec.allocation.size, rec.allocation.alignment)) {
+                const mem = @as([*]u8, @ptrCast(rec.header))[0..rec.allocation.size];
+                self.infra.rawFree(mem, rec.allocation.alignment, @returnAddress());
             }
         }
         self.allocations.deinit(self.infra);
@@ -329,6 +329,7 @@ pub const GcHeap = struct {
         defer io_default.unlockMutex(&self.gc_mutex);
         const align_t: std.mem.Alignment = .fromByteUnits(@alignOf(T));
         const effective_size: usize = @max(size, gc_types.min_alloc_bytes);
+        if (effective_size > gc_types.max_cell_bytes) return error.OutOfMemory;
 
         // D-352: per-eval LIVE-heap ceiling, checked at the alloc boundary
         // because a Zig primitive can allocate megabytes without an eval
@@ -348,8 +349,7 @@ pub const GcHeap = struct {
         const hdr: *HeapHeader = @ptrCast(@alignCast(raw));
         const rec: gc_types.AllocRecord = .{
             .header = hdr,
-            .size = effective_size,
-            .alignment = align_t,
+            .allocation = .{ .size = @intCast(effective_size), .alignment = align_t },
         };
         // CLJW-PERF-ALLOC-FASTPATH: the side list almost always has room
         // (it only grows, and sweep swap-removes), so store in place and
