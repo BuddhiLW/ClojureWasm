@@ -164,7 +164,55 @@ test "GcHeap.alloc returned pointer aliases the live-list HeapHeader" {
     const hdr_via_cast: *HeapHeader = @ptrCast(c);
     try testing.expectEqual(rec.header, hdr_via_cast);
     try testing.expectEqual(@as(u8, @intFromEnum(value_mod.HeapTag.list)), rec.header.tag);
-    try testing.expectEqual(@sizeOf(Cell), rec.size);
+    try testing.expectEqual(@sizeOf(Cell), rec.allocation.size);
+}
+
+test "GcHeap.allocWithTail refuses an unrepresentable record size before allocating" {
+    if (@bitSizeOf(usize) != 64) return;
+    var gc = GcHeap.init(testing.allocator);
+    defer gc.deinit();
+    const max_cell_bytes = @import("gc_types.zig").max_cell_bytes;
+    try testing.expectError(error.OutOfMemory, gc.allocWithTail(Cell, max_cell_bytes));
+    try testing.expectEqual(@as(usize, 0), gc.allocations.items.len);
+    try testing.expectEqual(@as(usize, 0), gc.stats.bytes_allocated);
+    try testing.expectEqual(@as(usize, 0), gc.committedBytes());
+}
+
+test "GcHeap retains exact free metadata for small, large and over-aligned cells" {
+    const page_heap = @import("page_heap.zig");
+    const sweep = @import("mark_sweep.zig").sweep;
+    const LargeCell = extern struct { header: HeapHeader, payload: [5000]u8 };
+    const AlignedCell = extern struct { header: HeapHeader align(64), payload: u64 };
+    const large_size = @sizeOf(LargeCell) + 17;
+    try testing.expect(page_heap.isSmall(@sizeOf(Cell), std.mem.Alignment.of(Cell)));
+    try testing.expect(!page_heap.isSmall(large_size, std.mem.Alignment.of(LargeCell)));
+    try testing.expect(!page_heap.isSmall(@sizeOf(AlignedCell), std.mem.Alignment.of(AlignedCell)));
+    // Exercise both decoders: sweep and deinit of still-live allocations.
+    for ([_]bool{ true, false }) |do_sweep| {
+        var gc = GcHeap.init(testing.allocator);
+        defer gc.deinit();
+        const small = try gc.alloc(Cell);
+        small.* = .{ .header = HeapHeader.init(.symbol) };
+        const large = try gc.allocWithTail(LargeCell, 17);
+        large.* = .{ .header = HeapHeader.init(.symbol), .payload = @splat(0) };
+        const aligned = try gc.alloc(AlignedCell);
+        aligned.* = .{ .header = HeapHeader.init(.symbol), .payload = 0 };
+        try testing.expectEqual(large_size, gc.allocations.items[1].allocation.size);
+        try testing.expectEqual(std.mem.Alignment.@"64", gc.allocations.items[2].allocation.alignment);
+        const allocated = gc.stats.bytes_allocated;
+        if (do_sweep) {
+            large.header.gc_and_lock.gc_mark = 1;
+            sweep(&gc);
+            try testing.expectEqual(@as(usize, 1), gc.allocations.items.len);
+            try testing.expectEqual(&large.header, gc.allocations.items[0].header);
+            try testing.expectEqual(large_size, gc.stats.last_live_bytes);
+            try testing.expectEqual(allocated - large_size, gc.stats.bytes_freed);
+            sweep(&gc);
+            try testing.expectEqual(@as(usize, 0), gc.allocations.items.len);
+            try testing.expectEqual(@as(usize, 0), gc.large_live_bytes);
+            try testing.expectEqual(allocated, gc.stats.bytes_freed);
+        }
+    }
 }
 
 test "Stats struct shape" {

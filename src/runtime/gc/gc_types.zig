@@ -67,8 +67,40 @@ pub const Stats = struct {
 /// `*HeapHeader` plus the original (size, alignment), so sweep and deinit free
 /// with the metadata `rawAlloc` was given. Without them a debug allocator
 /// trips "Invalid free": the header alone would imply an 8-byte block.
+// PERF: keep size and alignment in one word, cutting 64-bit records from 24 to 16 bytes [refs: O-092].
 pub const AllocRecord = struct {
     header: *HeapHeader,
-    size: usize,
-    alignment: std.mem.Alignment,
+    allocation: Allocation,
+
+    pub const Allocation = if (@bitSizeOf(usize) == 64) packed struct(usize) {
+        size: u58,
+        alignment: std.mem.Alignment,
+    } else struct {
+        size: usize,
+        alignment: std.mem.Alignment,
+    };
 };
+
+/// Largest cell representable by the side table. Checked before allocating,
+/// never truncated. The pointer retains its full native width. On 32-bit
+/// targets the original record keeps the entire usize size range.
+pub const max_cell_bytes = std.math.maxInt(@FieldType(AllocRecord.Allocation, "size"));
+
+test "AllocRecord preserves pointer, size and every allocator alignment" {
+    const testing = std.testing;
+    var header = HeapHeader.init(.symbol);
+    const sizes = [_]usize{ min_alloc_bytes, 4096, 4097, 65536, max_cell_bytes };
+    var records: [sizes.len]AllocRecord = undefined;
+    for (0..@bitSizeOf(usize)) |log_alignment| {
+        const alignment: std.mem.Alignment = @enumFromInt(log_alignment);
+        for (sizes, &records) |size, *record| {
+            record.* = .{ .header = &header, .allocation = .{ .size = @intCast(size), .alignment = alignment } };
+        }
+        for (sizes, records) |size, record| {
+            try testing.expectEqual(&header, record.header);
+            try testing.expectEqual(size, record.allocation.size);
+            try testing.expectEqual(alignment, record.allocation.alignment);
+        }
+    }
+    if (@bitSizeOf(usize) == 64) try testing.expectEqual(@as(usize, 16), @sizeOf(AllocRecord));
+}
