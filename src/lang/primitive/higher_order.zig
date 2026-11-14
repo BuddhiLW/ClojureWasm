@@ -210,6 +210,17 @@ pub fn invokeCallable(rt: *Runtime, env: *Env, f: Value, args: []const Value, lo
         const fn_ptr = f.asBuiltinFn(dispatch.BuiltinFn);
         return fn_ptr(rt, env, args, loc);
     }
+    // PERF: a `.fn_val` whose method is known skips `treeWalkCall`'s prologue
+    // (consult-env save/set/restore, `updateTopFrame`, the `calleeFrame` switch,
+    // the callee-tag switch and `selectMethod`'s scan) while reproducing its
+    // observable effects and binding + running the frame through the SAME
+    // `callMethodResolved` the generic path reaches (F-011). A native HOF calls
+    // its callee once per element, so this prologue is pure per-element
+    // overhead: it is the dominant cost of `(reduce + (map * xs xs))`'s lazy
+    // node and of every stage of a `transduce` chain. [refs: O-064]
+    if (resolveFixedArity(f, args.len)) |r| {
+        return invokeResolved(rt, env, f, r.f, r.m, args, loc);
+    }
     if (rt.vtable) |vt| {
         return try vt.callFn(rt, env, f, args, loc);
     }
@@ -218,6 +229,75 @@ pub fn invokeCallable(rt: *Runtime, env: *Env, f: Value, args: []const Value, lo
         .expected = "callable (fn or builtin)",
         .actual = @tagName(f.tag()),
     });
+}
+
+/// PERF: per-element call from a native HOF's hot loop. The generic
+/// `invokeCallable` -> `vt.callFn` -> `treeWalkCall` path re-does work that is
+/// LOOP-INVARIANT for a fixed callee and call site: the consult-env
+/// save/set/restore, `updateTopFrame`, the `calleeFrame` switch, the callee tag
+/// switch and `selectMethod`'s linear scan. A HOF that resolves the `.fn_val`
+/// callee ONCE (and only re-checks that the arity still matches) calls this
+/// instead. It reproduces `treeWalkCall`'s observable effects exactly — the
+/// consult env is published for the whole call, the CALLER's trace frame is
+/// advanced to this call site, and a user-ns callee frame is pushed then popped
+/// — and then binds + runs the frame through the same `callMethodResolved` the
+/// generic path reaches, so the activation layout cannot drift (F-011).
+/// Anything but a fixed-arity `.fn_val` never arrives here: the caller leaves
+/// its resolution null and keeps `invokeCallable`. [refs: O-064]
+pub fn invokeResolved(
+    rt: *Runtime,
+    env: *Env,
+    f: Value,
+    fn_ptr: *const tree_walk.Function,
+    m: *const tree_walk.FunctionMethod,
+    args: []const Value,
+    loc: SourceLocation,
+) anyerror!Value {
+    const saved_consult_env = dispatch.current_env;
+    dispatch.current_env = env;
+    defer dispatch.current_env = saved_consult_env;
+    error_mod.updateTopFrame(loc);
+    const pushed = if (tree_walk.calleeFrame(f, loc)) |fr| error_mod.pushFrame(fr) else false;
+    defer if (pushed) error_mod.popFrame();
+    return tree_walk.callMethodResolved(rt, env, f, fn_ptr, m, args, loc);
+}
+
+/// PERF: a resolution of the reducing fn hoisted out of a reduction loop: the
+/// callee's Function + the exact method `(f acc elt)` selects, or null when the
+/// callee is not a fixed-arity `.fn_val` (builtin, variadic, multi-arity,
+/// multimethod, protocol fn, data-as-IFn) and must keep the generic dispatch.
+/// `selectMethod` returns null for an arity the fn does not declare, so an
+/// arity error still surfaces through `invokeCallable` on the first element
+/// rather than being pre-empted here. [refs: O-064]
+pub const ResolvedCallee = struct {
+    f: *const tree_walk.Function,
+    m: *const tree_walk.FunctionMethod,
+};
+
+/// PERF: resolve `f` as a `.fn_val` callable whose method for `arity` args is
+/// known — the shape a native HOF's element loop repeats. Null means "not that
+/// shape" (a builtin, a multimethod, a protocol fn, data-as-IFn, or an arity the
+/// fn does not declare) and the caller keeps the generic `vt.callFn`.
+///
+/// A VARIADIC method is admitted only when the call supplies exactly its
+/// required arity: `bindCallFrame`'s `.wrap` loop then runs zero times and
+/// `& rest` binds nil, so no rest list is consed and the fast path cannot
+/// diverge from the generic one. That is the shape `comp` produces at its call
+/// sites (`(fn* [& args] (f (apply g args)))`), which is exactly what a
+/// `transduce` reducing fn is. [refs: O-064]
+pub fn resolveFixedArity(f: Value, arity: usize) ?ResolvedCallee {
+    if (f.tag() != .fn_val) return null;
+    const fp = f.decodePtr(*const tree_walk.Function);
+    const mp = tree_walk.selectMethod(fp, arity) orelse return null;
+    if (mp.has_rest and arity != mp.arity) return null; // needs the rest-pack
+    return .{ .f = fp, .m = mp };
+}
+
+/// PERF: one step of a native HOF's reduction loop — the resolved fast path
+/// when `resolved` is non-null, else the generic `invokeCallable`. [refs: O-064]
+inline fn stepCall(rt: *Runtime, env: *Env, f: Value, resolved: ?ResolvedCallee, args: []const Value, loc: SourceLocation) anyerror!Value {
+    if (resolved) |r| return invokeResolved(rt, env, f, r.f, r.m, args, loc);
+    return invokeCallable(rt, env, f, args, loc);
 }
 
 // --- reduce ---
@@ -300,9 +380,13 @@ pub fn reduceFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocatio
         const n = range_mod.countOf(coll);
         var racc: Value = if (args.len == 3) args[1] else try range_mod.elementAt(rt, coll, 0);
         var ri: i64 = if (args.len == 3) 0 else 1;
+        // PERF: resolve `(f acc elt)` ONCE — the callee and its method are
+        // loop-invariant, so every element past the first skips the dispatch
+        // prologue [refs: O-064].
+        const resolved = resolveFixedArity(f, 2);
         while (ri < n) : (ri += 1) {
             gc_roots[1] = racc; // root across the reducing-fn eval (and the elementAt heap-Long alloc)
-            const rstep = try invokeCallable(rt, env, f, &.{ racc, try range_mod.elementAt(rt, coll, ri) }, loc);
+            const rstep = try stepCall(rt, env, f, resolved, &.{ racc, try range_mod.elementAt(rt, coll, ri) }, loc);
             if (reduced.isReduced(rstep)) return reduced.unreduce(rstep);
             racc = rstep;
         }
@@ -324,9 +408,11 @@ pub fn reduceFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocatio
             racc = vsNth(coll, 0);
             ri = 1;
         }
+        // PERF: resolve `(f acc elt)` ONCE (see the range arm) [refs: O-064].
+        const resolved = resolveFixedArity(f, 2);
         while (ri < n) : (ri += 1) {
             gc_roots[1] = racc; // root across the reducing-fn eval
-            const rstep = try invokeCallable(rt, env, f, &.{ racc, vsNth(coll, ri) }, loc);
+            const rstep = try stepCall(rt, env, f, resolved, &.{ racc, vsNth(coll, ri) }, loc);
             if (reduced.isReduced(rstep)) return reduced.unreduce(rstep);
             racc = rstep;
         }

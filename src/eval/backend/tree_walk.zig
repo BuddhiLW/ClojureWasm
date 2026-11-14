@@ -1318,6 +1318,23 @@ pub fn calleeFrame(callee: Value, loc: SourceLocation) ?error_mod.StackFrame {
     };
 }
 
+/// PERF: the `.builtin_fn` half of `treeWalkCall`, for a backend that has
+/// ALREADY proven the callee is a builtin (the VM's `op_call` slow path). It
+/// reproduces `treeWalkCall`'s observable prologue for a builtin EXACTLY —
+/// publish the consult env for the call's whole extent (ADR-0129), advance the
+/// CALLER's trace frame to this call site (D-334) — and skips only work a
+/// builtin provably cannot need: the `calleeFrame` switch (a builtin never
+/// frames: its ns is host, not user) and the vtable indirection. A builtin
+/// never pushes a frame, so there is no pop to balance. [refs: O-064]
+pub fn callBuiltinDirect(rt: *Runtime, env: *Env, callee: Value, args: []const Value, loc: SourceLocation) anyerror!Value {
+    const saved_consult_env = dispatch.current_env;
+    dispatch.current_env = env;
+    defer dispatch.current_env = saved_consult_env;
+    error_mod.updateTopFrame(loc);
+    const fn_ptr = callee.asBuiltinFn(dispatch.BuiltinFn);
+    return fn_ptr(rt, env, args, loc);
+}
+
 /// `dispatch.CallFn` implementation. Dispatches on the callee's tag:
 /// `.fn_val` evaluates the body; `.builtin_fn` calls the C function
 /// directly.
@@ -1540,7 +1557,18 @@ fn callMethodBody(rt: *Runtime, env: *Env, fn_val: Value, args: []const Value, l
     const m: *const FunctionMethod = selected orelse {
         return raiseArityNotMatched(f, args.len, loc);
     };
+    return runBoundMethod(rt, env, fn_val, f, m, args, loc, rest_mode);
+}
 
+/// PERF: the frame-binding + body-running half of a call, split out of
+/// `callMethodBody` so a caller that has ALREADY resolved `f` + `m` (a native
+/// HOF's per-element loop, e.g. `reduce`'s range / vector fast arms) can
+/// re-enter it without repeating method selection, the callee tag dispatch and
+/// the `treeWalkCall` prologue (consult-env save, `calleeFrame` switch). The
+/// binder (`bindCallFrame`) and the body dispatch (the `evalChunk` hook, else
+/// the Node walk) are unchanged, so the two activation paths cannot drift
+/// (F-011 single-source activation layout). [refs: O-064]
+pub fn runBoundMethod(rt: *Runtime, env: *Env, fn_val: Value, f: *const Function, m: *const FunctionMethod, args: []const Value, loc: SourceLocation, rest_mode: RestMode) !Value {
     // GC-ROOT: A6 — tree_walk fn activation roots its live slot window +
     // the EXECUTING callee for the call's whole extent (D-555; the sibling
     // of vm.eval's A1 frame). Without the window, a mid-eval auto-collect
@@ -1616,6 +1644,15 @@ fn callMethodBody(rt: *Runtime, env: *Env, fn_val: Value, args: []const Value, l
             else => return err,
         }
     }
+}
+
+/// PERF: resolved-callee entry — `runBoundMethod` with the method already in
+/// hand and the standard `.wrap` rest mode (the shape every generic call uses).
+/// A caller that hoists `selectMethod` out of its element loop calls this
+/// instead of `vt.callFn`, skipping the whole dispatch prologue while binding
+/// the frame and running the body through the identical path. [refs: O-064]
+pub fn callMethodResolved(rt: *Runtime, env: *Env, fn_val: Value, f: *const Function, m: *const FunctionMethod, args: []const Value, loc: SourceLocation) !Value {
+    return runBoundMethod(rt, env, fn_val, f, m, args, loc, .wrap);
 }
 
 pub fn selectMethod(f: *const Function, n: usize) ?*const FunctionMethod {

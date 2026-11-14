@@ -703,7 +703,16 @@ inline fn stepOnce(
                 const f = callee.decodePtr(*Function);
                 if (tree_walk.selectMethod(f, arg_count)) |m| {
                     if (m.bytecode) |bc| {
-                        if (!m.has_rest and !bc.has_handlers) {
+                        // A REST method flattens only when the call supplies
+                        // exactly its required arity: `bindCallFrame`'s `.wrap`
+                        // loop then runs zero times and `& rest` binds nil, so
+                        // there is no rest-pack allocation to exclude. That is
+                        // the shape every `comp`-composed fn takes at its
+                        // call sites (`(fn* [& args] ...)` called with the
+                        // exact count), and it was re-entering host `eval` per
+                        // element before this. [refs: O-064]
+                        const rest_ok = !m.has_rest or arg_count == m.arity;
+                        if (rest_ok and !bc.has_handlers) {
                             flatten_out.* = .{
                                 .callee = callee,
                                 .f = f,
@@ -739,7 +748,16 @@ inline fn stepOnce(
             // primitive resolves an arg-precise caret; restore on return.
             const prev_arg_sources = error_mod.swapArgSources(loc_stack[sp + 1 .. sp + 1 + arg_count]);
             defer _ = error_mod.swapArgSources(prev_arg_sources);
-            const result = try vt.callFn(rt, env, callee, args, call_loc);
+            // PERF: a `.builtin_fn` callee skips the vtable indirection + the
+            // `treeWalkCall` callee-tag switch, which every builtin call in a
+            // compiled body otherwise pays (`(f input)` per element of a
+            // transducer chain is a builtin). Same observable prologue
+            // (consult env + caller trace frame), see `callBuiltinDirect`.
+            // [refs: O-064]
+            const result = if (@call(.always_inline, Value.tag, .{callee}) == .builtin_fn)
+                try tree_walk.callBuiltinDirect(rt, env, callee, args, call_loc)
+            else
+                try vt.callFn(rt, env, callee, args, call_loc);
             if (sp >= stack.len)
                 return operandOverflow(instr_loc);
             // The result's own loc is the call form (this op pops below sp_entry,
