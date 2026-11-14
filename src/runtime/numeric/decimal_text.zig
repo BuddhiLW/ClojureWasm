@@ -31,6 +31,14 @@ pub fn decimalAlloc(alloc: std.mem.Allocator, m: *const Managed) ![]u8 {
     return m.toConst().toStringAlloc(alloc, 10, .lower);
 }
 
+/// Count decimal digits of the magnitude, with zero counting as one digit.
+pub fn digitCount(alloc: std.mem.Allocator, m: *const Managed) !usize {
+    if (m.eqlZero()) return 1;
+    const s = try decimalAlloc(alloc, m);
+    defer alloc.free(s);
+    return s.len - @as(usize, @intFromBool(s[0] == '-'));
+}
+
 /// Write `n/d` (a big Ratio's reader text) to `w`, no size ceiling.
 pub fn writeFraction(w: *std.Io.Writer, n: *const Managed, d: *const Managed) !void {
     try writeDecimal(w, n);

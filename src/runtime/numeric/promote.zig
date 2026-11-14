@@ -405,21 +405,31 @@ fn coerceToBigDecimal(rt: *Runtime, v: Value) !Value {
 
 /// BigDecimal contagion for +/−/×: at least one operand is a BigDecimal and
 /// neither is a float (float wins, handled by the caller's earlier branch).
-/// Both operands are promoted to BigDecimal, then exact BigDecimal arithmetic
-/// runs. JVM: a BigDecimal makes the whole expression BigDecimal unless a
-/// double is present.
+/// Both operands are promoted to BigDecimal. A finite MathContext bounds scale
+/// alignment before add/subtract; unlimited arithmetic stays exact.
 fn bigdecContagion(rt: *Runtime, a: Value, b: Value, op: BdOp) !Value {
     const ba = try coerceToBigDecimal(rt, a);
+    try rt.gc.pin(ba);
+    defer _ = rt.gc.unpin(ba);
     const bb = try coerceToBigDecimal(rt, b);
-    const result = try switch (op) {
+    try rt.gc.pin(bb);
+    defer _ = rt.gc.unpin(bb);
+    if (mathContext(rt)) |mc| {
+        switch (op) {
+            .add => return big_decimal_mod.allocCombinePrecision(rt, ba, bb, .add, mc.precision, mc.mode),
+            .sub => return big_decimal_mod.allocCombinePrecision(rt, ba, bb, .sub, mc.precision, mc.mode),
+            .mul => {},
+        }
+        const result = try big_decimal_mod.allocMul(rt, ba, bb);
+        try rt.gc.pin(result);
+        defer _ = rt.gc.unpin(result);
+        return big_decimal_mod.allocRoundPrecision(rt, result, mc.precision, mc.mode);
+    }
+    return switch (op) {
         .add => big_decimal_mod.allocAdd(rt, ba, bb),
         .sub => big_decimal_mod.allocSub(rt, ba, bb),
         .mul => big_decimal_mod.allocMul(rt, ba, bb),
     };
-    if (mathContext(rt)) |mc| {
-        return big_decimal_mod.allocRoundPrecision(rt, result, mc.precision, mc.mode);
-    }
-    return result;
 }
 
 /// `a + b` with auto-promotion. Both inputs MUST be numeric (caller

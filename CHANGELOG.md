@@ -7,6 +7,13 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 
 ## [Unreleased]
 
+### Fixed
+
+- BigDecimal addition and subtraction under a finite `with-precision` keep
+  distant low-order operands as signed sticky digits before rounding, avoiding
+  an enormous exact scale expansion. Exact scale alignment now uses BigInt
+  exponentiation instead of multiplying by ten once per decimal place.
+
 ## [1.15.8] - 2026-11-11
 
 ### Added
