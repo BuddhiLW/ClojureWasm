@@ -228,6 +228,9 @@ pub const Function = struct {
     /// site AND through the VM closure reconstruct (vm.zig op_make_fn).
     name: ?[]const u8 = null,
     defining_ns: ?[]const u8 = null,
+    /// Native closures use the same GC-traced captures and fn identity as
+    /// interpreted functions, but do not need a bytecode or local frame.
+    native_call: ?*const fn (*Runtime, *Env, Value, []const Value, SourceLocation, RestMode) anyerror!Value = null,
 
     comptime {
         std.debug.assert(@offsetOf(Function, "header") == 0);
@@ -259,6 +262,32 @@ fn allocFunctionCell(
     const methods_ptr: [*]FunctionMethod = @ptrCast(@alignCast(base + @sizeOf(Function)));
     const bindings_ptr: [*]Value = @ptrCast(@alignCast(base + @sizeOf(Function) + method_count * @sizeOf(FunctionMethod)));
     return .{ .f = f, .methods = methods_ptr[0..method_count], .bindings = bindings_ptr[0..binding_count] };
+}
+
+/// Allocate a native closure with ordinary Function identity and traced captures.
+pub fn allocNativeFunction(
+    rt: *Runtime,
+    captures: []const Value,
+    variadic_arity: ?u16,
+    call: *const fn (*Runtime, *Env, Value, []const Value, SourceLocation, RestMode) anyerror!Value,
+) !Value {
+    const cell = try allocFunctionCell(rt, 0, captures.len);
+    @memcpy(cell.bindings, captures);
+    cell.f.* = .{
+        .header = HeapHeader.init(.fn_val),
+        .slot_base = 0,
+        .methods = cell.methods,
+        .variadic = if (variadic_arity) |arity| .{
+            .arity = arity,
+            .has_rest = true,
+            .params = &.{},
+            .body = &deserialized_fn_body,
+        } else null,
+        .closure_bindings = cell.bindings,
+        .defining_ns = "clojure.core",
+        .native_call = call,
+    };
+    return Value.encodeHeapPtr(.fn_val, cell.f);
 }
 
 /// Per-tag GC trace for `.fn_val` (D-251 rooting-gap class). A `Function`
@@ -1436,7 +1465,7 @@ pub noinline fn callProtocolFn(rt: *Runtime, env: *Env, callee: Value, args: []c
 /// original shape-only gate (and cw v0's `apply_rest_is_seq` threadlocal)
 /// conflated apply-spread with a normal single-seq-arg call (a
 /// correctness bug ADR-0042's own Decision rejected on F-002 grounds).
-const RestMode = enum { wrap, bind_direct };
+pub const RestMode = enum { wrap, bind_direct };
 
 /// Generic fn call — the entry every backend reaches via `vtable.callFn`.
 /// Always cons-wraps `& rest` (unconditionally correct).
@@ -1529,6 +1558,7 @@ fn callMethodImpl(rt: *Runtime, env: *Env, fn_val: Value, args: []const Value, l
 
 fn callMethodBody(rt: *Runtime, env: *Env, fn_val: Value, args: []const Value, loc: SourceLocation, rest_mode: RestMode) !Value {
     const f = fn_val.decodePtr(*Function);
+    if (f.native_call) |call| return call(rt, env, fn_val, args, loc, rest_mode);
     // Row 7.8 cycle 1 (ADR-0041): linear scan over `methods`, fixed-
     // arity wins on exact match; fall through to `variadic` when
     // `args.len >= variadic.arity`. Single-arity fns produce a

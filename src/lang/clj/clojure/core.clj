@@ -173,25 +173,14 @@
 (declare -map-n-step)
 (def map
   (fn* ([f]
-        ;; transducer arity: (map f) returns a transducer
-        (fn* [rf]
-          (fn* ([] (rf))
-               ([result] (rf result))
-               ([result input] (rf result (f input)))
-               ;; multi-input arity: a multi-coll `sequence` steps the xform
-               ;; with one item per source — `map` is the only core transducer
-               ;; that consumes them (D-160 3-arg residual). A single-input
-               ;; transducer placed first stays 2-arg → arity error (clj parity).
-               ([result input & inputs] (rf result (apply f input inputs))))))
+        ;; PERF: O-111 native reducing-function stages, including multi-input map.
+        (cljw.internal/__map-xform f))
        ([f coll]
-        ;; PERF: O-023 stamp the fusion descriptor on the outer node so `reduce`
-        ;; fuses; the lazy body (`-map-lazy`) is unchanged → seq ops identical.
+        ;; PERF: O-023 stamp only the outer lazy node; realization is unchanged.
         (-lazy-set-fuse (-map-lazy f coll) (-fuse-descriptor (map f) coll)))
-       ;; PERF: O-062 the 2/3-coll step body runs in Zig (`__map-step`): same
-       ;; unchunked one-f-per-node shape as clj, the lazy node stays here.
+       ;; PERF: O-062 the 2/3-coll step body runs in Zig, one lazy node per item.
        ([f c1 c2] (-map-n-lazy f c1 c2))
        ([f c1 c2 c3] (-map-n-lazy f c1 c2 c3))
-       ;; n-ary: zip 4+ colls, stopping at the shortest (clj parity).
        ([f c1 c2 c3 & colls]
         (map (fn* [args] (apply f args)) (-map-n-step (conj colls c3 c2 c1))))))
 ;; n-ary `map` step: lazily zip the seqs in `cs`, yielding a seq of each
@@ -214,30 +203,17 @@
     (cljw.internal/__filter-lazy pred coll)))
 (def filter
   (fn* ([pred]
-        ;; transducer arity
-        (fn* [rf]
-          (fn* ([] (rf))
-               ([result] (rf result))
-               ([result input] (if (pred input) (rf result input) result)))))
+        ;; PERF: O-111 native predicate and downstream dispatch.
+        (cljw.internal/__filter-xform pred))
        ([pred coll]
-        ;; PERF: O-023 stamp the fusion descriptor; lazy body is `-filter-lazy`.
+        ;; PERF: O-023 stamp the fusion descriptor; lazy body is unchanged.
         (-lazy-set-fuse (-filter-lazy pred coll) (-fuse-descriptor (filter pred) coll)))))
 (def take
   (fn* ([n]
-        ;; transducer arity: stateful (counts down n), ensure-reduced to stop
-        (fn* [rf]
-          (let [nv (volatile! n)]
-            (fn* ([] (rf))
-                 ([result] (rf result))
-                 ([result input]
-                  (let [m @nv
-                        nm (vswap! nv dec)
-                        result (if (> m 0) (rf result input) result)]
-                    (if (not (> nm 0)) (ensure-reduced result) result)))))))
+        ;; PERF: O-111 native state allocated separately for each rf application.
+        (cljw.internal/__take-xform n))
        ([n coll]
-        ;; PERF: O-110 a fixed-precision n takes native lazy nodes
-        ;; (`__take-lazy`, lazy_step.zig) with this exact body; any other n
-        ;; (a double, a ratio) keeps the interpreted one.
+        ;; PERF: O-110 a fixed-precision n takes native lazy nodes.
         (if (int? n)
           (cljw.internal/__take-lazy n coll)
           (lazy-seq
@@ -303,11 +279,8 @@
               nil))))))
 (def remove
   (fn* ([pred]
-        ;; transducer arity: drops inputs where pred is truthy
-        (fn* [rf]
-          (fn* ([] (rf))
-               ([result] (rf result))
-               ([result input] (if (pred input) result (rf result input))))))
+        ;; PERF: O-111 native inverted predicate stage.
+        (cljw.internal/__remove-xform pred))
        ([pred coll] (filter (fn* [x] (not (pred x))) coll))))
 
 ;; ----------------------------------------------------------------

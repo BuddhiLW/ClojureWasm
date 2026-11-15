@@ -7,6 +7,13 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 
 ## [Unreleased]
 
+### Changed
+
+- Run the `map`, `filter`, `remove` and `take` transducer stages as native
+  reducing functions, including stages composed with `comp` or user-written
+  transducers. Preserve init, completion, early termination, lazy `apply`
+  tails and per-reduction `take` state. Lazy collection arities are unchanged.
+
 ## [1.15.8] - 2026-11-11
 
 ### Added

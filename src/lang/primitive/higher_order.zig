@@ -210,6 +210,12 @@ pub fn invokeCallable(rt: *Runtime, env: *Env, f: Value, args: []const Value, lo
         const fn_ptr = f.asBuiltinFn(dispatch.BuiltinFn);
         return fn_ptr(rt, env, args, loc);
     }
+    // PERF: native transducer closures call the next stage without an eval
+    // frame or method selection. User callables keep the existing invoke path [refs: O-111].
+    if (f.tag() == .fn_val) {
+        if (f.decodePtr(*const tree_walk.Function).native_call) |call|
+            return call(rt, env, f, args, loc, .wrap);
+    }
     if (rt.vtable) |vt| {
         return try vt.callFn(rt, env, f, args, loc);
     }
