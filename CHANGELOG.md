@@ -7,6 +7,13 @@ first stable `1.0.0` tag; pre-1.0 `alpha` / `rc` tags may still change surfaces.
 
 ## [Unreleased]
 
+### Fixed
+
+- BigDecimal scale arithmetic now throws a catchable `ArithmeticException`
+  instead of aborting on integer overflow, including repeated squaring under
+  `with-precision`. Scale shifts, rounding, division, alignment, powers, and
+  trailing-zero stripping check their scale bounds and preserve JVM messages.
+
 ## [1.15.8] - 2026-11-11
 
 ### Added

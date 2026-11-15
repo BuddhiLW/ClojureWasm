@@ -106,7 +106,7 @@ fn valueOf(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) an
     if (args.len == 2) {
         if (args[0].tag() != .integer or args[1].tag() != .integer)
             return error_catalog.raise(.type_arg_not_number, loc, .{ .fn_name = "BigDecimal/valueOf", .actual = @tagName(args[0].tag()) });
-        return big_decimal.allocFromI64Scale(rt, args[0].asInteger(), @intCast(args[1].asInteger()));
+        return big_decimal.allocFromI64Scale(rt, args[0].asInteger(), try big_decimal.checkScale(args[1].asInteger(), .nonzero));
     }
     try error_catalog.checkArity("BigDecimal/valueOf", args, 1, loc);
     switch (args[0].tag()) {
@@ -155,7 +155,7 @@ fn stripTrailingZerosFn(rt: *Runtime, env: *Env, args: []const Value, loc: Sourc
     _ = env;
     try error_catalog.checkArity("stripTrailingZeros", args, 1, loc);
     try requireBd(args[0], "stripTrailingZeros", loc);
-    return big_decimal.allocFromManagedScale(rt, big_decimal.asNormUnscaled(args[0]).m, big_decimal.asNormScale(args[0]));
+    return big_decimal.stripTrailingZeros(rt, args[0]);
 }
 
 /// `(.add a b)` — exact BigDecimal sum (JVM `BigDecimal.add`), the same aligned
@@ -249,7 +249,7 @@ fn divideFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) a
             if (!args[2].isInt())
                 return error_catalog.raise(.type_arg_not_number, loc, .{ .fn_name = "divide", .actual = "non-integer scale/mode" });
             const mode = try decodeMode(args[3], "divide", loc);
-            return big_decimal.allocDivScale(rt, args[0], args[1], @intCast(args[2].asInteger()), mode) catch |e| return divErr.map(e, loc);
+            return big_decimal.allocDivScale(rt, args[0], args[1], try big_decimal.checkScale(args[2].asInteger(), .nonzero), mode) catch |e| return divErr.map(e, loc);
         },
     }
 }
@@ -288,10 +288,7 @@ fn scaleByPowerOfTenFn(rt: *Runtime, env: *Env, args: []const Value, loc: Source
     try requireBd(args[0], "scaleByPowerOfTen", loc);
     if (!args[1].isInt())
         return error_catalog.raise(.type_arg_not_number, loc, .{ .fn_name = "scaleByPowerOfTen", .actual = @tagName(args[1].tag()) });
-    return big_decimal.allocScaleByPowerOfTen(rt, args[0], args[1].asInteger()) catch |e| switch (e) {
-        error.ScaleOverflow => error_catalog.raise(.integer_overflow, loc, .{}),
-        else => e,
-    };
+    return big_decimal.allocScaleByPowerOfTen(rt, args[0], args[1].asInteger());
 }
 
 /// `(.ulp bd)` — the unit in the last place: unscaled 1 at `bd`'s scale
@@ -348,10 +345,7 @@ fn powFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) anye
     try requireBd(args[0], "pow", loc);
     if (!args[1].isInt())
         return error_catalog.raise(.type_arg_not_number, loc, .{ .fn_name = "pow", .actual = "non-integer exponent" });
-    return big_decimal.allocPow(rt, args[0], args[1].asInteger()) catch |e| switch (e) {
-        error.NegativeExponent => error_catalog.raise(.type_arg_invalid, loc, .{ .fn_name = "pow", .expected = "a non-negative exponent", .actual = "a negative exponent" }),
-        else => e,
-    };
+    return big_decimal.allocPow(rt, args[0], args[1].asInteger());
 }
 
 /// `(.max a b)` / `(.min a b)` — the larger / smaller by value (JVM compareTo;
@@ -417,7 +411,7 @@ fn movePointRightFn(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLoc
     try requireBd(args[0], "movePointRight", loc);
     if (!args[1].isInt())
         return error_catalog.raise(.type_arg_not_number, loc, .{ .fn_name = "movePointRight", .actual = @tagName(args[1].tag()) });
-    return big_decimal.allocMovePoint(rt, args[0], -args[1].asInteger());
+    return big_decimal.allocMovePoint(rt, args[0], -@as(i64, args[1].asInteger()));
 }
 
 /// `(.precision bd)` — the number of significant digits in the unscaled value
@@ -448,7 +442,7 @@ fn setScale(rt: *Runtime, env: *Env, args: []const Value, loc: SourceLocation) a
     const mode: i64 = if (args.len == 3) try decodeMode(args[2], "setScale", loc) else 7;
     if (!args[1].isInt())
         return error_catalog.raise(.type_arg_not_number, loc, .{ .fn_name = "setScale", .actual = "non-integer scale/mode" });
-    return big_decimal.setScale(rt, args[0], @intCast(args[1].asInteger()), mode) catch |e| switch (e) {
+    return big_decimal.setScale(rt, args[0], try big_decimal.checkScale(args[1].asInteger(), .nonzero), mode) catch |e| switch (e) {
         error.RoundingNecessary => error_catalog.raise(.rounding_necessary, loc, .{}),
         error.InvalidRoundingMode => error_catalog.raise(.type_arg_invalid, loc, .{ .fn_name = "setScale", .expected = "a ROUND_* mode (0-7)", .actual = "an unknown rounding mode" }),
         else => e,
