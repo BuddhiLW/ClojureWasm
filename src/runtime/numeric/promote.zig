@@ -784,9 +784,9 @@ pub fn truncToManaged(rt: *Runtime, v: Value) !Managed {
             // positive scale, an exact multiply for a negative one.
             const bd = v.decodePtr(*const big_decimal_mod.BigDecimal);
             var u = try bd.unscaled.m.cloneWithDifferentAllocator(infra);
-            if (bd.scale == 0) return u;
+            if (bd.scale == 0 or u.eqlZero()) return u;
             defer u.deinit();
-            var pow = try tenPow(rt, if (bd.scale < 0) -bd.scale else bd.scale);
+            var pow = try tenPow(rt, try big_decimal_mod.checkScale(@abs(@as(i64, bd.scale)), .nonzero));
             defer pow.deinit();
             if (bd.scale > 0) return truncQuotient(rt, &u, &pow);
             var p = try Managed.init(infra);
@@ -831,6 +831,7 @@ pub fn exactI64(v: Value) !i64 {
 
 /// `10^exp` as an owned Managed (exp ≥ 0). Caller must `deinit`.
 fn tenPow(rt: *Runtime, exp: i32) !Managed {
+    _ = try big_decimal_mod.checkPowerOfTen(@intCast(exp));
     var acc = try Managed.init(rt.gc.infra);
     errdefer acc.deinit();
     try acc.set(1);

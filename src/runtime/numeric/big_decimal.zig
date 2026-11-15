@@ -32,6 +32,11 @@ const gc_heap_mod = @import("../gc/gc_heap.zig");
 const mark_sweep = @import("../gc/mark_sweep.zig");
 const big_int_mod = @import("big_int.zig");
 const BigInt = big_int_mod.BigInt;
+const error_catalog = @import("../error/catalog.zig");
+
+const decimal_scale = @import("decimal_scale.zig");
+pub const checkScale = decimal_scale.checkScale;
+pub const checkPowerOfTen = decimal_scale.checkPowerOfTen;
 
 /// GC-managed BigDecimal. Wraps a `*BigInt` significand and an i32
 /// decimal-point offset. `unscaled` itself is GC-managed; this
@@ -82,11 +87,13 @@ fn buildNormalized(rt: *Runtime, unscaled: *const std.math.big.int.Managed, scal
         defer q.deinit();
         var r = try std.math.big.int.Managed.init(infra);
         defer r.deinit();
-        while (true) {
+        // Keep the coefficient as well as the scale at the floor. Clamping
+        // only the scale while stripping would change the key/hash value.
+        while (norm_scale > std.math.minInt(i32)) {
             try q.divTrunc(&r, &n, &ten);
             if (!r.eqlZero()) break;
             n.swap(&q);
-            norm_scale -= 1;
+            norm_scale = try checkScale(@as(i64, norm_scale) - 1, .nonzero);
         }
     }
     const norm_unscaled = try big_int_mod.allocFromManaged(rt, &n, .bigint);
@@ -170,13 +177,13 @@ pub fn allocFromDecimalString(rt: *Runtime, s: []const u8) !?Value {
     }
     if (!any_digit) return null;
 
-    const scale_i64: i64 = frac - exp;
-    if (scale_i64 > std.math.maxInt(i32) or scale_i64 < std.math.minInt(i32)) return null;
+    // An exponent may itself be i64 MIN; subtract in a wider type first.
+    const scale = checkScale(@as(i128, frac) - exp, .nonzero) catch return null;
 
     var m = big_int_mod.parseBase10(rt, digits[0..dlen]) catch return null;
     defer m.deinit();
     if (sign_neg) m.negate();
-    return try allocFromManagedScale(rt, &m, @intCast(scale_i64));
+    return try allocFromManagedScale(rt, &m, scale);
 }
 
 /// Exact BigDecimal of a rational `numer/denom` (`denom ≠ 0`; need not be
@@ -221,31 +228,31 @@ pub fn allocFromRatioParts(
     var five = try std.math.big.int.Managed.initSet(infra, 5);
     defer five.deinit();
 
-    var a: u32 = 0;
+    var a: i32 = 0;
     while (true) {
         try q.divTrunc(&rmd, &d, &two);
         if (!rmd.eqlZero()) break;
         d.swap(&q);
-        a += 1;
+        a = try checkScale(@as(i64, a) + 1, .nonzero);
     }
-    var b: u32 = 0;
+    var b: i32 = 0;
     while (true) {
         try q.divTrunc(&rmd, &d, &five);
         if (!rmd.eqlZero()) break;
         d.swap(&q);
-        b += 1;
+        b = try checkScale(@as(i64, b) + 1, .nonzero);
     }
     if (d.toConst().orderAgainstScalar(1) != .eq)
         return error.NonTerminatingDecimal;
 
-    const scale: i32 = @intCast(@max(a, b));
+    const scale = try checkScale(@max(a, b), .nonzero);
     var unscaled = try n.clone();
     defer unscaled.deinit();
     if (a != b) {
         var factor = try std.math.big.int.Managed.init(infra);
         defer factor.deinit();
         const base: *std.math.big.int.Managed = if (a > b) &five else &two;
-        const exp: u32 = if (a > b) a - b else b - a;
+        const exp: u32 = @intCast(if (a > b) a - b else b - a);
         try factor.pow(base, exp);
         var prod = try std.math.big.int.Managed.init(infra);
         defer prod.deinit();
@@ -303,19 +310,20 @@ pub fn allocFromDoubleExact(rt: *Runtime, d: f64) !Value {
 /// (ub·10^max(0,sa−sb))`. Caller owns and must `deinit` both Manageds.
 const AlignedRational = struct { n: std.math.big.int.Managed, d: std.math.big.int.Managed };
 
-fn alignedRational(rt: *Runtime, a: Value, b: Value) !AlignedRational {
+fn alignedRational(rt: *Runtime, a: Value, b: Value, align_scales: bool) !AlignedRational {
     const infra = rt.gc.infra;
     var n = try asUnscaled(a).m.clone();
     errdefer n.deinit();
     var d = try asUnscaled(b).m.clone();
     errdefer d.deinit();
     const e: i64 = @as(i64, asScale(b)) - @as(i64, asScale(a)); // a/b = (ua/ub)·10^e
-    if (e != 0) {
+    if (align_scales and e != 0 and !n.eqlZero() and !d.eqlZero()) {
+        const exponent = try checkPowerOfTen(@abs(e));
         var ten = try std.math.big.int.Managed.initSet(infra, 10);
         defer ten.deinit();
         var p = try std.math.big.int.Managed.init(infra);
         defer p.deinit();
-        try p.pow(&ten, @intCast(@abs(e)));
+        try p.pow(&ten, exponent);
         var prod = try std.math.big.int.Managed.init(infra);
         defer prod.deinit();
         if (e > 0) {
@@ -333,12 +341,15 @@ fn alignedRational(rt: *Runtime, a: Value, b: Value) !AlignedRational {
 /// `error.NonTerminatingDecimal` / `error.DivideByZero`. JVM ref:
 /// `BigDecimal.divide` with no MathContext (exact or ArithmeticException).
 pub fn allocDiv(rt: *Runtime, a: Value, b: Value) !Value {
-    var ar = try alignedRational(rt, a, b);
-    defer {
-        ar.n.deinit();
-        ar.d.deinit();
-    }
-    return allocFromRatioParts(rt, &ar.n, &ar.d);
+    // The coefficient is a temporary Value, not a Zig-owned Managed.
+    rt.gc.enterFabrication();
+    defer rt.gc.exitFabrication();
+    // Divide coefficients, then apply the preferred scale. Materialising
+    // 10^(b.scale-a.scale) first cannot handle otherwise cheap extreme scales.
+    const coefficient = try allocFromRatioParts(rt, asUnscaled(a).m, asUnscaled(b).m);
+    const scale = checkScale(@as(i64, asScale(a)) - asScale(b) + asScale(coefficient), if (asUnscaled(coefficient).m.eqlZero()) .zero else .nonzero) catch
+        return error.NonTerminatingDecimal; // JVM exact divide translates scale failure.
+    return allocFromManagedScale(rt, asUnscaled(coefficient).m, scale);
 }
 
 /// Integral quotient `a ÷ b` truncated toward zero, as a BigDecimal with scale
@@ -346,7 +357,7 @@ pub fn allocDiv(rt: *Runtime, a: Value, b: Value) !Value {
 /// floored at 0). `error.DivideByZero` when `b` is zero.
 pub fn allocQuotient(rt: *Runtime, a: Value, b: Value) !Value {
     const infra = rt.gc.infra;
-    var ar = try alignedRational(rt, a, b);
+    var ar = try alignedRational(rt, a, b, true);
     defer {
         ar.n.deinit();
         ar.d.deinit();
@@ -359,13 +370,13 @@ pub fn allocQuotient(rt: *Runtime, a: Value, b: Value) !Value {
     try q.divTrunc(&r, &ar.n, &ar.d); // toward zero
 
     const diff: i64 = @as(i64, asScale(a)) - @as(i64, asScale(b));
-    const scale: i32 = @intCast(@max(@as(i64, 0), diff));
-    if (scale > 0) {
+    const scale = try checkScale(@max(@as(i64, 0), diff), if (q.eqlZero()) .zero else .nonzero);
+    if (scale > 0 and !q.eqlZero()) {
         var ten = try std.math.big.int.Managed.initSet(infra, 10);
         defer ten.deinit();
         var p = try std.math.big.int.Managed.init(infra);
         defer p.deinit();
-        try p.pow(&ten, @intCast(scale));
+        try p.pow(&ten, try checkPowerOfTen(@intCast(scale)));
         var prod = try std.math.big.int.Managed.init(infra);
         defer prod.deinit();
         try prod.mul(&q, &p);
@@ -387,7 +398,7 @@ fn digitCount(infra: std.mem.Allocator, m: *const std.math.big.int.Managed) !usi
 fn shiftedDivTrunc(infra: std.mem.Allocator, q: *std.math.big.int.Managed, r: *std.math.big.int.Managed, n: *const std.math.big.int.Managed, d: *const std.math.big.int.Managed, ten: *const std.math.big.int.Managed, s: i64) !void {
     var pow10 = try std.math.big.int.Managed.init(infra);
     defer pow10.deinit();
-    try pow10.pow(ten, @intCast(@abs(s)));
+    try pow10.pow(ten, try checkPowerOfTen(@abs(s)));
     if (s >= 0) {
         var num = try std.math.big.int.Managed.init(infra);
         defer num.deinit();
@@ -406,28 +417,14 @@ fn shiftedDivTrunc(infra: std.mem.Allocator, q: *std.math.big.int.Managed, r: *s
 /// `(.divide a b (MathContext. p mode))` form (D-467 / D-511).
 pub fn allocDivPrecision(rt: *Runtime, a: Value, b: Value, precision: u32, mode: i64) !Value {
     const infra = rt.gc.infra;
-    // clj's MathContext divide treats `precision` as a MAXIMUM: an exact quotient
-    // that terminates within `precision` significant figures keeps its natural
-    // (un-padded) form — `(with-precision 4 (/ 1M 8))` → 0.125M, not 0.1250M. So try
-    // the exact divide first; round only when it does not terminate OR exceeds the
-    // precision.
-    if (allocDiv(rt, a, b)) |exact| {
-        if ((try digitCount(infra, asUnscaled(exact).m)) <= precision) return exact;
-    } else |err| switch (err) {
-        error.NonTerminatingDecimal => {},
-        else => return err,
-    }
-    var ar = try alignedRational(rt, a, b);
+    var ar = try alignedRational(rt, a, b, false);
     defer {
         ar.n.deinit();
         ar.d.deinit();
     }
     if (ar.d.eqlZero()) return error.DivideByZero;
-    if (ar.n.eqlZero()) {
-        var z = try std.math.big.int.Managed.initSet(infra, 0);
-        defer z.deinit();
-        return allocFromManagedScale(rt, &z, 0);
-    }
+    if (ar.n.eqlZero())
+        return allocFromI64Scale(rt, 0, try checkScale(@as(i64, asScale(a)) - asScale(b), .zero));
     const result_neg = ar.n.isPositive() != ar.d.isPositive();
     // Work with |n|, |d|.
     var n = try std.math.big.int.Managed.init(infra);
@@ -442,7 +439,7 @@ pub fn allocDivPrecision(rt: *Runtime, a: Value, b: Value, precision: u32, mode:
     // Guess the shift s so q = trunc(n·10^s/d) has `precision` digits, then adjust.
     const dn = try digitCount(infra, &n);
     const dd = try digitCount(infra, &d);
-    var s: i64 = @as(i64, @intCast(precision)) - @as(i64, @intCast(dn)) + @as(i64, @intCast(dd));
+    var s: i64 = @as(i64, precision) - try checkScale(dn, .nonzero) + try checkScale(dd, .nonzero);
     var q = try std.math.big.int.Managed.init(infra);
     defer q.deinit();
     var r = try std.math.big.int.Managed.init(infra);
@@ -456,6 +453,16 @@ pub fn allocDivPrecision(rt: *Runtime, a: Value, b: Value, precision: u32, mode:
             s += 1;
         } else break;
     }
+    // JVM validates the working scale before removing exact trailing zeros.
+    // Even an exact quotient can overflow this precision-driven intermediate.
+    _ = try checkScale(@as(i64, asScale(a)) - asScale(b) + s, .precision);
+    // Precision is a maximum, so an exact quotient keeps its natural scale.
+    if (allocDiv(rt, a, b)) |exact| {
+        if ((try digitCount(infra, asUnscaled(exact).m)) <= precision) return exact;
+    } else |err| switch (err) {
+        error.NonTerminatingDecimal => {},
+        else => return err,
+    }
     // HALF_UP: round away from zero iff 2·r ≥ the EFFECTIVE divisor. For s ≥ 0 the
     // divisor was `d`; for s < 0 the dividend was left alone and the divisor scaled
     // to `d·10^|s|`, so `r` is a remainder w.r.t. that scaled divisor — comparing
@@ -467,7 +474,7 @@ pub fn allocDivPrecision(rt: *Runtime, a: Value, b: Value, precision: u32, mode:
     } else {
         var p10 = try std.math.big.int.Managed.init(infra);
         defer p10.deinit();
-        try p10.pow(&ten, @intCast(@abs(s)));
+        try p10.pow(&ten, try checkPowerOfTen(@abs(s)));
         try eff_d.mul(&d, &p10);
     }
     var r2 = try std.math.big.int.Managed.init(infra);
@@ -506,7 +513,8 @@ pub fn allocDivPrecision(rt: *Runtime, a: Value, b: Value, precision: u32, mode:
         }
     }
     if (result_neg) q.negate();
-    return allocFromManagedScale(rt, &q, @intCast(s));
+    const scale = try checkScale(@as(i64, asScale(a)) - asScale(b) + s, .precision);
+    return allocFromManagedScale(rt, &q, scale);
 }
 
 /// Decode a BigDecimal Value into its unscaled significand.
@@ -519,6 +527,25 @@ pub fn asUnscaled(v: Value) *const BigInt {
 pub fn asScale(v: Value) i32 {
     std.debug.assert(v.tag() == .big_decimal);
     return v.decodePtr(*const BigDecimal).scale;
+}
+
+/// Strip with an explicit check: construction may keep zeros at i32 MIN,
+/// but the Java stripTrailingZeros method must report Overflow there.
+pub fn stripTrailingZeros(rt: *Runtime, v: Value) !Value {
+    var n = try asNormUnscaled(v).m.clone();
+    defer n.deinit();
+    var scale = asNormScale(v);
+    if (!n.eqlZero()) {
+        var ten = try std.math.big.int.Managed.initSet(rt.gc.infra, 10);
+        defer ten.deinit();
+        var q = try std.math.big.int.Managed.init(rt.gc.infra);
+        defer q.deinit();
+        var r = try std.math.big.int.Managed.init(rt.gc.infra);
+        defer r.deinit();
+        try q.divTrunc(&r, &n, &ten);
+        if (r.eqlZero()) scale = try checkScale(@as(i64, scale) - 1, .nonzero);
+    }
+    return allocFromManagedScale(rt, &n, scale);
 }
 
 /// The f64 nearest `unscaled * 10^-scale`, JVM `BigDecimal.doubleValue`.
@@ -615,16 +642,18 @@ pub fn allocSub(rt: *Runtime, a: Value, b: Value) !Value {
 /// 0 by scaling the unscaled value up by 10^|new_scale| (JVM BigDecimal semantics).
 pub fn allocMovePoint(rt: *Runtime, v: Value, delta: i64) !Value {
     const infra = rt.gc.infra;
-    const new_scale: i64 = @as(i64, asScale(v)) + delta;
+    const new_scale = try checkScale(@as(i128, asScale(v)) + delta, if (asUnscaled(v).m.eqlZero()) .zero else .nonzero);
+    if (asUnscaled(v).m.eqlZero()) return allocFromI64Scale(rt, 0, @max(0, new_scale));
     var m = try std.math.big.int.Managed.init(infra);
     defer m.deinit();
     try m.copy(asUnscaled(v).m.toConst());
-    if (new_scale >= 0) return allocFromManagedScale(rt, &m, @intCast(new_scale));
+    if (new_scale >= 0) return allocFromManagedScale(rt, &m, new_scale);
     var ten = try std.math.big.int.Managed.initSet(infra, 10);
     defer ten.deinit();
     var p = try std.math.big.int.Managed.init(infra);
     defer p.deinit();
-    try p.pow(&ten, @intCast(-new_scale));
+    const raise = try checkScale(-@as(i64, new_scale), .nonzero);
+    try p.pow(&ten, try checkPowerOfTen(@intCast(raise)));
     var prod = try std.math.big.int.Managed.init(infra);
     defer prod.deinit();
     try prod.mul(&m, &p);
@@ -634,13 +663,11 @@ pub fn allocMovePoint(rt: *Runtime, v: Value, delta: i64) !Value {
 /// `scaleByPowerOfTen(n)` — `v · 10ⁿ` by a PURE scale shift: unscaled digits
 /// UNCHANGED, scale = scale − n. Unlike `movePointRight`, a negative resulting
 /// scale is NOT normalised (JVM `BigDecimal.scaleByPowerOfTen` keeps it, which
-/// prints in scientific form, e.g. `12M·10³` → `1.2E+4`). `error.ScaleOverflow`
-/// when the new scale leaves the i32 window (clj's ArithmeticException Underflow).
+/// prints in scientific form, e.g. `12M·10³` → `1.2E+4`). Raises a catalog
+/// ArithmeticException when a nonzero value's scale leaves the i32 window.
 pub fn allocScaleByPowerOfTen(rt: *Runtime, v: Value, n: i64) !Value {
-    const new_scale: i64 = @as(i64, asScale(v)) - n;
-    if (new_scale > std.math.maxInt(i32) or new_scale < std.math.minInt(i32))
-        return error.ScaleOverflow;
-    return allocFromManagedScale(rt, asUnscaled(v).m, @intCast(new_scale));
+    const new_scale = try checkScale(@as(i128, asScale(v)) - n, if (asUnscaled(v).m.eqlZero()) .zero else .nonzero);
+    return allocFromManagedScale(rt, asUnscaled(v).m, new_scale);
 }
 
 /// `ulp()` — the unit in the last place: unscaled = 1 at `v`'s scale
@@ -655,11 +682,13 @@ pub fn allocMul(rt: *Runtime, a: Value, b: Value) !Value {
     const ad = a.decodePtr(*const BigDecimal);
     const bd = b.decodePtr(*const BigDecimal);
 
+    // JVM checks the receiver before multiplying, even if b is zero.
+    const scale = try checkScale(@as(i64, ad.scale) + bd.scale, if (ad.unscaled.m.eqlZero()) .zero else .nonzero);
     var u = try std.math.big.int.Managed.init(rt.gc.infra);
     defer u.deinit();
     try u.mul(ad.unscaled.m, bd.unscaled.m);
 
-    return try allocFromManagedScale(rt, &u, ad.scale + bd.scale);
+    return try allocFromManagedScale(rt, &u, scale);
 }
 
 /// `(.setScale bd newScale roundingMode)` — return a BigDecimal of the given
@@ -675,17 +704,18 @@ pub fn setScale(rt: *Runtime, v: Value, new_scale: i32, mode: i64) !Value {
     const bd = v.decodePtr(*const BigDecimal);
     const infra = rt.gc.infra;
 
+    if (bd.unscaled.m.eqlZero()) return allocFromI64Scale(rt, 0, new_scale);
     var unscaled = try bd.unscaled.m.clone();
     defer unscaled.deinit();
 
     if (new_scale >= bd.scale) {
-        const diff: u32 = @intCast(new_scale - bd.scale);
+        const diff = try checkScale(@as(i64, new_scale) - bd.scale, .nonzero);
         if (diff != 0) {
             var ten = try Managed.initSet(infra, 10);
             defer ten.deinit();
             var factor = try Managed.init(infra);
             defer factor.deinit();
-            try factor.pow(&ten, diff);
+            try factor.pow(&ten, try checkPowerOfTen(@intCast(diff)));
             var prod = try Managed.init(infra);
             defer prod.deinit();
             try prod.mul(&unscaled, &factor);
@@ -694,12 +724,12 @@ pub fn setScale(rt: *Runtime, v: Value, new_scale: i32, mode: i64) !Value {
         return allocFromManagedScale(rt, &unscaled, new_scale);
     }
 
-    const drop: u32 = @intCast(bd.scale - new_scale);
+    const drop = try checkScale(@as(i64, bd.scale) - new_scale, .nonzero);
     var ten = try Managed.initSet(infra, 10);
     defer ten.deinit();
     var divisor = try Managed.init(infra);
     defer divisor.deinit();
-    try divisor.pow(&ten, drop);
+    try divisor.pow(&ten, try checkPowerOfTen(@intCast(drop)));
 
     var q = try Managed.init(infra);
     defer q.deinit();
@@ -778,13 +808,18 @@ pub fn allocDivScale(rt: *Runtime, a: Value, b: Value, scale: i32, mode: i64) !V
         n.negate();
     }
 
+    // Check the JVM divide intermediates before combining their shifts.
+    const adjusted_scale = try checkScale(@as(i64, scale) + bd.scale, if (n.eqlZero()) .zero else .nonzero);
+    if (adjusted_scale <= ad.scale)
+        _ = try checkScale(@as(i64, ad.scale) - scale, .nonzero);
+    if (n.eqlZero()) return allocFromI64Scale(rt, 0, scale);
     // a/b = n·10^(scale - a.scale + b.scale) / d, evaluated to scale `scale`.
     const s: i64 = @as(i64, scale) - @as(i64, ad.scale) + @as(i64, bd.scale);
     var ten = try Managed.initSet(infra, 10);
     defer ten.deinit();
     var pow10 = try Managed.init(infra);
     defer pow10.deinit();
-    try pow10.pow(&ten, @intCast(@abs(s)));
+    try pow10.pow(&ten, try checkPowerOfTen(@abs(s)));
 
     var num = try Managed.init(infra);
     defer num.deinit();
@@ -810,25 +845,25 @@ pub fn allocDivScale(rt: *Runtime, a: Value, b: Value, scale: i32, mode: i64) !V
 /// `v^n` exact, scale = n·v.scale (JVM `BigDecimal.pow(int)`, n≥0; n=0 → `1`).
 /// Computed on the unscaled BigInt (no intermediate Values → no GC-root subtlety).
 pub fn allocPow(rt: *Runtime, v: Value, n: i64) !Value {
-    if (n < 0) return error.NegativeExponent;
+    if (n < 0 or n > 999_999_999) return error_catalog.raise(.pow_exponent_invalid, .{}, .{});
     const Managed = std.math.big.int.Managed;
     const vd = v.decodePtr(*const BigDecimal);
+    const scale = try checkScale(@as(i64, vd.scale) * n, if (vd.unscaled.m.eqlZero()) .zero else .nonzero);
     var base = try vd.unscaled.m.clone();
     defer base.deinit();
     var result = try Managed.init(rt.gc.infra);
     defer result.deinit();
     try result.pow(&base, @intCast(n));
-    const scale: i32 = @intCast(@as(i64, vd.scale) * n);
     return allocFromManagedScale(rt, &result, scale);
 }
 
 /// `out = in · 10^k` (k ≥ 0). `ten` is caller-owned. Used to lift two unscaled
 /// values to a common scale without intermediate Values.
-fn scaleUp(infra: std.mem.Allocator, out: *std.math.big.int.Managed, in: *const std.math.big.int.Managed, ten: *const std.math.big.int.Managed, k: u32) !void {
-    if (k == 0) return out.copy(in.toConst());
+fn scaleUp(infra: std.mem.Allocator, out: *std.math.big.int.Managed, in: *const std.math.big.int.Managed, ten: *const std.math.big.int.Managed, k: u64) !void {
+    if (k == 0 or in.eqlZero()) return out.copy(in.toConst());
     var p = try std.math.big.int.Managed.init(infra);
     defer p.deinit();
-    try p.pow(ten, k);
+    try p.pow(ten, try checkPowerOfTen(k));
     try out.mul(in, &p);
 }
 
@@ -862,13 +897,13 @@ pub fn allocRemainder(rt: *Runtime, a: Value, b: Value) !Value {
     const m_scale: i32 = @max(ad.scale, bd.scale);
     var a_term = try Managed.init(infra);
     defer a_term.deinit();
-    try scaleUp(infra, &a_term, &na, &ten, @intCast(@as(i64, m_scale) - @as(i64, ad.scale)));
+    try scaleUp(infra, &a_term, &na, &ten, @as(u64, @intCast(@as(i64, m_scale) - ad.scale)));
     var qb = try Managed.init(infra);
     defer qb.deinit();
     try qb.mul(&q, &nb);
     var qb_term = try Managed.init(infra);
     defer qb_term.deinit();
-    try scaleUp(infra, &qb_term, &qb, &ten, @intCast(@as(i64, m_scale) - @as(i64, bd.scale)));
+    try scaleUp(infra, &qb_term, &qb, &ten, @as(u64, @intCast(@as(i64, m_scale) - bd.scale)));
     var rem = try Managed.init(infra);
     defer rem.deinit();
     try rem.sub(&a_term, &qb_term);
@@ -886,14 +921,15 @@ pub fn allocRoundPrecision(rt: *Runtime, v: Value, precision: u32, mode: i64) !V
     const dn = try digitCount(infra, vd.unscaled.m);
     if (dn <= precision) return v; // already within precision — no rounding
 
-    const drop: u32 = @intCast(dn - precision);
+    const drop = try checkScale(@as(i128, dn) - precision, .nonzero);
+    var scale = try checkScale(@as(i64, vd.scale) - drop, .precision);
     var unscaled = try vd.unscaled.m.clone();
     defer unscaled.deinit();
     var ten = try Managed.initSet(infra, 10);
     defer ten.deinit();
     var divisor = try Managed.init(infra);
     defer divisor.deinit();
-    try divisor.pow(&ten, drop);
+    try divisor.pow(&ten, try checkPowerOfTen(@intCast(drop)));
     var q = try Managed.init(infra);
     defer q.deinit();
     var r = try Managed.init(infra);
@@ -908,9 +944,10 @@ pub fn allocRoundPrecision(rt: *Runtime, v: Value, precision: u32, mode: i64) !V
         defer rr.deinit();
         try qd.divTrunc(&rr, &q, &ten);
         q.swap(&qd);
-        return allocFromManagedScale(rt, &q, vd.scale - @as(i32, @intCast(drop)) - 1);
+        scale = try checkScale(@as(i64, scale) - 1, .precision);
+        return allocFromManagedScale(rt, &q, scale);
     }
-    return allocFromManagedScale(rt, &q, vd.scale - @as(i32, @intCast(drop)));
+    return allocFromManagedScale(rt, &q, scale);
 }
 
 const AddOrSub = enum { add, sub };
@@ -951,16 +988,17 @@ fn alignScales(
     const bd = b.decodePtr(*const BigDecimal);
     const target_scale = @max(ad.scale, bd.scale);
 
-    aligned_a.* = try cloneAndScale(rt, ad.unscaled.m, target_scale - ad.scale);
+    aligned_a.* = try cloneAndScale(rt, ad.unscaled.m, try checkScale(@as(i64, target_scale) - ad.scale, if (ad.unscaled.m.eqlZero()) .zero else .nonzero));
     errdefer aligned_a.deinit();
-    aligned_b.* = try cloneAndScale(rt, bd.unscaled.m, target_scale - bd.scale);
+    aligned_b.* = try cloneAndScale(rt, bd.unscaled.m, try checkScale(@as(i64, target_scale) - bd.scale, if (bd.unscaled.m.eqlZero()) .zero else .nonzero));
 }
 
 /// Clone `src` and multiply by 10^extra_scale (extra_scale >= 0).
 fn cloneAndScale(rt: *Runtime, src: *const std.math.big.int.Managed, extra_scale: i32) !std.math.big.int.Managed {
+    if (!src.eqlZero()) _ = try checkPowerOfTen(@intCast(extra_scale));
     var out = try src.cloneWithDifferentAllocator(rt.gc.infra);
     errdefer out.deinit();
-    if (extra_scale > 0) {
+    if (extra_scale > 0 and !src.eqlZero()) {
         var ten = try std.math.big.int.Managed.init(rt.gc.infra);
         defer ten.deinit();
         try ten.set(10);

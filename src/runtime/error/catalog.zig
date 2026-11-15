@@ -353,6 +353,13 @@ pub const Code = enum {
     // --- Eval (arithmetic) ---
     divide_by_zero,
     integer_overflow,
+    /// JVM BigDecimal scale checks (precision rounding uses the narrowed sign).
+    scale_overflow,
+    scale_underflow,
+    /// A scale-derived power of ten exceeds the JVM BigInteger bit limit.
+    decimal_magnitude_overflow,
+    /// BigDecimal.pow accepts exponents from 0 through 999999999.
+    pow_exponent_invalid,
     non_terminating_decimal,
     rounding_necessary,
 
@@ -1699,6 +1706,26 @@ pub fn entry(comptime code: Code) Entry {
             .kind = .arithmetic_error,
             .phase = .eval,
             .template = "integer overflow",
+        },
+        .scale_overflow => .{
+            .kind = .arithmetic_error,
+            .phase = .eval,
+            .template = "Overflow",
+        },
+        .scale_underflow => .{
+            .kind = .arithmetic_error,
+            .phase = .eval,
+            .template = "Underflow",
+        },
+        .decimal_magnitude_overflow => .{
+            .kind = .arithmetic_error,
+            .phase = .eval,
+            .template = "BigInteger would overflow supported range",
+        },
+        .pow_exponent_invalid => .{
+            .kind = .arithmetic_error,
+            .phase = .eval,
+            .template = "Invalid operation",
         },
         .non_terminating_decimal => .{
             .kind = .arithmetic_error,

@@ -247,7 +247,7 @@ fn bigDecRationalize(rt: *Runtime, v: Value, loc: SourceLocation) anyerror!Value
     // ceiling (CLJW-BIGINT-STR-PLACEHOLDER sweep).
     var pow_m = try Managed.initSet(rt.gc.infra, 10);
     defer pow_m.deinit();
-    const mag: u32 = @intCast(@abs(@as(i64, bd.scale)));
+    const mag = try big_decimal_mod.checkPowerOfTen(@abs(@as(i64, bd.scale)));
     try pow_m.pow(&pow_m, mag);
 
     if (bd.scale <= 0) {
